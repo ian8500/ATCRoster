@@ -10,6 +10,7 @@
       <div><strong>Staff #:</strong> {{ staff.staff_no }}</div>
       <div><strong>Watch:</strong> {{ staff.watch.name if staff.watch else '-' }}</div>
       <div><strong>Role:</strong> {{ staff.role }}</div>
+      <div><strong>Phone:</strong> {{ staff.phone_number or '—' }}</div>
       <div><strong>AL (last 12 months):</strong> {{ al_days }}</div>
       <div><strong>Sickness (SC/SSC, last 12 months):</strong> {{ sick_days }}</div>
       <div><strong>Rostered hours this month:</strong> {{ hours_this_month }}</div>

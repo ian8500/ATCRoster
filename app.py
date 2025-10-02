@@ -3,6 +3,8 @@ from functools import wraps
 from calendar import monthrange
 from collections import defaultdict, Counter, deque
 from typing import Optional, Tuple
+import base64
+from urllib import parse as urllib_parse, request as urllib_request, error as urllib_error
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort
 from flask import render_template as flask_render_template
 import os
@@ -142,6 +144,90 @@ def _invalidate_month_cache_for_day(d: date):
             pass
 
 
+def _twilio_credentials() -> tuple[str, str, str]:
+    return (
+        os.getenv("TWILIO_ACCOUNT_SID", ""),
+        os.getenv("TWILIO_AUTH_TOKEN", ""),
+        os.getenv("TWILIO_FROM_NUMBER", ""),
+    )
+
+
+def _sms_service_configured() -> bool:
+    account_sid, auth_token, from_number = _twilio_credentials()
+    return bool(account_sid and auth_token and from_number)
+
+
+def _send_sms_via_twilio(to_number: str, body: str,
+                         creds: tuple[str, str, str] | None = None) -> tuple[bool, str]:
+    account_sid, auth_token, from_number = creds or _twilio_credentials()
+    if not (account_sid and auth_token and from_number):
+        return False, "SMS credentials are not configured."
+
+    if not to_number:
+        return False, "Missing destination number."
+
+    payload = urllib_parse.urlencode({
+        "To": to_number,
+        "From": from_number,
+        "Body": body,
+    }).encode("utf-8")
+
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+    req = urllib_request.Request(url, data=payload, method="POST")
+    token = base64.b64encode(f"{account_sid}:{auth_token}".encode("utf-8")).decode("ascii")
+    req.add_header("Authorization", f"Basic {token}")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+
+    try:
+        with urllib_request.urlopen(req, timeout=10) as resp:
+            data = resp.read().decode("utf-8")
+            if 200 <= resp.status < 300:
+                try:
+                    parsed = json.loads(data)
+                except Exception:
+                    parsed = {}
+                return True, parsed.get("sid", "sent")
+            return False, f"HTTP {resp.status}: {data[:200]}"
+    except urllib_error.HTTPError as err:
+        try:
+            detail = err.read().decode("utf-8")
+            parsed = json.loads(detail)
+            message = parsed.get("message") or detail
+        except Exception:
+            message = getattr(err, "reason", None) or str(err)
+        return False, f"{err.code}: {message}"
+    except urllib_error.URLError as err:
+        return False, getattr(err, "reason", None) or str(err)
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _send_overtime_sms_notifications(staff_list: list["Staff"], message: str) -> tuple[int, list[tuple[Optional["Staff"], str]]]:
+    creds = _twilio_credentials()
+    if not (creds[0] and creds[1] and creds[2]):
+        return 0, [(None, "SMS sending is not configured." )]
+
+    sent = 0
+    failures: list[tuple[Optional["Staff"], str]] = []
+    for staff in staff_list:
+        if not (staff and staff.phone_number):
+            failures.append((staff, "No phone number on file."))
+            continue
+        ok, detail = _send_sms_via_twilio(staff.phone_number, message, creds)
+        if ok:
+            sent += 1
+        else:
+            failures.append((staff, detail))
+    return sent, failures
+
+
+def _default_overtime_sms_body(chosen_date: date | None, shift_code: str | None) -> str:
+    if not (chosen_date and shift_code):
+        return ""
+    return (f"Overtime available on {chosen_date.isoformat()} for {shift_code} shift. "
+            "Please reply if interested.")
+
+
 # -------------------- Constants --------------------
 MIN_MONTH = date(2025, 4, 1)   # Start app from April 2025
 
@@ -189,6 +275,8 @@ class Staff(UserMixin, db.Model):
 
     # Roles: 'admin' | 'editor' | 'user'
     role = db.Column(db.String(10), nullable=False, default="user")
+
+    phone_number = db.Column(db.String(30), default="")
 
     @property
     def is_admin_role(self) -> bool:
@@ -1369,6 +1457,21 @@ def migrate_add_wm_dwm_exclude():
     db.session.commit()
 
 
+def migrate_add_phone_number():
+    """Add phone_number column for SMS notifications if missing."""
+    from sqlalchemy import text
+    with db.engine.connect() as conn:
+        cols = [row[1]
+                for row in conn.execute(text("PRAGMA table_info(staff)"))]
+        if "phone_number" not in cols:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE staff ADD COLUMN phone_number VARCHAR(30) DEFAULT ''"))
+            except Exception:
+                pass
+    db.session.commit()
+
+
 def migrate_add_toil_half_days_and_convert():
     """Add toil_half_days; add leave-year columns; convert legacy toil_minutes -> half-days if present."""
     from sqlalchemy import text
@@ -1597,6 +1700,16 @@ def _parse_date(val: str):
         return date.fromisoformat(val)
     except Exception:
         return None
+
+
+def _normalise_phone_number(val: str | None) -> str:
+    """Tidy phone numbers for SMS sending (keep digits and leading +)."""
+    if not val:
+        return ""
+    cleaned = re.sub(r"[^0-9+]+", "", val.strip())
+    if cleaned.startswith("00") and not cleaned.startswith("000"):
+        cleaned = "+" + cleaned[2:]
+    return cleaned
 
 
 def parse_annotation(s: str):
@@ -2509,6 +2622,8 @@ def admin_staff_edit(sid):
         s.name = request.form.get("name", s.name).strip()
         s.staff_no = request.form.get("staff_no", s.staff_no).strip()
         s.username = request.form.get("username", s.username).strip()
+        s.phone_number = _normalise_phone_number(
+            request.form.get("phone_number", s.phone_number))
         s.watch_id = int(request.form.get("watch_id", s.watch_id or 0)) or None
 
         s.is_operational = bool(request.form.get("operational"))
@@ -3237,6 +3352,88 @@ def _count_ot_since_prev_april(staff_id: int, upto: date):
 # … keep the rest of your overtime helpers exactly as pasted …
 
 
+def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: str):
+    shift_code = (chosen_shift_code or "").upper().strip()
+    sh = get_shift(shift_code)
+    if not (chosen_date and sh and sh.is_working):
+        return [], "Please select a valid date and working shift."
+
+    lookahead_days = 14
+    ensure_assignments_for_range(chosen_date - timedelta(days=30),
+                                 chosen_date + timedelta(days=lookahead_days))
+
+    staff_members = (Staff.query
+                     .outerjoin(Watch, Staff.watch_id == Watch.id)
+                     .order_by(Watch.order_index, Staff.name).all())
+
+    results = []
+    for s in staff_members:
+        if s.exclude_from_ot:
+            continue
+
+        a_today = Assignment.query.filter_by(
+            staff_id=s.id, day=chosen_date).first()
+        code_today = a_today.code if a_today else "OFF"
+        sh_today = get_shift(code_today)
+        if sh_today and sh_today.is_working:
+            continue
+
+        if code_today in ("SC", "SSC"):
+            continue
+
+        if not _has_in_date_ue(s, chosen_date):
+            continue
+
+        if _worked_like_consecutive_days(s, chosen_date - timedelta(days=1), lookback_days=6) >= 6:
+            continue
+
+        future_issues = would_create_new_fatigue_issues(
+            s, chosen_date, shift_code, lookback_days=30, lookahead_days=lookahead_days
+        )
+
+        d24_warnings = []
+        blocking_issues = {}
+        for _d, _lst in future_issues.items():
+            keep = []
+            for _f in _lst:
+                if _f.startswith("D24 rest deficit"):
+                    d24_warnings.append(f"{_d.isoformat()}: {_f}")
+                else:
+                    keep.append(_f)
+            if keep:
+                blocking_issues[_d] = keep
+
+        if any(blocking_issues.values()):
+            continue
+
+        count_upto = chosen_date - timedelta(days=1)
+        aava_to_date, soal_to_date = _count_aava_soal_since_prev_april(
+            s.id, count_upto)
+        total_to_date = aava_to_date + soal_to_date
+
+        flags = []
+        if code_today == "AL":
+            flags.append("On AL that day — SOAL required")
+        if _had_sc_within_48h(s, chosen_date, sh):
+            flags.append(
+                "SC/SSC within 48h — managerial approval required")
+        flags.extend(d24_warnings)
+
+        results.append({
+            "staff": s,
+            "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
+            "aava_to_date": aava_to_date,
+            "soal_to_date": soal_to_date,
+            "total_to_date": total_to_date,
+            "score": total_to_date,
+            "flags": flags
+        })
+
+    results.sort(key=lambda r: (
+        r["aava_to_date"], r["soal_to_date"], r["staff"].name.lower()))
+    return results, None
+
+
 @app.route("/overtime", methods=["GET", "POST"])
 @login_required
 def overtime():
@@ -3249,95 +3446,65 @@ def overtime():
     results = []
     chosen_date = None
     chosen_shift = None
+    selected_staff_ids: set[str] = set()
+    sms_body = ""
 
     if request.method == "POST":
+        action = request.form.get("action", "find")
         chosen_date = _parse_date(request.form.get("date"))
-        chosen_shift = request.form.get("shift_code", "").upper().strip()
-        sh = get_shift(chosen_shift)
+        chosen_shift = (request.form.get("shift_code") or "").upper().strip()
+        selected_staff_ids = {sid for sid in request.form.getlist("staff_ids")}
+        sms_body = (request.form.get("message") or "").strip()
 
-        if not (chosen_date and sh and sh.is_working):
-            flash("Please select a valid date and working shift.", "error")
-            return render_template("overtime.html", shifts=shifts, results=results,
-                                   chosen_date=chosen_date, chosen_shift=chosen_shift)
+        results, error_msg = _compute_overtime_candidates(chosen_date, chosen_shift)
 
-        LOOKAHEAD_DAYS = 14
-        ensure_assignments_for_range(chosen_date - timedelta(days=30),
-                                     chosen_date + timedelta(days=LOOKAHEAD_DAYS))
-
-        staff = (Staff.query
-                 .outerjoin(Watch, Staff.watch_id == Watch.id)
-                 .order_by(Watch.order_index, Staff.name).all())
-
-        for s in staff:
-            if s.exclude_from_ot:
-                continue
-
-            a_today = Assignment.query.filter_by(
-                staff_id=s.id, day=chosen_date).first()
-            code_today = a_today.code if a_today else "OFF"
-            sh_today = get_shift(code_today)
-            if sh_today and sh_today.is_working:
-                continue
-
-            if code_today in ("SC", "SSC"):
-                continue
-
-            if not _has_in_date_ue(s, chosen_date):
-                continue
-
-            if _worked_like_consecutive_days(s, chosen_date - timedelta(days=1), lookback_days=6) >= 6:
-                continue
-
-            future_issues = would_create_new_fatigue_issues(
-                s, chosen_date, chosen_shift, lookback_days=30, lookahead_days=LOOKAHEAD_DAYS
-            )
-
-            # --- D24 advisory handling (do not block on D24) ---
-            d24_warnings = []
-            blocking_issues = {}
-            for _d, _lst in future_issues.items():
-                keep = []
-                for _f in _lst:
-                    if _f.startswith("D24 rest deficit"):
-                        d24_warnings.append(f"{_d.isoformat()}: {_f}")
+        if action == "send_sms":
+            if error_msg:
+                flash(error_msg, "error")
+                results = []
+            else:
+                if not sms_body:
+                    flash("Enter a message to send.", "error")
+                elif len(sms_body) > 480:
+                    flash("Message is too long (limit 480 characters).", "error")
+                else:
+                    eligible_map = {r["staff"].id: r["staff"] for r in results}
+                    selected_staff = [eligible_map[int(sid)]
+                                      for sid in selected_staff_ids
+                                      if sid.isdigit() and int(sid) in eligible_map]
+                    missing_ids = [sid for sid in selected_staff_ids
+                                    if sid.isdigit() and int(sid) not in eligible_map]
+                    if not selected_staff:
+                        flash("Select at least one eligible staff member.", "error")
                     else:
-                        keep.append(_f)
-                if keep:
-                    blocking_issues[_d] = keep
+                        if missing_ids:
+                            flash("Some selected staff are no longer eligible; please refresh the list.", "error")
+                        sent, failures = _send_overtime_sms_notifications(selected_staff, sms_body)
+                        if sent:
+                            plural = "s" if sent != 1 else ""
+                            flash(f"SMS sent to {sent} staff member{plural}.", "ok")
+                        if failures:
+                            parts = []
+                            for staff, msg in failures:
+                                name = staff.name if staff else "System"
+                                parts.append(f"{name}: {msg}")
+                            flash("SMS failed for " + "; ".join(parts), "error")
 
-            if any(blocking_issues.values()):
-                continue
+        else:  # action == find or unknown
+            if error_msg:
+                flash(error_msg, "error")
+                results = []
 
-            count_upto = chosen_date - timedelta(days=1)
-            aava_to_date, soal_to_date = _count_aava_soal_since_prev_april(
-                s.id, count_upto)
-            total_to_date = aava_to_date + soal_to_date
+        if not sms_body:
+            sms_body = _default_overtime_sms_body(chosen_date, chosen_shift)
 
-            flags = []
-            if code_today == "AL":
-                flags.append("On AL that day — SOAL required")
-            if _had_sc_within_48h(s, chosen_date, sh):
-                flags.append(
-                    "SC/SSC within 48h — managerial approval required")
-            # Add any D24 advisory notes (they didn't block eligibility)
-            flags.extend(d24_warnings)
-
-            results.append({
-                "staff": s,
-                "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
-                "aava_to_date": aava_to_date,
-                "soal_to_date": soal_to_date,
-                "total_to_date": total_to_date,
-                "score": total_to_date,
-                "flags": flags
-            })
-
-        results.sort(key=lambda r: (
-            r["aava_to_date"], r["soal_to_date"], r["staff"].name.lower()))
+    sms_ready = _sms_service_configured()
 
     return render_template("overtime.html",
                            shifts=shifts, results=results,
-                           chosen_date=chosen_date, chosen_shift=chosen_shift)
+                           chosen_date=chosen_date, chosen_shift=chosen_shift,
+                           sms_body=sms_body, sms_ready=sms_ready,
+                           selected_staff_ids=selected_staff_ids)
 
 # -------------------- Calendar subscription --------------------
 
@@ -3872,6 +4039,7 @@ with app.app_context():
     migrate_add_requirement_req_d()
     migrate_add_is_training()
     migrate_add_wm_dwm_exclude()
+    migrate_add_phone_number()
     migrate_add_role_and_calendar_token()
 
     # >>> Ensure new ShiftRequest columns exist (SQLite safe)
