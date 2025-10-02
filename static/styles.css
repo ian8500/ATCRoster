@@ -268,8 +268,10 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text)}
 /* ==============================
    Expiry warnings
    ============================== */
-.exp-orange { background:#ff9800; color:#000; font-weight:700; }
+.exp-green { background:#2e7d32; color:#fff; font-weight:700; }
+.exp-amber { background:#f9a825; color:#000; font-weight:700; }
 .exp-red { background:#e53935; color:#fff; font-weight:700; }
+.exp-orange { background:#ff9800; color:#000; font-weight:700; }
 
 /* ==============================
    Metrics heat rules
