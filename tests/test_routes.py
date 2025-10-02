@@ -1,7 +1,7 @@
 import os
 import sys
 import tempfile
-from datetime import time
+from datetime import date, time
 
 import pytest
 
@@ -21,6 +21,7 @@ from app import (
     Watch,
     Staff,
     ShiftType,
+    StaffWatchHistory,
     ensure_month_requirement,
     generate_month,
     refresh_shift_cache,
@@ -128,3 +129,20 @@ def test_admin_pages_accessible(client):
     for url in endpoints:
         resp = client.get(url)
         assert resp.status_code == 200, f"Endpoint {url} returned {resp.status_code}"
+
+
+def test_admin_staff_edit_handles_missing_watch_history(client):
+    with app.app.app_context():
+        staff = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
+        hist = StaffWatchHistory(
+            staff_id=staff.id,
+            watch_id=9999,  # invalid watch id to simulate stale pending move
+            effective_date=date(2025, 6, 1),
+        )
+        db.session.add(hist)
+        db.session.commit()
+
+    login(client)
+    resp = client.get(f"/admin/staff/{staff.id}")
+    assert resp.status_code == 200
+    assert b"Unknown watch" in resp.data
