@@ -1,7 +1,7 @@
 import flask as _flask
 from functools import wraps
 from calendar import monthrange
-from collections import defaultdict, Counter
+from collections import defaultdict, Counter, deque
 from typing import Optional, Tuple
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort
 from flask import render_template as flask_render_template
@@ -11,12 +11,10 @@ import io
 import csv
 import secrets
 from functools import lru_cache
-from collections import defaultdict, Counter, deque
 from datetime import date, datetime, time, timedelta
 import json
 import json as _json
 
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
@@ -192,6 +190,14 @@ class Staff(UserMixin, db.Model):
     # Roles: 'admin' | 'editor' | 'user'
     role = db.Column(db.String(10), nullable=False, default="user")
 
+    @property
+    def is_admin_role(self) -> bool:
+        return (self.role or "user") == "admin"
+
+    @property
+    def is_editor_role(self) -> bool:
+        return (self.role or "user") in ("editor", "admin")
+
     # Back-compat (kept but unused in logic)
     is_admin = db.Column(db.Boolean, default=False)
 
@@ -267,22 +273,6 @@ def migrate_add_met_and_assessor():
 
         if alters:
             db.session.commit()
-
-    def set_password(self, password: str):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password: str) -> bool:
-        return check_password_hash(self.password_hash, password)
-
-    # convenience
-    @property
-    def is_admin_role(self) -> bool:
-        return (self.role or "user") == "admin"
-
-    @property
-    def is_editor_role(self) -> bool:
-        return (self.role or "user") == "editor"
-
 
 class ShiftType(db.Model):
     id = db.Column(db.Integer, primary_key=True)
