@@ -2033,7 +2033,11 @@ def roster_month(ym):
     reqs = ShiftRequest.query.filter(
         ShiftRequest.day >= start, ShiftRequest.day < month_end
     ).all()
-    req_pending_map = {(r.staff_id, r.day): r.code for r in reqs}
+    req_pending_map = {
+        (r.staff_id, r.day): r.code
+        for r in reqs
+        if (r.status or "pending").lower() != "closed"
+    }
 
     # --- Unified editability flags ---
     can_edit = can_edit_roster(current_user)
@@ -2204,7 +2208,16 @@ def assign_cell(staff_id, ym, day):
     # clear any pending request now that the roster cell is written
     req = ShiftRequest.query.filter_by(staff_id=staff_id, day=d).first()
     if req:
-        db.session.delete(req)
+        # Keep the request for auditing/history. Auto-close only if it had
+        # never been actioned so that explicit admin decisions (approved /
+        # rejected) remain visible to the requester.
+        status = (req.status or "pending").lower()
+        if status == "pending":
+            req.status = "closed"
+        if not req.responded_at:
+            req.responded_at = datetime.utcnow()
+        if not req.responded_by_id:
+            req.responded_by_id = getattr(current_user, "id", None)
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))

@@ -35,7 +35,9 @@ from app import (
     lock_date_for_month,
     refresh_shift_cache,
     db,
+    ShiftRequest,
     ShiftType,
+    Staff,
 )
 
 
@@ -110,4 +112,58 @@ def test_is_working_code_prefix_with_shift_records():
         assert _is_working_n_code("N00") is False
         # Unknown code falls back to prefix-only matching
         assert _is_working_m_code("M123") is True
+
+
+def test_assign_cell_keeps_request_record_and_marks_closed():
+    req_day = date(2025, 7, 1)
+
+    with app.app.app_context():
+        # Ensure the shift code we will use exists and is cached.
+        if not ShiftType.query.filter_by(code="M").first():
+            db.session.add(ShiftType(code="M", name="Morning", is_working=True))
+            db.session.commit()
+        refresh_shift_cache()
+
+        admin = Staff(
+            username="admin_req_test",
+            name="Admin Request Tester",
+            staff_no="ADM-REQ-1",
+            role="admin",
+        )
+        admin.set_password("password123")
+
+        requester = Staff(
+            username="user_req_test",
+            name="Requester",
+            staff_no="REQ-USER-1",
+        )
+        requester.set_password("userpass123")
+
+        db.session.add_all([admin, requester])
+        db.session.commit()
+
+        db.session.add(ShiftRequest(staff_id=requester.id, day=req_day, code="M"))
+        db.session.commit()
+
+    client = app.app.test_client()
+    login_resp = client.post(
+        "/login",
+        data={"username": "admin_req_test", "password": "password123"},
+        follow_redirects=True,
+    )
+    assert login_resp.status_code == 200
+
+    assign_resp = client.post(
+        f"/assign/{requester.id}/2025-07/{req_day.isoformat()}",
+        data={"code": "M"},
+        follow_redirects=False,
+    )
+    assert assign_resp.status_code == 302
+
+    with app.app.app_context():
+        req = ShiftRequest.query.filter_by(staff_id=requester.id, day=req_day).one()
+        # The request remains but is auto-closed because it had not been actioned.
+        assert req.status == "closed"
+        assert req.responded_by_id == admin.id
+        assert req.responded_at is not None
 
