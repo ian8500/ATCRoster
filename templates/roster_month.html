@@ -115,17 +115,17 @@
       <tr class="{% if s.id in watch_break_after_ids %}watch-break{% endif %}">
         <td class="left col-name">{{ s.name }}</td>
         <td class="left col-staff">{{ s.staff_no }}</td>
-        <td class="left small col-date">
+        <td class="left small col-date {{ expiry_classes[s.id]['medical'] }}">
           {% if s.medical_expiry %}{{ s.medical_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
         </td>
-        <td class="left small col-date {% if s.tower_ut %}exp-orange{% endif %}">
+        <td class="left small col-date {{ expiry_classes[s.id]['tower'] }}">
           {% if s.tower_ut %}U/T{% elif s.tower_ue_expiry %}{{ s.tower_ue_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
         </td>
-        <td class="left small col-date {% if s.radar_ut %}exp-orange{% endif %}">
+        <td class="left small col-date {{ expiry_classes[s.id]['radar'] }}">
           {% if s.radar_ut %}U/T{% elif s.radar_ue_expiry %}{{ s.radar_ue_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
         </td>
-        <td class="left small col-date {% if s.met_ut %}exp-orange{% endif %}">
-        {% if s.met_ut %}U/T{% elif s.met_ue_expiry %}{{ s.met_ue_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
+        <td class="left small col-date {{ expiry_classes[s.id]['met'] }}">
+          {% if s.met_ut %}U/T{% elif s.met_ue_expiry %}{{ s.met_ue_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
         </td>
         <td class="left small col-watch">
           {% if s.watch %}{{ s.watch.name.replace('Watch ', '') }}{% else %}-{% endif %}

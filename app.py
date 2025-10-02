@@ -2045,6 +2045,27 @@ def roster_month(ym):
     month_title = datetime(year, month, 1).strftime("%B %Y")
     today = date.today()
 
+    def _expiry_class(expiry: date | None, ut_flag: bool = False) -> str:
+        if ut_flag:
+            return "exp-amber"
+        if not expiry:
+            return ""
+        days_to_expiry = (expiry - today).days
+        if days_to_expiry < 0:
+            return "exp-red"
+        if days_to_expiry <= 90:
+            return "exp-amber"
+        return "exp-green"
+
+    expiry_classes = {}
+    for person in staff:
+        expiry_classes[person.id] = {
+            "medical": _expiry_class(person.medical_expiry),
+            "tower": _expiry_class(person.tower_ue_expiry, person.tower_ut),
+            "radar": _expiry_class(person.radar_ue_expiry, person.radar_ut),
+            "met": _expiry_class(person.met_ue_expiry, person.met_ut),
+        }
+
     # Build row-separator helpers for the template: break between watches
     watch_break_after_ids = []
     prev_watch = None
@@ -2070,6 +2091,7 @@ def roster_month(ym):
         req=req,                     # <<< ensure 'req' exists for template
         requirement=req,             # <<< keep this if any blocks expect 'requirement'
         rag=rag,
+        expiry_classes=expiry_classes,
         fatigue=fatigue,
         watch_break_after_ids=watch_break_after_ids,
         prev_ym=prev_ym, next_ym=next_ym,
