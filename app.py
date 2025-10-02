@@ -453,7 +453,7 @@ def _load_month_roster_core(y: int, m: int):
 
 
 # IMPORTANT: overwrite any previously memoized wrapper
-_load_month_roster_fast = _load_month_roster_core
+_load_month_roster_fast = _memoize(seconds=300)(_load_month_roster_core)
 
 
 # -------------------- Helpers --------------------
