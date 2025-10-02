@@ -2522,9 +2522,24 @@ def admin_watch_move(sid):
     if not is_admin_user(current_user):
         abort(403)
     s = Staff.query.get_or_404(sid)
-    new_watch_id = int(request.form.get("watch_id"))
-    eff = request.form.get("effective_date")
-    eff_d = date.fromisoformat(eff)
+    watch_id_val = request.form.get("watch_id")
+    eff = (request.form.get("effective_date") or "").strip()
+
+    if not watch_id_val or not eff:
+        flash("Watch and effective date are required.", "error")
+        return redirect(url_for("admin_staff_edit", sid=s.id))
+
+    try:
+        new_watch_id = int(watch_id_val)
+    except (TypeError, ValueError):
+        flash("Invalid watch selection.", "error")
+        return redirect(url_for("admin_staff_edit", sid=s.id))
+
+    try:
+        eff_d = date.fromisoformat(eff)
+    except ValueError:
+        flash("Invalid effective date.", "error")
+        return redirect(url_for("admin_staff_edit", sid=s.id))
 
     db.session.add(StaffWatchHistory(
         staff_id=s.id, watch_id=new_watch_id, effective_date=eff_d))
@@ -2534,6 +2549,70 @@ def admin_watch_move(sid):
                new_watch_id, note=f"effective {eff_d.isoformat()}")
     flash("Watch move recorded (effective date).", "ok")
     return redirect(url_for("admin_staff_edit", sid=s.id))
+
+
+@app.route("/admin/staff/watch-move/<int:hid>/edit", methods=["POST"])
+@login_required
+def admin_watch_move_edit(hid):
+    if not is_admin_user(current_user):
+        abort(403)
+
+    hist = StaffWatchHistory.query.get_or_404(hid)
+    watch_id_val = request.form.get("watch_id")
+    eff = (request.form.get("effective_date") or "").strip()
+
+    if not watch_id_val or not eff:
+        flash("Watch and effective date are required.", "error")
+        return redirect(url_for("admin_staff_edit", sid=hist.staff_id))
+
+    try:
+        new_watch_id = int(watch_id_val)
+    except (TypeError, ValueError):
+        flash("Invalid watch selection.", "error")
+        return redirect(url_for("admin_staff_edit", sid=hist.staff_id))
+
+    try:
+        eff_d = date.fromisoformat(eff)
+    except ValueError:
+        flash("Invalid effective date.", "error")
+        return redirect(url_for("admin_staff_edit", sid=hist.staff_id))
+
+    old_watch_id = hist.watch_id
+    old_eff = hist.effective_date
+
+    hist.watch_id = new_watch_id
+    hist.effective_date = eff_d
+    db.session.commit()
+
+    if old_watch_id != new_watch_id:
+        log_change("StaffWatchHistory", hist.id, "watch_id",
+                   old_watch_id, new_watch_id)
+    if old_eff != eff_d:
+        log_change("StaffWatchHistory", hist.id, "effective_date",
+                   old_eff, eff_d)
+
+    flash("Watch move updated.", "ok")
+    return redirect(url_for("admin_staff_edit", sid=hist.staff_id))
+
+
+@app.route("/admin/staff/watch-move/<int:hid>/delete", methods=["POST"])
+@login_required
+def admin_watch_move_delete(hid):
+    if not is_admin_user(current_user):
+        abort(403)
+
+    hist = StaffWatchHistory.query.get_or_404(hid)
+    sid = hist.staff_id
+    old_watch_id = hist.watch_id
+    old_eff = hist.effective_date
+
+    db.session.delete(hist)
+    db.session.commit()
+
+    log_change("StaffWatchHistory", hid, "delete", old_watch_id, None,
+               note=f"effective {old_eff.isoformat()}")
+    flash("Watch move deleted.", "ok")
+    return redirect(url_for("admin_staff_edit", sid=sid))
 
 
 @app.route("/admin/ai/rules", methods=["GET", "POST"])
