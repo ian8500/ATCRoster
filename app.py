@@ -2256,6 +2256,19 @@ def roster_export_csv(ym):
             if grp in ("M", "D", "A", "N"):
                 counters[d][grp] += 1
 
+    # Replicate the RAG calculation used in the HTML view so the CSV footer
+    # includes consistent status flags instead of raising a NameError.
+    rag = {}
+    for d in days:
+        rag[d] = {}
+        for code in ("M", "D", "A", "N"):
+            have = counters[d][code]
+            need = getattr(req, f"req_{code.lower()}") if req else 0
+            rag[d][code] = (
+                "green" if have >= need
+                else ("amber" if have >= max(0, need - 1) else "red")
+            )
+
     output = io.StringIO()
     w = csv.writer(output)
     header = ["Name", "Staff #", "Watch"] + [d.isoformat() for d in days]
