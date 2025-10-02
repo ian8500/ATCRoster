@@ -1,0 +1,10 @@
+# Performance & User Experience Recommendations
+
+## Implemented improvements
+- **Month roster caching** – `_load_month_roster_fast` is now wrapped in the lightweight memoisation helper so repeated visits within a few minutes reuse the same database results rather than executing two heavy queries per page load. The cache automatically invalidates whenever a cell is edited because `_invalidate_month_cache_for_day` is already hooked into `_set_code`.【F:app.py†L120-L144】【F:app.py†L403-L458】【F:app.py†L1701-L1735】
+- **Throttled roster auto-fit** – The resize handler that scales the roster grid is now scheduled with `requestAnimationFrame` and protected against rapid-fire resize events. This keeps the UI responsive on devices where layout recalculation was previously triggered dozens of times per second and adds a `ResizeObserver` fallback to react to layout changes like sidebar toggles without polling.【F:templates/base.html†L1-L61】
+
+## Additional opportunities
+- **Shift form batching** – `templates/roster_month.html` renders a `<form>` per cell, which leads to thousands of DOM nodes and repeated full-page reloads. Replacing the forms with a single delegated `<form>` or an AJAX endpoint would cut HTML payload size dramatically and enable inline confirmation to improve perceived speed.【F:templates/roster_month.html†L1-L160】【F:app.py†L2143-L2190】
+- **Eager-load watch relationships** – The roster view sorts staff by watch and later dereferences `s.watch` in the template. Adding `.options(db.joinedload(Staff.watch))` to the `_load_month_roster_core` query prevents an N+1 pattern on busy rosters and keeps caching effective when SQLAlchemy session expires rows between requests.【F:app.py†L403-L458】【F:templates/roster_month.html†L41-L118】
+- **Defer heavy analytics** – `/metrics` performs aggregated counts synchronously before rendering. Consider precomputing or caching those summaries, or paginating long date ranges, to avoid long response times when the database grows.【F:app.py†L2971-L3112】

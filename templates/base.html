@@ -67,8 +67,30 @@
       if (scale < 0.6) scale = 0.6; // keep controls usable
       document.documentElement.style.setProperty('--ui-scale', scale.toFixed(3));
     }
-    window.addEventListener('load', fitRoster);
-    window.addEventListener('resize', fitRoster);
+
+    // Schedule layout work so rapid resize events don't thrash the layout engine
+    let fitScheduled = false;
+    function scheduleFit(){
+      if(fitScheduled) return;
+      fitScheduled = true;
+      window.requestAnimationFrame(() => {
+        fitScheduled = false;
+        fitRoster();
+      });
+    }
+
+    window.addEventListener('load', () => {
+      fitRoster();
+      window.addEventListener('resize', scheduleFit, { passive: true });
+      if (window.ResizeObserver){
+        try {
+          const ro = new ResizeObserver(() => scheduleFit());
+          ro.observe(document.body);
+        } catch (err) {
+          console.warn('ResizeObserver unavailable', err);
+        }
+      }
+    });
   </script>
 </body>
 </html>
