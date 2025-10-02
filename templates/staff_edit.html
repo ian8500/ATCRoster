@@ -117,13 +117,15 @@
   <h4>Watch history</h4>
   <ul>
     {% for h in s.watch_history|sort(attribute='effective_date', reverse=True) %}
+      {% set hist_watch_name = h.watch.name if h.watch else 'Unknown watch' %}
+      {% set hist_date_value = h.effective_date.isoformat() if h.effective_date else '' %}
       <li>
-        {{ h.effective_date.isoformat() }} → {{ h.watch.name }}
+        {{ hist_date_value or 'Date TBC' }} → {{ hist_watch_name }}
         <form method="post" action="{{ url_for('admin_watch_move_edit', hid=h.id) }}" class="d-inline" style="margin-left:.5rem">
           <select name="watch_id">
             {% for w in watches %}<option value="{{ w.id }}" {% if h.watch_id==w.id %}selected{% endif %}>{{ w.name }}</option>{% endfor %}
           </select>
-          <input type="date" name="effective_date" value="{{ h.effective_date.isoformat() }}">
+          <input type="date" name="effective_date" value="{{ hist_date_value }}">
           <button class="btn btn-sm">Update</button>
         </form>
         <form method="post" action="{{ url_for('admin_watch_move_delete', hid=h.id) }}" class="d-inline">
