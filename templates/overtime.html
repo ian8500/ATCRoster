@@ -20,38 +20,72 @@
 </div>
 
 {% if results %}
-<div class="table-scroll">
-  <table class="table">
-    <thead>
-      <tr>
-        <th>ATCO</th><th>Watch</th>
-        <th title="A2/A4/A6/A8 up to previous Apr">AAVA</th>
-        <th title="SOAL up to previous Apr">SOAL</th>
-        <th>Total</th>
-        <th>Flags</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in results %}
-        <tr>
-          <td>{{ r.staff.name }}</td>
-          <td>{{ r.watch }}</td>
-          <td class="ta-right">{{ r.aava_to_date }}</td>
-          <td class="ta-right">{{ r.soal_to_date }}</td>
-          <td class="ta-right"><strong>{{ r.total_to_date }}</strong></td>
-          <td>
-            {% for f in r.flags %}
-              <div class="chip">{% if "SC/SSC within 48h" in f %}<span class="chip ot-flag-sick">{{ f }}</span>{% else %}{{ f }}{% endif %}</div>
-            {% else %}
-              <span class="muted">—</span>
-            {% endfor %}
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="6" class="muted">No eligible staff match the rules.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<form method="post" class="card">
+  <input type="hidden" name="action" value="send_sms">
+  <input type="hidden" name="date" value="{{ chosen_date }}">
+  <input type="hidden" name="shift_code" value="{{ chosen_shift }}">
+  <div class="card-bd">
+    <div class="table-scroll">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>SMS</th>
+            <th>ATCO</th><th>Watch</th>
+            <th title="A2/A4/A6/A8 up to previous Apr">AAVA</th>
+            <th title="SOAL up to previous Apr">SOAL</th>
+            <th>Total</th>
+            <th>Flags</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+            <tr>
+              <td>
+                {% if r.staff.phone_number %}
+                  <label class="checkbox">
+                    <input type="checkbox" name="staff_ids" value="{{ r.staff.id }}"
+                           {% if r.staff.id|string in selected_staff_ids %}checked{% endif %}>
+                    {{ r.staff.phone_number }}
+                  </label>
+                {% else %}
+                  <span class="muted">No phone</span>
+                {% endif %}
+              </td>
+              <td>{{ r.staff.name }}</td>
+              <td>{{ r.watch }}</td>
+              <td class="ta-right">{{ r.aava_to_date }}</td>
+              <td class="ta-right">{{ r.soal_to_date }}</td>
+              <td class="ta-right"><strong>{{ r.total_to_date }}</strong></td>
+              <td>
+                {% for f in r.flags %}
+                  <div class="chip">{% if "SC/SSC within 48h" in f %}<span class="chip ot-flag-sick">{{ f }}</span>{% else %}{{ f }}{% endif %}</div>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endfor %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="muted">No eligible staff match the rules.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid grid-2" style="gap:1rem; margin-top:1rem; align-items:start">
+      <label>Message
+        <textarea name="message" rows="3" maxlength="480" placeholder="SMS body">{{ sms_body }}</textarea>
+      </label>
+      <div>
+        <p class="muted">Selected shift: <strong>{{ chosen_shift }}</strong> on <strong>{{ chosen_date }}</strong></p>
+        {% if not sms_ready %}
+          <p class="muted">SMS sending is disabled until <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, and <code>TWILIO_FROM_NUMBER</code> are set.</p>
+        {% endif %}
+        <button class="btn" {% if not sms_ready %}disabled{% endif %}>
+          <i class="fa-solid fa-paper-plane"></i> Send SMS
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
 {% endif %}
 {% endblock %}
