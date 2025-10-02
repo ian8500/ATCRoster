@@ -1,0 +1,22 @@
+# Core framework
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+
+# Database
+SQLAlchemy==2.0.34
+
+# Security / password hashing
+Werkzeug==3.0.4
+
+# Utilities
+itsdangerous==2.2.0
+Jinja2==3.1.4
+click==8.1.7
+
+# For date/time handling (stdlib datetime used but pendulum is useful)
+python-dateutil==2.9.0.post0
+
+# Optional: if you export CSV/ICS you don’t need extras, stdlib handles that
+# Optional: if you later add testing
+pytest==8.3.3

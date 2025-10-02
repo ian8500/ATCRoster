@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Leave Year · ATC Roster{% endblock %}
+{% block content %}
+<h1><i class="fa-solid fa-calendar-check"></i> Leave Year (as of {{ today }})</h1>
+
+<div class="table-scroll">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ATCO</th><th>Watch</th><th>Year Window</th>
+        <th>Entitlement</th><th>Public Hols</th><th>Carryover</th>
+        <th>AL taken</th><th></th><th>Remaining</th>
+        <th>TOIL accrued</th><th>TOIL used</th><th>TOIL balance</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.staff.name }}</td>
+          <td>{{ r.watch }}</td>
+          <td>{{ r.leave_year_start }} → {{ r.leave_year_end }}</td>
+          <td class="ta-right">{{ r.entitlement }}</td>
+          <td class="ta-right">{{ r.public_holidays }}</td>
+          <td class="ta-right">{{ r.carryover }}</td>
+          <td class="ta-right">{{ r.al_taken }}</td>
+          <td></td>
+          <td class="ta-right"><strong>{{ r.remaining }}</strong></td>
+          <td class="ta-right">{{ '%.1f' % r.toil_accrued_days }}</td>
+          <td class="ta-right">{{ '%.1f' % r.toil_used_days }}</td>
+          <td class="ta-right"><strong>{{ '%.1f' % r.toil_balance_days }}</strong></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

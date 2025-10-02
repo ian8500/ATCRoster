@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ staff.name }} · ATC Roster{% endblock %}
+{% block content %}
+<h1><i class="fa-regular fa-user"></i> {{ staff.name }}</h1>
+
+<div class="grid grid-3">
+  <div class="card">
+    <div class="card-hd">Summary</div>
+    <div class="card-bd grid">
+      <div><strong>Staff #:</strong> {{ staff.staff_no }}</div>
+      <div><strong>Watch:</strong> {{ staff.watch.name if staff.watch else '-' }}</div>
+      <div><strong>Role:</strong> {{ staff.role }}</div>
+      <div><strong>AL (last 12 months):</strong> {{ al_days }}</div>
+      <div><strong>Sickness (SC/SSC, last 12 months):</strong> {{ sick_days }}</div>
+      <div><strong>Rostered hours this month:</strong> {{ hours_this_month }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Certificates</div>
+    <div class="card-bd grid">
+      <div><strong>Tower UE:</strong> {{ staff.tower_ue_expiry or '—' }}</div>
+      <div><strong>Radar UE:</strong> {{ staff.radar_ue_expiry or '—' }}</div>
+      <div><strong>Met:</strong> {{ staff.met_ue_expiry or '—' }}</div>
+      <div><strong>Medical:</strong> {{ staff.medical_expiry or '—' }}</div>
+
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Calendar</div>
+    <div class="card-bd">
+      {% if cal_link %}
+        <p class="muted">Subscribe to your roster:</p>
+        <p><a href="{{ apple_link }}" class="btn">Add to Apple Calendar</a></p>
+        <p><a href="{{ google_link }}" class="btn">Add to Google Calendar</a></p>
+        <p class="muted">Or copy the ICS URL:</p>
+        <code>{{ cal_link }}</code>
+      {% else %}
+        <p class="muted">No calendar token assigned.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

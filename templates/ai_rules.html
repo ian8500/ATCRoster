@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"><title>AI Rules</title>
+  <style>body{font-family:system-ui,sans-serif;max-width:1000px;margin:2rem auto;padding:0 1rem}textarea{width:100%;min-height:280px}.card{border:1px solid #ddd;border-radius:8px;padding:1rem;margin:1rem 0}label{display:block;margin:.25rem 0}</style>
+</head>
+<body>
+  <h1>AI Rules — {{ ym }}</h1>
+  <form method="get">
+    <label>Month (YYYY-MM): <input type="text" name="ym" value="{{ ym }}"></label>
+    <button type="submit">Load</button>
+  </form>
+
+  <div class="card">
+    <h3>Simple Editor</h3>
+    <form method="post">
+      <input type="hidden" name="mode" value="form">
+      <label><input type="checkbox" name="respect_user_requests" {% if rules.respect_user_requests %}checked{% endif %}> Respect user requests</label>
+      <label><input type="checkbox" name="equalize_nights" {% if rules.equalize_nights %}checked{% endif %}> Equalize nights</label>
+      <label><input type="checkbox" name="nights_in_pairs" {% if rules.nights_in_pairs %}checked{% endif %}> Assign nights in pairs</label>
+      <label><input type="checkbox" name="avoid_night_before_AL" {% if rules.avoid_night_before_AL %}checked{% endif %}> Avoid night before AL</label>
+      <label><input type="checkbox" name="fill_short_with_D" {% if rules.fill_short_with_D %}checked{% endif %}> Fill shortages with Day</label>
+      <label>Night pool (watches CSV): <input type="text" name="night_pool_watches" value="{{ rules.night_pool_watches|join(',') }}"></label>
+      <label>Weekday Day code: <input type="text" name="day_weekday" value="{{ rules.day_shift_codes.weekday }}"></label>
+      <label>Sunday Day code: <input type="text" name="day_sunday" value="{{ rules.day_shift_codes.sunday }}"></label>
+      <label>No-nights list (staff IDs): <input type="text" name="no_nights_list" value="{{ rules.no_nights_list|join(', ') }}"></label>
+      <label><input type="checkbox" name="nops_integrate_required" {% if rules.nops_policy.integrate_required %}checked{% endif %}> Integrate NOPS when required</label>
+      <label><input type="checkbox" name="nops_only_if_needed" {% if rules.nops_policy.only_if_needed %}checked{% endif %}> Only if needed to meet reqs</label>
+      <button type="submit">Save Rules</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Advanced JSON</h3>
+    <form method="post">
+      <input type="hidden" name="mode" value="json">
+      <textarea name="rules_json">{{ rules_json }}</textarea>
+      <p><button type="submit">Save JSON</button></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Staff IDs (for no-nights)</h3>
+    <ul>
+      {% for name, sid in staff_map %}
+        <li>{{ name }} — <code>{{ sid }}</code></li>
+      {% endfor %}
+    </ul>
+  </div>
+</body>
+</html>

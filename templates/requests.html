@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Shift Requests{% endblock %}
+{% block content %}
+<div class="container my-4">
+  <h2 class="mb-3">Shift Requests</h2>
+
+  {# Flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="mb-3">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'success' if category == 'ok' else ('danger' if category == 'error' else 'info') }} py-2 mb-2">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {# =========================
+     Add / Update request form
+     ========================= #}
+  <div class="card mb-4">
+    <div class="card-header"><strong>Add / Update a Request</strong></div>
+    <div class="card-body">
+      <form class="row g-3 align-items-end" method="post">
+        <input type="hidden" name="form" value="add">
+        <div class="col-md-3">
+          <label class="form-label">Date</label>
+          <input type="date" name="day" class="form-control" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Code</label>
+          <select name="code" class="form-select" required>
+            {% for code in codes %}
+              <option value="{{ code }}">{{ code }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Comment (optional)</label>
+          <input type="text" name="comment" maxlength="120" class="form-control" placeholder="Reason or note to admin">
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary w-100" type="submit">Save</button>
+        </div>
+      </form>
+      <div class="form-text mt-2">
+        You can request into the next three months only. A month becomes locked on the 20<span class="align-top">th</span> of the preceding month.
+      </div>
+    </div>
+  </div>
+
+  {# =========================
+     Your requests (grouped)
+     ========================= #}
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>Your Requests</strong>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th style="width: 120px;">Date</th>
+            <th style="width: 110px;">Month</th>
+            <th style="width: 120px;">Code</th>
+            <th>Status</th>
+            <th style="width: 200px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if req_map %}
+            {% for ym, daymap in req_map.items()|sort %}
+              {% for day, req in daymap.items()|sort %}
+                <tr>
+                  <td>{{ day.strftime("%Y-%m-%d") }}</td>
+                  <td>{{ "%04d-%02d"|format(day.year, day.month) }}</td>
+                  <td>{{ req.code }}</td>
+                  <td>
+                    <span class="badge {% if (req.status or 'pending') in ['approved','closed'] %}bg-secondary{% elif (req.status or 'pending') == 'rejected' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                      {{ (req.status or 'pending')|capitalize }}
+                    </span>
+                    {% if req.admin_response %}
+                      <div class="text-muted small mt-1">“{{ req.admin_response }}”</div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if not is_locked(day.year, day.month) and (req.status or 'pending') == 'pending' %}
+                      <form method="post" class="d-inline">
+                        <input type="hidden" name="form" value="del">
+                        <input type="hidden" name="rid" value="{{ req.id }}">
+                        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                      </form>
+                    {% else %}
+                      —
+                    {% endif %}
+
+                    {% if current_user.is_admin_role %}
+                      <form method="post" action="{{ url_for('admin_request_respond', rid=req.id) }}" class="d-inline ms-2">
+                        <div class="input-group input-group-sm" style="max-width: 520px;">
+                          <select class="form-select" name="status">
+                            {% for st in ['pending','approved','rejected','closed'] %}
+                              <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
+                            {% endfor %}
+                          </select>
+                          <input class="form-control" name="admin_response" placeholder="Comment to requester" value="{{ req.admin_response or '' }}">
+                          <button class="btn btn-secondary" type="submit">Respond</button>
+                        </div>
+                      </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="5" class="text-muted">No requests saved.</td></tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="5" class="text-muted">No requests saved.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# =========================
+     Admin: Month-filtered view
+     ========================= #}
+  {% if admin_view %}
+    <hr class="my-4">
+    <div class="d-flex align-items-center mb-2">
+      <h3 class="mb-0">All Requests – {{ admin_month_title }}</h3>
+      <span class="badge bg-secondary ms-2">Total: {{ admin_total }}</span>
+    </div>
+
+    <div class="month-nav my-2">
+      {% if admin_prev_ym %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('requests_page', view='admin', ym=admin_prev_ym) }}">&laquo; {{ admin_prev_ym }}</a>
+      {% endif %}
+      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('requests_page', view='admin', ym=admin_ym) }}">{{ admin_ym }}</a>
+      {% if admin_next_ym %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('requests_page', view='admin', ym=admin_next_ym) }}">{{ admin_next_ym }} &raquo;</a>
+      {% endif %}
+    </div>
+
+    {% if admin_grouped %}
+      {% for day, items in admin_grouped.items()|sort %}
+        <div class="card mb-3">
+          <div class="card-header">
+            <strong>{{ day.strftime("%A %d %B %Y") }}</strong>
+          </div>
+          <div class="card-body p-0">
+            <table class="table table-sm mb-0">
+              <thead>
+                <tr>
+                  <th>Staff</th>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Admin response</th>
+                  <th style="width: 280px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for req in items %}
+                <tr>
+                  <td>{{ req.staff.name }}</td>
+                  <td>{{ req.code }}</td>
+                  <td>{{ (req.status or 'pending')|capitalize }}</td>
+                  <td>{{ req.admin_response or '' }}</td>
+                  <td>
+                    <form method="post" action="{{ url_for('admin_request_respond', rid=req.id) }}" class="d-inline">
+                      <div class="input-group input-group-sm">
+                        <select class="form-select" name="status">
+                          {% for st in ['pending','approved','rejected','closed'] %}
+                            <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
+                          {% endfor %}
+                        </select>
+                        <input class="form-control" name="admin_response" placeholder="Comment to requester" value="{{ req.admin_response or '' }}">
+                        <button class="btn btn-secondary" type="submit">Save</button>
+                      </div>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="text-muted">No requests for this month.</p>
+    {% endif %}
+  {% endif %}
+
+</div>
+{% endblock %}

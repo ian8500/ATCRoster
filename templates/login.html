@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Login · ATC Roster{% endblock %}
+{% block content %}
+<div class="container" style="max-width:520px">
+  <div class="card">
+    <div class="card-hd"><i class="fa-solid fa-right-to-bracket"></i> Login</div>
+    <div class="card-bd">
+      <form method="post" class="grid">
+        <label>Username
+          <input name="username" autocomplete="username" required>
+        </label>
+        <label>Password
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <div>
+          <button class="btn"><i class="fa-solid fa-right-to-bracket"></i> Sign in</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

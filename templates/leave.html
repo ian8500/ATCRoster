@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Leave & Sickness{% endblock %}
+{% block content %}
+<div class="container my-4">
+  <h2 class="mb-3">Leave &amp; Sickness — {{ month_title }}</h2>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="mb-3">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'success' if category == 'ok' else ('danger' if category == 'error' else 'info') }} alert-sm py-2 mb-2">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Add Annual/Parental/Special Leave -->
+  <div class="card mb-4">
+    <div class="card-header"><strong>Add Annual/Parental/Special Leave</strong></div>
+    <div class="card-body">
+      <form class="row g-3 align-items-end" method="post">
+        <input type="hidden" name="form" value="leave_add">
+        <div class="col-md-4">
+          <label class="form-label">Staff</label>
+          <select class="form-select" name="staff_id" required>
+            {% for s in staff %}
+            <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Type</label>
+          <select class="form-select" name="leave_type" required>
+            <option value="AL">AL</option>
+            <option value="PL">PL</option>
+            <option value="SPL">SPL</option>
+            <option value="TOU8">TOU8</option>
+            <option value="TOUI">TOUI</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Start</label>
+          <input type="date" class="form-control" name="start" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">End</label>
+          <input type="date" class="form-control" name="end" required>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button type="submit" class="btn btn-primary">Save Leave</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Sickness -->
+  <div class="card mb-4">
+    <div class="card-header"><strong>Add Sickness (SC/SSC)</strong></div>
+    <div class="card-body">
+      <form class="row g-3 align-items-end" method="post">
+        <input type="hidden" name="form" value="sick_add">
+        <div class="col-md-4">
+          <label class="form-label">Staff</label>
+          <select class="form-select" name="staff_id" required>
+            {% for s in staff %}
+            <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Code</label>
+          <select class="form-select" name="sick_code" required>
+            <option value="SC">SC</option>
+            <option value="SSC">SSC</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Start</label>
+          <input type="date" class="form-control" name="start" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">End</label>
+          <input type="date" class="form-control" name="end" required>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button type="submit" class="btn btn-primary">Save Sickness</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Month navigation -->
+  <div class="month-nav" style="margin:.5rem 0 1rem;">
+    {% if prev_ym %}
+      <a class="btn ghost" href="{{ url_for('leave', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
+    {% else %}
+      <span class="btn ghost" style="opacity:.4; pointer-events:none">&larr; —</span>
+    {% endif %}
+    <a class="btn ghost" href="{{ url_for('leave', ym=next_ym) }}" style="margin-left:.5rem;">{{ next_ym }} &rarr;</a>
+  </div>
+
+  <!-- Existing Sickness (month) -->
+  <div class="card mb-4">
+    <div class="card-header"><strong>Sickness — {{ month_title }}</strong></div>
+    <div class="card-body table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Staff</th>
+            <th>Date</th>
+            <th>Code</th>
+            <th style="width:220px">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in sickness %}
+          <tr>
+            <td>{{ a.staff.name }}</td>
+            <td>{{ a.day }}</td>
+            <td>{{ a.code }}</td>
+            <td>
+              <form class="d-inline" method="post">
+                <input type="hidden" name="form" value="sick_edit">
+                <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
+                <input type="hidden" name="start" value="{{ a.day }}">
+                <input type="hidden" name="end" value="{{ a.day }}">
+                <select name="sick_code" class="form-select form-select-sm d-inline-block" style="width:110px;">
+                  <option value="SC" {% if a.code=='SC' %}selected{% endif %}>SC</option>
+                  <option value="SSC" {% if a.code=='SSC' %}selected{% endif %}>SSC</option>
+                </select>
+                <button class="btn btn-sm btn-secondary" type="submit">Save</button>
+              </form>
+              <form class="d-inline ms-1" method="post">
+                <input type="hidden" name="form" value="sick_delete">
+                <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
+                <input type="hidden" name="start" value="{{ a.day }}">
+                <input type="hidden" name="end" value="{{ a.day }}">
+                <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+            <tr><td colspan="4" class="text-muted">No sickness recorded for this month.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Existing Leave (month) -->
+  <div class="card">
+    <div class="card-header"><strong>Existing Leave — {{ month_title }}</strong></div>
+    <div class="card-body table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Staff</th>
+            <th>Type</th>
+            <th>Start</th>
+            <th>End</th>
+            <th style="width:220px">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lv in leaves %}
+          <tr>
+            <td>{{ lv.staff.name }}</td>
+            <td>{{ lv.leave_type }}</td>
+            <td>{{ lv.start }}</td>
+            <td>{{ lv.end }}</td>
+            <td>
+              <form class="d-inline" method="post">
+                <input type="hidden" name="form" value="leave_edit">
+                <input type="hidden" name="leave_id" value="{{ lv.id }}">
+                <input type="hidden" name="staff_id" value="{{ lv.staff_id }}">
+                <input type="hidden" name="leave_type" value="{{ lv.leave_type }}">
+                <input type="date" class="form-control form-control-sm d-inline-block" style="width: 150px" name="start" value="{{ lv.start }}">
+                <input type="date" class="form-control form-control-sm d-inline-block" style="width: 150px" name="end" value="{{ lv.end }}">
+                <button class="btn btn-sm btn-secondary" type="submit">Save</button>
+              </form>
+              <form class="d-inline ms-1" method="post">
+                <input type="hidden" name="form" value="leave_delete">
+                <input type="hidden" name="leave_id" value="{{ lv.id }}">
+                <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-muted">No leave recorded for this month.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

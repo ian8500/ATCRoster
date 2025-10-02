@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Leave – {{ month_title }} · ATC Roster{% endblock %}
+{% block content %}
+<h1><i class="fa-solid fa-plane-departure"></i> Leave — {{ month_title }}</h1>
+
+<div class="toolbar">
+  <a class="btn" href="{{ url_for('reports_index', ym=ym) }}"><i class="fa-solid fa-chevron-left"></i> Reports</a>
+  <a class="btn" href="{{ url_for('report_leave_csv', ym=ym) }}"><i class="fa-solid fa-file-csv"></i> Download CSV</a>
+</div>
+
+<div class="table-scroll">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ATCO</th><th>Staff #</th><th>Watch</th>
+        {% for c in codes %}<th>{{ c }}</th>{% endfor %}
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.staff.name }}</td>
+          <td>{{ r.staff.staff_no }}</td>
+          <td>{{ r.staff.watch.name if r.staff.watch else '-' }}</td>
+          {% for c in codes %}
+            <td class="ta-right">{{ r.counts.get(c,0) }}</td>
+          {% endfor %}
+          <td class="ta-right"><strong>{{ r.total }}</strong></td>
+        </tr>
+      {% endfor %}
+      <tr class="totals">
+        <td colspan="3" class="ta-right"><strong>Totals</strong></td>
+        {% for c in codes %}<td class="ta-right">{{ totals.get(c,0) }}</td>{% endfor %}
+        <td class="ta-right"><strong>{{ grand_total }}</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

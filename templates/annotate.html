@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Annotate {{ staff.name }} – {{ day }}{% endblock %}
+{% block content %}
+<h2>Annotate – {{ staff.name }} ({{ staff.staff_no }}) – {{ day }}</h2>
+
+<form method="post" class="card" style="max-width:640px">
+  <div class="row">
+    <label>Extension
+      <select name="ext_type">
+        <option value="">None</option>
+        <option value="short" {% if ann and ann.ext_type=='short' %}selected{% endif %}>Short</option>
+        <option value="long" {% if ann and ann.ext_type=='long' %}selected{% endif %}>Long</option>
+      </select>
+    </label>
+
+    <label>Overtime Code
+      <select name="overtime_code">
+        <option value="">None</option>
+        {% for code in ['A2','A4','A6','A8'] %}
+          <option value="{{ code }}" {% if ann and ann.overtime_code==code %}selected{% endif %}>{{ code }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>Overtime Base
+      <select name="overtime_base">
+        <option value="">-</option>
+        {% for b in ['M','D','A','N'] %}
+          <option value="{{ b }}" {% if ann and ann.overtime_base==b %}selected{% endif %}>{{ b }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <div class="row">
+    <label><input type="checkbox" name="swapped" {% if ann and ann.swapped %}checked{% endif %}> Shift Swapped</label>
+    <label>Swap note <input name="swap_note" value="{{ ann.swap_note if ann else '' }}" placeholder="with who / details"></label>
+    <label><input type="checkbox" name="soal" {% if ann and ann.soal %}checked{% endif %}> SOAL</label>
+  </div>
+
+  <div class="row">
+    <a class="btn ghost" href="{{ url_for('roster_month', ym=ym) }}">← Back to Roster</a>
+    <button class="btn">Save</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}{% endblock %} – ATC Roster</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+
+  <!-- Preserve colours and force landscape when printing -->
+  <style>
+    *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { size: A4 landscape; margin:10mm; }
+  </style>
+
+  {# allow pages to add their own head content (CSS/JS) #}
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="nav-container">
+      <h1 class="logo">ATC Roster Tool</h1>
+      <nav class="main-nav">
+        {% if current_user.is_authenticated %}
+          <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}">📅 Roster</a>
+          <a href="{{ url_for('requests_page') }}" class="nav-link">📝 Requests</a>
+          <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}">👤 Profile</a>
+    
+        {% if is_admin or is_editor %}
+          <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}">🛰️ Overtime Finder</a>
+          <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}">📝 Leave / Sickness</a>
+          <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue') %}active{% endif %}">📑 Reports</a>
+        {% endif %}
+        {% if is_admin %}
+          <a href="{{ url_for('admin') }}" class="nav-link {% if request.endpoint == 'admin' %}active{% endif %}">⚙️ Admin</a>
+        {% endif %}
+
+          <a href="{{ url_for('logout') }}" class="nav-link">🚪 Logout</a>
+        {% else %}
+          <a href="{{ url_for('login') }}" class="nav-link {% if request.endpoint == 'login' %}active{% endif %}">🔐 Login</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main class="page-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for category, message in messages %}
+            <li class="flash {{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    function printRoster(){ window.print(); }
+
+    // Auto-fit roster to viewport (scale UI, avoid horizontal scroll)
+    function fitRoster() {
+      const table = document.querySelector('table.roster');
+      if(!table) return;
+      const containerWidth = document.documentElement.clientWidth - 24;
+      const tableWidth = table.scrollWidth;
+      let scale = Math.min(1, containerWidth / tableWidth);
+      if (scale < 0.6) scale = 0.6; // keep controls usable
+      document.documentElement.style.setProperty('--ui-scale', scale.toFixed(3));
+    }
+    window.addEventListener('load', fitRoster);
+    window.addEventListener('resize', fitRoster);
+  </script>
+</body>
+</html>

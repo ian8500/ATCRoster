@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Fatigue Findings – {{ month_title }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .page-wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  .actions { display:flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 16px; }
+  .actions a, .actions button {
+    padding: 8px 12px; border-radius: 8px; border: 1px solid #ccc; background: #f7f7f7;
+    text-decoration: none; cursor: pointer; font-size: 14px;
+  }
+  .actions a:hover, .actions button:hover { background: #eee; }
+  .muted { color: #666; }
+  .table-wrap { overflow-x:auto; border:1px solid #ddd; border-radius:10px; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 960px; }
+  thead th { position: sticky; top:0; z-index:2; background:#fafafa; border-bottom:1px solid #ddd; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: center; white-space: nowrap; }
+  th.sticky-left, td.sticky-left { position: sticky; left: 0; z-index: 1; background:#fff; text-align: left; }
+  tr:nth-child(even) td { background: #fcfcfc; }
+  .chip { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border:1px solid #ccd;}
+  .chip.ok { background:#eef7ee; border-color:#cfe6cf; }
+  .chip.warn { background:#fff4e5; border-color:#ffe0b3; }
+  .chip.danger { background:#fde8e8; border-color:#f5c2c2; }
+  .cell { min-width: 36px; }
+  .cell[data-has] { font-weight: 700; }
+  .cell .count { display:inline-block; min-width:1.75em; }
+  .tooltip { cursor: help; border-bottom: 1px dotted #aaa; }
+  .controls { display:flex; align-items:center; gap: 14px; margin: 12px 0 0; flex-wrap: wrap; }
+  .controls label { display:flex; gap: 8px; align-items:center; cursor: pointer; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; }
+  .legend .chip { font-weight: 600; }
+  .sticky-summary { position: sticky; left: 0; background: #fff; }
+  @media print {
+    .actions, .controls { display:none !important; }
+    .page-wrap { padding: 0; }
+    .table-wrap { border:none; }
+    thead th { background:#fff; }
+  }
+</style>
+<script>
+  function doPrint(){ window.print(); }
+
+  function toggleNoIssueRows(cbId, tableId){
+    const checked = document.getElementById(cbId).checked;
+    const rows = document.querySelectorAll(`#${tableId} tbody tr`);
+    rows.forEach(tr=>{
+      const totalCell = tr.querySelector('[data-total]');
+      if(!totalCell) return;
+      const total = parseInt(totalCell.getAttribute('data-total')||'0',10);
+      tr.style.display = (checked && total===0) ? 'none' : '';
+    });
+  }
+
+  function showOnlyDaysWithFindings(cbId, tableId){
+    const checked = document.getElementById(cbId).checked;
+    const table = document.getElementById(tableId);
+    const headCells = table.querySelectorAll('thead th[data-day]');
+    const colHasFindings = {};
+    headCells.forEach((th, idx)=>{
+      const dayKey = th.getAttribute('data-day');
+      // idx offset: first two sticky columns before dates (Name, Watch, optional Total)
+      const colIndex = Array.from(th.parentNode.children).indexOf(th);
+      let any = false;
+      table.querySelectorAll('tbody tr').forEach(tr=>{
+        const td = tr.children[colIndex];
+        if(td && td.getAttribute('data-has')==='1'){ any = true; }
+      });
+      colHasFindings[dayKey] = any;
+    });
+    headCells.forEach((th)=>{
+      const dayKey = th.getAttribute('data-day');
+      const idx = Array.from(th.parentNode.children).indexOf(th);
+      const show = (!checked) || colHasFindings[dayKey];
+      [...table.querySelectorAll(`tr`)].forEach(tr=>{
+        const cell = tr.children[idx];
+        if(cell) cell.style.display = show ? '' : 'none';
+      });
+    });
+  }
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrap">
+  <h1>Fatigue Findings <span class="muted">— {{ month_title }}</span></h1>
+
+  <div class="actions">
+    <a href="{{ url_for('roster_month', ym=ym) }}">← Back to roster</a>
+    <button type="button" onclick="doPrint()">🖨 Print</button>
+  </div>
+
+  <div class="controls">
+    <label><input type="checkbox" id="hideNoIssues" onchange="toggleNoIssueRows('hideNoIssues','fatigueTable')"> Hide people with no findings</label>
+    <label><input type="checkbox" id="onlyDays" onchange="showOnlyDaysWithFindings('onlyDays','fatigueTable')"> Show only days with any findings</label>
+    <div class="legend">
+      <span class="chip ok">0</span>
+      <span class="chip warn">1–2</span>
+      <span class="chip danger">3+</span>
+      <span class="muted">Numbers indicate count of flags; hover cell for details.</span>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="fatigueTable">
+      <thead>
+        <tr>
+          <th class="sticky-left">Name</th>
+          <th>Watch</th>
+          {% for d in days %}
+            <th data-day="{{ d.isoformat() }}">{{ d.day }}</th>
+          {% endfor %}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in findings %}
+          {% set s = item.staff %}
+          {% set flags_by_day = item.flags_by_day %}
+          {% set total_flags = item.total_flags %}
+          <tr>
+            <td class="sticky-left" style="max-width:240px;text-overflow:ellipsis;overflow:hidden;">
+              <strong>{{ s.name }}</strong>
+            </td>
+            <td>{{ s.watch.name.replace('Watch ','') if s.watch else '-' }}</td>
+            {% for d in days %}
+              {% set lst = flags_by_day.get(d, []) %}
+              {% set count = lst|length %}
+              {% if count==0 %}
+                <td class="cell chip ok" title="No findings">0</td>
+              {% elif count<=2 %}
+                <td class="cell chip warn" data-has="1" title="{{ lst|join(' &#10; ')|safe }}"><span class="count">{{ count }}</span></td>
+              {% else %}
+                <td class="cell chip danger" data-has="1" title="{{ lst|join(' &#10; ')|safe }}"><span class="count">{{ count }}</span></td>
+              {% endif %}
+            {% endfor %}
+            <td class="sticky-summary" data-total="{{ total_flags }}"><strong>{{ total_flags }}</strong></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% set total_people = findings|length %}
+  {% set no_issue = findings|selectattr('total_flags','equalto',0)|list|length %}
+  <p class="muted" style="margin-top:10px;">
+    Summary: {{ total_people - no_issue }} with ≥1 finding, {{ no_issue }} with none.
+  </p>
+</div>
+{% endblock %}

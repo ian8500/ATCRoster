@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Sickness (12 months) · ATC Roster{% endblock %}
+{% block content %}
+<h1><i class="fa-solid fa-stethoscope"></i> Sickness (last 12 months)</h1>
+<p class="muted">Period: {{ start }} → {{ end }}</p>
+
+<div class="table-scroll">
+  <table class="table">
+    <thead><tr><th>ATCO</th><th>Watch</th><th>Total days</th><th>Groups</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+        {% if r.total > 0 %}
+        <tr>
+          <td>{{ r.staff.name }}</td>
+          <td>{{ r.watch }}</td>
+          <td class="ta-right">{{ r.total }}</td>
+          <td class="ta-right">{{ r.groups }}</td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

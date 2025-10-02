@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Overtime Finder · ATC Roster{% endblock %}
+{% block content %}
+<h1><i class="fa-solid fa-user-plus"></i> Overtime Finder</h1>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card-bd">
+    <form method="post" class="toolbar">
+      <label>Date <input type="date" name="date" value="{{ chosen_date }}"></label>
+      <label>Shift
+        <select name="shift_code">
+          {% for sh in shifts %}
+            <option value="{{ sh.code }}" {% if chosen_shift == sh.code %}selected{% endif %}>{{ sh.code }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn"><i class="fa-solid fa-magnifying-glass"></i> Find Eligible</button>
+    </form>
+  </div>
+</div>
+
+{% if results %}
+<div class="table-scroll">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ATCO</th><th>Watch</th>
+        <th title="A2/A4/A6/A8 up to previous Apr">AAVA</th>
+        <th title="SOAL up to previous Apr">SOAL</th>
+        <th>Total</th>
+        <th>Flags</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+        <tr>
+          <td>{{ r.staff.name }}</td>
+          <td>{{ r.watch }}</td>
+          <td class="ta-right">{{ r.aava_to_date }}</td>
+          <td class="ta-right">{{ r.soal_to_date }}</td>
+          <td class="ta-right"><strong>{{ r.total_to_date }}</strong></td>
+          <td>
+            {% for f in r.flags %}
+              <div class="chip">{% if "SC/SSC within 48h" in f %}<span class="chip ot-flag-sick">{{ f }}</span>{% else %}{{ f }}{% endif %}</div>
+            {% else %}
+              <span class="muted">—</span>
+            {% endfor %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No eligible staff match the rules.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

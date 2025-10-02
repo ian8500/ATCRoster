@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ s.name }} · ATC Roster{% endblock %}
+{% block content %}
+<h1><i class="fa-regular fa-id-card"></i> Edit {{ s.name }}</h1>
+
+<form method="post" class="grid">
+  <div class="card">
+    <div class="card-hd">Identity</div>
+    <div class="card-bd grid grid-3">
+      <label>Name <input name="name" value="{{ s.name }}"></label>
+      <label>Staff # <input name="staff_no" value="{{ s.staff_no }}"></label>
+      <label>Username <input name="username" value="{{ s.username }}"></label>
+
+      <label>Watch
+        <select name="watch_id">
+          {% for w in watches %}<option value="{{ w.id }}" {% if s.watch_id == w.id %}selected{% endif %}>{{ w.name }}</option>{% endfor %}
+        </select>
+      </label>
+
+      <label>Role
+        <select name="role">
+          {% for r in ['user','editor','admin'] %}
+            <option value="{{ r }}" {% if s.role == r %}selected{% endif %}>{{ r|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="grid grid-4" style="align-items:center">
+        <label><input type="checkbox" name="operational" {% if s.is_operational %}checked{% endif %}> Operational</label>
+        <label><input type="checkbox" name="trainee" {% if s.is_trainee %}checked{% endif %}> Trainee</label>
+        <label><input type="checkbox" name="ojti" {% if s.has_ojti %}checked{% endif %}> OJTI</label>
+        <label><input type="checkbox" name="has_assessor" {% if s.has_assessor %}checked{% endif %}> Assessor</label>
+      </div>
+
+      <div class="grid grid-3">
+        <label><input type="checkbox" name="is_wm" {% if s.is_wm %}checked{% endif %}> WM</label>
+        <label><input type="checkbox" name="is_dwm" {% if s.is_dwm %}checked{% endif %}> DWM</label>
+        <label><input type="checkbox" name="exclude_from_ot" {% if s.exclude_from_ot %}checked{% endif %}> Exclude from OT</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Pattern</div>
+    <div class="card-bd grid grid-3">
+      <label>CSV <input name="pattern_csv" value="{{ s.pattern_csv }}"></label>
+      <label>Anchor
+        <input type="date" name="pattern_anchor"
+               value="{{ s.pattern_anchor and s.pattern_anchor.isoformat() or '' }}">
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Expiry / U/T</div>
+    <div class="card-bd grid grid-3">
+      <label>Medical
+        <input type="date" name="medical_expiry"
+               value="{{ s.medical_expiry and s.medical_expiry.isoformat() or '' }}">
+      </label>
+      <label>Tower UE
+        <input type="date" name="tower_ue_expiry"
+               value="{{ s.tower_ue_expiry and s.tower_ue_expiry.isoformat() or '' }}">
+      </label>
+      <label>Radar UE
+        <input type="date" name="radar_ue_expiry"
+               value="{{ s.radar_ue_expiry and s.radar_ue_expiry.isoformat() or '' }}">
+      </label>
+      <label>MET UE
+        <input type="date" name="met_ue_expiry"
+             value="{{ s.met_ue_expiry and s.met_ue_expiry.isoformat() or '' }}">
+      </label>
+      <label><input type="checkbox" name="tower_ut" {% if s.tower_ut %}checked{% endif %}> Tower U/T</label>
+      <label><input type="checkbox" name="radar_ut" {% if s.radar_ut %}checked{% endif %}> Radar U/T</label>
+      <label><input type="checkbox" name="met_ut" {% if s.met_ut %}checked{% endif %}> MET U/T</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Leave Year &amp; Allowance</div>
+    <div class="card-bd grid grid-4">
+      <label>Start month <input type="number" min="1" max="12" name="leave_year_start_month" value="{{ s.leave_year_start_month }}"></label>
+      <label>Entitlement (days) <input type="number" name="leave_entitlement_days" value="{{ s.leave_entitlement_days }}"></label>
+      <label>Public holidays (days) <input type="number" name="leave_public_holidays" value="{{ s.leave_public_holidays }}"></label>
+      <label>Carryover (days) <input type="number" name="leave_carryover_days" value="{{ s.leave_carryover_days }}"></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Security</div>
+    <div class="card-bd grid grid-3">
+      <label><input type="checkbox" name="reset_password"> Reset password to <em>password</em></label>
+      <label><input type="checkbox" name="reset_calendar_token"> Reset calendar token</label>
+    </div>
+  </div>
+
+  <div><button class="btn"><i class="fa-solid fa-floppy-disk"></i> Save</button></div>
+</form>
+
+<!-- Watch move (needs backend route + history model wired) -->
+<form method="post" action="{{ url_for('admin_watch_move', sid=s.id) }}">
+  <h3>Move watch (effective date)</h3>
+  <label>New watch:
+    <select name="watch_id">
+      {% for w in watches %}
+        <option value="{{ w.id }}">{{ w.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Effective date: <input type="date" name="effective_date" required></label>
+  <button type="submit">Record move</button>
+</form>
+
+
+{% if s.watch_history is defined and s.watch_history %}
+  <h4>Watch history</h4>
+  <ul>
+    {% for h in s.watch_history|sort(attribute='effective_date', reverse=True) %}
+      <li>
+        {{ h.effective_date.isoformat() }} → {{ h.watch.name }}
+        <form method="post" action="{{ url_for('admin_watch_move_edit', hid=h.id) }}" class="d-inline" style="margin-left:.5rem">
+          <select name="watch_id">
+            {% for w in watches %}<option value="{{ w.id }}" {% if h.watch_id==w.id %}selected{% endif %}>{{ w.name }}</option>{% endfor %}
+          </select>
+          <input type="date" name="effective_date" value="{{ h.effective_date.isoformat() }}">
+          <button class="btn btn-sm">Update</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_watch_move_delete', hid=h.id) }}" class="d-inline">
+          <button class="btn btn-sm btn-danger" onclick="return confirm('Delete this watch move?')">Delete</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+
+{% endblock %}

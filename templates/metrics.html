@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}OT/Swap/EXT Totals{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1 class="page-title">OT/Swap/EXT Totals</h1>
+
+  <p class="muted" style="margin-top:-.5rem">
+    Counts are based on <strong>assignment annotations</strong>:
+    <em>EXTL</em>/<em>EXTS</em> (Extensions), <em>SWAP</em>, and OT types <em>A2/A4/A6/A8</em> plus <em>SOAL</em>.
+    “AAVA Total” = A2+A4+A6+A8. “OT Total” = AAVA Total + SOAL.
+  </p>
+
+  <form method="get" class="bar">
+    <label for="start">From</label>
+    <input id="start" name="start" type="date" value="{{ start.isoformat() }}">
+    <label for="end">To</label>
+    <input id="end" name="end" type="date" value="{{ end.isoformat() }}">
+    <button class="btn btn-primary" type="submit">Update</button>
+    <a class="btn" href="{{ url_for('metrics_export', start=start.isoformat(), end=end.isoformat()) }}">Download CSV</a>
+  </form>
+
+  <div class="card">
+    <div class="card-body">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ATCO</th>
+            <th>Watch</th>
+            <th>Ext L</th>
+            <th>Ext S</th>
+            <th>Ext Total</th>
+            <th>Swaps</th>
+            <th>A2</th><th>A4</th><th>A6</th><th>A8</th><th>SOAL</th>
+            <th>AAVA Total</th>
+            <th>OT Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in staff_metrics %}
+          <tr>
+            <td>{{ r.staff.name }}</td>
+            <td>{{ r.staff.watch.name.replace('Watch ','') if r.staff.watch else '-' }}</td>
+            <td>{{ r.ext_long }}</td>
+            <td>{{ r.ext_short }}</td>
+            <td>{{ r.ext_total }}</td>
+            <td>{{ r.swaps }}</td>
+            <td>{{ r.ot.A2 }}</td>
+            <td>{{ r.ot.A4 }}</td>
+            <td>{{ r.ot.A6 }}</td>
+            <td>{{ r.ot.A8 }}</td>
+            <td>{{ r.ot.SOAL }}</td>
+            <td>{{ r.aava_total }}</td>
+            <td>{{ r.ot_total }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="strong">
+            <td>All ATCOs</td>
+            <td></td>
+            <td>{{ totals.ext_long }}</td>
+            <td>{{ totals.ext_short }}</td>
+            <td>{{ totals.ext_total }}</td>
+            <td>{{ totals.swaps }}</td>
+            <td>{{ totals.ot.A2 }}</td>
+            <td>{{ totals.ot.A4 }}</td>
+            <td>{{ totals.ot.A6 }}</td>
+            <td>{{ totals.ot.A8 }}</td>
+            <td>{{ totals.ot.SOAL }}</td>
+            <td>{{ totals.aava_total }}</td>
+            <td>{{ totals.ot_total }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

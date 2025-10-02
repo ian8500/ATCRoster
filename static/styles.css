@@ -1,0 +1,460 @@
+/* ==============================
+   ATC Roster — Dark Theme CSS
+   ============================== */
+:root{
+  --bg:#1e1e1e;
+  --card:#2b2b2b;
+  --line:#444;
+  --text:#f0f0f0;
+  --head:#333;
+  --head2:#444;
+
+  --green:#27ae60;   /* M* */
+  --purple:#8e44ad;  /* D* */
+  --orange:#e67e22;  /* A* */
+  --yellow:#f1c40f;  /* N* */
+
+  --red:#e74c3c;     /* SSC, SC */
+  --blue:#3498db;    /* AL, PL, SPL, TOUI, TOU8 */
+
+  --ui-scale: 1;     /* dynamic scaling for roster */
+}
+
+*{box-sizing:border-box}
+
+/* Office/WFH/MTG: grey fill */
+.code-input.office, .code-input.wfh, .code-input.mtg {
+  background: #666 !important;
+  color: #fff !important;
+}
+
+/* ==============================
+   Global
+   ============================== */
+body{
+  font-family: Arial, Helvetica, sans-serif;
+  margin:0; padding:0;
+  background:var(--bg); color:var(--text);
+}
+h1,h2,h3{margin:.5rem 0 1rem; color:#fff}
+a{color:#66b2ff; text-decoration:none}
+a.btn{
+  display:inline-block; padding:.35rem .7rem; margin:.1rem;
+  border-radius:4px; border:1px solid var(--line);
+  background:var(--card); color:var(--text); font-size:.9rem;
+}
+a.btn.ghost{background:var(--bg); border-color:#555}
+
+/* ==============================
+   Header & Navigation
+   ============================== */
+.site-header {
+  background:#2b2b2b;
+  border-bottom:2px solid #444;
+  padding:0.5rem 1rem;
+  position:sticky;
+  top:0;
+  z-index:1000;
+}
+.nav-container { display:flex; align-items:center; justify-content:space-between; }
+.logo { font-size:1.2rem; font-weight:bold; color:#fff; margin:0; }
+.main-nav { display:flex; gap:0.75rem; }
+.nav-link {
+  padding:0.4rem 0.8rem; border-radius:4px; background:#1e1e1e; color:#f0f0f0;
+  font-weight:500; border:1px solid #555; transition:background .2s,color .2s;
+}
+.nav-link:hover { background:#444; color:#fff; }
+.nav-link.active { background:#3498db; color:#fff; border-color:#2980b9; }
+
+/* ==============================
+   Flash Messages
+   ============================== */
+.flashes { list-style:none; margin:.5rem 0; padding:0; }
+.flash { margin:.2rem 0; padding:.4rem .7rem; border-radius:4px; font-size:.85rem; }
+.flash.ok { background:#2ecc71; color:#000 }
+.flash.error { background:#e74c3c; color:#fff }
+
+/* ==============================
+   Tables / Roster Layout
+   ============================== */
+table{
+  border-collapse:collapse; width:100%;
+  margin-bottom:0;
+  font-size:.82rem;
+  background:var(--card); color:var(--text);
+}
+
+.legend { margin-top:.35rem; }
+
+th,td{border:1px solid var(--line); text-align:center; padding:.15rem}
+
+th.sticky{position:sticky; top:0; background:var(--head); color:#fff; z-index:2}
+th.sticky.left{left:0; z-index:3; background:var(--head)}
+.roster th.dayhead{font-weight:bold; background:var(--head2); color:#fff}
+
+/* small weekday label under day number */
+.roster th.dayhead .dow{font-size:0.7rem; font-weight:normal; opacity:0.85}
+
+/* weekend header highlight */
+.roster th.weekend{
+  background:#555 !important;
+  color:#ffeb3b !important;
+}
+
+.roster td.left{text-align:left; white-space:nowrap}
+.roster tr.watch-break td{border-bottom:3px solid #888}
+
+/* Left columns */
+.col-name{min-width:140px; max-width:180px}
+.col-staff{width:60px}
+.col-date{width:68px}
+.col-watch{width:40px; text-align:center}
+
+/* Day cells */
+.roster .cell{
+  position: relative;
+  overflow: hidden;
+  min-width:54px; max-width:64px;
+  padding:0;
+}
+.roster .cell form{ margin:0 }
+
+/* Request badge */
+.req-badge{
+  display:inline-block; font-size:10px; padding:2px 4px; border-radius:4px;
+  border:1px solid rgba(0,0,0,.2); background:rgba(255,255,255,.06);
+}
+
+/* Make both stacked selects align perfectly */
+.roster .cell .code-input,
+.roster .cell .annot-select{
+  display:block;
+  width:100%;
+  box-sizing:border-box;
+  margin:0;
+  border-radius:0;
+  padding:.1rem .2rem;
+  border:1px solid transparent;
+}
+
+/* Disabled state */
+.roster .cell select:disabled{
+  opacity:.65;
+  filter:grayscale(35%);
+  cursor:not-allowed;
+}
+
+/* ==============================
+   Shift Dropdowns (codes)
+   ============================== */
+.code-input{
+  height:28px;
+  border:none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+  font-size:.9rem;
+  line-height:1;
+  text-align:center;
+  text-transform:uppercase;
+  letter-spacing:.02em;
+
+  background:#1e1e1e;
+  color:#f0f0f0;
+
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  appearance:none;
+}
+.code-input option{ font-size:.92rem; text-transform:uppercase; }
+
+/* Group colours by first letter */
+.code-input.group-m{ background:var(--green); color:#000 }
+.code-input.group-d{ background:var(--purple); color:#fff }
+.code-input.group-a{ background:var(--orange); color:#000 }
+.code-input.group-n{ background:var(--yellow); color:#000 }
+
+/* Specific overrides */
+.code-input.ssc, .code-input.sc{ background:var(--red); color:#fff }
+
+/* Keep AL/PL/SPL blue (and TOUI/TOU8) */
+.code-input.al, .code-input.pl, .code-input.spl,
+.code-input.toui, .code-input.tou8{
+  background:var(--blue) !important; color:#fff !important;
+}
+
+/* ==============================
+   Annotation dropdown (2nd line)
+   ============================== */
+.annot-select{
+  height:20px;
+  margin-top:1px;
+  font-size:.72rem;
+  text-align:center;
+  background:#262626;
+  color:#ddd;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  appearance:none;
+  border-color:transparent;
+}
+.annot-select.has-annotation{
+  background:#ffeb3b !important;
+  color:#000 !important;
+  font-weight:800;
+  border-color:#f1c40f;
+  box-shadow:0 0 0 1px rgba(0,0,0,.25) inset, 0 0 8px rgba(255,235,59,.55);
+}
+.annot-select.has-annotation option{ background:#111; color:#fff; }
+
+/* ==============================
+   RAG Counters + Totals
+   ============================== */
+tfoot td{background:var(--card); font-weight:bold; color:var(--text)}
+.totcell{font-size:.7rem; line-height:1.2}
+.rag.green{color:#2ecc71}
+.rag.amber{color:#f1c40f}
+.rag.red{color:#e74c3c}
+
+/* OT totals highlight helpers (apply to cells/spans) */
+.ot-green{ background:#1b5e20 !important; color:#fff !important; font-weight:700; }
+.ot-amber{ background:#f9a825 !important; color:#000 !important; font-weight:700; }
+.ot-red{ background:#c62828 !important; color:#fff !important; font-weight:700; }
+
+/* ==============================
+   Fatigue (screen only)
+   ============================== */
+.cell.fatigue{
+  background:#ff2b2b !important;
+  border-color:#ff2b2b !important;
+  box-shadow: 0 0 0 2px #ff2b2b inset,
+              0 0 8px rgba(255, 43, 43, 0.9),
+              0 0 16px rgba(255, 43, 43, 0.6);
+  animation: fatigue-pulse 1.5s ease-in-out infinite;
+}
+.cell.fatigue .code-input{
+  background: transparent !important;
+  color:#fff !important;
+  font-weight:700;
+  text-shadow:0 1px 1px rgba(0,0,0,.4);
+  outline:none;
+  border:none;
+}
+.cell.fatigue .code-input option{ background:#222; color:#fff; }
+.cell.fatigue::after{
+  content:"⚠️"; position:absolute; top:-6px; right:-6px; font-size:.9rem;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.5));
+}
+.cell.fatigue::before{
+  content:""; position:absolute; inset:-1px; border:2px solid #ff2b2b; border-radius:2px; pointer-events:none;
+}
+@keyframes fatigue-pulse{
+  0%{   box-shadow: 0 0 0 2px #ff2b2b inset, 0 0 8px rgba(255,43,43,.9), 0 0 16px rgba(255,43,43,.6); }
+  50%{  box-shadow: 0 0 0 2px #ff2b2b inset, 0 0 14px rgba(255,43,43,1),  0 0 26px rgba(255,43,43,.9); }
+  100%{ box-shadow: 0 0 0 2px #ff2b2b inset, 0 0 8px rgba(255,43,43,.9),  0 0 16px rgba(255,43,43,.6); }
+}
+
+/* ==============================
+   Admin Cards
+   ============================== */
+.card{
+  background:var(--card); border:1px solid var(--line);
+  border-radius:6px; padding:1rem; margin-bottom:1.5rem;
+  box-shadow:0 1px 3px rgba(0,0,0,.4);
+}
+.card h3{margin-top:0; color:#fff}
+.row{display:flex; flex-wrap:wrap; gap:.5rem; align-items:center}
+.row label{font-size:.8rem; color:#ddd}
+.mini th,.mini td{padding:.2rem .4rem}
+
+/* ==============================
+   Expiry warnings
+   ============================== */
+.exp-orange { background:#ff9800; color:#000; font-weight:700; }
+.exp-red { background:#e53935; color:#fff; font-weight:700; }
+
+/* ==============================
+   Metrics heat rules
+   ============================== */
+.tr-warn { background:#ffb74d !important; color:#000 !important; }
+.tr-danger { background:#ef5350 !important; color:#fff !important; }
+
+/* Badges */
+.badge{ display:inline-block; padding:.05rem .35rem; border-radius:4px; margin-left:.35rem; font-size:.7rem; line-height:1; }
+.badge-soal{ background:#3498db; color:#fff; }
+/* U/T flag in orange fill */
+.badge-ut, .ut-flag{ background:#ff9800; color:#000; font-weight:700; padding:.05rem .35rem; border-radius:4px; }
+
+/* ==============================
+   Calendar subscribe spacing
+   ============================== */
+.cal-subscribe{
+  display:flex;
+  flex-direction:column;
+  gap:1rem;
+}
+.cal-subscribe .cal-row{
+  display:flex;
+  gap:0.9rem;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-bottom:0.25rem;
+}
+.cal-link{
+  display:inline-block;
+  margin-right:.6rem;
+  padding:.3rem .55rem;
+}
+
+/* ==============================
+   Responsive + Dynamic scaling
+   ============================== */
+table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
+.roster .cell .code-input { font-size: calc(.9rem * var(--ui-scale)); height: calc(28px * var(--ui-scale)); }
+.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height: calc(20px * var(--ui-scale)); }
+th, td { font-size: calc(.82rem * var(--ui-scale)); }
+
+/* ==============================
+   Today column highlight (screen)
+   ============================== */
+.roster th.dayhead.is-today {
+  outline: 2px solid rgba(0,0,0,.15);
+  background: rgba(255,255,0,.10) !important;
+}
+.roster td.cell.is-today {
+  outline: 2px solid rgba(0,0,0,.15);
+  background: rgba(255,255,0,.08) !important;
+}
+/* Optional: visual overlay line if you inject a .today-col-outline element */
+.today-col-outline{
+  position:absolute; top:0; bottom:0; width:2px; background:#ffeb3b;
+  pointer-events:none; z-index:5; opacity:.6;
+}
+
+/* ==============================
+   PRINT STYLES
+   ============================== */
+@media print{
+  /* Page & colours */
+  html, body{
+    background:#fff !important;
+    color:#000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page{
+    size: A4 landscape;
+    margin:6mm;             /* a bit smaller to use more width */
+  }
+
+  /* Hide chrome */
+  .site-header, .flashes, .month-nav, .main-nav, .btn, a.nav-link { display:none !important; }
+
+  /* Table fills the page width */
+  table{
+    width:100% !important;
+    table-layout: fixed !important;      /* even column widths */
+    border-collapse:collapse !important;
+    background:#fff !important; color:#000 !important;
+    border-color:#000 !important;
+    font-size:0.74rem;                    /* slightly larger for readability */
+    transform:none !important;
+  }
+  thead{ display:table-header-group; }
+  tfoot{ display:table-footer-group; }
+  th.sticky{ position:static !important; top:auto !important; }
+
+  /* All cells: white with strong black grid */
+  th, td{
+    background:#fff !important;
+    border:1px solid #000 !important;
+    color:#000 !important;
+  }
+  .roster th.weekend{ background:#fff !important; color:#000 !important; }
+  tfoot td{ background:#fff !important; }
+
+  /* Keep grid alignment: collapse (don't remove) these columns */
+  th.col-staff, td.col-staff,
+  th.col-date,  td.col-date{
+    visibility:hidden !important;       /* stays in the column model */
+    width:0 !important;
+    min-width:0 !important;
+    max-width:0 !important;
+    padding:0 !important;
+    border-left:none !important;
+    border-right:none !important;
+  }
+
+  /* Name & Watch tuned sizes */
+  th.col-name, td.col-name{
+    width:120px !important;
+    min-width:120px !important;
+    max-width:140px !important;
+    white-space:normal !important;
+    overflow:visible !important;
+    text-align:left !important;
+    font-weight:600;
+  }
+  th.col-watch, td.col-watch{
+    width:26px !important;
+    min-width:26px !important;
+    max-width:28px !important;
+  }
+
+  /* Day cells: let them expand to fill remaining space evenly */
+  .roster .cell{
+    width:auto !important;
+    min-width:0 !important;              /* override screen min 54px */
+    max-width:none !important;
+    padding:0 !important;
+  }
+
+  /* Footer readability */
+  .totcell{ font-size:.68rem !important; line-height:1.15 !important; }
+
+  /* Remove fatigue glow + today highlight (keep the column visible) */
+  *{ animation:none !important; box-shadow:none !important; }
+  .cell.fatigue{ background:inherit !important; border-color:inherit !important; }
+  .cell.fatigue::before, .cell.fatigue::after{ display:none !important; }
+  .roster th.dayhead.is-today,
+  .roster td.cell.is-today{ outline:none !important; background:transparent !important; }
+  .today-col-outline{ display:none !important; }
+
+  /* Keep coloured shift backgrounds */
+  select.code-input{ color:#000 !important; }
+  .code-input.group-m{ background: var(--green) !important; color:#000 !important; }
+  .code-input.group-d{ background: var(--purple) !important; color:#fff !important; }
+  .code-input.group-a{ background: var(--orange) !important; color:#000 !important; }
+  .code-input.group-n{ background: var(--yellow) !important; color:#000 !important; }
+  .code-input.al, .code-input.pl, .code-input.spl,
+  .code-input.toui, .code-input.tou8{ background: var(--blue) !important; color:#000 !important; }
+  .code-input.sc, .code-input.ssc{ background: var(--red) !important; color:#000 !important; }
+
+  /* Clean select rendering while keeping backgrounds */
+  select{
+    appearance:none !important;
+    -webkit-appearance:none !important;
+    border:none !important;
+    padding:0 !important;
+    color:#000 !important;
+    background:transparent !important;
+  }
+
+  /* Avoid splitting a staff row across pages */
+  .roster tr{ page-break-inside: avoid; }
+}
+
+
+
+/* ==============================
+   Page margins for print (fallback)
+   ============================== */
+@page{
+  size: A4 landscape;
+  margin:8mm;
+}
+
+
+/* EM uses Morning colour */
+.code-input.em { background: var(--yellow); color: #000; }
+.code-input.group-e { background: var(--yellow); color: #000; }
+
+.chip.ot-flag-sick{ background:#f9a825; color:#000; font-weight:700; }

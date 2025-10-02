@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"><title>Change Log</title>
+  <style>body{font-family:system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:.5rem;vertical-align:top}th{background:#fafafa;text-align:left}.filters{margin:.5rem 0;padding:.5rem;border:1px solid #eee;border-radius:8px}code{white-space:pre-wrap;word-break:break-word}</style>
+</head>
+<body>
+  <h1>Change Log</h1>
+  <form method="get" class="filters">
+    <label>Month (YYYY-MM): <input type="text" name="ym" value="{{ ym or '' }}"></label>
+    <label>Entity type: <input type="text" name="entity_type" value="{{ entity_type or '' }}"></label>
+    <label>User ID: <input type="text" name="who" value="{{ who or '' }}"></label>
+    <button type="submit">Filter</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>When (UTC)</th>
+        <th>User</th>
+        <th>Entity</th>
+        <th>Field</th>
+        <th>Old → New</th>
+        <th>Month</th>
+        <th>Note</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.when }}</td>
+        <td>{{ r.who_user_id }}</td>
+        <td>{{ r.entity_type }} #{{ r.entity_id }}</td>
+        <td>{{ r.field }}</td>
+        <td><code>{{ r.old_value }}</code> → <code>{{ r.new_value }}</code></td>
+        <td>{{ r.context_month }}</td>
+        <td>{{ r.note }}</td>
+      </tr>
+      {% endfor %}
+      {% if not rows %}
+      <tr><td colspan="7">No results.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</body>
+</html>

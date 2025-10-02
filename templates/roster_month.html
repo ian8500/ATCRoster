@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Roster {{ month_title }}{% endblock %}
+
+{% block content %}
+<style>
+  :root { --today-col: rgba(255,255,0,.85); }
+
+  /* Ensure cells can host absolutely-positioned overlays */
+  .roster th.dayhead { position: sticky; }
+  .roster td.cell { position: relative; }
+  .roster td.totcell { position: relative; }
+
+  /* Subtle background tint for today */
+  .roster th.dayhead.is-today { background: rgba(255,255,0,.10) !important; }
+  .roster td.cell.is-today { background: rgba(255,255,0,.07) !important; }
+
+  /* Draw the column outline ABOVE controls using ::before overlays */
+  .roster th.dayhead.is-today::before{
+    content:"";
+    position:absolute;
+    inset:-1px;
+    border-top:3px solid var(--today-col);
+    border-left:3px solid var(--today-col);
+    border-right:3px solid var(--today-col);
+    pointer-events:none;
+    z-index:5; /* above selects */
+  }
+  .roster td.cell.is-today::before{
+    content:"";
+    position:absolute;
+    inset:-1px;
+    border-left:3px solid var(--today-col);
+    border-right:3px solid var(--today-col);
+    pointer-events:none;
+    z-index:5; /* above selects */
+  }
+  .roster td.totcell.is-today::before{
+    content:"";
+    position:absolute;
+    inset:-1px;
+    border-bottom:3px solid var(--today-col);
+    border-left:3px solid var(--today-col);
+    border-right:3px solid var(--today-col);
+    pointer-events:none;
+    z-index:5;
+  }
+
+  /* Request badge (unchanged) */
+  .req-badge{ display:inline-block; font-size:10px; padding:2px 4px; border-radius:4px; border:1px solid rgba(0,0,0,.2); }
+
+  /* Tighten spacing (unchanged) */
+  .roster-grid{ margin-bottom:0; }
+  .roster-footer{ margin-top:.5rem; }
+
+  @media print{
+    /* Hide the overlay in print to avoid heavy borders */
+    .roster th.dayhead.is-today::before,
+    .roster td.cell.is-today::before,
+    .roster td.totcell.is-today::before{ display:none !important; }
+  }
+</style>
+
+<h2>ATC Roster – {{ month_title }}</h2>
+
+<div class="month-nav" style="margin:.5rem 0 1rem;">
+  {% if prev_ym %}
+    <a class="btn ghost" href="{{ url_for('roster_month', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
+  {% else %}
+    <span class="btn ghost" style="opacity:.4; pointer-events:none">&larr; —</span>
+  {% endif %}
+  <a class="btn ghost" href="{{ url_for('roster_month', ym=next_ym) }}" style="margin-left:.5rem;">{{ next_ym }} &rarr;</a>
+
+  <a class="btn" href="{{ url_for('roster_export_csv', ym=ym) }}" style="margin-left:1rem">Export CSV</a>
+  <button class="btn" onclick="printRoster()">Print</button>
+
+  {# Admin-only: Run AI for Month (POST) #}
+  {% if current_user.is_authenticated and is_admin %}
+    <form method="post"
+          action="{{ url_for('admin_ai_generate', ym=ym) }}"
+          style="display:inline;">
+      <button class="btn" type="submit" style="margin-left:.5rem;"
+              onclick="return confirm('Run AI for {{ month_title }} now?');">
+        Run AI for Month
+      </button>
+    </form>
+  {% endif %}
+</div>
+
+<!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
+<div id="roster"
+     data-can-edit="{{ '1' if can_edit else '0' }}"
+     data-readonly="{{ '1' if readonly else '0' }}">
+
+<table class="roster">
+  <thead>
+    <tr>
+      <th class="sticky left col-name">Name</th>
+      <th class="sticky left col-staff">Staff #</th>
+      <th class="sticky left col-date">Medical</th>
+      <th class="sticky left col-date">Tower UE</th>
+      <th class="sticky left col-date">Radar UE</th>
+      <th class="sticky left col-date">MET UE</th>
+      <th class="sticky left col-watch">W</th>
+      {% for d in days %}
+        {% set dow = d.strftime('%a') %}
+        <th class="dayhead {% if d.weekday() in [5,6] %}weekend{% endif %}{% if d == today %} is-today{% endif %}">
+          {{ d.day }}<br><span class="dow">{{ dow }}</span>
+        </th>
+      {% endfor %}
+    </tr>
+  </thead>
+
+  <tbody>
+    {% for s in staff %}
+      <tr class="{% if s.id in watch_break_after_ids %}watch-break{% endif %}">
+        <td class="left col-name">{{ s.name }}</td>
+        <td class="left col-staff">{{ s.staff_no }}</td>
+        <td class="left small col-date">
+          {% if s.medical_expiry %}{{ s.medical_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
+        </td>
+        <td class="left small col-date {% if s.tower_ut %}exp-orange{% endif %}">
+          {% if s.tower_ut %}U/T{% elif s.tower_ue_expiry %}{{ s.tower_ue_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
+        </td>
+        <td class="left small col-date {% if s.radar_ut %}exp-orange{% endif %}">
+          {% if s.radar_ut %}U/T{% elif s.radar_ue_expiry %}{{ s.radar_ue_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
+        </td>
+        <td class="left small col-date {% if s.met_ut %}exp-orange{% endif %}">
+        {% if s.met_ut %}U/T{% elif s.met_ue_expiry %}{{ s.met_ue_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}
+        </td>
+        <td class="left small col-watch">
+          {% if s.watch %}{{ s.watch.name.replace('Watch ', '') }}{% else %}-{% endif %}
+        </td>
+
+        {% for d in days %}
+          {% set code = a_map.get(s.id, {}).get(d, "") %}          
+          {% set f = fatigue.get(s.id, {}).get(d) %}
+          {% set ann  = ann_map.get(s.id, {}).get(d, "") %}
+          {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
+          <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}">
+            <!-- SHIFT CODE -->
+            <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+              <select
+                name="code"
+                class="code-input {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
+                onchange="this.form.submit()"
+                {% if (not can_edit) or readonly %}disabled{% endif %}
+                {% if f %}title="{{ ', '.join(f) }}"{% endif %}
+                aria-invalid="{% if f %}true{% else %}false{% endif %}"
+              >
+                <option value="" {% if not code %}selected{% endif %}>—</option>
+
+                {# always display existing leave/sickness/TOIL-use in the cell, but disabled so it can't be picked here #}
+                {% if code in ['SC','SSC','AL','PL','SPL','TOU8','TOUI'] %}
+                  <option value="{{ code }}" selected disabled>{{ code }}</option>
+                {% endif %}
+
+                <optgroup label="Working shifts">
+                  {% for sh in shifts_working %}
+                    {% set dis = 'disabled' if sh.code in ['SC','SSC'] else '' %}
+                    <option value="{{ sh.code }}" {{ dis }} {% if sh.code == code %}selected{% endif %}>{{ sh.code }}</option>
+                  {% endfor %}
+                </optgroup>
+                <optgroup label="Training shifts">
+                  {% for sh in shifts_training %}
+                    <option value="{{ sh.code }}" {% if sh.code == code %}selected{% endif %}>{{ sh.code }}</option>
+                  {% endfor %}
+                </optgroup>
+                <optgroup label="Non-working">
+                  {% for sh in shifts_non %}
+                    <option value="{{ sh.code }}" {% if sh.code == code %}selected{% endif %}>{{ sh.code }}</option>
+                  {% endfor %}
+                </optgroup>
+              </select>
+            </form>
+
+            {% set req_code = req_pending_map.get((s.id, d)) %}
+            {% if req_code %}
+              <div class="req-badge" title="Request: {{ req_code }}">{{ req_code }}</div>
+            {% endif %}
+
+            <!-- ANNOTATION -->
+            <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+              <select
+                name="annotation"
+                class="annot-select {% if ann %}has-annotation{% endif %}"
+                onchange="this.form.submit()"
+                {% if (not can_edit) or readonly %}disabled{% endif %}
+                title="Annotate"
+              >
+                <option value="" {% if not ann %}selected{% endif %}>—</option>
+                <optgroup label="Extensions">
+                  <option value="EXTS" {% if ann=='EXTS' %}selected{% endif %}>Short EXT</option>
+                  <option value="EXTL" {% if ann=='EXTL' %}selected{% endif %}>Long EXT</option>
+                </optgroup>
+                <optgroup label="Swap">
+                  <option value="SWAP" {% if ann=='SWAP' %}selected{% endif %}>Swap</option>
+                </optgroup>
+                <optgroup label="Overtime">
+                  <option value="A2"  {% if ann=='A2' %}selected{% endif %}>A2</option>
+                  <option value="A4"  {% if ann=='A4' %}selected{% endif %}>A4</option>
+                  <option value="A6"  {% if ann=='A6' %}selected{% endif %}>A6</option>
+                  <option value="A8"  {% if ann=='A8' %}selected{% endif %}>A8</option>
+                  <option value="SOAL" {% if ann=='SOAL' %}selected{% endif %}>SOAL</option>
+                  <option value="TOA8" {% if ann=='TOA8' %}selected{% endif %}>TOA8 (TOIL +1.0)</option>
+                  <option value="TOAI" {% if ann=='TOAI' %}selected{% endif %}>TOAI (TOIL +0.5)</option>
+                </optgroup>
+              </select>
+            </form>
+          </td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+  </tbody>
+
+  <tfoot>
+    <tr class="total-row">
+      <td class="left" colspan="7"><strong>Counts (Operational only)</strong></td>
+      {% for d in days %}
+        {% set m = counters[d]["M"] %}
+        {% set dday = counters[d]["D"] %}
+        {% set a = counters[d]["A"] %}
+        {% set n = counters[d]["N"] %}
+        {% set total = m + dday + a + n %}
+        <td class="totcell{% if d == today %} is-today{% endif %}">
+          <div><strong>Total {{ total }}</strong></div>
+          <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ requirement.req_m if requirement else 0 }}</div>
+          <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ requirement.req_d if requirement else 0 }}</div>
+          <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ requirement.req_a if requirement else 0 }}</div>
+          <div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ requirement.req_n if requirement else 0 }}</div>
+        </td>
+      {% endfor %}
+    </tr>
+  </tfoot>
+</table>
+</div> <!-- /#roster -->
+
+<script>
+  function printRoster(){ window.print(); }
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Manual TOIL Adjustments</h2>
+<form method="post">
+  <label>ATCO</label>
+  <select name="staff_id" required>
+    {% for s in atcos %}
+      <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }}) — current balance: {{ (s.toil_half_days or 0)/2 }} days</option>
+    {% endfor %}
+  </select>
+
+  <label>Amount</label>
+  <input type="number" name="amount" step="0.25" min="0" required>
+
+  <label>Unit</label>
+  <select name="unit">
+    <option value="days">Days</option>
+    <option value="hours">Hours</option>
+  </select>
+
+  <label>Note</label>
+  <input type="text" name="note" placeholder="Reason / ref">
+
+  <button type="submit" class="btn">Update TOIL</button>
+</form>
+{% endblock %}
