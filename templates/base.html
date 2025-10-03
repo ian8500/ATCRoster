@@ -85,13 +85,45 @@
 
     // Auto-fit roster to viewport (scale UI, avoid horizontal scroll)
     function fitRoster() {
-      const table = document.querySelector('table.roster');
-      if(!table) return;
-      const containerWidth = document.documentElement.clientWidth - 24;
+      const table = document.querySelector('#roster table.roster, table.roster');
+      if (!table) return;
+
+      const host = table.closest('#roster') || table.parentElement;
+      const hostRect = host ? host.getBoundingClientRect() : null;
+      let containerWidth = hostRect && hostRect.width ? hostRect.width : 0;
+
+      if (!containerWidth) {
+        containerWidth = host && host.clientWidth ? host.clientWidth : 0;
+      }
+
+      if (!containerWidth) {
+        containerWidth = document.documentElement.clientWidth - 24;
+      }
+
       const tableWidth = table.scrollWidth;
-      let scale = Math.min(1, containerWidth / tableWidth);
-      if (scale < 0.6) scale = 0.6; // keep controls usable
+      if (!tableWidth) return;
+
+      const dayCount = host && host.dataset ? Number(host.dataset.dayCount || 0) : 0;
+      let minScale = 0.55;
+      if (dayCount) {
+        if (dayCount <= 29) {
+          minScale = 0.70;
+        } else if (dayCount === 30) {
+          minScale = 0.62;
+        }
+      }
+
+      let scale = containerWidth / tableWidth;
+      if (!Number.isFinite(scale) || scale <= 0) {
+        scale = 1;
+      }
+      scale = Math.min(1, scale);
+      if (scale < minScale) scale = minScale;
+
       document.documentElement.style.setProperty('--ui-scale', scale.toFixed(3));
+      if (host) {
+        host.dataset.scale = scale.toFixed(3);
+      }
     }
 
     // Schedule layout work so rapid resize events don't thrash the layout engine
@@ -105,18 +137,51 @@
       });
     }
 
+    let rosterResizeObserver = null;
+
     window.addEventListener('load', () => {
       fitRoster();
       window.addEventListener('resize', scheduleFit, { passive: true });
-      if (window.ResizeObserver){
+
+      const table = document.querySelector('#roster table.roster, table.roster');
+      const host = table ? (table.closest('#roster') || table.parentElement) : null;
+
+      if (window.ResizeObserver && table){
         try {
-          const ro = new ResizeObserver(() => scheduleFit());
-          ro.observe(document.body);
+          rosterResizeObserver = new ResizeObserver(() => scheduleFit());
+          rosterResizeObserver.observe(table);
+          if (host) {
+            rosterResizeObserver.observe(host);
+          }
         } catch (err) {
           console.warn('ResizeObserver unavailable', err);
         }
       }
+
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => scheduleFit()).catch(() => {});
+      }
     });
+
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) scheduleFit();
+    });
+
+    if (window.matchMedia) {
+      const printQuery = window.matchMedia('print');
+      if (printQuery) {
+        const printHandler = (event) => {
+          if (!event.matches) {
+            scheduleFit();
+          }
+        };
+        if (printQuery.addEventListener) {
+          printQuery.addEventListener('change', printHandler);
+        } else if (printQuery.addListener) {
+          printQuery.addListener(printHandler);
+        }
+      }
+    }
   </script>
 </body>
 </html>
