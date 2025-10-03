@@ -13,7 +13,7 @@ import io
 import csv
 import secrets
 from functools import lru_cache
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import json
 import json as _json
 
@@ -61,6 +61,11 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Jinja helper
 app.jinja_env.globals['now'] = lambda: datetime.now()
+
+
+def utcnow():
+    """Return the current UTC time as a timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 # Database & login
 db = SQLAlchemy(app, session_options={"expire_on_commit": False})
@@ -424,7 +429,7 @@ class ShiftRequest(db.Model):
     staff = db.relationship("Staff", backref="shift_requests")
     day = db.Column(db.Date, index=True, nullable=False)
     code = db.Column(db.String(10), nullable=False)
-    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    submitted_at = db.Column(db.DateTime, default=utcnow)
     __table_args__ = (db.UniqueConstraint("staff_id", "day",
                       name="uniq_shift_request_staff_day"),)
     # >>> NEW admin response fields
@@ -447,7 +452,7 @@ class AiRuleSet(db.Model):
 class ChangeLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     when = db.Column(db.DateTime, nullable=False,
-                     default=datetime.utcnow, index=True)
+                     default=utcnow, index=True)
     who_user_id = db.Column(db.Integer, index=True)
     entity_type = db.Column(db.String(40), index=True)
     entity_id = db.Column(db.Integer, index=True)
@@ -1730,7 +1735,7 @@ def _context_month_for_date(d: date | None) -> str | None:
 def log_change(entity_type: str, entity_id: int, field: str, old, new, note: str = "", context_day: date | None = None):
     try:
         entry = ChangeLog(
-            when=datetime.utcnow(),
+            when=utcnow(),
             who_user_id=getattr(current_user, "id", None),
             entity_type=entity_type,
             entity_id=entity_id,
@@ -2073,7 +2078,7 @@ def roster_month(ym):
         fn = globals().get("watch_id_for_staff_on")
         if callable(fn):
             return fn(sid, on_date)
-        s = Staff.query.get(sid)
+        s = db.session.get(Staff, sid)
         return s.watch_id if s else None
 
     display_watch_by_staff = {s.id: _watch_for(s.id, start) for s in staff}
@@ -2328,7 +2333,7 @@ def assign_cell(staff_id, ym, day):
         if status == "pending":
             req.status = "closed"
         if not req.responded_at:
-            req.responded_at = datetime.utcnow()
+            req.responded_at = utcnow()
         if not req.responded_by_id:
             req.responded_by_id = getattr(current_user, "id", None)
 
@@ -3942,7 +3947,7 @@ def admin_request_respond(rid):
     r.admin_response = (request.form.get("admin_response") or "").strip()
     r.status = request.form.get("status", r.status or "pending")
     r.responded_by_id = getattr(current_user, "id", None)
-    r.responded_at = datetime.utcnow()
+    r.responded_at = utcnow()
     db.session.commit()
     flash("Response saved.", "ok")
     return redirect(url_for("requests_page"))
