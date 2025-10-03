@@ -89,23 +89,6 @@ body::before{
   gap:clamp(1.5rem, 1vw + 1rem, 2.5rem);
 }
 
-.skip-link{
-  position:fixed;
-  left:1.5rem;
-  top:1rem;
-  padding:.65rem 1.25rem;
-  border-radius:999px;
-  background:var(--accent-strong);
-  color:#fff;
-  font-weight:600;
-  text-decoration:none;
-  transform:translateY(-160%);
-  transition:transform .25s ease;
-  z-index:2000;
-}
-
-.skip-link:focus{transform:none;}
-
 h1,h2,h3{
   margin:0 0 1rem;
   color:#fff;
