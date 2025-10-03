@@ -39,7 +39,8 @@ def setup_database():
         db.create_all()
 
         watch_a = Watch(name="Watch A", order_index=1)
-        db.session.add(watch_a)
+        watch_b = Watch(name="Watch B", order_index=2)
+        db.session.add_all([watch_a, watch_b])
 
         shifts = [
             ShiftType(code="M", name="Morning", start_time=time(7, 0), end_time=time(15, 0), is_working=True),
@@ -141,8 +142,71 @@ def test_admin_staff_edit_handles_missing_watch_history(client):
         )
         db.session.add(hist)
         db.session.commit()
+        hist_id = hist.id
 
     login(client)
     resp = client.get(f"/admin/staff/{staff.id}")
     assert resp.status_code == 200
     assert b"Unknown watch" in resp.data
+
+    with app.app.app_context():
+        StaffWatchHistory.query.filter_by(id=hist_id).delete()
+        db.session.commit()
+
+
+def test_admin_watch_move_flow(client):
+    login(client)
+
+    with app.app.app_context():
+        staff = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
+        watch_a = Watch.query.filter_by(name="Watch A").first()
+        watch_b = Watch.query.filter_by(name="Watch B").first()
+
+    # Create a new watch move and ensure redirect ends on staff edit page
+    create_resp = client.post(
+        f"/admin/staff/{staff.id}/watch-move",
+        data={"watch_id": watch_b.id, "effective_date": "2025-06-01"},
+        follow_redirects=True,
+    )
+    assert create_resp.status_code == 200
+    assert b"Watch move recorded" in create_resp.data
+
+    with app.app.app_context():
+        history = (
+            StaffWatchHistory.query.filter_by(staff_id=staff.id)
+            .order_by(StaffWatchHistory.effective_date.desc())
+            .all()
+        )
+        assert history, "Watch move history should exist after creating a move"
+        entry = history[0]
+        assert entry.watch_id == watch_b.id
+
+    # Update the existing watch move to a different watch and effective date
+    update_resp = client.post(
+        f"/admin/staff/watch-move/{entry.id}/edit",
+        data={"watch_id": watch_a.id, "effective_date": "2025-07-01"},
+        follow_redirects=True,
+    )
+    assert update_resp.status_code == 200
+    assert b"Watch move updated" in update_resp.data
+
+    with app.app.app_context():
+        updated_entry = StaffWatchHistory.query.get(entry.id)
+        assert updated_entry is not None
+        assert updated_entry.watch_id == watch_a.id
+        assert str(updated_entry.effective_date) == "2025-07-01"
+
+    # Delete the watch move and ensure other admin links still load
+    delete_resp = client.post(
+        f"/admin/staff/watch-move/{entry.id}/delete",
+        follow_redirects=True,
+    )
+    assert delete_resp.status_code == 200
+    assert b"Watch move deleted" in delete_resp.data
+
+    with app.app.app_context():
+        assert StaffWatchHistory.query.get(entry.id) is None
+
+    # Sanity check that the main admin dashboard still renders after the flow
+    admin_resp = client.get("/admin")
+    assert admin_resp.status_code == 200
