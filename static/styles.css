@@ -660,6 +660,183 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
    ============================== */
 .row{display:flex; flex-wrap:wrap; gap:.65rem; align-items:center;}
 .row label{font-size:.8rem; color:#ddd;}
+
+/* ==============================
+   Admin dashboard
+   ============================== */
+.admin-intro{
+  display:flex;
+  flex-direction:column;
+  gap:.35rem;
+  padding-bottom:.5rem;
+}
+
+.intro-lead{
+  color:var(--text-muted);
+  max-width:780px;
+}
+
+.admin-dashboard{
+  display:grid;
+  gap:1.75rem;
+  grid-template-columns:repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.admin-section{
+  background:linear-gradient(150deg, rgba(24,33,53,.88), rgba(14,22,38,.9));
+  border-radius:var(--radius-lg);
+  border:1px solid rgba(101,126,173,.24);
+  box-shadow:var(--shadow-pop);
+  padding:1.75rem;
+  display:flex;
+  flex-direction:column;
+  gap:1.5rem;
+  position:relative;
+}
+
+.admin-section--collapsible{
+  padding:0;
+  overflow:hidden;
+}
+
+.admin-section--wide{
+  grid-column:1 / -1;
+}
+
+.section-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:1rem;
+}
+
+.section-subtitle{
+  margin:0;
+  color:var(--text-muted);
+  font-size:.92rem;
+}
+
+.section-body{
+  display:flex;
+  flex-direction:column;
+  gap:1.25rem;
+}
+
+.form-actions{
+  display:flex;
+  justify-content:flex-end;
+}
+
+.admin-table input,
+.inline-form input,
+.staff-form input,
+.staff-form select{
+  background:rgba(13,20,36,.85);
+  border:1px solid rgba(110,133,175,.45);
+  border-radius:var(--radius-sm);
+  color:var(--text);
+  padding:.35rem .55rem;
+  font-family:var(--font-sans);
+  font-size:.9rem;
+}
+
+.admin-table input:focus,
+.inline-form input:focus,
+.staff-form input:focus,
+.staff-form select:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 2px rgba(108,179,255,.25);
+}
+
+.table-input{width:100%; max-width:88px;}
+
+.table-label{font-weight:600; letter-spacing:.04em; font-size:.85rem;}
+
+.table-actions{white-space:nowrap; text-align:right;}
+
+.table-scroll{width:100%; overflow-x:auto; padding-bottom:.35rem;}
+
+.table-scroll table{min-width:620px;}
+
+.inline-form{display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center;}
+
+.inline-form--tight{gap:.4rem .75rem; justify-content:flex-start;}
+
+.inline-form button{margin-left:auto;}
+
+.input-sm{width:90px;}
+.input-lg{width:150px;}
+.input-xl{width:220px;}
+
+.checkbox{display:flex; align-items:center; gap:.35rem; font-size:.85rem;}
+.checkbox input{margin:0;}
+
+.form-divider{
+  flex-basis:100%;
+  height:1px;
+  background:linear-gradient(90deg, transparent, rgba(108,129,168,.45), transparent);
+}
+
+.staff-form{gap:.65rem 1.1rem; align-items:flex-start;}
+
+.admin-section--collapsible summary{
+  list-style:none;
+  cursor:pointer;
+  padding:1.5rem 1.75rem;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:1.25rem;
+}
+
+.admin-section--collapsible summary::-webkit-details-marker{display:none;}
+
+.section-header--summary{margin:0;}
+
+.section-toggle{display:inline-flex; width:32px; height:32px; border-radius:50%; align-items:center; justify-content:center; background:rgba(108,179,255,.16); color:var(--accent); transition:transform .25s ease;}
+
+.admin-section--collapsible[open] .section-toggle{transform:rotate(180deg);}
+
+.collapsible-card{
+  background:rgba(15,23,40,.65);
+  border:1px solid rgba(108,129,168,.28);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+}
+
+.collapsible-card summary{
+  padding:1rem 1.25rem;
+  font-weight:600;
+  cursor:pointer;
+  list-style:none;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.75rem;
+}
+
+.collapsible-card summary::-webkit-details-marker{display:none;}
+
+.collapsible-card[open] summary{background:rgba(108,129,168,.08);}
+
+.collapsible-card > *:not(summary){padding:1.1rem 1.25rem 1.35rem;}
+
+.admin-actions{
+  margin-top:2rem;
+  padding:1.65rem 1.9rem;
+  display:flex;
+  flex-direction:column;
+  gap:1rem;
+  background:linear-gradient(150deg, rgba(28,40,65,.88), rgba(14,22,38,.9));
+  border-radius:var(--radius-lg);
+  border:1px solid rgba(101,126,173,.24);
+  box-shadow:var(--shadow-pop);
+}
+
+.admin-actions h3{margin:0; font-size:1.2rem;}
+
+.action-buttons{display:flex; flex-wrap:wrap; gap:.75rem;}
 .mini th,.mini td{padding:.2rem .4rem;}
 
 .exp-green { background:#2e7d32; color:#fff; font-weight:700; }

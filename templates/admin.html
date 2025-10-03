@@ -2,177 +2,217 @@
 {% block title %}Admin{% endblock %}
 
 {% block content %}
-<h2>Administration</h2>
+<div class="admin-intro">
+  <h2 class="page-title">Administration</h2>
+  <p class="intro-lead">Manage staffing requirements, shift definitions, and team access from one streamlined hub.</p>
+</div>
 
-<!-- Row: Requirements + Shifts -->
-<div class="row" style="align-items:flex-start; margin-top:1rem;">
-
-  <!-- Requirements -->
-  <div class="card" style="flex:1 1 520px; min-width:420px;">
-    <h3>Monthly Requirements</h3>
-    <form method="post">
+<div class="admin-dashboard">
+  <section class="admin-section">
+    <header class="section-header">
+      <div>
+        <h3>Monthly Requirements</h3>
+        <p class="section-subtitle">Tune the minimum staffing levels for each shift category across the upcoming months.</p>
+      </div>
+    </header>
+    <form method="post" class="section-body">
       <input type="hidden" name="form" value="req">
-      <table class="mini">
+      <table class="mini admin-table">
         <thead>
           <tr>
-            <th>Month</th><th>M</th><th>D</th><th>A</th><th>N</th>
+            <th>Month</th>
+            <th>M</th>
+            <th>D</th>
+            <th>A</th>
+            <th>N</th>
           </tr>
         </thead>
         <tbody>
           {% for y,m in months %}
             {% set r = requirements_by_month.get((y,m)) %}
             <tr>
-              <td>
+              <td class="table-label">
                 <input type="hidden" name="ym" value="{{ '%04d-%02d'|format(y,m) }}">
                 {{ '%04d-%02d'|format(y,m) }}
               </td>
-              <td><input type="number" name="req_m" value="{{ r.req_m if r else 0 }}" style="width:70px"></td>
-              <td><input type="number" name="req_d" value="{{ r.req_d if r else 0 }}" style="width:70px"></td>
-              <td><input type="number" name="req_a" value="{{ r.req_a if r else 0 }}" style="width:70px"></td>
-              <td><input type="number" name="req_n" value="{{ r.req_n if r else 0 }}" style="width:70px"></td>
+              <td><input type="number" name="req_m" value="{{ r.req_m if r else 0 }}" class="table-input"></td>
+              <td><input type="number" name="req_d" value="{{ r.req_d if r else 0 }}" class="table-input"></td>
+              <td><input type="number" name="req_a" value="{{ r.req_a if r else 0 }}" class="table-input"></td>
+              <td><input type="number" name="req_n" value="{{ r.req_n if r else 0 }}" class="table-input"></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
-      <div style="margin-top:.6rem;">
-        <button class="btn" type="submit">Save Requirements</button>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save Requirements</button>
       </div>
     </form>
+  </section>
+
+  <details class="admin-section admin-section--collapsible" open>
+    <summary class="section-header section-header--summary">
+      <div>
+        <h3>Shifts</h3>
+        <p class="section-subtitle">Create, update, or retire shift templates without leaving the page.</p>
+      </div>
+      <span class="section-toggle" aria-hidden="true">
+        <i class="fa-solid fa-chevron-down"></i>
+      </span>
+    </summary>
+    <div class="section-body stack">
+      <details class="collapsible-card" open>
+        <summary class="collapsible-title">Add Shift</summary>
+        <form method="post" class="row inline-form">
+          <input type="hidden" name="form" value="shift_new">
+          <label>Code <input name="code" required class="input-sm"></label>
+          <label>Name <input name="name" class="input-lg"></label>
+          <label>Start <input name="start" placeholder="HH:MM" class="input-sm"></label>
+          <label>End <input name="end" placeholder="HH:MM" class="input-sm"></label>
+          <label class="checkbox"><input type="checkbox" name="is_working"> Working</label>
+          <label class="checkbox"><input type="checkbox" name="is_training"> Training</label>
+          <button class="btn" type="submit">Add</button>
+        </form>
+      </details>
+
+      <details class="collapsible-card" open>
+        <summary class="collapsible-title">Existing Shifts</summary>
+        <div class="table-scroll">
+          <table class="mini admin-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Working</th>
+                <th>Training</th>
+                <th colspan="2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for sh in shifts %}
+                <tr>
+                  <td>{{ sh.code }}</td>
+                  <td>{{ sh.name }}</td>
+                  <td>{{ sh.start_time and sh.start_time.strftime("%H:%M") or "" }}</td>
+                  <td>{{ sh.end_time and sh.end_time.strftime("%H:%M") or "" }}</td>
+                  <td>{{ "Yes" if sh.is_working else "No" }}</td>
+                  <td>{{ "Yes" if sh.is_training else "No" }}</td>
+                  <td>
+                    <form method="post" class="row inline-form inline-form--tight">
+                      <input type="hidden" name="form" value="shift_edit">
+                      <input type="hidden" name="shift_id" value="{{ sh.id }}">
+                      <input name="name" value="{{ sh.name }}" class="input-lg">
+                      <input name="start" value="{{ sh.start_time.strftime('%H:%M') if sh.start_time else '' }}" placeholder="HH:MM" class="input-sm">
+                      <input name="end" value="{{ sh.end_time.strftime('%H:%M') if sh.end_time else '' }}" placeholder="HH:MM" class="input-sm">
+                      <label class="checkbox"><input type="checkbox" name="is_working" {% if sh.is_working %}checked{% endif %}> W</label>
+                      <label class="checkbox"><input type="checkbox" name="is_training" {% if sh.is_training %}checked{% endif %}> T</label>
+                      <button class="btn" type="submit">Update</button>
+                    </form>
+                  </td>
+                  <td class="table-actions">
+                    <form method="post" onsubmit="return confirm('Delete shift {{ sh.code }}?');">
+                      <input type="hidden" name="form" value="shift_delete">
+                      <input type="hidden" name="shift_id" value="{{ sh.id }}">
+                      <button class="btn" type="submit">Delete</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </details>
+
+  <section class="admin-section admin-section--wide">
+    <header class="section-header">
+      <div>
+        <h3>Staff</h3>
+        <p class="section-subtitle">Onboard new controllers and jump straight to profile maintenance.</p>
+      </div>
+    </header>
+    <div class="section-body stack">
+      <details class="collapsible-card" open>
+        <summary class="collapsible-title">Add ATCO</summary>
+        <form method="post" class="row staff-form">
+          <input type="hidden" name="form" value="staff_new">
+          <label>Name <input name="name" required class="input-xl"></label>
+          <label>Staff # <input name="staff_no" required class="input-sm"></label>
+          <label>Username <input name="username" required class="input-lg"></label>
+          <label>Watch
+            <select name="watch_id" required>
+              <option value="">—</option>
+              {% for w in watches %}
+                <option value="{{ w.id }}">{{ w.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Role
+            <select name="role">
+              <option value="user">user</option>
+              <option value="editor">editor</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+
+          <div class="form-divider" aria-hidden="true"></div>
+
+          <label class="checkbox"><input type="checkbox" name="is_wm"> Watch Manager</label>
+          <label class="checkbox"><input type="checkbox" name="is_dwm"> Deputy WM</label>
+          <label class="checkbox"><input type="checkbox" name="exclude_from_ot"> Exclude from OT</label>
+
+          <div class="form-divider" aria-hidden="true"></div>
+
+          <label>Leave year start (month)
+            <input type="number" name="leave_year_start_month" min="1" max="12" value="4" class="input-sm">
+          </label>
+          <label>Entitlement (days) <input type="number" name="leave_entitlement_days" value="25" class="input-sm"></label>
+          <label>Public holidays <input type="number" name="leave_public_holidays" value="8" class="input-sm"></label>
+          <label>Carryover (days) <input type="number" name="leave_carryover_days" value="0" class="input-sm"></label>
+
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Create ATCO</button>
+          </div>
+        </form>
+      </details>
+
+      <details class="collapsible-card">
+        <summary class="collapsible-title">All Staff (quick links)</summary>
+        <div class="table-scroll">
+          <table class="mini admin-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Watch</th>
+                <th>Role</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in staff %}
+                <tr>
+                  <td>{{ s.name }}</td>
+                  <td>{{ s.watch.name if s.watch else '-' }}</td>
+                  <td>{{ s.role }}</td>
+                  <td><a class="btn" href="{{ url_for('admin_staff_edit', sid=s.id) }}">Edit</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </section>
+</div>
+
+<section class="admin-actions">
+  <h3>Quick Actions</h3>
+  <div class="action-buttons">
+    <a class="btn" href="{{ url_for('admin_toil_new') }}">Manual TOIL Entry</a>
+    <a class="btn" href="{{ url_for('admin_ai_rules') }}">AI Rules</a>
+    <a class="btn" href="{{ url_for('change_log_page') }}">Change Log</a>
   </div>
-
-  <!-- Shifts -->
-  <div class="card" style="flex:1 1 520px; min-width:420px;">
-    <h3>Shifts</h3>
-
-    <!-- Add shift -->
-    <details open>
-      <summary style="cursor:pointer; font-weight:700; margin-bottom:.5rem;">Add Shift</summary>
-      <form method="post" class="row">
-        <input type="hidden" name="form" value="shift_new">
-        <label>Code <input name="code" required style="width:90px;"></label>
-        <label>Name <input name="name" style="width:180px;"></label>
-        <label>Start <input name="start" placeholder="HH:MM" style="width:90px;"></label>
-        <label>End <input name="end" placeholder="HH:MM" style="width:90px;"></label>
-        <label><input type="checkbox" name="is_working"> Working</label>
-        <label><input type="checkbox" name="is_training"> Training</label>
-        <button class="btn" type="submit">Add</button>
-      </form>
-    </details>
-
-    <!-- Edit existing shifts -->
-    <details open>
-      <summary style="cursor:pointer; font-weight:700; margin:.75rem 0 .5rem;">Existing Shifts</summary>
-      <table class="mini">
-        <thead>
-          <tr>
-            <th>Code</th><th>Name</th><th>Start</th><th>End</th><th>Working</th><th>Training</th><th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for sh in shifts %}
-            <tr>
-              <td>{{ sh.code }}</td>
-              <td>{{ sh.name }}</td><td>{{ sh.start_time and sh.start_time.strftime("%H:%M") or "" }}</td><td>{{ sh.end_time and sh.end_time.strftime("%H:%M") or "" }}</td><td>{{ "Yes" if sh.is_working else "No" }}</td><td>{{ "Yes" if sh.is_training else "No" }}</td><td>
-                <form method="post" style="display:flex; gap:.35rem; flex-wrap:wrap; align-items:center;">
-                  <input type="hidden" name="form" value="shift_edit">
-                  <input type="hidden" name="shift_id" value="{{ sh.id }}">
-                  <input name="name" value="{{ sh.name }}" style="width:160px;">
-                  <input name="start" value="{{ sh.start_time.strftime('%H:%M') if sh.start_time else '' }}" placeholder="HH:MM" style="width:80px;">
-                  <input name="end" value="{{ sh.end_time.strftime('%H:%M') if sh.end_time else '' }}" placeholder="HH:MM" style="width:80px;">
-                  <label style="white-space:nowrap;"><input type="checkbox" name="is_working" {% if sh.is_working %}checked{% endif %}> W</label>
-                  <label style="white-space:nowrap;"><input type="checkbox" name="is_training" {% if sh.is_training %}checked{% endif %}> T</label>
-                  <button class="btn" type="submit">Update</button>
-                </form>
-              </td>
-              <td style="text-align:right;">
-                <form method="post" onsubmit="return confirm('Delete shift {{ sh.code }}?');" style="display:inline;">
-                  <input type="hidden" name="form" value="shift_delete">
-                  <input type="hidden" name="shift_id" value="{{ sh.id }}">
-                  <button class="btn" type="submit">Delete</button>
-                </form>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </details>
-  </div>
-</div>
-
-<!-- Row: Staff -->
-<div class="row" style="align-items:flex-start; margin-top:1rem;">
-  <!-- Staff -->
-  <div class="card" style="flex:1 1 520px; min-width:420px;">
-    <h3>Staff</h3>
-
-    <details open>
-      <summary style="cursor:pointer; font-weight:700; margin-bottom:.5rem;">Add ATCO</summary>
-      <form method="post" class="row" style="gap:.5rem 1rem;">
-        <input type="hidden" name="form" value="staff_new">
-        <label>Name <input name="name" required style="width:220px;"></label>
-        <label>Staff # <input name="staff_no" required style="width:120px;"></label>
-        <label>Username <input name="username" required style="width:160px;"></label>
-        <label>Watch
-          <select name="watch_id" required>
-            <option value="">—</option>
-            {% for w in watches %}
-              <option value="{{ w.id }}">{{ w.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>Role
-          <select name="role">
-            <option value="user">user</option>
-            <option value="editor">editor</option>
-            <option value="admin">admin</option>
-          </select>
-        </label>
-
-        <div style="flex-basis:100%; height:1px;"></div>
-
-        <label><input type="checkbox" name="is_wm"> Watch Manager</label>
-        <label><input type="checkbox" name="is_dwm"> Deputy WM</label>
-        <label><input type="checkbox" name="exclude_from_ot"> Exclude from OT</label>
-
-        <div style="flex-basis:100%; height:1px;"></div>
-
-        <label>Leave year start (month)
-          <input type="number" name="leave_year_start_month" min="1" max="12" value="4" style="width:80px;">
-        </label>
-        <label>Entitlement (days) <input type="number" name="leave_entitlement_days" value="25" style="width:90px;"></label>
-        <label>Public holidays <input type="number" name="leave_public_holidays" value="8" style="width:90px;"></label>
-        <label>Carryover (days) <input type="number" name="leave_carryover_days" value="0" style="width:90px;"></label>
-
-        <button class="btn" type="submit">Create ATCO</button>
-      </form>
-    </details>
-
-    <details>
-      <summary style="cursor:pointer; font-weight:700; margin:.75rem 0 .5rem;">All Staff (quick links)</summary>
-      <table class="mini">
-        <thead><tr><th>Name</th><th>Watch</th><th>Role</th><th>Actions</th></tr></thead>
-        <tbody>
-          {% for s in staff %}
-            <tr>
-              <td>{{ s.name }}</td>
-              <td>{{ s.watch.name if s.watch else '-' }}</td>
-              <td>{{ s.role }}</td>
-              <td><a class="btn" href="{{ url_for('admin_staff_edit', sid=s.id) }}">Edit</a></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </details>
-  </div>
-</div>
-
-<!-- Quick actions -->
-<div class="row" style="margin:1rem 0;">
-  <a class="btn" href="{{ url_for('admin_toil_new') }}">Manual TOIL Entry</a>
-  <a class="btn" href="{{ url_for('admin_ai_rules') }}" style="margin-left:.5rem;">AI Rules</a>
-  <a class="btn" href="{{ url_for('change_log_page') }}" style="margin-left:.5rem;">Change Log</a>
-</div>
-
-<div class="row" style="align-items:flex-start;">
-</div>
+</section>
 {% endblock %}
