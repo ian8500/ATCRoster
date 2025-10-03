@@ -89,7 +89,8 @@
 <!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
 <div id="roster"
      data-can-edit="{{ '1' if can_edit else '0' }}"
-     data-readonly="{{ '1' if readonly else '0' }}">
+     data-readonly="{{ '1' if readonly else '0' }}"
+     data-day-count="{{ days|length }}">
 
 <table class="roster">
   <thead>
