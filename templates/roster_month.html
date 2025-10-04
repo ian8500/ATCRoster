@@ -189,22 +189,15 @@
                 title="Annotate"
               >
                 <option value="" {% if not ann %}selected{% endif %}>—</option>
-                <optgroup label="Extensions">
-                  <option value="EXTS" {% if ann=='EXTS' %}selected{% endif %}>Short EXT</option>
-                  <option value="EXTL" {% if ann=='EXTL' %}selected{% endif %}>Long EXT</option>
-                </optgroup>
-                <optgroup label="Swap">
-                  <option value="SWAP" {% if ann=='SWAP' %}selected{% endif %}>Swap</option>
-                </optgroup>
-                <optgroup label="Overtime">
-                  <option value="A2"  {% if ann=='A2' %}selected{% endif %}>A2</option>
-                  <option value="A4"  {% if ann=='A4' %}selected{% endif %}>A4</option>
-                  <option value="A6"  {% if ann=='A6' %}selected{% endif %}>A6</option>
-                  <option value="A8"  {% if ann=='A8' %}selected{% endif %}>A8</option>
-                  <option value="SOAL" {% if ann=='SOAL' %}selected{% endif %}>SOAL</option>
-                  <option value="TOA8" {% if ann=='TOA8' %}selected{% endif %}>TOA8 (TOIL +1.0)</option>
-                  <option value="TOAI" {% if ann=='TOAI' %}selected{% endif %}>TOAI (TOIL +0.5)</option>
-                </optgroup>
+                {% for group, opts in annotation_groups.items() %}
+                  {% if opts %}
+                  <optgroup label="{{ group }}">
+                    {% for opt in opts %}
+                      <option value="{{ opt.code }}" {% if ann==opt.code %}selected{% endif %}>{{ opt.label }}</option>
+                    {% endfor %}
+                  </optgroup>
+                  {% endif %}
+                {% endfor %}
               </select>
             </form>
           </td>

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Reference Data{% endblock %}
+
+{% block content %}
+<div class="admin-intro">
+  <h2 class="page-title">Reference Data</h2>
+  <p class="intro-lead">Configure annotation codes and roster code lists so the roster matches your unit's terminology.</p>
+</div>
+
+<section class="admin-section">
+  <header class="section-header">
+    <div>
+      <h3>Annotation Codes</h3>
+      <p class="section-subtitle">Add, rename, or hide annotation options and define how they behave.</p>
+    </div>
+  </header>
+  <div class="section-body stack">
+    <details class="collapsible-card" open>
+      <summary class="collapsible-title">Add Annotation</summary>
+      <form method="post" class="row inline-form">
+        <input type="hidden" name="form" value="annotation_new">
+        <label>Code <input name="code" required class="input-sm" placeholder="e.g. A2"></label>
+        <label>Label <input name="label" class="input-xl" placeholder="Display name"></label>
+        <label>Category <input name="category" class="input-lg" placeholder="Dropdown group"></label>
+        <label>Tags <input name="tags" class="input-xl" placeholder="Comma-separated e.g. ot,aava"></label>
+        <label>Allow suffix <input type="checkbox" name="allow_suffix"></label>
+        <label>Suffixes <input name="suffixes" class="input-sm" placeholder="MDAN"></label>
+        <label>TOIL half-days <input type="number" name="toil_half_days" class="input-sm" min="0" value="0"></label>
+        <label>Sort order <input type="number" name="sort_order" class="input-sm" value="0"></label>
+        <label>Active <input type="checkbox" name="is_active" checked></label>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Add Annotation</button>
+        </div>
+      </form>
+    </details>
+
+    <details class="collapsible-card" open>
+      <summary class="collapsible-title">Existing Annotations</summary>
+      <div class="table-scroll">
+        <table class="mini admin-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Label</th>
+              <th>Category</th>
+              <th>Tags</th>
+              <th>Allow suffix</th>
+              <th>Suffixes</th>
+              <th>TOIL ½ days</th>
+              <th>Sort</th>
+              <th>Active</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ann in annotations %}
+            <tr>
+              <td><input form="ann-form-{{ ann.id }}" name="code" value="{{ ann.code }}" class="input-sm"></td>
+              <td><input form="ann-form-{{ ann.id }}" name="label" value="{{ ann.label }}" class="input-xl"></td>
+              <td><input form="ann-form-{{ ann.id }}" name="category" value="{{ ann.category }}" class="input-lg"></td>
+              <td><input form="ann-form-{{ ann.id }}" name="tags" value="{{ ann.tags }}" class="input-xl" placeholder="Comma-separated"></td>
+              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="allow_suffix" {% if ann.allow_suffix %}checked{% endif %}></td>
+              <td><input form="ann-form-{{ ann.id }}" name="suffixes" value="{{ ann.suffixes }}" class="input-sm"></td>
+              <td><input form="ann-form-{{ ann.id }}" type="number" name="toil_half_days" value="{{ ann.toil_half_days }}" class="input-xs"></td>
+              <td><input form="ann-form-{{ ann.id }}" type="number" name="sort_order" value="{{ ann.sort_order or 0 }}" class="input-xs"></td>
+              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="is_active" {% if ann.is_active %}checked{% endif %}></td>
+              <td class="table-actions">
+                <form method="post" id="ann-form-{{ ann.id }}" class="inline-form inline-form--tight">
+                  <input type="hidden" name="form" value="annotation_edit">
+                  <input type="hidden" name="annotation_id" value="{{ ann.id }}">
+                  <button class="btn" type="submit">Save</button>
+                </form>
+                <form method="post" class="inline-form" onsubmit="return confirm('Remove annotation {{ ann.code }}?');">
+                  <input type="hidden" name="form" value="annotation_delete">
+                  <input type="hidden" name="annotation_id" value="{{ ann.id }}">
+                  <button class="btn" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section class="admin-section">
+  <header class="section-header">
+    <div>
+      <h3>Roster Code Lists</h3>
+      <p class="section-subtitle">Update the reusable code groups that power dropdowns and fatigue logic.</p>
+    </div>
+  </header>
+  <div class="section-body stack">
+    {% for item in settings %}
+    <form method="post" class="card">
+      <input type="hidden" name="form" value="settings_codes">
+      <input type="hidden" name="key" value="{{ item.key }}">
+      <div class="card-body">
+        <h4>{{ item.label }}</h4>
+        <p class="muted">{{ item.help }}</p>
+        <textarea name="values" rows="3" class="input-xl" placeholder="Comma or space separated codes">{{ item.value }}</textarea>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Save {{ item.label }}</button>
+        </div>
+      </div>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

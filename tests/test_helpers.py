@@ -30,6 +30,7 @@ from app import (
     _month_add,
     _parse_date,
     _parse_hhmm,
+    bootstrap_reference_data,
     parse_annotation,
     is_month_locked,
     lock_date_for_month,
@@ -47,6 +48,7 @@ def setup_database():
     with app.app.app_context():
         db.drop_all()
         db.create_all()
+        bootstrap_reference_data()
     yield
     with app.app.app_context():
         db.session.remove()
@@ -70,10 +72,11 @@ def test_parse_date():
 
 
 def test_parse_annotation():
-    assert parse_annotation("a6m") == {"type": "A6", "suffix": "M"}
-    assert parse_annotation(" TOAI ") == {"type": "TOAI", "suffix": None}
-    assert parse_annotation("invalid") is None
-    assert parse_annotation("") is None
+    with app.app.app_context():
+        assert parse_annotation("a6m") == {"type": "A6", "suffix": "M"}
+        assert parse_annotation(" TOAI ") == {"type": "TOAI", "suffix": None}
+        assert parse_annotation("invalid") is None
+        assert parse_annotation("") is None
 
 
 def test_context_month_for_date():
