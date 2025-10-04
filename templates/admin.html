@@ -5,6 +5,11 @@
 <div class="admin-intro">
   <h2 class="page-title">Administration</h2>
   <p class="intro-lead">Manage staffing requirements, shift definitions, and team access from one streamlined hub.</p>
+  {% if current_unit %}
+    <p class="text-secondary">Managing unit: <strong>{{ current_unit.name }}</strong></p>
+  {% elif is_super_admin %}
+    <p class="text-secondary">Managing unit: <strong>All units</strong></p>
+  {% endif %}
 </div>
 
 <div class="admin-dashboard">
@@ -70,6 +75,16 @@
           <label>End <input name="end" placeholder="HH:MM" class="input-sm"></label>
           <label class="checkbox"><input type="checkbox" name="is_working"> Working</label>
           <label class="checkbox"><input type="checkbox" name="is_training"> Training</label>
+          {% if is_super_admin %}
+            <label>Unit
+              <select name="shift_unit_id" class="input-lg">
+                <option value="global">Global (all units)</option>
+                {% for unit in available_units %}
+                  <option value="{{ unit.id }}" {% if current_unit and unit.id == current_unit.id %}selected{% endif %}>{{ unit.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
           <button class="btn" type="submit">Add</button>
         </form>
       </details>
@@ -86,6 +101,7 @@
                 <th>End</th>
                 <th>Working</th>
                 <th>Training</th>
+                <th>Unit</th>
                 <th colspan="2">Actions</th>
               </tr>
             </thead>
@@ -98,6 +114,7 @@
                   <td>{{ sh.end_time and sh.end_time.strftime("%H:%M") or "" }}</td>
                   <td>{{ "Yes" if sh.is_working else "No" }}</td>
                   <td>{{ "Yes" if sh.is_training else "No" }}</td>
+                  <td>{{ sh.unit.name if sh.unit else 'All units' }}</td>
                   <td>
                     <form method="post" class="row inline-form inline-form--tight">
                       <input type="hidden" name="form" value="shift_edit">
@@ -149,11 +166,23 @@
               {% endfor %}
             </select>
           </label>
+          {% if is_super_admin %}
+            <label>Unit
+              <select name="unit_id" required>
+                {% for unit in available_units %}
+                  <option value="{{ unit.id }}" {% if current_unit and unit.id == current_unit.id %}selected{% endif %}>{{ unit.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
           <label>Role
             <select name="role">
               <option value="user">user</option>
               <option value="editor">editor</option>
               <option value="admin">admin</option>
+              {% if is_super_admin %}
+                <option value="superadmin">superadmin</option>
+              {% endif %}
             </select>
           </label>
 

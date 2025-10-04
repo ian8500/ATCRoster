@@ -5,7 +5,7 @@ from collections import defaultdict, Counter, deque
 from typing import Optional, Tuple
 import base64
 from urllib import parse as urllib_parse, request as urllib_request, error as urllib_error
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g
 from flask import render_template as flask_render_template
 import os
 import re
@@ -24,7 +24,7 @@ from flask_login import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import text
+from sqlalchemy import text, or_
 
 try:
     from flask_caching import Cache
@@ -141,10 +141,17 @@ def _memoize(seconds=60):
     return wrap
 
 
-def _invalidate_month_cache_for_day(d: date):
+def _invalidate_month_cache_for_day(d: date, unit_id: int | None = None):
     if _cache and d:
         try:
-            _cache.delete_memoized(_load_month_roster_fast, d.year, d.month)
+            unit_ids = []
+            if unit_id is not None:
+                unit_ids.append(unit_id)
+            else:
+                unit_ids.extend([u.id for u in Unit.query.all()])
+                unit_ids.append(None)
+            for uid in unit_ids:
+                _cache.delete_memoized(_load_month_roster_fast, d.year, d.month, uid)
         except Exception:
             pass
 
@@ -256,10 +263,21 @@ EXCLUDE_FROM_COUNTERS = {"OSS"}
 # -------------------- Models --------------------
 
 
+class Unit(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+
+
 class Watch(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(32), unique=True, nullable=False)
+    name = db.Column(db.String(32), nullable=False)
     order_index = db.Column(db.Integer, nullable=False, default=0)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=True)
+    unit = db.relationship("Unit", backref="watches")
+
+    __table_args__ = (
+        db.UniqueConstraint("name", "unit_id", name="uniq_watch_unit_name"),
+    )
 
 
 class Staff(UserMixin, db.Model):
@@ -278,18 +296,22 @@ class Staff(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
 
-    # Roles: 'admin' | 'editor' | 'user'
+    # Roles: 'superadmin' | 'admin' | 'editor' | 'user'
     role = db.Column(db.String(10), nullable=False, default="user")
 
     phone_number = db.Column(db.String(30), default="")
 
     @property
     def is_admin_role(self) -> bool:
-        return (self.role or "user") == "admin"
+        return (self.role or "user") in {"admin", "superadmin"}
 
     @property
     def is_editor_role(self) -> bool:
-        return (self.role or "user") in ("editor", "admin")
+        return (self.role or "user") in {"editor", "admin", "superadmin"}
+
+    @property
+    def is_super_admin_role(self) -> bool:
+        return (self.role or "user") == "superadmin"
 
     # Back-compat (kept but unused in logic)
     is_admin = db.Column(db.Boolean, default=False)
@@ -300,6 +322,8 @@ class Staff(UserMixin, db.Model):
     # Identity / roster fields
     name = db.Column(db.String(80), nullable=False)
     staff_no = db.Column(db.String(20), unique=True, nullable=False)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=True)
+    unit = db.relationship("Unit", backref="staff_members")
 
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"))
     watch = db.relationship("Watch", backref="members")
@@ -369,13 +393,19 @@ def migrate_add_met_and_assessor():
 
 class ShiftType(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(10), unique=True, nullable=False)
+    code = db.Column(db.String(10), nullable=False)
     name = db.Column(db.String(40), nullable=False, default="")
     start_time = db.Column(db.Time, nullable=True)
     end_time = db.Column(db.Time, nullable=True)
     is_working = db.Column(db.Boolean, default=True)
     # training flag (counts to fatigue but excluded from daily M/D/A/N counters)
     is_training = db.Column(db.Boolean, default=False)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=True)
+    unit = db.relationship("Unit", backref="shift_types")
+
+    __table_args__ = (
+        db.UniqueConstraint("code", "unit_id", name="uniq_shift_code_unit"),
+    )
 
 
 class Requirement(db.Model):
@@ -386,8 +416,10 @@ class Requirement(db.Model):
     req_d = db.Column(db.Integer, default=0)
     req_a = db.Column(db.Integer, default=0)
     req_n = db.Column(db.Integer, default=0)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=True)
+    unit = db.relationship("Unit", backref="requirements")
     __table_args__ = (db.UniqueConstraint(
-        "year", "month", name="uniq_year_month"),)
+        "year", "month", "unit_id", name="uniq_year_month_unit"),)
 
 
 class Leave(db.Model):
@@ -475,9 +507,22 @@ class StaffWatchHistory(db.Model):
 # Cached shift lookup (define after models so ShiftType exists when called)
 
 
-@lru_cache(maxsize=256)
-def _shift_by_code(code: str):
-    return ShiftType.query.filter_by(code=code).first()
+@lru_cache(maxsize=512)
+def _shift_by_code(code: str, unit_id: int | None = None):
+    rows = (ShiftType.query
+            .filter(ShiftType.code == code)
+            .order_by(ShiftType.unit_id.desc())
+            .all())
+    if not rows:
+        return None
+    if unit_id is not None:
+        for row in rows:
+            if row.unit_id == unit_id:
+                return row
+    for row in rows:
+        if row.unit_id is None:
+            return row
+    return rows[0]
 
 
 def refresh_shift_cache():
@@ -493,12 +538,13 @@ def load_user(user_id):
 # --------- Fast month loader & cache (uses functions defined later but safe) ----------
 
 
-def _load_month_roster_core(y: int, m: int):
+def _load_month_roster_core(y: int, m: int, unit_id: int | None = None):
     """
     Returns (days, staff_list, a_map, req) and NEVER returns None.
     On failure: returns ([], [], {}, ensure_month_requirement(y,m)).
     """
     try:
+        unit_filter = unit_id
         start = date(y, m, 1)
         days_in_m = monthrange(y, m)[1]
         days = [start + timedelta(days=i) for i in range(days_in_m)]
@@ -507,12 +553,18 @@ def _load_month_roster_core(y: int, m: int):
 
         # Staff ordering
         try:
-            staff = (Staff.query
-                     .outerjoin(Watch, Staff.watch_id == Watch.id)
+            staff_query = (Staff.query
+                           .outerjoin(Watch, Staff.watch_id == Watch.id))
+            if unit_filter is not None:
+                staff_query = staff_query.filter(Staff.unit_id == unit_filter)
+            staff = (staff_query
                      .order_by(Watch.order_index, Staff.name)
                      .all())
         except Exception:
-            staff = Staff.query.order_by(Staff.id).all()
+            q = Staff.query
+            if unit_filter is not None:
+                q = q.filter(Staff.unit_id == unit_filter)
+            staff = q.order_by(Staff.id).all()
 
         # Assignments for the month (narrow columns)
         rows = (db.session.query(
@@ -522,16 +574,19 @@ def _load_month_roster_core(y: int, m: int):
             Assignment.source,
             Assignment.annotation
         )
-            .filter(Assignment.day >= start, Assignment.day < end)
-            .all())
+            .join(Staff, Staff.id == Assignment.staff_id)
+            .filter(Assignment.day >= start, Assignment.day < end))
+        if unit_filter is not None:
+            rows = rows.filter(Staff.unit_id == unit_filter)
+        rows = rows.all()
 
         a_map = {}
         for sid, d, code, source, ann in rows:
             a_map.setdefault(sid, {})[d] = (code, source, ann)
 
-        req = Requirement.query.filter_by(year=y, month=m).first()
+        req = Requirement.query.filter_by(year=y, month=m, unit_id=unit_filter).first()
         if not req:
-            req = ensure_month_requirement(y, m)
+            req = ensure_month_requirement(y, m, unit_id=unit_filter)
 
         return days, staff, a_map, req
 
@@ -542,7 +597,7 @@ def _load_month_roster_core(y: int, m: int):
         except Exception:
             pass
         # Ensure we still return a valid 4-tuple
-        return ([], [], {}, ensure_month_requirement(y, m))
+        return ([], [], {}, ensure_month_requirement(y, m, unit_id=unit_filter))
 
 
 # IMPORTANT: overwrite any previously memoized wrapper
@@ -554,12 +609,17 @@ _load_month_roster_fast = _memoize(seconds=300)(_load_month_roster_core)
 
 
 def is_admin_user(u) -> bool:
-    return bool(getattr(u, "is_admin", False) or getattr(u, "role", "") == "admin")
+    role = getattr(u, "role", "")
+    return role in ("admin", "superadmin") or bool(getattr(u, "is_admin", False))
 
 
 def is_editor_user(u) -> bool:
     # admin counts as editor
-    return getattr(u, "role", "") in ("editor", "admin")
+    return getattr(u, "role", "") in ("editor", "admin", "superadmin")
+
+
+def is_super_admin_user(u) -> bool:
+    return getattr(u, "role", "") == "superadmin"
 
 
 def can_edit_roster(u) -> bool:
@@ -580,21 +640,87 @@ def roster_edit_required(f):
     return wrapper
 
 
+def active_unit_id() -> int | None:
+    return getattr(g, "active_unit_id", None)
+
+
+def active_unit() -> Unit | None:
+    uid = active_unit_id()
+    if uid is None:
+        return None
+    for u in getattr(g, "available_units", []) or []:
+        if u and u.id == uid:
+            return u
+    return Unit.query.get(uid)
+
+
+@app.before_request
+def determine_active_unit():
+    g.active_unit_id = None
+    g.available_units = []
+    if not current_user.is_authenticated:
+        session.pop("active_unit_id", None)
+        return
+
+    if is_super_admin_user(current_user):
+        units = Unit.query.order_by(Unit.name).all()
+        g.available_units = units
+        requested = request.args.get("unit_id")
+        if requested is not None:
+            if requested == "all":
+                session["active_unit_id"] = None
+            else:
+                try:
+                    session["active_unit_id"] = int(requested)
+                except (TypeError, ValueError):
+                    pass
+        active_id = session.get("active_unit_id")
+        if isinstance(active_id, str) and active_id.isdigit():
+            active_id = int(active_id)
+        if active_id is not None and not any(u.id == active_id for u in units):
+            active_id = None
+        if active_id is None and units:
+            active_id = units[0].id
+            session["active_unit_id"] = active_id
+        g.active_unit_id = active_id
+    else:
+        uid = current_user.unit_id
+        if uid is not None:
+            g.active_unit_id = uid
+            if current_user.unit:
+                g.available_units = [current_user.unit]
+            else:
+                unit = Unit.query.filter_by(id=uid).first()
+                g.available_units = [unit] if unit else []
+        else:
+            g.active_unit_id = None
+            g.available_units = []
+
+
 @app.context_processor
 def inject_perms():
     au = current_user if getattr(
         current_user, "is_authenticated", False) else None
-    return {"is_admin": (bool(au) and is_admin_user(au))}
+    return {
+        "is_admin": bool(au) and is_admin_user(au),
+        "is_editor": bool(au) and is_editor_user(au),
+        "is_super_admin": bool(au) and is_super_admin_user(au),
+        "active_unit": active_unit(),
+        "available_units": getattr(g, "available_units", []),
+    }
 
 
-def month_has_data(year: int, month: int) -> bool:
+def month_has_data(year: int, month: int, unit_id: int | None = None) -> bool:
     """Fast check: do we already have any assignments for this month?"""
     start = date(year, month, 1)
     ny, nm = _month_add(year, month, 1)
     end = date(ny, nm, 1)  # exclusive
-    return db.session.query(Assignment.id)\
-        .filter(Assignment.day >= start, Assignment.day < end)\
-        .limit(1).first() is not None
+    q = (db.session.query(Assignment.id)
+         .join(Staff, Staff.id == Assignment.staff_id)
+         .filter(Assignment.day >= start, Assignment.day < end))
+    if unit_id is not None:
+        q = q.filter(Staff.unit_id == unit_id)
+    return q.limit(1).first() is not None
 
 
 def month_range(year: int, month: int):
@@ -626,12 +752,17 @@ def parse_ym(ym: str):
 
 def get_shift(code: str):
     # hot path → use cached lookup
-    return _shift_by_code((code or "").upper())
+    normalized = (code or "").upper()
+    uid = active_unit_id()
+    return _shift_by_code(normalized, uid)
 
 
-@lru_cache(maxsize=1)
-def _shift_groups_snapshot():
-    all_shifts = ShiftType.query.order_by(ShiftType.code).all()
+@lru_cache(maxsize=64)
+def _shift_groups_snapshot(unit_id: int | None):
+    query = ShiftType.query.order_by(ShiftType.code)
+    if unit_id is not None:
+        query = query.filter(or_(ShiftType.unit_id == unit_id, ShiftType.unit_id.is_(None)))
+    all_shifts = query.all()
     allowed = [sh for sh in all_shifts if sh.code not in BANNED_ROSTER_CODES]
     working = sorted(
         [sh for sh in allowed if sh.is_working and not sh.is_training], key=lambda s: s.code)
@@ -760,16 +891,16 @@ def shift_duration_minutes(shift: ShiftType):
     return int((dt1 - dt0).total_seconds() // 60)
 
 
-def ensure_month_requirement(year, month, default=(4, 4, 4, 2)):
-    r = Requirement.query.filter_by(year=year, month=month).first()
+def ensure_month_requirement(year, month, default=(4, 4, 4, 2), unit_id: int | None = None):
+    r = Requirement.query.filter_by(year=year, month=month, unit_id=unit_id).first()
     if not r:
         if len(default) == 3:
             dm, da, dn = default[0], default[1], default[2]
             dd = 0
         else:
             dm, dd, da, dn = default
-        r = Requirement(year=year, month=month, req_m=dm,
-                        req_d=dd, req_a=da, req_n=dn)
+        r = Requirement(year=year, month=month, unit_id=unit_id,
+                        req_m=dm, req_d=dd, req_a=da, req_n=dn)
         db.session.add(r)
         db.session.commit()
     return r
@@ -777,21 +908,29 @@ def ensure_month_requirement(year, month, default=(4, 4, 4, 2)):
 # Idempotent month generation that preserves manual entries
 
 
-def generate_month(year: int, month: int, *args, **kwargs):
+def generate_month(year: int, month: int, unit_id: int | None = None, *args, **kwargs):
     """Ensure rows exist/are correct for the month without touching manual edits."""
     _, days = month_range(year, month)
-    for s in Staff.query.order_by(Staff.id):
+    if unit_id is None and "unit_id" in kwargs:
+        unit_id = kwargs.get("unit_id")
+    staff_query = Staff.query.order_by(Staff.id)
+    if unit_id is not None:
+        staff_query = staff_query.filter(Staff.unit_id == unit_id)
+    for s in staff_query:
         for d in days:
             refresh_day_from_pattern_and_leave(s, d)
     db.session.commit()
 
 
-def generate_month_roster(year: int, month: int, who_user: "User"):
+def generate_month_roster(year: int, month: int, who_user: "User", unit_id: int | None = None):
     # Guard: lock
     if is_month_locked(year, month):
         raise RuntimeError(
             f"Month {year:04d}-{month:02d} is locked (lock date {lock_date_for_month(year, month).isoformat()})."
         )
+
+    if unit_id is None:
+        unit_id = getattr(who_user, "unit_id", None)
 
     rules = _load_ai_rules(year, month)
     night_code = rules["night_code"]
@@ -804,15 +943,16 @@ def generate_month_roster(year: int, month: int, who_user: "User"):
     month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
 
     # Staff in display/fairness order
-    staff = (
+    staff_query = (
         Staff.query
         .outerjoin(Watch, Staff.watch_id == Watch.id)
         .filter(Staff.is_operational == True)
-        .order_by(Watch.order_index, Staff.name)
-        .all()
     )
+    if unit_id is not None:
+        staff_query = staff_query.filter(Staff.unit_id == unit_id)
+    staff = staff_query.order_by(Watch.order_index, Staff.name).all()
 
-    req = Requirement.query.filter_by(year=year, month=month).first()
+    req = Requirement.query.filter_by(year=year, month=month, unit_id=unit_id).first()
     if not req:
         return {"nights": 0, "days": 0}
 
@@ -1242,20 +1382,22 @@ def _year_month_iter(start_date: date, end_date: date):
         cur = date(y, m, 1)
 
 
-def generate_range(start_day: date, end_day: date):
+def generate_range(start_day: date, end_day: date, unit_id: int | None = None):
     """
     Ensure requirements and (re)build each month from start_day's month through
     end_day's month (inclusive). Safe to re-run; respects manual/protected codes.
     """
+    unit_filter = unit_id if unit_id is not None else active_unit_id()
     for y, m in _year_month_iter(start_day, end_day):
-        ensure_month_requirement(y, m)
-        generate_month(y, m)
+        ensure_month_requirement(y, m, unit_id=unit_filter)
+        generate_month(y, m, unit_id=unit_filter)
 
 
-def ensure_assignments_for_range(start_day: date, end_day: date):
+def ensure_assignments_for_range(start_day: date, end_day: date, unit_id: int | None = None):
+    unit_filter = unit_id if unit_id is not None else active_unit_id()
     for y, m in _year_month_iter(start_day, end_day):
-        ensure_month_requirement(y, m)
-        generate_month(y, m)
+        ensure_month_requirement(y, m, unit_id=unit_filter)
+        generate_month(y, m, unit_id=unit_filter)
 
 
 def would_create_new_fatigue_issues(
@@ -1477,6 +1619,49 @@ def migrate_add_phone_number():
     db.session.commit()
 
 
+def migrate_add_unit_fields():
+    from sqlalchemy import inspect, text
+    insp = inspect(db.engine)
+    try:
+        tables = insp.get_table_names()
+    except Exception:
+        tables = []
+
+    if "unit" not in tables:
+        try:
+            Unit.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception:
+            pass
+
+    def _add_column_if_missing(table: str, column: str, ddl: str):
+        try:
+            cols = {c["name"] for c in insp.get_columns(table)}
+        except Exception:
+            return
+        if column not in cols:
+            try:
+                db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+    _add_column_if_missing("staff", "unit_id", "unit_id INTEGER")
+    _add_column_if_missing("watch", "unit_id", "unit_id INTEGER")
+    _add_column_if_missing("shift_type", "unit_id", "unit_id INTEGER")
+    _add_column_if_missing("requirement", "unit_id", "unit_id INTEGER")
+
+    default_unit = Unit.query.order_by(Unit.id).first()
+    if default_unit:
+        uid = default_unit.id
+        try:
+            db.session.execute(text("UPDATE staff SET unit_id = :uid WHERE unit_id IS NULL"), {"uid": uid})
+            db.session.execute(text("UPDATE watch SET unit_id = :uid WHERE unit_id IS NULL"), {"uid": uid})
+            db.session.execute(text("UPDATE requirement SET unit_id = :uid WHERE unit_id IS NULL"), {"uid": uid})
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+
 def migrate_add_toil_half_days_and_convert():
     """Add toil_half_days; add leave-year columns; convert legacy toil_minutes -> half-days if present."""
     from sqlalchemy import text
@@ -1516,37 +1701,52 @@ def migrate_add_toil_half_days_and_convert():
     db.session.commit()
 
 
-def ensure_shift(code, name, start=None, end=None, is_working=False, is_training=False):
-    sh = ShiftType.query.filter_by(code=code).first()
+def ensure_unit(name: str) -> Unit:
+    u = Unit.query.filter_by(name=name).first()
+    if not u:
+        u = Unit(name=name)
+        db.session.add(u)
+        db.session.commit()
+    return u
+
+
+def ensure_shift(code, name, start=None, end=None, is_working=False, is_training=False, unit: Unit | None = None):
+    unit_id = unit.id if unit else None
+    sh = ShiftType.query.filter_by(code=code, unit_id=unit_id).first()
     if not sh:
         sh = ShiftType(code=code, name=name, start_time=start, end_time=end,
-                       is_working=is_working, is_training=is_training)
+                       is_working=is_working, is_training=is_training,
+                       unit_id=unit_id)
         db.session.add(sh)
         db.session.commit()
     return sh
 
 
-def ensure_watch(name: str, order_index: int):
-    w = Watch.query.filter_by(name=name).first()
+def ensure_watch(name: str, order_index: int, unit: Unit | None = None):
+    w = Watch.query.filter_by(name=name, unit=unit).first()
     if not w:
-        w = Watch(name=name, order_index=order_index)
+        w = Watch(name=name, order_index=order_index, unit=unit)
         db.session.add(w)
         db.session.commit()
     return w
 
 
 def seed_once():
+    default_unit = ensure_unit("Leeds")
+    ensure_unit("Prestwick")
+
     if Watch.query.count() > 0:
         # make sure TOU* & OSS exist if DB already seeded
         ensure_shift("TOUI", "TOIL (UI)", is_working=False)
         ensure_shift("TOU8", "TOIL (U8)", is_working=False)
         ensure_shift("OSS",  "Operational Support", is_working=False)
+        ensure_super_admin_account(default_unit)
         return
 
     watches = []
     for idx, letter in enumerate(["A", "B", "C", "D", "E"], start=1):
-        watches.append(Watch(name=f"Watch {letter}", order_index=idx))
-    watches.append(Watch(name="Watch NOPS", order_index=6))
+        watches.append(Watch(name=f"Watch {letter}", order_index=idx, unit=default_unit))
+    watches.append(Watch(name="Watch NOPS", order_index=6, unit=default_unit))
     db.session.add_all(watches)
 
     db.session.add_all([
@@ -1602,6 +1802,7 @@ def seed_once():
                 name=nm,
                 staff_no=str(staff_no),
                 watch=w,
+                unit=default_unit,
                 is_operational=True,
                 has_ojti=((staff_no % 3) == 0),
                 is_trainee=((staff_no % 7) == 0),
@@ -1619,6 +1820,44 @@ def seed_once():
             staff_no += 1
 
     db.session.add_all(staff)
+    db.session.commit()
+
+    ensure_super_admin_account(default_unit)
+
+
+def ensure_super_admin_account(default_unit: Unit | None = None):
+    unit = default_unit or Unit.query.order_by(Unit.id).first()
+    admin_user = Staff.query.filter_by(username="801210").first()
+    if not admin_user:
+        watch = None
+        if unit:
+            watch = (Watch.query
+                     .filter(or_(Watch.unit_id == unit.id, Watch.unit_id.is_(None)))
+                     .order_by(Watch.order_index)
+                     .first())
+        admin_user = Staff(
+            username="801210",
+            name="Super Admin",
+            staff_no="801210",
+            role="superadmin",
+            unit=unit,
+            watch=watch,
+            is_operational=False,
+            leave_year_start_month=4,
+            leave_entitlement_days=0,
+            leave_public_holidays=0,
+            leave_carryover_days=0,
+        )
+        admin_user.set_password("password")
+        if not admin_user.calendar_token:
+            admin_user.calendar_token = secrets.token_hex(16)
+        db.session.add(admin_user)
+    else:
+        if admin_user.role != "superadmin":
+            admin_user.role = "superadmin"
+        if unit and admin_user.unit_id != unit.id:
+            admin_user.unit_id = unit.id
+        admin_user.set_password("password")
     db.session.commit()
 
 # -------------------- Small parse & AI helpers --------------------
@@ -1822,8 +2061,12 @@ def _set_code(a: "Assignment", code: str, source: str, note: str = "", ctx_month
     a.annotation = None
     a.source = source
 
+    staff_obj = getattr(a, "staff", None)
+    if staff_obj is None and a.staff_id:
+        staff_obj = db.session.get(Staff, a.staff_id)
+
     # Invalidate month cache for this day
-    _invalidate_month_cache_for_day(a.day)
+    _invalidate_month_cache_for_day(a.day, getattr(staff_obj, "unit_id", None))
 
     try:
         # log using day; function computes month string internally
@@ -1895,7 +2138,7 @@ def _is_working_code_prefix(code: str, prefix: str) -> bool:
 
     # Prefer cached lookup if present in your app
     try:
-        sh = _shift_by_code(cu)
+        sh = get_shift(cu)
     except NameError:
         sh = None
     if sh is None:
@@ -1960,12 +2203,6 @@ def _default_ai_rules():
         "no_nights_list": [],
         "nops_policy": {"integrate_required": True, "only_if_needed": True},
     }
-
-
-def is_admin_user(u) -> bool:
-    return bool(getattr(u, "is_admin", False) or getattr(u, "role", "") == "admin")
-
-
 def admin_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -2008,6 +2245,23 @@ def index():
     return redirect(url_for("roster_month", ym=f"{t.year}-{t.month:02d}"))
 
 
+@app.route("/unit/switch", methods=["POST"])
+@login_required
+def switch_unit():
+    if not is_super_admin_user(current_user):
+        abort(403)
+    requested = request.form.get("unit_id")
+    next_url = request.form.get("next") or request.referrer or url_for("index")
+    if requested in {"all", "global", ""}:
+        session["active_unit_id"] = None
+    else:
+        try:
+            session["active_unit_id"] = int(requested)
+        except (TypeError, ValueError):
+            pass
+    return redirect(next_url)
+
+
 def _clamp_prev_next(year, month):
     """Clamp navigation so you cannot go earlier than MIN_MONTH."""
     prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
@@ -2032,14 +2286,15 @@ def inject_perms():
 @login_required
 def roster_month(ym):
     year, month = parse_ym(ym)
+    unit_id = active_unit_id()
 
     # Build only if the month has no data yet
-    if not month_has_data(year, month):
-        ensure_month_requirement(year, month)
-        generate_month(year, month)
+    if not month_has_data(year, month, unit_id=unit_id):
+        ensure_month_requirement(year, month, unit_id=unit_id)
+        generate_month(year, month, unit_id=unit_id)
 
     # Fast path: 2 queries total (staff + all assignments in month)
-    days, staff, a_map_tuples, req = _load_month_roster_fast(year, month)
+    days, staff, a_map_tuples, req = _load_month_roster_fast(year, month, unit_id)
 
     # --- ensure WM first, DWM second, then alphabetical within each watch ---
     def _rank_within_watch(person):
@@ -2070,7 +2325,7 @@ def roster_month(ym):
     month_end = date(ny, nm, 1)
 
     # Shift dropdown groupings (cached)
-    shifts_working, shifts_training, shifts_non = _shift_groups_snapshot()
+    shifts_working, shifts_training, shifts_non = _shift_groups_snapshot(unit_id)
     training_codes = {sh.code for sh in shifts_training}
 
     # --- Effective watch for THIS month (first day of the month) ---
@@ -2085,7 +2340,10 @@ def roster_month(ym):
 
     # Optional: ensure staff ordering matches watch order for the display month
     try:
-        watch_order = {w.id: w.order_index for w in Watch.query.all()}
+        watch_query = Watch.query
+        if unit_id is not None:
+            watch_query = watch_query.filter(or_(Watch.unit_id == unit_id, Watch.unit_id.is_(None)))
+        watch_order = {w.id: w.order_index for w in watch_query.all()}
     except Exception:
         watch_order = {}
 
@@ -2347,18 +2605,28 @@ def roster_export_csv(ym):
     year, month = parse_ym(ym)
     start, days = month_range(year, month)
 
-    staff = (Staff.query
-             .outerjoin(Watch, Staff.watch_id == Watch.id)
+    unit_id = active_unit_id()
+
+    staff_query = (Staff.query
+                   .outerjoin(Watch, Staff.watch_id == Watch.id))
+    if unit_id is not None:
+        staff_query = staff_query.filter(Staff.unit_id == unit_id)
+    staff = (staff_query
              .order_by(Watch.order_index,
                        Staff.name).all())
 
     a_map = defaultdict(dict)
     month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
-    for a in Assignment.query.filter(Assignment.day >= start, Assignment.day < month_end):
+    assignments = (Assignment.query
+                   .join(Staff, Staff.id == Assignment.staff_id)
+                   .filter(Assignment.day >= start, Assignment.day < month_end))
+    if unit_id is not None:
+        assignments = assignments.filter(Staff.unit_id == unit_id)
+    for a in assignments:
         a_map[a.staff_id][a.day] = a.code
 
     # compute daily counters + RAG for footer (prefix grouping) — EXCLUDE training shifts & excluded codes
-    req = Requirement.query.filter_by(year=year, month=month).first()
+    req = Requirement.query.filter_by(year=year, month=month, unit_id=unit_id).first()
     counters = {d: Counter() for d in days}
     for s in staff:
         if not s.is_operational:
@@ -2437,6 +2705,8 @@ def logout():
 @login_required
 @admin_required
 def admin():
+    unit_id = active_unit_id()
+    unit_obj = active_unit()
 
     if request.method == "POST":
         form = request.form.get("form", "")
@@ -2464,11 +2734,26 @@ def admin():
             leave_carryover_days = int(
                 request.form.get("leave_carryover_days", 0) or 0)
 
-            if not all([name, staff_no, username, watch_id]):
+            if is_super_admin_user(current_user):
+                unit_field = request.form.get("unit_id")
+                try:
+                    target_unit_id = int(unit_field)
+                except (TypeError, ValueError):
+                    target_unit_id = None
+            else:
+                target_unit_id = unit_id
+
+            if not target_unit_id:
+                flash("A unit is required for new staff.", "error")
+            elif not all([name, staff_no, username, watch_id]):
                 flash("All fields required to create staff.", "error")
             elif Staff.query.filter((Staff.username == username) | (Staff.staff_no == staff_no)).first():
                 flash("Username or Staff # already exists.", "error")
             else:
+                watch = Watch.query.get(int(watch_id)) if watch_id else None
+                if watch and target_unit_id and watch.unit_id not in (None, target_unit_id):
+                    flash("Selected watch belongs to another unit.", "error")
+                    return redirect(url_for("admin"))
                 s = Staff(
                     name=name,
                     staff_no=staff_no,
@@ -2482,6 +2767,7 @@ def admin():
                     leave_entitlement_days=leave_entitlement_days,
                     leave_public_holidays=leave_public_holidays,
                     leave_carryover_days=leave_carryover_days,
+                    unit_id=target_unit_id,
                 )
                 s.set_password("password")
                 if not s.calendar_token:
@@ -2499,13 +2785,25 @@ def admin():
             end = _parse_hhmm(request.form.get("end"))
             is_working = bool(request.form.get("is_working"))
             is_training = bool(request.form.get("is_training"))
+            if is_super_admin_user(current_user):
+                shift_unit_val = request.form.get("shift_unit_id", "")
+                if shift_unit_val == "global":
+                    shift_unit_id = None
+                else:
+                    try:
+                        shift_unit_id = int(shift_unit_val)
+                    except (TypeError, ValueError):
+                        shift_unit_id = unit_id
+            else:
+                shift_unit_id = unit_id
             if not code:
                 flash("Shift code is required.", "error")
-            elif ShiftType.query.filter_by(code=code).first():
+            elif ShiftType.query.filter_by(code=code, unit_id=shift_unit_id).first():
                 flash("Shift code already exists.", "error")
             else:
                 sh = ShiftType(code=code, name=name or code, start_time=start, end_time=end,
-                               is_working=is_working, is_training=is_training)
+                               is_working=is_working, is_training=is_training,
+                               unit_id=shift_unit_id)
                 db.session.add(sh)
                 db.session.commit()
                 refresh_shift_cache()
@@ -2547,9 +2845,9 @@ def admin():
             req_n = request.form.getlist("req_n")
             for i in range(len(yms)):
                 y, m = [int(x) for x in yms[i].split("-")]
-                r = Requirement.query.filter_by(year=y, month=m).first()
+                r = Requirement.query.filter_by(year=y, month=m, unit_id=unit_id).first()
                 if not r:
-                    r = Requirement(year=y, month=m)
+                    r = Requirement(year=y, month=m, unit_id=unit_id)
                     db.session.add(r)
                 r.req_m = int(req_m[i] or 0)
                 r.req_d = int(req_d[i] or 0)
@@ -2598,19 +2896,34 @@ def admin():
             return redirect(url_for("admin"))
 
     # GET render
-    watches = Watch.query.order_by(Watch.order_index).all()
-    shifts = ShiftType.query.order_by(ShiftType.code).all()
-    staff = (Staff.query
-             .outerjoin(Watch, Staff.watch_id == Watch.id)
-             .order_by(Watch.order_index, Staff.name).all())
+    watches_query = Watch.query.order_by(Watch.order_index)
+    if unit_id is not None:
+        watches_query = watches_query.filter(or_(Watch.unit_id == unit_id, Watch.unit_id.is_(None)))
+    watches = watches_query.all()
+
+    shifts_query = ShiftType.query.order_by(ShiftType.code)
+    if unit_id is not None:
+        shifts_query = shifts_query.filter(or_(ShiftType.unit_id == unit_id, ShiftType.unit_id.is_(None)))
+    shifts = shifts_query.all()
+
+    staff_query = (Staff.query
+                   .outerjoin(Watch, Staff.watch_id == Watch.id))
+    if unit_id is not None:
+        staff_query = staff_query.filter(Staff.unit_id == unit_id)
+    staff = staff_query.order_by(Watch.order_index, Staff.name).all()
     months = [(y, m) for y in (2025, 2026) for m in range(1, 13)]
     requirements_by_month = {
-        (r.year, r.month): r for r in Requirement.query.all()}
-    leaves = Leave.query.order_by(Leave.start.desc()).all()
+        (r.year, r.month): r for r in Requirement.query.filter_by(unit_id=unit_id).all()}
+    leave_query = (Leave.query
+                   .join(Staff, Staff.id == Leave.staff_id)
+                   .order_by(Leave.start.desc()))
+    if unit_id is not None:
+        leave_query = leave_query.filter(Staff.unit_id == unit_id)
+    leaves = leave_query.all()
     return render_template("admin.html",
                            shifts=shifts, staff=staff, watches=watches,
                            months=months, requirements_by_month=requirements_by_month,
-                           leaves=leaves)
+                           leaves=leaves, current_unit=unit_obj)
 
 # Keep your dedicated staff edit route (ATCO edit)
 
@@ -2619,9 +2932,6 @@ def admin():
 @login_required
 @admin_required
 def admin_staff_edit(sid):
-    # remove: if not is_admin_user(current_user): ...
-    ...
-
     s = Staff.query.get_or_404(sid)
     if request.method == "POST":
         s.name = request.form.get("name", s.name).strip()
@@ -2630,6 +2940,13 @@ def admin_staff_edit(sid):
         s.phone_number = _normalise_phone_number(
             request.form.get("phone_number", s.phone_number))
         s.watch_id = int(request.form.get("watch_id", s.watch_id or 0)) or None
+
+        if is_super_admin_user(current_user):
+            unit_field = request.form.get("unit_id")
+            try:
+                s.unit_id = int(unit_field)
+            except (TypeError, ValueError):
+                pass
 
         s.is_operational = bool(request.form.get("operational"))
         s.is_trainee = bool(request.form.get("trainee"))
@@ -2641,7 +2958,9 @@ def admin_staff_edit(sid):
         s.exclude_from_ot = bool(request.form.get("exclude_from_ot"))
 
         # update role
-        s.role = request.form.get("role", s.role)
+        new_role = request.form.get("role", s.role)
+        if is_super_admin_user(current_user) or new_role != "superadmin":
+            s.role = new_role
 
         s.pattern_csv = request.form.get("pattern_csv", s.pattern_csv)
         s.pattern_anchor = _parse_date(request.form.get("pattern_anchor"))
@@ -2680,7 +2999,10 @@ def admin_staff_edit(sid):
 
         return redirect(url_for("admin"))
 
-    watches = Watch.query.order_by(Watch.order_index).all()
+    watch_query = Watch.query.order_by(Watch.order_index)
+    if s.unit_id is not None:
+        watch_query = watch_query.filter(or_(Watch.unit_id == s.unit_id, Watch.unit_id.is_(None)))
+    watches = watch_query.all()
     return render_template("staff_edit.html", s=s, watches=watches)
 
 
@@ -3583,17 +3905,24 @@ def calendar_feed(sid, token):
 # (unchanged core; monthly AL-only kept to endpoints)
 
 
-def _leave_summary_for_month(year: int, month: int):
+def _leave_summary_for_month(year: int, month: int, unit_id: int | None = None):
     start, days = month_range(year, month)
     month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
 
     a_map = defaultdict(dict)
-    for a in Assignment.query.filter(Assignment.day >= start, Assignment.day < month_end):
+    assignment_query = (Assignment.query
+                        .join(Staff, Staff.id == Assignment.staff_id)
+                        .filter(Assignment.day >= start, Assignment.day < month_end))
+    if unit_id is not None:
+        assignment_query = assignment_query.filter(Staff.unit_id == unit_id)
+    for a in assignment_query.all():
         a_map[a.staff_id][a.day] = a.code
 
-    staff = (Staff.query
-             .outerjoin(Watch, Staff.watch_id == Watch.id)
-             .order_by(Watch.order_index, Staff.name).all())
+    staff_query = (Staff.query
+                   .outerjoin(Watch, Staff.watch_id == Watch.id))
+    if unit_id is not None:
+        staff_query = staff_query.filter(Staff.unit_id == unit_id)
+    staff = staff_query.order_by(Watch.order_index, Staff.name).all()
 
     codes_sorted = ["AL"]  # only AL
     rows = []
@@ -3621,10 +3950,11 @@ def report_leave(ym):
         flash("Admins only!", "error")
         return redirect(url_for("index"))
     year, month = parse_ym(ym)
-    ensure_month_requirement(year, month)
-    generate_month(year, month)
+    unit_id = active_unit_id()
+    ensure_month_requirement(year, month, unit_id=unit_id)
+    generate_month(year, month, unit_id=unit_id)
     rows, codes, totals, grand_total, days = _leave_summary_for_month(
-        year, month)
+        year, month, unit_id=unit_id)
     month_title = datetime(year, month, 1).strftime("%B %Y")
     return render_template("report_leave.html",
                            ym=ym, year=year, month=month, month_title=month_title,
@@ -3642,10 +3972,11 @@ def report_leave_csv():
     if not ym:
         abort(400)
     year, month = parse_ym(ym)
-    ensure_month_requirement(year, month)
-    generate_month(year, month)
+    unit_id = active_unit_id()
+    ensure_month_requirement(year, month, unit_id=unit_id)
+    generate_month(year, month, unit_id=unit_id)
     rows, codes, totals, grand_total, days = _leave_summary_for_month(
-        year, month)
+        year, month, unit_id=unit_id)
 
     output = io.StringIO()
     w = csv.writer(output)
@@ -3726,9 +4057,12 @@ def report_leave_year():
         flash("Admins only!", "error")
         return redirect(url_for("index"))
     today = date.today()
-    people = (Staff.query
-              .outerjoin(Watch, Staff.watch_id == Watch.id)
-              .order_by(Watch.order_index, Staff.name).all())
+    unit_id = active_unit_id()
+    people_query = (Staff.query
+                    .outerjoin(Watch, Staff.watch_id == Watch.id))
+    if unit_id is not None:
+        people_query = people_query.filter(Staff.unit_id == unit_id)
+    people = people_query.order_by(Watch.order_index, Staff.name).all()
     rows = []
     for s in people:
         start, end = _current_leave_year_window(s, today)
@@ -3784,9 +4118,12 @@ def report_sickness():
         return redirect(url_for("index"))
     today = date.today()
     start = today - timedelta(days=365)
-    people = (Staff.query
-              .outerjoin(Watch, Staff.watch_id == Watch.id)
-              .order_by(Watch.order_index, Staff.name).all())
+    unit_id = active_unit_id()
+    people_query = (Staff.query
+                    .outerjoin(Watch, Staff.watch_id == Watch.id))
+    if unit_id is not None:
+        people_query = people_query.filter(Staff.unit_id == unit_id)
+    people = people_query.order_by(Watch.order_index, Staff.name).all()
     rows = []
     for s in people:
         q = (Assignment.query
@@ -3824,6 +4161,7 @@ def _is_month_locked(y: int, m: int, today: date | None = None):
 @login_required
 def requests_page():
     today = date.today()
+    unit_id = active_unit_id()
 
     # ---- user/editor: show next 3 months they can request into ----
     months = []
@@ -3882,7 +4220,10 @@ def requests_page():
     for r in my_reqs:
         req_map[(r.day.year, r.day.month)][r.day] = r
 
-    all_shifts = ShiftType.query.order_by(ShiftType.code).all()
+    all_shifts_query = ShiftType.query.order_by(ShiftType.code)
+    if unit_id is not None:
+        all_shifts_query = all_shifts_query.filter(or_(ShiftType.unit_id == unit_id, ShiftType.unit_id.is_(None)))
+    all_shifts = all_shifts_query.all()
     codes = [s.code for s in all_shifts]
 
     # ---- Admin: month-selectable “All requests” panel ----
@@ -3909,7 +4250,10 @@ def requests_page():
         admin_requests = (ShiftRequest.query
                           .join(Staff, ShiftRequest.staff_id == Staff.id)
                           .filter(ShiftRequest.day >= start_of_month,
-                                  ShiftRequest.day <= end_of_month)
+                                  ShiftRequest.day <= end_of_month))
+        if unit_id is not None and not is_super_admin_user(current_user):
+            admin_requests = admin_requests.filter(Staff.unit_id == unit_id)
+        admin_requests = (admin_requests
                           .order_by(ShiftRequest.day.asc(), Staff.name.asc())
                           .all())
 
@@ -3944,6 +4288,10 @@ def admin_request_respond(rid):
     if not is_admin_user(current_user):
         abort(403)
     r = ShiftRequest.query.get_or_404(rid)
+    if not is_super_admin_user(current_user):
+        unit_id = active_unit_id()
+        if unit_id is not None and r.staff and r.staff.unit_id != unit_id:
+            abort(403)
     r.admin_response = (request.form.get("admin_response") or "").strip()
     r.status = request.form.get("status", r.status or "pending")
     r.responded_by_id = getattr(current_user, "id", None)
@@ -3959,8 +4307,11 @@ def admin_request_respond(rid):
 @login_required
 @admin_required
 def admin_toil_new():
-    atcos = Staff.query.filter_by(
-        is_operational=True).order_by(Staff.name.asc()).all()
+    unit_id = active_unit_id()
+    atco_query = Staff.query.filter_by(is_operational=True)
+    if unit_id is not None and not is_super_admin_user(current_user):
+        atco_query = atco_query.filter(Staff.unit_id == unit_id)
+    atcos = atco_query.order_by(Staff.name.asc()).all()
     if request.method == "POST":
         sid = int(request.form["staff_id"])
         amount = float(request.form.get("amount", "0") or 0)
@@ -4045,6 +4396,7 @@ with app.app_context():
     migrate_add_is_training()
     migrate_add_wm_dwm_exclude()
     migrate_add_phone_number()
+    migrate_add_unit_fields()
     migrate_add_role_and_calendar_token()
 
     # >>> Ensure new ShiftRequest columns exist (SQLite safe)
