@@ -6,9 +6,8 @@
   <h1 class="page-title">OT/Swap/EXT Totals</h1>
 
   <p class="muted" style="margin-top:-.5rem">
-    Counts are based on <strong>assignment annotations</strong>:
-    <em>EXTL</em>/<em>EXTS</em> (Extensions), <em>SWAP</em>, and OT types <em>A2/A4/A6/A8</em> plus <em>SOAL</em>.
-    “AAVA Total” = A2+A4+A6+A8. “OT Total” = AAVA Total + SOAL.
+    Counts are based on the <strong>annotation definitions</strong> configured in Admin → Reference Data.
+    “AAVA Total” adds all overtime annotations tagged with <code>aava</code>; “OT Total” includes every annotation tagged with <code>ot</code>.
   </p>
 
   <form method="get" class="bar">
@@ -31,7 +30,9 @@
             <th>Ext S</th>
             <th>Ext Total</th>
             <th>Swaps</th>
-            <th>A2</th><th>A4</th><th>A6</th><th>A8</th><th>SOAL</th>
+            {% for col in ot_columns %}
+              <th>{{ col.label }}</th>
+            {% endfor %}
             <th>AAVA Total</th>
             <th>OT Total</th>
           </tr>
@@ -45,11 +46,9 @@
             <td>{{ r.ext_short }}</td>
             <td>{{ r.ext_total }}</td>
             <td>{{ r.swaps }}</td>
-            <td>{{ r.ot.A2 }}</td>
-            <td>{{ r.ot.A4 }}</td>
-            <td>{{ r.ot.A6 }}</td>
-            <td>{{ r.ot.A8 }}</td>
-            <td>{{ r.ot.SOAL }}</td>
+            {% for col in ot_columns %}
+              <td>{{ r.ot[col.code] }}</td>
+            {% endfor %}
             <td>{{ r.aava_total }}</td>
             <td>{{ r.ot_total }}</td>
           </tr>
@@ -63,11 +62,9 @@
             <td>{{ totals.ext_short }}</td>
             <td>{{ totals.ext_total }}</td>
             <td>{{ totals.swaps }}</td>
-            <td>{{ totals.ot.A2 }}</td>
-            <td>{{ totals.ot.A4 }}</td>
-            <td>{{ totals.ot.A6 }}</td>
-            <td>{{ totals.ot.A8 }}</td>
-            <td>{{ totals.ot.SOAL }}</td>
+            {% for col in ot_columns %}
+              <td>{{ totals.ot[col.code] }}</td>
+            {% endfor %}
             <td>{{ totals.aava_total }}</td>
             <td>{{ totals.ot_total }}</td>
           </tr>

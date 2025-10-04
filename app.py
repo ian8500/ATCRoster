@@ -1,7 +1,7 @@
 import flask as _flask
 from functools import wraps
 from calendar import monthrange
-from collections import defaultdict, Counter, deque
+from collections import defaultdict, Counter, OrderedDict, deque
 from typing import Optional, Tuple
 import base64
 from urllib import parse as urllib_parse, request as urllib_request, error as urllib_error
@@ -233,25 +233,158 @@ def _default_overtime_sms_body(chosen_date: date | None, shift_code: str | None)
             "Please reply if interested.")
 
 
-# -------------------- Constants --------------------
 MIN_MONTH = date(2025, 4, 1)   # Start app from April 2025
 
-# Annotations (includes TOA8/TOAI accrual; keep legacy TOAU accepted)
-ANNOT_RE = re.compile(
-    r"^(EXTS|EXTL|SWAP|SOAL|A2|A4|A6|A8|TOA8|TOAI|TOAU)([MDAN])?$", re.I)
+# Reference defaults (used if DB rows missing)
+DEFAULT_WORKING_CODES = ["M", "D", "A", "N", "SC", "SSC", "SBY"]
+DEFAULT_LEAVE_CODES = ["AL", "PL", "SPL"]
+DEFAULT_BANNED_ROSTER_CODES = ["SIC", "SC", "SSC", "AL", "SP", "SPL", "PL", "TOU8", "TOUI"]
+DEFAULT_EXCLUDE_FROM_COUNTERS = ["OSS"]
+DEFAULT_NON_WORKING_CODES = [
+    "OFF", "AL", "PL", "SPL", "TOU8", "TOUI", "OSS", "OFFICE", "WFH", "CTB", "MTG"
+]
 
-# Working codes (treat SC/SSC as working training shifts)
-WORKING_CODES = {"M", "D", "A", "N", "SC", "SSC", "SBY"}
+DEFAULT_ANNOTATION_TYPES = [
+    {
+        "code": "EXTS",
+        "label": "Short EXT",
+        "category": "Extensions",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 0,
+        "tags": "ext,ext_short",
+        "is_active": True,
+    },
+    {
+        "code": "EXTL",
+        "label": "Long EXT",
+        "category": "Extensions",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 0,
+        "tags": "ext,ext_long",
+        "is_active": True,
+    },
+    {
+        "code": "SWAP",
+        "label": "Swap",
+        "category": "Swaps",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 0,
+        "tags": "swap",
+        "is_active": True,
+    },
+    {
+        "code": "A2",
+        "label": "A2",
+        "category": "Overtime",
+        "allow_suffix": True,
+        "suffixes": "MDAN",
+        "toil_half_days": 0,
+        "tags": "ot,aava",
+        "is_active": True,
+    },
+    {
+        "code": "A4",
+        "label": "A4",
+        "category": "Overtime",
+        "allow_suffix": True,
+        "suffixes": "MDAN",
+        "toil_half_days": 0,
+        "tags": "ot,aava",
+        "is_active": True,
+    },
+    {
+        "code": "A6",
+        "label": "A6",
+        "category": "Overtime",
+        "allow_suffix": True,
+        "suffixes": "MDAN",
+        "toil_half_days": 0,
+        "tags": "ot,aava",
+        "is_active": True,
+    },
+    {
+        "code": "A8",
+        "label": "A8",
+        "category": "Overtime",
+        "allow_suffix": True,
+        "suffixes": "MDAN",
+        "toil_half_days": 0,
+        "tags": "ot,aava",
+        "is_active": True,
+    },
+    {
+        "code": "SOAL",
+        "label": "SOAL",
+        "category": "Overtime",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 0,
+        "tags": "ot,soal",
+        "is_active": True,
+    },
+    {
+        "code": "TOA8",
+        "label": "TOA8 (TOIL +1.0)",
+        "category": "TOIL Accrual",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 2,
+        "tags": "toil",
+        "is_active": True,
+    },
+    {
+        "code": "TOAI",
+        "label": "TOAI (TOIL +0.5)",
+        "category": "TOIL Accrual",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 1,
+        "tags": "toil",
+        "is_active": True,
+    },
+    {
+        "code": "TOAU",
+        "label": "TOAU (legacy)",
+        "category": "TOIL Accrual",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 2,
+        "tags": "toil",
+        "is_active": False,
+    },
+]
 
-# Codes considered leave-like in generic logic (but reports only count AL, see below)
-LEAVE_CODES = {"AL", "PL", "SPL"}
+DEFAULT_ROSTER_SETTINGS = {
+    "working_codes": DEFAULT_WORKING_CODES,
+    "leave_codes": DEFAULT_LEAVE_CODES,
+    "banned_codes": DEFAULT_BANNED_ROSTER_CODES,
+    "exclude_from_counters": DEFAULT_EXCLUDE_FROM_COUNTERS,
+    "non_working_codes": DEFAULT_NON_WORKING_CODES,
+}
 
-# Codes that must NOT be set via the roster grid (per user requirement)
-BANNED_ROSTER_CODES = {"SIC", "SC", "SSC",
-                       "AL", "SP", "SPL", "PL", "TOU8", "TOUI"}
+# -------------------- Models --------------------
 
-# Codes that must be excluded from day totals (counters)
-EXCLUDE_FROM_COUNTERS = {"OSS"}
+
+class RosterSetting(db.Model):
+    key = db.Column(db.String(50), primary_key=True)
+    value = db.Column(db.Text, nullable=False, default="")
+
+
+class AnnotationType(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(10), unique=True, nullable=False)
+    label = db.Column(db.String(80), nullable=False, default="")
+    category = db.Column(db.String(40), nullable=False, default="General")
+    allow_suffix = db.Column(db.Boolean, default=False)
+    suffixes = db.Column(db.String(20), default="")
+    toil_half_days = db.Column(db.Integer, default=0)
+    tags = db.Column(db.String(200), default="")
+    is_active = db.Column(db.Boolean, default=True)
+    sort_order = db.Column(db.Integer, default=100)
+
 
 # -------------------- Models --------------------
 
@@ -416,7 +549,7 @@ class Assignment(db.Model):
     code = db.Column(db.String(10), nullable=False)
     source = db.Column(db.String(10), default="auto")
     note = db.Column(db.String(140), default="")
-    # EXTS/EXTL/SWAP/A2/A4/A6/A8/SOAL/TOA8/TOAI (+ optional suffix like A6M)
+    # Annotation code (managed via AnnotationType, optional suffix like A6M)
     annotation = db.Column(db.String(20), default="")
     __table_args__ = (db.UniqueConstraint(
         "staff_id", "day", name="uniq_staff_day"),)
@@ -471,6 +604,198 @@ class StaffWatchHistory(db.Model):
     effective_date = db.Column(db.Date, nullable=False, index=True)
     staff = db.relationship("Staff", backref="watch_history")
     watch = db.relationship("Watch")
+
+# -------------------- Reference data helpers --------------------
+
+
+def _normalise_codes(values: list[str] | tuple[str, ...]) -> list[str]:
+    seen = []
+    for val in values:
+        code = (val or "").strip().upper()
+        if code and code not in seen:
+            seen.append(code)
+    return seen
+
+
+@lru_cache(maxsize=1)
+def _roster_settings_snapshot() -> dict[str, str]:
+    rows = RosterSetting.query.all()
+    return {row.key: row.value for row in rows}
+
+
+def refresh_roster_settings_cache() -> None:
+    _roster_settings_snapshot.cache_clear()
+    get_working_codes.cache_clear()
+    get_leave_codes.cache_clear()
+    get_banned_roster_codes.cache_clear()
+    get_exclude_from_counters.cache_clear()
+    get_non_working_codes.cache_clear()
+    try:
+        _shift_groups_snapshot.cache_clear()
+    except NameError:
+        pass
+
+
+def _load_codes_setting(key: str, default: list[str]) -> set[str]:
+    raw = _roster_settings_snapshot().get(key)
+    if not raw:
+        return set(_normalise_codes(default))
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return set(_normalise_codes(default))
+    return set(_normalise_codes(parsed))
+
+
+@lru_cache(maxsize=1)
+def get_working_codes() -> set[str]:
+    return _load_codes_setting("working_codes", DEFAULT_WORKING_CODES)
+
+
+@lru_cache(maxsize=1)
+def get_leave_codes() -> set[str]:
+    return _load_codes_setting("leave_codes", DEFAULT_LEAVE_CODES)
+
+
+@lru_cache(maxsize=1)
+def get_banned_roster_codes() -> set[str]:
+    return _load_codes_setting("banned_codes", DEFAULT_BANNED_ROSTER_CODES)
+
+
+@lru_cache(maxsize=1)
+def get_exclude_from_counters() -> set[str]:
+    return _load_codes_setting("exclude_from_counters", DEFAULT_EXCLUDE_FROM_COUNTERS)
+
+
+@lru_cache(maxsize=1)
+def get_non_working_codes() -> set[str]:
+    return _load_codes_setting("non_working_codes", DEFAULT_NON_WORKING_CODES)
+
+
+@lru_cache(maxsize=1)
+def _annotation_snapshot() -> dict[str, object]:
+    rows = (AnnotationType.query
+            .order_by(AnnotationType.sort_order, AnnotationType.code)
+            .all())
+    items = []
+    for row in rows:
+        tags = tuple(sorted({
+            t.strip().lower() for t in (row.tags or "").split(",") if t.strip()
+        }))
+        suffixes = "".join(sorted({c for c in (row.suffixes or "").upper()}))
+        items.append({
+            "id": row.id,
+            "code": (row.code or "").upper(),
+            "label": row.label or row.code.upper(),
+            "category": row.category or "Other",
+            "allow_suffix": bool(row.allow_suffix),
+            "suffixes": suffixes,
+            "toil_half_days": int(row.toil_half_days or 0),
+            "tags": tags,
+            "is_active": bool(row.is_active),
+            "sort_order": row.sort_order if row.sort_order is not None else 0,
+        })
+    by_code = {item["code"]: item for item in items}
+    return {"items": items, "by_code": by_code}
+
+
+def refresh_annotation_cache() -> None:
+    _annotation_snapshot.cache_clear()
+
+
+def get_annotation_types(active_only: bool = True) -> list[dict[str, object]]:
+    snap = _annotation_snapshot()
+    items = snap["items"]
+    if active_only:
+        items = [item for item in items if item["is_active"]]
+    return items
+
+
+def get_annotation_config(code: str | None) -> dict[str, object] | None:
+    if not code:
+        return None
+    return _annotation_snapshot()["by_code"].get(code.strip().upper())
+
+
+def get_annotation_groups() -> OrderedDict[str, list[dict[str, object]]]:
+    groups: OrderedDict[str, list[dict[str, object]]] = OrderedDict()
+    for item in get_annotation_types(active_only=True):
+        groups.setdefault(item["category"], []).append(item)
+    return groups
+
+
+def annotation_tags_for(code: str | None) -> set[str]:
+    info = get_annotation_config(code)
+    if not info:
+        return set()
+    tags = info.get("tags") or ()
+    return {t for t in tags}
+
+
+def annotation_codes_for_tag(tag: str, active_only: bool = True) -> list[str]:
+    needle = (tag or "").lower().strip()
+    if not needle:
+        return []
+    codes = []
+    for item in get_annotation_types(active_only=active_only):
+        tags = {t for t in (item.get("tags") or ())}
+        if needle in tags:
+            codes.append(item["code"])
+    return codes
+
+
+def _parse_codes_input(raw: str) -> list[str]:
+    tokens = re.split(r"[\s,]+", raw or "")
+    return _normalise_codes(tokens)
+
+
+def _save_codes_setting(key: str, values: list[str]) -> None:
+    payload = json.dumps(_normalise_codes(values))
+    row = RosterSetting.query.filter_by(key=key).first()
+    if not row:
+        row = RosterSetting(key=key, value=payload)
+        db.session.add(row)
+    else:
+        row.value = payload
+    db.session.commit()
+    refresh_roster_settings_cache()
+
+
+def bootstrap_reference_data() -> None:
+    AnnotationType.__table__.create(bind=db.engine, checkfirst=True)
+    RosterSetting.__table__.create(bind=db.engine, checkfirst=True)
+
+    if AnnotationType.query.count() == 0:
+        for idx, cfg in enumerate(DEFAULT_ANNOTATION_TYPES):
+            ann = AnnotationType(
+                code=cfg.get("code", "").upper(),
+                label=cfg.get("label") or cfg.get("code", ""),
+                category=cfg.get("category", "Other"),
+                allow_suffix=bool(cfg.get("allow_suffix", False)),
+                suffixes="".join(sorted({
+                    c for c in (cfg.get("suffixes") or "").upper()
+                })),
+                toil_half_days=int(cfg.get("toil_half_days", 0) or 0),
+                tags=cfg.get("tags", ""),
+                is_active=bool(cfg.get("is_active", True)),
+                sort_order=cfg.get("sort_order", idx * 10),
+            )
+            db.session.add(ann)
+        db.session.commit()
+
+    for key, values in DEFAULT_ROSTER_SETTINGS.items():
+        if not RosterSetting.query.filter_by(key=key).first():
+            db.session.add(RosterSetting(key=key, value=json.dumps(_normalise_codes(values))))
+    db.session.commit()
+    refresh_annotation_cache()
+    refresh_roster_settings_cache()
+
+
+try:
+    with app.app_context():
+        bootstrap_reference_data()
+except Exception:
+    db.session.rollback()
 
 # Cached shift lookup (define after models so ShiftType exists when called)
 
@@ -632,7 +957,8 @@ def get_shift(code: str):
 @lru_cache(maxsize=1)
 def _shift_groups_snapshot():
     all_shifts = ShiftType.query.order_by(ShiftType.code).all()
-    allowed = [sh for sh in all_shifts if sh.code not in BANNED_ROSTER_CODES]
+    banned = get_banned_roster_codes()
+    allowed = [sh for sh in all_shifts if sh.code not in banned]
     working = sorted(
         [sh for sh in allowed if sh.is_working and not sh.is_training], key=lambda s: s.code)
     training = sorted(
@@ -1721,11 +2047,23 @@ def parse_annotation(s: str):
     """Return {'type':'A6','suffix':'M'} or {'type':'EXTL'}, else None."""
     if not s:
         return None
-    m = ANNOT_RE.match(s.strip().upper())
-    if not m:
-        return None
-    typ, suf = m.group(1).upper(), (m.group(2).upper() if m.group(2) else None)
-    return {"type": typ, "suffix": suf}
+    value = s.strip().upper()
+    info = get_annotation_config(value)
+    if info:
+        return {"type": info["code"], "suffix": None}
+
+    snap = _annotation_snapshot()["items"]
+    for item in snap:
+        if not item["allow_suffix"]:
+            continue
+        code = item["code"]
+        if not code:
+            continue
+        if value.startswith(code) and len(value) == len(code) + 1:
+            suffix = value[len(code):]
+            if suffix and suffix in set(item["suffixes"]):
+                return {"type": code, "suffix": suffix}
+    return None
 
 
 def _context_month_for_date(d: date | None) -> str | None:
@@ -1870,15 +2208,8 @@ def _normalize_code(code) -> str:
     return str(code or "").strip().upper()
 
 
-# central place to mark things that should never count as "working"
-_NON_WORKING_CODES = {
-    "OFF", "AL", "PL", "SPL", "TOU8", "TOUI",
-    "OSS", "OFFICE", "WFH", "CTB", "MTG"
-}
-
-
 def _is_non_working(code: str) -> bool:
-    return _normalize_code(code) in _NON_WORKING_CODES
+    return _normalize_code(code) in get_non_working_codes()
 
 
 def _is_working_code_prefix(code: str, prefix: str) -> bool:
@@ -1890,7 +2221,7 @@ def _is_working_code_prefix(code: str, prefix: str) -> bool:
     Falls back to just the prefix check if ShiftType is unknown.
     """
     cu = _normalize_code(code)
-    if not cu or cu in _NON_WORKING_CODES:
+    if not cu or cu in get_non_working_codes():
         return False
 
     # Prefer cached lookup if present in your app
@@ -2097,7 +2428,7 @@ def roster_month(ym):
         )
     )
 
-    # Counters (operational only); exclude training and EXCLUDE_FROM_COUNTERS
+    # Counters (operational only); exclude training and configured exclusions
     counters = {d: Counter() for d in days}
     for s in staff:
         if not getattr(s, "is_operational", True):
@@ -2108,7 +2439,7 @@ def roster_month(ym):
             if not c:
                 continue
             # Never count leave/sickness/non-operational placeholders
-            if 'EXCLUDE_FROM_COUNTERS' in globals() and c in EXCLUDE_FROM_COUNTERS:
+            if c in get_exclude_from_counters():
                 continue
             if c in training_codes:
                 continue
@@ -2227,6 +2558,7 @@ def roster_month(ym):
         req_pending_map=req_pending_map,
         show_ot_finder=True,
         display_watch_by_staff=display_watch_by_staff,
+        annotation_groups=get_annotation_groups(),
     )
 
 
@@ -2304,7 +2636,7 @@ def assign_cell(staff_id, ym, day):
 
     # if a shift code was posted, validate and set it
     if code != "":
-        if 'BANNED_ROSTER_CODES' in globals() and code in BANNED_ROSTER_CODES:
+        if code in get_banned_roster_codes():
             flash(
                 "Leave, sickness and TOIL use must be logged via the form, not the roster grid.", "error")
             return redirect(url_for("roster_month", ym=ym))
@@ -2319,6 +2651,9 @@ def assign_cell(staff_id, ym, day):
         old = a.annotation or ""
         newv = (annot or "").strip().upper()
         if old != newv:
+            if newv and not parse_annotation(newv):
+                flash(f"Unknown annotation '{newv}'.", "error")
+                return redirect(url_for("roster_month", ym=ym))
             _apply_toil_annotation_delta(
                 staff=st, old_annot=old, new_annot=newv)
             a.annotation = newv
@@ -2365,7 +2700,7 @@ def roster_export_csv(ym):
             continue
         for d in days:
             c = a_map[s.id].get(d)
-            if not c or c in EXCLUDE_FROM_COUNTERS:
+            if not c or c in get_exclude_from_counters():
                 continue
             sh = get_shift(c) if c else None
             if not c or not sh or sh.is_training:
@@ -2611,6 +2946,157 @@ def admin():
                            shifts=shifts, staff=staff, watches=watches,
                            months=months, requirements_by_month=requirements_by_month,
                            leaves=leaves)
+
+
+@app.route("/admin/reference", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_reference():
+    settings_meta = {
+        "working_codes": {
+            "label": "Working shift codes",
+            "help": "Codes treated as working when checking fatigue and consecutive days.",
+        },
+        "leave_codes": {
+            "label": "Leave codes",
+            "help": "Codes considered leave-like in automatic logic and reports.",
+        },
+        "banned_codes": {
+            "label": "Roster grid exclusions",
+            "help": "Codes that cannot be set directly from the roster grid (must use dedicated forms).",
+        },
+        "exclude_from_counters": {
+            "label": "Daily counter exclusions",
+            "help": "Codes ignored when calculating the M/D/A/N requirement counters.",
+        },
+        "non_working_codes": {
+            "label": "Non-working codes",
+            "help": "Codes that always count as non-working when evaluating fatigue rules.",
+        },
+    }
+
+    if request.method == "POST":
+        form = request.form.get("form", "")
+        try:
+            if form == "annotation_new":
+                code = (request.form.get("code") or "").strip().upper()
+                if not code:
+                    flash("Annotation code is required.", "error")
+                    return redirect(url_for("admin_reference"))
+                label = (request.form.get("label") or code).strip()
+                category = (request.form.get("category") or "Other").strip()
+                allow_suffix = bool(request.form.get("allow_suffix"))
+                suffixes = "".join(sorted({
+                    c.strip().upper() for c in (request.form.get("suffixes") or "") if c.strip()
+                }))
+                try:
+                    toil_half_days = int(request.form.get("toil_half_days") or 0)
+                except ValueError:
+                    toil_half_days = 0
+                tags = ",".join(sorted({
+                    t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
+                }))
+                try:
+                    sort_order = int(request.form.get("sort_order") or 0)
+                except ValueError:
+                    sort_order = 0
+                is_active = bool(request.form.get("is_active", True))
+
+                ann = AnnotationType(
+                    code=code,
+                    label=label or code,
+                    category=category or "Other",
+                    allow_suffix=allow_suffix,
+                    suffixes=suffixes,
+                    toil_half_days=toil_half_days,
+                    tags=tags,
+                    is_active=is_active,
+                    sort_order=sort_order,
+                )
+                db.session.add(ann)
+                db.session.commit()
+                refresh_annotation_cache()
+                flash("Annotation added.", "ok")
+                return redirect(url_for("admin_reference"))
+
+            if form == "annotation_edit":
+                aid = int(request.form.get("annotation_id"))
+                ann = AnnotationType.query.get_or_404(aid)
+                new_code = (request.form.get("code") or ann.code).strip().upper()
+                ann.code = new_code or ann.code
+                ann.label = (request.form.get("label") or ann.label or new_code).strip() or new_code
+                ann.category = (request.form.get("category") or ann.category or "Other").strip() or "Other"
+                ann.allow_suffix = bool(request.form.get("allow_suffix"))
+                ann.suffixes = "".join(sorted({
+                    c.strip().upper() for c in (request.form.get("suffixes") or "") if c.strip()
+                }))
+                try:
+                    ann.toil_half_days = int(request.form.get("toil_half_days") or 0)
+                except ValueError:
+                    ann.toil_half_days = 0
+                tags = ",".join(sorted({
+                    t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
+                }))
+                ann.tags = tags
+                try:
+                    ann.sort_order = int(request.form.get("sort_order") or ann.sort_order or 0)
+                except ValueError:
+                    pass
+                ann.is_active = bool(request.form.get("is_active"))
+                db.session.commit()
+                refresh_annotation_cache()
+                flash("Annotation updated.", "ok")
+                return redirect(url_for("admin_reference"))
+
+            if form == "annotation_delete":
+                aid = int(request.form.get("annotation_id"))
+                ann = AnnotationType.query.get_or_404(aid)
+                db.session.delete(ann)
+                db.session.commit()
+                refresh_annotation_cache()
+                flash("Annotation removed.", "ok")
+                return redirect(url_for("admin_reference"))
+
+            if form == "settings_codes":
+                key = request.form.get("key", "")
+                if key not in settings_meta:
+                    flash("Unknown setting.", "error")
+                    return redirect(url_for("admin_reference"))
+                values = _parse_codes_input(request.form.get("values", ""))
+                _save_codes_setting(key, values)
+                flash("Reference list updated.", "ok")
+                return redirect(url_for("admin_reference"))
+
+            flash("Unknown action.", "error")
+            return redirect(url_for("admin_reference"))
+        except Exception as exc:
+            db.session.rollback()
+            flash(f"Update failed: {exc}", "error")
+            return redirect(url_for("admin_reference"))
+
+    annotations = (AnnotationType.query
+                   .order_by(AnnotationType.sort_order, AnnotationType.code)
+                   .all())
+
+    settings_view = []
+    current_values = {
+        "working_codes": sorted(get_working_codes()),
+        "leave_codes": sorted(get_leave_codes()),
+        "banned_codes": sorted(get_banned_roster_codes()),
+        "exclude_from_counters": sorted(get_exclude_from_counters()),
+        "non_working_codes": sorted(get_non_working_codes()),
+    }
+    for key, meta in settings_meta.items():
+        settings_view.append({
+            "key": key,
+            "label": meta["label"],
+            "help": meta["help"],
+            "value": ", ".join(current_values.get(key, [])),
+        })
+
+    return render_template("admin_reference.html",
+                           annotations=annotations,
+                           settings=settings_view)
 
 # Keep your dedicated staff edit route (ATCO edit)
 
@@ -3145,8 +3631,21 @@ def _compute_metrics_range(start_day: date, end_day: date):
                    .filter(Assignment.day >= start_day, Assignment.day <= end_day)
                    .all())
 
+    annotation_snapshot = _annotation_snapshot()["items"]
+    tag_map = {item["code"]: {t for t in item["tags"]} for item in annotation_snapshot}
+    label_map = {item["code"]: item["label"] for item in annotation_snapshot}
+
+    ot_columns = [
+        {"code": item["code"], "label": label_map[item["code"]]}
+        for item in annotation_snapshot
+        if item["is_active"] and "ot" in tag_map.get(item["code"], set())
+    ]
+    ot_order = [col["code"] for col in ot_columns]
+    ot_known = set(ot_order)
+
     staff_by_id = {s.id: s for s in Staff.query.all()}
-    metrics_map = {}
+    metrics_map: dict[int, dict[str, object]] = {}
+
     for a in assignments:
         s = staff_by_id.get(a.staff_id)
         if not s:
@@ -3158,26 +3657,33 @@ def _compute_metrics_range(start_day: date, end_day: date):
                 "ext_short": 0,
                 "ext_total": 0,
                 "swaps": 0,
-                "ot": {"A2": 0, "A4": 0, "A6": 0, "A8": 0, "SOAL": 0},
+                "ot": {code: 0 for code in ot_order},
                 "ot_total": 0,
-                "aava_total": 0
+                "aava_total": 0,
             }
         parsed = parse_annotation(a.annotation)
         if not parsed:
             continue
         t = parsed["type"]
-        if t == "EXTL":
+        tags = tag_map.get(t, set())
+        if "ext_long" in tags:
             metrics_map[s.id]["ext_long"] += 1
             metrics_map[s.id]["ext_total"] += 1
-        elif t == "EXTS":
+        elif "ext_short" in tags:
             metrics_map[s.id]["ext_short"] += 1
             metrics_map[s.id]["ext_total"] += 1
-        elif t == "SWAP":
+        elif "swap" in tags:
             metrics_map[s.id]["swaps"] += 1
-        elif t in ("A2", "A4", "A6", "A8", "SOAL"):
+
+        if "ot" in tags:
+            if t not in ot_known:
+                ot_known.add(t)
+                ot_order.append(t)
+                ot_columns.append({"code": t, "label": label_map.get(t, t)})
+            metrics_map[s.id]["ot"].setdefault(t, 0)
             metrics_map[s.id]["ot"][t] += 1
             metrics_map[s.id]["ot_total"] += 1
-            if t in ("A2", "A4", "A6", "A8"):
+            if "aava" in tags:
                 metrics_map[s.id]["aava_total"] += 1
 
     staff_order = (Staff.query
@@ -3186,11 +3692,19 @@ def _compute_metrics_range(start_day: date, end_day: date):
 
     staff_metrics = []
     for s in staff_order:
-        row = metrics_map.get(s.id, {
-            "staff": s, "ext_long": 0, "ext_short": 0, "ext_total": 0, "swaps": 0,
-            "ot": {"A2": 0, "A4": 0, "A6": 0, "A8": 0, "SOAL": 0},
-            "ot_total": 0, "aava_total": 0
-        })
+        base = {
+            "staff": s,
+            "ext_long": 0,
+            "ext_short": 0,
+            "ext_total": 0,
+            "swaps": 0,
+            "ot": {code: 0 for code in ot_order},
+            "ot_total": 0,
+            "aava_total": 0,
+        }
+        row = metrics_map.get(s.id, base)
+        # ensure OT keys match ot_order
+        row["ot"] = {code: row["ot"].get(code, 0) for code in ot_order}
         staff_metrics.append(row)
 
     totals = {
@@ -3198,17 +3712,11 @@ def _compute_metrics_range(start_day: date, end_day: date):
         "ext_short": sum(r["ext_short"] for r in staff_metrics),
         "ext_total": sum(r["ext_total"] for r in staff_metrics),
         "swaps": sum(r["swaps"] for r in staff_metrics),
-        "ot": {
-            "A2": sum(r["ot"]["A2"] for r in staff_metrics),
-            "A4": sum(r["ot"]["A4"] for r in staff_metrics),
-            "A6": sum(r["ot"]["A6"] for r in staff_metrics),
-            "A8": sum(r["ot"]["A8"] for r in staff_metrics),
-            "SOAL": sum(r["ot"]["SOAL"] for r in staff_metrics),
-        },
+        "ot": {code: sum(r["ot"].get(code, 0) for r in staff_metrics) for code in ot_order},
         "ot_total": sum(r["ot_total"] for r in staff_metrics),
         "aava_total": sum(r["aava_total"] for r in staff_metrics),
     }
-    return staff_metrics, totals
+    return staff_metrics, totals, ot_columns
 
 
 def _fy_start_for(d: date) -> date:
@@ -3228,10 +3736,11 @@ def metrics():
     end_str = request.args.get("end", today.isoformat())
     start_day = date.fromisoformat(start_str)
     end_day = date.fromisoformat(end_str)
-    staff_metrics, totals = _compute_metrics_range(start_day, end_day)
+    staff_metrics, totals, ot_columns = _compute_metrics_range(start_day, end_day)
     return render_template("metrics.html",
                            start=start_day, end=end_day,
-                           staff_metrics=staff_metrics, totals=totals)
+                           staff_metrics=staff_metrics, totals=totals,
+                           ot_columns=ot_columns)
 
 
 def _count_aava_soal_since_prev_april(staff_id: int, upto: date):
@@ -3246,10 +3755,10 @@ def _count_aava_soal_since_prev_april(staff_id: int, upto: date):
         p = parse_annotation(a.annotation)
         if not p:
             continue
-        t = p["type"]
-        if t in ("A2", "A4", "A6", "A8"):
+        tags = annotation_tags_for(p["type"])
+        if "aava" in tags:
             aava += 1
-        elif t == "SOAL":
+        if "soal" in tags:
             soal += 1
     return aava, soal
 
@@ -3262,7 +3771,7 @@ def _worked_like_consecutive_days(staff: Staff, upto_day: date, lookback_days: i
         code = a.code if a else None
         if not code:
             break
-        if code in WORKING_CODES:
+        if code in get_working_codes():
             count += 1
             cur = cur - timedelta(days=1)
         else:
@@ -3309,26 +3818,28 @@ def metrics_export():
     start_day = date.fromisoformat(
         request.args.get("start", default_start.isoformat()))
     end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
-    staff_metrics, totals = _compute_metrics_range(start_day, end_day)
+    staff_metrics, totals, ot_columns = _compute_metrics_range(start_day, end_day)
 
     output = io.StringIO()
     w = csv.writer(output)
-    w.writerow(["ATCO", "Staff #", "Watch",
-                "Ext L", "Ext S", "Ext Total", "Swaps",
-                "A2", "A4", "A6", "A8", "SOAL",
-                "AAVA Total", "OT Total"])
+    header = ["ATCO", "Staff #", "Watch",
+              "Ext L", "Ext S", "Ext Total", "Swaps"]
+    header.extend([col["code"] for col in ot_columns])
+    header.extend(["AAVA Total", "OT Total"])
+    w.writerow(header)
     for row in staff_metrics:
         s = row["staff"]
         watch = s.watch.name.replace("Watch ", "") if s.watch else "-"
+        ot_values = [row["ot"].get(col["code"], 0) for col in ot_columns]
         w.writerow([s.name, s.staff_no, watch,
-                    row["ext_long"], row["ext_short"], row["ext_total"], row["swaps"],
-                    row["ot"]["A2"], row["ot"]["A4"], row["ot"]["A6"], row["ot"]["A8"], row["ot"]["SOAL"],
-                    row["aava_total"], row["ot_total"]])
+                    row["ext_long"], row["ext_short"], row["ext_total"], row["swaps"]] +
+                   ot_values + [row["aava_total"], row["ot_total"]])
     w.writerow([])
-    w.writerow(["All ATCOs", "", "",
-                totals["ext_long"], totals["ext_short"], totals["ext_total"], totals["swaps"],
-                totals["ot"]["A2"], totals["ot"]["A4"], totals["ot"]["A6"], totals["ot"]["A8"], totals["ot"]["SOAL"],
-                totals["aava_total"], totals["ot_total"]])
+    total_row = ["All ATCOs", "", "",
+                 totals["ext_long"], totals["ext_short"], totals["ext_total"], totals["swaps"]]
+    total_row.extend([totals["ot"].get(col["code"], 0) for col in ot_columns])
+    total_row.extend([totals["aava_total"], totals["ot_total"]])
+    w.writerow(total_row)
 
     csv_bytes = output.getvalue().encode("utf-8")
     filename = f"overtime-swap-ext-count_{start_day.isoformat()}_to_{end_day.isoformat()}.csv"
@@ -3350,7 +3861,7 @@ def _count_ot_since_prev_april(staff_id: int, upto: date):
     total = 0
     for a in q.all():
         p = parse_annotation(a.annotation)
-        if p and (p["type"] in ("A2", "A4", "A6", "A8", "SOAL")):
+        if p and ("ot" in annotation_tags_for(p["type"])):
             total += 1
     return total
 
@@ -3370,6 +3881,13 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
     staff_members = (Staff.query
                      .outerjoin(Watch, Staff.watch_id == Watch.id)
                      .order_by(Watch.order_index, Staff.name).all())
+
+    soal_codes = annotation_codes_for_tag("soal", active_only=False)
+    soal_display = "SOAL"
+    if soal_codes:
+        first = soal_codes[0]
+        info = get_annotation_config(first)
+        soal_display = (info.get("label") if info else first) or first
 
     results = []
     for s in staff_members:
@@ -3418,7 +3936,7 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
 
         flags = []
         if code_today == "AL":
-            flags.append("On AL that day — SOAL required")
+            flags.append(f"On AL that day — {soal_display} required")
         if _had_sc_within_48h(s, chosen_date, sh):
             flags.append(
                 "SC/SSC within 48h — managerial approval required")
@@ -3684,12 +4202,13 @@ def _current_leave_year_window(s: Staff, today: date | None = None):
 def _toil_accrual_half_days_from_annotation(parsed):
     if not parsed:
         return 0
-    typ = parsed["type"]
-    if typ in ("TOA8", "TOAU"):
-        return 2
-    if typ == "TOAI":
-        return 1
-    return 0
+    info = get_annotation_config(parsed.get("type"))
+    if not info:
+        return 0
+    try:
+        return int(info.get("toil_half_days", 0) or 0)
+    except Exception:
+        return 0
 
 
 def _apply_toil_annotation_delta(staff: Staff, old_annot: str, new_annot: str):
