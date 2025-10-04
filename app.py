@@ -63,6 +63,28 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.jinja_env.globals['now'] = lambda: datetime.now()
 
 
+def _asset_url(filename: str, **extra: object) -> str:
+    """Return a cache-busting static asset URL using the file mtime."""
+
+    static_folder = app.static_folder
+    version: Optional[int] = None
+
+    if static_folder:
+        try:
+            path = os.path.join(static_folder, filename)
+            version = int(os.path.getmtime(path))
+        except (OSError, TypeError, ValueError):
+            version = None
+
+    if version is not None:
+        return url_for("static", filename=filename, v=version, **extra)
+
+    return url_for("static", filename=filename, **extra)
+
+
+app.jinja_env.globals["asset_url"] = _asset_url
+
+
 def utcnow():
     """Return the current UTC time as a timezone-aware datetime."""
     return datetime.now(timezone.utc)
