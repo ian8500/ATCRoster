@@ -1028,6 +1028,15 @@ def code_from_pattern(staff: Staff, d: date):
     return pat[idx]
 
 
+def _cycle_day_for(staff: Staff, d: date) -> int | None:
+    """Return the 1-indexed pattern cycle day for `staff` on date `d`."""
+    pat = pattern_for(staff)
+    if not pat:
+        return None
+    anchor = staff.pattern_anchor or date(d.year, d.month, 1)
+    return ((d - anchor).days % len(pat)) + 1
+
+
 def set_assignment(staff: Staff, d: date, code: str, source="auto", note=""):
     a = Assignment.query.filter_by(staff_id=staff.id, day=d).first()
     if a and a.source == "manual":
@@ -1134,6 +1143,9 @@ def generate_month(year: int, month: int, *args, **kwargs):
     db.session.commit()
 
 
+NIGHT_ELIGIBLE_CYCLE_DAYS: set[int] = {5, 6}
+
+
 def generate_month_roster(year: int, month: int, who_user: "User"):
     # Guard: lock
     if is_month_locked(year, month):
@@ -1178,8 +1190,17 @@ def generate_month_roster(year: int, month: int, who_user: "User"):
     # Candidate helper
     def eligible_staff(d: date, code: str):
         for s in staff:
-            if code == night_code and s.id in no_nights_ids:
-                continue
+            if code == night_code:
+                if s.id in no_nights_ids:
+                    continue
+
+                cycle_day = _cycle_day_for(s, d)
+                if cycle_day not in NIGHT_ELIGIBLE_CYCLE_DAYS:
+                    continue
+
+                pattern_code = code_from_pattern(s, d)
+                if not _is_working_n_code(pattern_code):
+                    continue
             if _has_leave_or_sick(s.id, d):
                 continue
             a = by_staff_day[s.id].get(d) or Assignment(staff_id=s.id, day=d)
