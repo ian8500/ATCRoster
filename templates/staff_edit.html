@@ -17,10 +17,25 @@
           {% for w in watches %}<option value="{{ w.id }}" {% if s.watch_id == w.id %}selected{% endif %}>{{ w.name }}</option>{% endfor %}
         </select>
       </label>
+      {% if is_super_admin %}
+        <label>Unit
+          <select name="unit_id">
+            {% for unit in available_units %}
+              <option value="{{ unit.id }}" {% if s.unit_id == unit.id %}selected{% endif %}>{{ unit.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% else %}
+        <input type="hidden" name="unit_id" value="{{ s.unit_id }}">
+      {% endif %}
 
       <label>Role
+        {% set roles = ['user','editor','admin'] %}
+        {% if is_super_admin %}
+          {% set roles = roles + ['superadmin'] %}
+        {% endif %}
         <select name="role">
-          {% for r in ['user','editor','admin'] %}
+          {% for r in roles %}
             <option value="{{ r }}" {% if s.role == r %}selected{% endif %}>{{ r|capitalize }}</option>
           {% endfor %}
         </select>

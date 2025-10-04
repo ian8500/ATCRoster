@@ -49,6 +49,27 @@
           <a href="{{ url_for('login') }}" class="nav-link {% if request.endpoint == 'login' %}active{% endif %}">🔐 Login</a>
         {% endif %}
       </nav>
+      {% if current_user.is_authenticated and available_units %}
+        <div class="unit-switch">
+          {% if is_super_admin %}
+            <form method="post" action="{{ url_for('switch_unit') }}">
+              {% set next_url = request.full_path if request.query_string else request.path %}
+              <input type="hidden" name="next" value="{{ next_url }}">
+              <label for="unit-select" class="visually-hidden">Active unit</label>
+              <select id="unit-select" name="unit_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="all" {% if not active_unit %}selected{% endif %}>All units</option>
+                {% for unit in available_units %}
+                  <option value="{{ unit.id }}" {% if active_unit and unit.id == active_unit.id %}selected{% endif %}>{{ unit.name }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          {% elif active_unit %}
+            <span class="badge bg-secondary">{{ active_unit.name }}</span>
+          {% else %}
+            <span class="badge bg-secondary">All units</span>
+          {% endif %}
+        </div>
+      {% endif %}
     </div>
   </header>
 
