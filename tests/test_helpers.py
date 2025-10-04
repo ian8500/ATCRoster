@@ -1,7 +1,8 @@
+import json
 import os
 import sys
 import tempfile
-from datetime import date, time
+from datetime import date, time, timedelta
 
 import pytest
 
@@ -35,10 +36,17 @@ from app import (
     is_month_locked,
     lock_date_for_month,
     refresh_shift_cache,
+    generate_month_roster,
+    _cycle_day_for,
     db,
+    AiRuleSet,
+    Assignment,
+    Requirement,
     ShiftRequest,
     ShiftType,
     Staff,
+    Watch,
+    ensure_shift,
 )
 
 
@@ -169,4 +177,78 @@ def test_assign_cell_keeps_request_record_and_marks_closed():
         assert req.status == "closed"
         assert req.responded_by_id == admin.id
         assert req.responded_at is not None
+
+
+def test_generate_month_roster_respects_night_cycle_and_eligibility():
+    year, month = 2030, 4
+    target_anchor = date(year, month, 1)
+
+    with app.app.app_context():
+        # Fresh database for deterministic roster generation
+        db.drop_all()
+        db.create_all()
+        bootstrap_reference_data()
+
+        # Ensure required shifts exist and caches are up to date
+        ensure_shift("N", "Night", start=time(22, 0), end=time(6, 0), is_working=True)
+        ensure_shift("D10", "Day", start=time(8, 0), end=time(16, 0), is_working=True)
+        refresh_shift_cache()
+
+        watch = Watch(name="Watch Test", order_index=1)
+        db.session.add(watch)
+        db.session.commit()
+
+        staff_members = []
+        for idx in range(6):
+            person = Staff(
+                username=f"eligible{idx}",
+                name=f"Eligible {idx}",
+                staff_no=f"E{idx:03d}",
+                watch=watch,
+                is_operational=True,
+                pattern_csv="M,M,A,A,N,N,OFF,OFF,OFF,OFF",
+                pattern_anchor=target_anchor - timedelta(days=idx),
+            )
+            person.set_password("password")
+            staff_members.append(person)
+
+        # Admin user for generator invocation
+        staff_members[0].role = "admin"
+
+        blocked = Staff(
+            username="blockednight",
+            name="Blocked Night",
+            staff_no="BLK001",
+            watch=watch,
+            is_operational=True,
+            pattern_csv="M,M,A,A,N,N,OFF,OFF,OFF,OFF",
+            pattern_anchor=target_anchor,
+        )
+        blocked.set_password("password")
+
+        db.session.add_all(staff_members + [blocked])
+        db.session.commit()
+
+        # Provide a prior duty to satisfy fatigue rest requirements
+        seed_day = target_anchor - timedelta(days=10)
+        for person in staff_members + [blocked]:
+            db.session.add(Assignment(staff=person, day=seed_day, code="D10", source="auto"))
+        db.session.commit()
+
+        db.session.add(Requirement(year=year, month=month, req_n=2, req_d=0, req_m=0, req_a=0))
+        db.session.commit()
+
+        rules = {"no_nights_ids": [blocked.id]}
+        db.session.add(AiRuleSet(year=year, month=month, rules_json=json.dumps(rules)))
+        db.session.commit()
+
+        generate_month_roster(year, month, staff_members[0])
+
+        assignments = Assignment.query.filter(Assignment.code == "N").all()
+        assert assignments, "Expected AI generator to assign night duties"
+
+        for assignment in assignments:
+            cycle_day = _cycle_day_for(assignment.staff, assignment.day)
+            assert cycle_day in {5, 6}
+            assert assignment.staff_id != blocked.id
 
