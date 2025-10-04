@@ -519,6 +519,11 @@ def _shift_by_code(code: str, unit_id: int | None = None):
         for row in rows:
             if row.unit_id == unit_id:
                 return row
+        for row in rows:
+            if row.unit_id is None:
+                return row
+        # No unit-specific or global definition – treat as unknown in this unit.
+        return None
     for row in rows:
         if row.unit_id is None:
             return row
