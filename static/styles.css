@@ -195,6 +195,12 @@ a.btn.ghost:hover{color:#fff; background:rgba(40,64,110,.65);}
 
 label{font-size:.85rem; letter-spacing:.02em; text-transform:uppercase; color:var(--text-muted); font-weight:600;}
 
+.form-check{display:flex; align-items:center; gap:.65rem; padding:.6rem .85rem; border-radius:var(--radius-sm); border:1px solid rgba(116,138,178,.28); background:rgba(16,24,40,.75); box-shadow:inset 0 1px 0 rgba(255,255,255,.03);}
+.form-check + .form-check{margin-top:.5rem;}
+.form-check-input{width:1.1rem; height:1.1rem; margin:0; border-radius:6px; background:rgba(11,17,30,.9); border:1px solid rgba(116,138,178,.45); cursor:pointer; transition:border-color .2s ease, box-shadow .2s ease, background .2s ease;}
+.form-check-input:focus{outline:none; box-shadow:0 0 0 3px rgba(79,125,255,.22); border-color:rgba(108,148,228,.75);}
+.form-check-label{font-size:.95rem; font-weight:500; text-transform:none; color:var(--text); letter-spacing:.01em; cursor:pointer;}
+
 input,
 select,
 textarea,
@@ -225,6 +231,9 @@ textarea:focus,
 }
 
 textarea{min-height:140px; resize:vertical;}
+
+.simple-list{list-style:none; margin:0; padding:0; display:grid; gap:.45rem;}
+.simple-list li{padding:.55rem .75rem; border-radius:var(--radius-sm); border:1px solid rgba(116,138,178,.24); background:rgba(15,23,38,.78); box-shadow:inset 0 1px 0 rgba(255,255,255,.02);}
 
 .form-text{color:var(--text-muted);}
 .form-check-input:checked{background-color:var(--accent-strong); border-color:var(--accent-strong);}
@@ -456,6 +465,9 @@ table:not(.roster) td{
 }
 
 table:not(.roster) tfoot td{font-weight:600;}
+
+.table-scroll{overflow:auto; border-radius:var(--radius-md); border:1px solid rgba(108,129,168,.2); box-shadow:var(--shadow-soft);}
+.table-scroll table{min-width:880px; border:none; box-shadow:none; border-radius:0;}
 
 /* ==============================
    Month navigation & helpers
