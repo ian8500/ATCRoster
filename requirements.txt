@@ -20,3 +20,8 @@ python-dateutil==2.9.0.post0
 # Optional: if you export CSV/ICS you don’t need extras, stdlib handles that
 # Optional: if you later add testing
 pytest==8.3.3
+
+# Desktop app packaging
+pywebview==5.1
+waitress==3.0.2
+pyinstaller==6.11.1
