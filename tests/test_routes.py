@@ -191,7 +191,7 @@ def test_admin_watch_move_flow(client):
     assert b"Watch move updated" in update_resp.data
 
     with app.app.app_context():
-        updated_entry = StaffWatchHistory.query.get(entry.id)
+        updated_entry = db.session.get(StaffWatchHistory, entry.id)
         assert updated_entry is not None
         assert updated_entry.watch_id == watch_a.id
         assert str(updated_entry.effective_date) == "2025-07-01"
@@ -205,7 +205,7 @@ def test_admin_watch_move_flow(client):
     assert b"Watch move deleted" in delete_resp.data
 
     with app.app.app_context():
-        assert StaffWatchHistory.query.get(entry.id) is None
+        assert db.session.get(StaffWatchHistory, entry.id) is None
 
     # Sanity check that the main admin dashboard still renders after the flow
     admin_resp = client.get("/admin")
