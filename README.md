@@ -35,3 +35,37 @@ Overtime SMS notifications use Twilio's REST API. Set the following environment 
 * `TWILIO_FROM_NUMBER`
 
 If these are not configured the send button on the overtime page will be disabled.
+
+## Run as a native desktop app (macOS/Windows)
+
+You can ship ATC Roster as a native desktop executable by embedding the Flask server in a local webview.
+
+### 1) Install dependencies
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
+pip install -r requirements.txt
+```
+
+### 2) Run desktop mode in development
+```bash
+python desktop_app.py
+```
+
+### 3) Build a distributable executable
+
+#### macOS
+```bash
+pyinstaller --noconfirm --onefile --windowed --name "ATCRoster" desktop_app.py
+```
+
+#### Windows (PowerShell)
+```powershell
+pyinstaller --noconfirm --onefile --windowed --name "ATCRoster" desktop_app.py
+```
+
+The built app lands in `dist/ATCRoster` (`ATCRoster.exe` on Windows). On first run it creates/uses the same local SQLite database under `instance/`.
+
+### Notes
+- The desktop app hosts the site on `127.0.0.1` only (not publicly exposed).
+- If a native webview runtime is unavailable on a machine, the launcher falls back to the default browser.
