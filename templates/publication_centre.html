@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Published Roster · {{ month_title }}{% endblock %}
+{% block content %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Controlled roster release</span>
+    <h2>{{ month_title }} publication</h2>
+    <p>Published versions are immutable snapshots. Publishing a replacement supersedes—but does not erase—the previous version.</p>
+  </div>
+  <div class="compliance-actions">
+    <a class="btn" href="{{ url_for('publication_centre', ym=prev_ym) }}">← {{ prev_ym }}</a>
+    <a class="btn" href="{{ url_for('roster_month', ym=ym) }}">Open roster</a>
+    <a class="btn" href="{{ url_for('publication_centre', ym=next_ym) }}">{{ next_ym }} →</a>
+  </div>
+</section>
+
+<div class="publication-grid">
+  <section class="card">
+    <div class="card-hd">Current status</div>
+    <div class="card-bd">
+      {% if active %}
+        <div class="publication-current">
+          <span class="status-pill success">Published</span>
+          <h3>Version {{ active.version }}</h3>
+          <p>Published {{ active.published_at.strftime('%d %b %Y at %H:%M') }}</p>
+          <p><strong>{{ acknowledgements|length }}</strong> of <strong>{{ operational_count }}</strong> operational staff acknowledged.</p>
+          {% if acknowledged %}
+            <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> You acknowledged this version.</p>
+          {% else %}
+            <form method="post">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="acknowledge">
+              <input type="hidden" name="publication_id" value="{{ active.id }}">
+              <button class="btn btn-primary" type="submit">Acknowledge version {{ active.version }}</button>
+            </form>
+          {% endif %}
+        </div>
+      {% else %}
+        <p>No roster version has been published for this month.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if is_admin %}
+  <section class="card">
+    <div class="card-hd">Unit Admin action</div>
+    <div class="card-bd">
+      <p>Run the compliance review before publishing. This creates a permanent snapshot and notifies active operational staff.</p>
+      <div class="compliance-actions">
+        <a class="btn" href="{{ url_for('compliance_centre', ym=ym) }}">Review compliance</a>
+        <form method="post">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="publish">
+          <button class="btn btn-primary" type="submit">{{ 'Publish replacement' if active else 'Publish roster' }}</button>
+        </form>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+</div>
+
+<section class="card mt-3">
+  <div class="card-hd">Version history</div>
+  <div class="card-bd publication-history">
+    {% for publication in publications %}
+      <article>
+        <div><strong>Version {{ publication.version }}</strong><span class="status-pill {{ 'success' if publication.state == 'published' else 'muted' }}">{{ publication.state }}</span></div>
+        <small>Published {{ publication.published_at.strftime('%d %b %Y %H:%M') if publication.published_at else 'Not published' }}{% if publication.superseded_at %} · superseded {{ publication.superseded_at.strftime('%d %b %Y %H:%M') }}{% endif %}</small>
+      </article>
+    {% else %}
+      <p>No publication history.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -93,6 +93,12 @@ def login(client):
     return response
 
 
+def csrf(client):
+    client.get("/publications/2025-04")
+    with client.session_transaction() as sess:
+        return sess["_csrf_token"]
+
+
 def test_login_page_loads(client):
     resp = client.get("/login")
     assert resp.status_code == 200
@@ -103,6 +109,53 @@ def test_favicon_is_served(client):
     resp = client.get("/favicon.ico")
     assert resp.status_code == 200
     assert resp.mimetype == "image/svg+xml"
+
+
+def test_compliance_centre_and_evidence_export(client):
+    login(client)
+    page = client.get("/compliance-centre?ym=2025-04")
+    assert page.status_code == 200
+    assert b"Fatigue &amp; Compliance Centre" in page.data
+    export = client.get("/compliance-centre/export?ym=2025-04")
+    assert export.status_code == 200
+    assert export.mimetype == "text/csv"
+    assert b"Airport,Month,ATCO" in export.data
+
+
+def test_roster_publication_and_acknowledgement(client):
+    login(client)
+    token = csrf(client)
+    published = client.post(
+        "/publications/2025-04",
+        data={"_csrf_token": token, "action": "publish"},
+        follow_redirects=True,
+    )
+    assert published.status_code == 200
+    assert b"Version 1" in published.data
+    with app.app.app_context():
+        publication = app.RosterPublication.query.filter_by(
+            year=2025, month=4, state="published"
+        ).first()
+        assert publication is not None
+        publication_id = publication.id
+    acknowledged = client.post(
+        "/publications/2025-04",
+        data={
+            "_csrf_token": token,
+            "action": "acknowledge",
+            "publication_id": publication_id,
+        },
+        follow_redirects=True,
+    )
+    assert acknowledged.status_code == 200
+    assert b"You acknowledged this version" in acknowledged.data
+
+
+def test_security_headers_are_present(client):
+    response = client.get("/login")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
 
 def test_index_redirects_to_roster(client):

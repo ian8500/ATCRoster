@@ -55,6 +55,8 @@ After signing in:
 - Use **Roster** for the monthly operational view.
 - Use **Shift Requests** to request a future requestable shift or, as a Unit
   Admin, respond to requests.
+- Use **Published** to review and acknowledge the currently released roster
+  version.
 - Check the airport name and code in the page header before making changes.
 - Use **Admin** for staffing requirements, shift definitions, people, and
   unit tools.
@@ -65,12 +67,19 @@ After signing in:
 - Use **Reports** for fatigue, sickness, leave-year, overtime, swap, and
   extension information.
 - Use **Qualification compliance** at `/compliance`.
+- Use **Compliance** at `/compliance-centre` for explainable fatigue findings
+  and the regulator/auditor evidence export.
 - Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
 - Use **Roster scenarios** at `/planning/scenarios`.
 - Use **Airport onboarding** at `/unit/onboarding`.
 
 Dates are displayed using the airport configuration. Server timestamps and
 audit events are recorded in UTC.
+
+On a supported mobile browser, install ATCRoster from the browser's **Add to
+Home Screen** or **Install app** action. The service worker caches only static
+application assets; authenticated roster pages and personnel data are not
+stored for offline viewing.
 
 ## Unit administration workspace
 
@@ -98,7 +107,9 @@ unless they also have an active login membership.
 
 ## Airport onboarding
 
-Unit Admins complete the ten-stage wizard at `/unit/onboarding`:
+Unit Admins open `/unit/onboarding` to see a live readiness score based on the
+airport's actual configuration. The checklist links directly to each setup
+area and covers:
 
 1. Enter airport name/code, timezone, locale, date format, and branding.
 2. Configure watches or teams.
@@ -109,8 +120,8 @@ Unit Admins complete the ten-stage wizard at `/unit/onboarding`:
 6. Enter staffing requirements.
 7. Configure fatigue rules and the shift-request window/deadline.
 8. Import CSV data after reviewing the validation preview.
-9. Invite Unit Admins.
-10. Review the go-live checklist.
+9. Activate Unit Admin access.
+10. Review compliance, publication, restore and go-live acceptance.
 
 Do not go live until the timezone, request deadline, working/non-working codes,
 qualifications, staffing requirements, and initial roster have been checked by
@@ -146,9 +157,13 @@ assignment.
 
 ### Publication and acknowledgement
 
-Roster publication records support `draft`, `published`, and `superseded`
-states with versioned snapshots. Staff acknowledgements are stored against a
-specific published version. A rollback must create or restore an auditable
+Open **Published** or `/publications/YYYY-MM`. A Unit Admin can publish the
+current month after reviewing the Compliance Centre. Publication creates an
+immutable JSON snapshot and notifies active operational staff.
+
+Publishing a replacement marks the previous version `superseded`; it does not
+delete it. Staff acknowledge the active version, and acknowledgements remain
+tied to that exact version. A rollback must create or restore an auditable
 version; it must not erase intervening history.
 
 ## Shift requests
@@ -253,6 +268,20 @@ The dashboard at `/compliance` categorises qualifications as:
 Configure warning periods per qualification type; the standard defaults are
 180, 90, 60, and 30 days. Assignment and request-application checks must use
 the current airport’s qualification records only.
+
+### Fatigue and Compliance Centre
+
+Unit Admins and roster editors open `/compliance-centre?ym=YYYY-MM` to review:
+
+- total and critical fatigue findings;
+- affected controllers;
+- the source date, assigned shift and rule explanation;
+- findings grouped by controller and by frequent rule.
+
+The **Evidence CSV** export records airport, month, ATCO, date, severity, rule
+and the explainable finding. It is intended to support competent human review,
+not declare a roster legally compliant. Correct the roster or record an
+authorised decision through the controlled change process before publication.
 
 ## Coverage and scenario planning
 
@@ -389,6 +418,7 @@ Run behind an HTTPS reverse proxy and set:
 ```text
 FLASK_SECRET_KEY=<high-entropy deployment secret>
 DATABASE_URL=<database URL for the selected deployment role>
+ATCROSTER_SECURE_COOKIES=true
 ```
 
 ### Native desktop mode
@@ -458,6 +488,12 @@ record before go-live.
 - Tenant context comes from the authenticated membership.
 - Cross-airport reads, writes, references, and admin actions return no data.
 - Passwords use Werkzeug’s password hashing; never store plaintext passwords.
+- Password changes require the current password, CSRF validation and a new
+  password of at least 12 characters.
+- Cookies are HTTP-only and SameSite=Lax; production must enable secure
+  cookies.
+- Responses set clickjacking, MIME-sniffing, referrer and browser-permission
+  protections, with HSTS on HTTPS.
 - Invitation tokens must be random, store only a digest, expire, and be
   single-use.
 - Add MFA challenge enforcement at the identity layer before enabling
@@ -511,6 +547,10 @@ python -m compileall -q app.py tenancy.py saas_models.py account_limits.py scrip
 
 For production, add integration tests against PostgreSQL and the deployment’s
 secret manager, backup service, email/SMS provider, and reverse proxy.
+
+See [SECURITY.md](SECURITY.md) for production requirements and known gaps, and
+[docs/pilot_readiness.md](docs/pilot_readiness.md) for the recommended pilot
+acceptance and evidence plan.
 
 ## Troubleshooting
 

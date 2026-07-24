@@ -1,46 +1,113 @@
 {% extends "base.html" %}
 {% block title %}{{ staff.name }} · ATC Roster{% endblock %}
 {% block content %}
-<h1><i class="fa-regular fa-user"></i> {{ staff.name }}</h1>
-
-<div class="grid grid-3">
-  <div class="card">
-    <div class="card-hd">Summary</div>
-    <div class="card-bd grid">
-      <div><strong>Staff #:</strong> {{ staff.staff_no }}</div>
-      <div><strong>Watch:</strong> {{ staff.watch.name if staff.watch else '-' }}</div>
-      <div><strong>Role:</strong> {{ staff.role }}</div>
-      <div><strong>Phone:</strong> {{ staff.phone_number or '—' }}</div>
-      <div><strong>AL (last 12 months):</strong> {{ al_days }}</div>
-      <div><strong>Sickness (SC/SSC, last 12 months):</strong> {{ sick_days }}</div>
-      <div><strong>Rostered hours this month:</strong> {{ hours_this_month }}</div>
-    </div>
+<section class="profile-hero">
+  <div>
+    <span class="admin-step">My operational dashboard</span>
+    <h2>{{ staff.name }}</h2>
+    <p>{{ staff.watch.name if staff.watch else 'No watch assigned' }} · {{ staff.staff_no }}</p>
   </div>
+  {% if next_duty %}
+    <article class="next-duty">
+      <span>Next duty</span>
+      <strong>{{ next_duty.code }} · {{ next_duty.day.strftime('%A %d %B') }}</strong>
+      <small>{{ next_duty.annotation or 'No annotation' }}</small>
+    </article>
+  {% else %}
+    <article class="next-duty"><span>Next duty</span><strong>None scheduled</strong><small>within 45 days</small></article>
+  {% endif %}
+</section>
 
-  <div class="card">
-    <div class="card-hd">Certificates</div>
-    <div class="card-bd grid">
-      <div><strong>Tower UE:</strong> {{ staff.tower_ue_expiry or '—' }}</div>
-      <div><strong>Radar UE:</strong> {{ staff.radar_ue_expiry or '—' }}</div>
-      <div><strong>Met:</strong> {{ staff.met_ue_expiry or '—' }}</div>
-      <div><strong>Medical:</strong> {{ staff.medical_expiry or '—' }}</div>
+<div class="profile-action-grid">
+  <a href="{{ url_for('requests_page') }}"><i class="fa-solid fa-calendar-plus"></i><span><strong>Request a shift</strong><small>Submit or review requests</small></span></a>
+  <a href="{{ url_for('calendar_feed', sid=staff.id, token=staff.calendar_token) if staff.calendar_token else '#' }}"><i class="fa-regular fa-calendar"></i><span><strong>Roster calendar</strong><small>Subscribe on your phone</small></span></a>
+  <a href="{{ url_for('password_change') }}"><i class="fa-solid fa-key"></i><span><strong>Security</strong><small>Change your password</small></span></a>
+</div>
 
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-hd">Calendar</div>
-    <div class="card-bd">
-      {% if cal_link %}
-        <p class="muted">Subscribe to your roster:</p>
-        <p><a href="{{ apple_link }}" class="btn">Add to Apple Calendar</a></p>
-        <p><a href="{{ google_link }}" class="btn">Add to Google Calendar</a></p>
-        <p class="muted">Or copy the ICS URL:</p>
-        <code>{{ cal_link }}</code>
+<div class="profile-dashboard">
+  <section class="card">
+    <div class="card-hd">Upcoming roster</div>
+    <div class="card-bd profile-timeline">
+      {% for assignment in upcoming %}
+        <div>
+          <time datetime="{{ assignment.day.isoformat() }}">{{ assignment.day.strftime('%a %d %b') }}</time>
+          <strong>{{ assignment.code }}</strong>
+          <span>{{ assignment.annotation or '—' }}</span>
+        </div>
       {% else %}
-        <p class="muted">No calendar token assigned.</p>
+        <p>No assignments are currently scheduled.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-hd d-flex justify-content-between align-items-center">
+      <span>Notifications {% if unread_notifications %}<span class="status-pill warning">{{ unread_notifications }} new</span>{% endif %}</span>
+      {% if unread_notifications %}
+        <form method="post" action="{{ url_for('notifications_read') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm" type="submit">Mark read</button>
+        </form>
       {% endif %}
     </div>
-  </div>
+    <div class="card-bd profile-notifications">
+      {% for item in notifications %}
+        <article class="{{ 'unread' if not item.read_at else '' }}">
+          <strong>{{ item.kind|replace('_',' ')|title }}</strong>
+          <p>{{ item.message }}</p>
+          <small>{{ item.created_at.strftime('%d %b %Y %H:%M') }}</small>
+        </article>
+      {% else %}
+        <p>No notifications.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-hd">Recent requests</div>
+    <div class="card-bd profile-requests">
+      {% for item in recent_requests %}
+        <div><span>{{ item.day.strftime('%d %b') }} · {{ item.code }}</span><span class="status-pill {{ item.status }}">{{ item.status }}</span></div>
+      {% else %}
+        <p>No shift requests yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-hd">Personal summary</div>
+    <div class="card-bd profile-stats">
+      <div><span>Rostered this month</span><strong>{{ hours_this_month }}h</strong></div>
+      <div><span>Annual leave, 12 months</span><strong>{{ al_days }}</strong></div>
+      <div><span>Sickness, 12 months</span><strong>{{ sick_days }}</strong></div>
+      <div><span>Role</span><strong>{{ staff.role|title }}</strong></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-hd">Qualifications</div>
+    <div class="card-bd profile-stats">
+      <div><span>Tower UE</span><strong>{{ staff.tower_ue_expiry or '—' }}</strong></div>
+      <div><span>Radar UE</span><strong>{{ staff.radar_ue_expiry or '—' }}</strong></div>
+      <div><span>MET</span><strong>{{ staff.met_ue_expiry or '—' }}</strong></div>
+      <div><span>Medical</span><strong>{{ staff.medical_expiry or '—' }}</strong></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-hd">Calendar subscription</div>
+    <div class="card-bd">
+      {% if cal_link %}
+        <p>Keep your personal calendar synchronized with roster changes.</p>
+        <div class="compliance-actions">
+          <a href="{{ apple_link }}" class="btn">Apple Calendar</a>
+          <a href="{{ google_link }}" class="btn">Google Calendar</a>
+        </div>
+        <details><summary>Manual subscription URL</summary><code class="profile-calendar-url">{{ cal_link }}</code></details>
+      {% else %}
+        <p>No calendar token is assigned. Ask a Unit Admin to create one.</p>
+      {% endif %}
+    </div>
+  </section>
 </div>
 {% endblock %}
