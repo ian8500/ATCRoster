@@ -3,20 +3,51 @@
 {% block content %}
 <div class="container my-4">
   <h2>Platform Administration</h2>
-  <p class="text-muted">Privacy-safe airport account and service-health aggregates. Personnel and roster data are intentionally unavailable.</p>
+  <p class="text-muted">Create and operate airport accounts using privacy-safe metadata. Personnel and roster data are not available here.</p>
+
+  <section class="card card-body mb-4">
+    <h3>Create airport account</h3>
+    <form method="post" class="row g-3">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="create_unit">
+      <div class="col-md-2"><label>Airport code<input class="form-control" name="code" maxlength="12" required placeholder="LBA"></label></div>
+      <div class="col-md-4"><label>Airport name<input class="form-control" name="name" required></label></div>
+      <div class="col-md-3"><label>Plan<select class="form-select" name="plan"><option>starter</option><option>standard</option><option>professional</option><option>enterprise</option></select></label></div>
+      <div class="col-md-3"><label>Active-user limit<input class="form-control" type="number" name="active_user_limit" min="1" max="10000" value="10" required></label></div>
+      <div class="col-md-4"><label>Initial Unit Admin name<input class="form-control" name="admin_name" required></label></div>
+      <div class="col-md-4"><label>Initial Unit Admin username<input class="form-control" name="admin_username" required></label></div>
+      <div class="col-md-4"><label>Temporary password<input class="form-control" type="password" name="admin_password" minlength="12" required autocomplete="new-password"></label></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">Create airport and Unit Admin</button></div>
+    </form>
+  </section>
+
   <div class="table-responsive">
     <table class="table">
-      <thead><tr><th>Airport</th><th>Status / plan</th><th>Accounts</th><th>Features</th><th>Database</th><th>Usage</th><th>Dates</th></tr></thead>
+      <thead><tr><th>Airport</th><th>Status / plan</th><th>Active accounts</th><th>Features</th><th>Database</th><th>Usage</th><th>Account controls</th></tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
-          <td>{{ row.unit.name }} ({{ row.unit.code }})</td>
+          <td><strong>{{ row.unit.name }}</strong><br><code>{{ row.unit.code }}</code></td>
           <td>{{ row.unit.status }} / {{ row.unit.plan }}</td>
           <td>{{ row.active_accounts }} / {{ row.unit.active_user_limit }}</td>
-          <td>{% for key, enabled in row.flags.items() if enabled %}<span class="badge bg-secondary">{{ key }}</span> {% endfor %}</td>
-          <td>{{ row.database_health }} · {{ row.migration_version or "unreported" }} · {{ row.storage_bytes }} bytes</td>
+          <td>{% for key, enabled in row.flags.items() if enabled %}<span class="badge bg-secondary">{{ key }}</span> {% else %}—{% endfor %}</td>
+          <td>{{ row.database_health }} · {{ row.migration_version or "unreported" }}<br>{{ row.storage_bytes }} bytes</td>
           <td>{{ row.activity_count }} aggregate events</td>
-          <td>Created {{ row.unit.created_at }}<br>Trial {{ row.unit.trial_ends_at or "—" }}<br>Renewal {{ row.unit.renews_at or "—" }}<br>Last active {{ row.unit.last_active_at or "—" }}</td>
+          <td>
+            <form method="post" class="d-flex gap-2 mb-2">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="update_limit">
+              <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
+              <input class="form-control form-control-sm" type="number" name="active_user_limit" min="{{ row.active_accounts }}" max="10000" value="{{ row.unit.active_user_limit }}" aria-label="Active-user limit for {{ row.unit.code }}">
+              <button class="btn btn-sm" type="submit">Update limit</button>
+            </form>
+            <form method="post">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="toggle_suspension">
+              <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
+              <button class="btn btn-sm" type="submit">{{ "Restore" if row.unit.status == "suspended" else "Suspend" }}</button>
+            </form>
+          </td>
         </tr>
       {% else %}
         <tr><td colspan="7">No airport accounts.</td></tr>

@@ -5,7 +5,7 @@ from collections import defaultdict, Counter, OrderedDict, deque
 from typing import Optional, Tuple
 import base64
 from urllib import parse as urllib_parse, request as urllib_request, error as urllib_error
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g, send_from_directory
 from flask import render_template as flask_render_template
 import os
 import re
@@ -115,6 +115,13 @@ def _validate_csrf() -> None:
 
 app.jinja_env.globals["csrf_token"] = csrf_token
 
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(
+        app.static_folder, "favicon.svg", mimetype="image/svg+xml"
+    )
+
 # Database & login
 db = SQLAlchemy(app, session_options={"expire_on_commit": False})
 login_manager = LoginManager(app)
@@ -126,7 +133,7 @@ from tenancy import bind_authenticated_unit, reset_authenticated_unit
 @app.before_request
 def _bind_tenant_context():
     g.tenant_context_token = None
-    if current_user.is_authenticated:
+    if current_user.is_authenticated and getattr(current_user, "role", "") != "superadmin":
         unit_id = int(getattr(current_user, "unit_id", 0) or 0)
         if unit_id:
             g.tenant_context_token = bind_authenticated_unit(unit_id)
@@ -815,8 +822,9 @@ def _scope_operational_selects(execute_state):
     statement = execute_state.statement
     for model in TENANT_OPERATIONAL_MODELS:
         statement = statement.options(with_loader_criteria(
-            model, lambda cls, tenant=unit_id: cls.unit_id == tenant,
+            model, lambda cls: cls.unit_id == unit_id,
             include_aliases=True,
+            track_closure_variables=True,
         ))
     execute_state.statement = statement
 
@@ -1986,7 +1994,7 @@ def migrate_add_role_and_calendar_token():
 
     changed = False
     for u in Staff.query.all():
-        if not u.role or u.role not in ("admin", "editor", "user"):
+        if not u.role or u.role not in ("superadmin", "admin", "editor", "user"):
             u.role = "admin" if getattr(u, "is_admin", False) else "user"
             changed = True
         if not u.calendar_token:
@@ -2195,13 +2203,13 @@ def seed_once():
 
     db.session.add_all([
         ShiftType(code="M",   name="Morning",     start_time=time(
-            6, 0),  end_time=time(14, 0), is_working=True),
+            6, 0),  end_time=time(14, 0), is_working=True, is_requestable=True),
         ShiftType(code="D",   name="Day",         start_time=time(
-            8, 0),  end_time=time(16, 0), is_working=True),
+            8, 0),  end_time=time(16, 0), is_working=True, is_requestable=True),
         ShiftType(code="A",   name="Afternoon",   start_time=time(
-            14, 0), end_time=time(22, 0), is_working=True),
+            14, 0), end_time=time(22, 0), is_working=True, is_requestable=True),
         ShiftType(code="N",   name="Night",       start_time=time(
-            22, 0), end_time=time(6, 0),  is_working=True),
+            22, 0), end_time=time(6, 0),  is_working=True, is_requestable=True),
         ShiftType(code="OFF", name="Rest Day",    is_working=False),
         ShiftType(code="AL",  name="Annual Leave",    is_working=False),
         ShiftType(code="PL",  name="Parental Leave",  is_working=False),
@@ -2671,9 +2679,14 @@ def _clamp_prev_next(year, month):
 def inject_perms():
     au = current_user if getattr(
         current_user, "is_authenticated", False) else None
+    current_unit = (
+        db.session.get(Unit, int(getattr(au, "unit_id", 0) or 0))
+        if au and getattr(au, "role", "") != "superadmin" else None
+    )
     return {
         "is_admin":  bool(au) and is_admin_user(au),
         "is_editor": bool(au) and is_editor_user(au),
+        "current_unit": current_unit,
     }
 
 
@@ -3182,13 +3195,25 @@ def admin():
             end = _parse_hhmm(request.form.get("end"))
             is_working = bool(request.form.get("is_working"))
             is_training = bool(request.form.get("is_training"))
+            is_active = bool(request.form.get("is_active"))
+            is_requestable = bool(request.form.get("is_requestable"))
+            required_qualification = (
+                request.form.get("required_qualification") or ""
+            ).strip().lower()
+            allowed_qualifications = {"", "medical", "tower", "radar", "met", "ojti", "assessor"}
             if not code:
                 flash("Shift code is required.", "error")
+            elif required_qualification not in allowed_qualifications:
+                flash("Unknown required qualification.", "error")
+            elif is_requestable and (not is_active or not is_working):
+                flash("Only active working shifts can be requestable.", "error")
             elif ShiftType.query.filter_by(code=code).first():
                 flash("Shift code already exists.", "error")
             else:
                 sh = ShiftType(code=code, name=name or code, start_time=start, end_time=end,
-                               is_working=is_working, is_training=is_training)
+                               is_working=is_working, is_training=is_training,
+                               is_active=is_active, is_requestable=is_requestable,
+                               required_qualification=required_qualification)
                 db.session.add(sh)
                 db.session.commit()
                 refresh_shift_cache()
@@ -3204,6 +3229,20 @@ def admin():
             sh.end_time = _parse_hhmm(request.form.get("end"))
             sh.is_working = bool(request.form.get("is_working"))
             sh.is_training = bool(request.form.get("is_training"))
+            sh.is_active = bool(request.form.get("is_active"))
+            requested = bool(request.form.get("is_requestable"))
+            required_qualification = (
+                request.form.get("required_qualification") or ""
+            ).strip().lower()
+            allowed_qualifications = {"", "medical", "tower", "radar", "met", "ojti", "assessor"}
+            if required_qualification not in allowed_qualifications:
+                flash("Unknown required qualification.", "error")
+                return redirect(url_for("admin"))
+            if requested and (not sh.is_active or not sh.is_working):
+                flash("Only active working shifts can be requestable.", "error")
+                return redirect(url_for("admin"))
+            sh.is_requestable = requested
+            sh.required_qualification = required_qualification
             db.session.commit()
             refresh_shift_cache()
             _shift_groups_snapshot.cache_clear()
@@ -5020,14 +5059,157 @@ def admin_request_respond(rid):
     return redirect(url_for("requests_page", ym=request.form.get("ym") or ""))
 
 
-@app.route("/platform/admin")
+@app.route("/platform/admin", methods=["GET", "POST"])
 @login_required
 def platform_admin():
     """Privacy-preserving control plane: aggregates and unit metadata only."""
     if getattr(current_user, "role", "") != "superadmin":
         abort(403)
+    platform_actor = PlatformIdentity.query.filter_by(
+        username=current_user.username
+    ).first()
+    if not platform_actor:
+        abort(403, "Super Admin identity is not provisioned in the control plane.")
+    if request.method == "POST":
+        _validate_csrf()
+        action = (request.form.get("action") or "").strip()
+        if action == "create_unit":
+            code = (request.form.get("code") or "").strip().upper()
+            name = (request.form.get("name") or "").strip()
+            plan = (request.form.get("plan") or "starter").strip()[:40]
+            admin_name = (request.form.get("admin_name") or "").strip()
+            admin_username = (request.form.get("admin_username") or "").strip().lower()
+            admin_password = request.form.get("admin_password") or ""
+            try:
+                limit = int(request.form.get("active_user_limit") or 10)
+            except ValueError:
+                limit = 0
+            if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
+                flash("Airport code must be 2–12 letters or numbers.", "error")
+            elif not name or not admin_name or not admin_username:
+                flash("Airport and initial admin details are required.", "error")
+            elif len(admin_password) < 12:
+                flash("The initial admin password must be at least 12 characters.", "error")
+            elif not 1 <= limit <= 10000:
+                flash("Active-user limit must be between 1 and 10,000.", "error")
+            elif Unit.query.filter_by(code=code).first():
+                flash("That airport code already exists.", "error")
+            elif db.session.query(Staff).execution_options(skip_tenant_scope=True).filter_by(
+                username=admin_username
+            ).first():
+                flash("That admin username already exists.", "error")
+            else:
+                try:
+                    unit = Unit(
+                        code=code, name=name, plan=plan,
+                        active_user_limit=limit, onboarding_step=1,
+                    )
+                    db.session.add(unit)
+                    db.session.flush()
+                    watch = Watch(
+                        unit_id=unit.id, name=f"{code} Initial Watch", order_index=1
+                    )
+                    db.session.add(watch)
+                    db.session.flush()
+                    admin_user = Staff(
+                        unit_id=unit.id, username=admin_username,
+                        name=admin_name, staff_no=f"{code}-ADMIN",
+                        role="admin", watch_id=watch.id, is_operational=False,
+                    )
+                    admin_user.set_password(admin_password)
+                    db.session.add(admin_user)
+                    db.session.flush()
+                    identity = PlatformIdentity(
+                        public_id=f"unit-admin-{secrets.token_hex(12)}",
+                        username=admin_username,
+                        password_hash=admin_user.password_hash,
+                    )
+                    db.session.add(identity)
+                    db.session.flush()
+                    membership = UnitMembership(
+                        identity_id=identity.id, unit_id=unit.id,
+                        person_id=admin_user.id, role="UnitAdmin",
+                        status="active", activated_at=utcnow(),
+                    )
+                    db.session.add(membership)
+                    db.session.add(PlanHistory(
+                        unit_id=unit.id, plan=plan,
+                        active_user_limit=limit,
+                    ))
+                    db.session.add(SuperAdminAudit(
+                        actor_identity_id=platform_actor.id, unit_id=unit.id,
+                        action="airport_created",
+                        safe_summary=f"Created airport {code} on {plan} plan with limit {limit}",
+                    ))
+                    db.session.commit()
+                    flash(
+                        f"{name} created. Give the initial Unit Admin their credentials securely.",
+                        "ok",
+                    )
+                    return redirect(url_for("platform_admin"))
+                except Exception:
+                    db.session.rollback()
+                    raise
+        elif action == "update_limit":
+            try:
+                unit_id = int(request.form.get("unit_id") or 0)
+                new_limit = int(request.form.get("active_user_limit") or 0)
+            except ValueError:
+                abort(400)
+            unit = db.session.get(Unit, unit_id)
+            if not unit or unit.status == "platform_control":
+                abort(404)
+            if not 1 <= new_limit <= 10000:
+                flash("Active-user limit must be between 1 and 10,000.", "error")
+            else:
+                active_count = UnitMembership.query.filter_by(
+                    unit_id=unit.id, status="active"
+                ).count()
+                if new_limit < active_count:
+                    flash(
+                        f"Limit cannot be below the {active_count} active accounts.",
+                        "error",
+                    )
+                else:
+                    old_limit = unit.active_user_limit
+                    unit.active_user_limit = new_limit
+                    db.session.add(PlanHistory(
+                        unit_id=unit.id, plan=unit.plan,
+                        active_user_limit=new_limit,
+                    ))
+                    db.session.add(SuperAdminAudit(
+                        actor_identity_id=platform_actor.id, unit_id=unit.id,
+                        action="account_limit_changed",
+                        safe_summary=f"Changed active-user limit from {old_limit} to {new_limit}",
+                    ))
+                    db.session.commit()
+                    flash(f"{unit.code} account limit updated.", "ok")
+                    return redirect(url_for("platform_admin"))
+        elif action == "toggle_suspension":
+            unit_id = int(request.form.get("unit_id") or 0)
+            unit = db.session.get(Unit, unit_id)
+            if not unit or unit.status == "platform_control":
+                abort(404)
+            if unit.status == "suspended":
+                unit.status = "active"
+                unit.suspended_at = None
+                action_name = "airport_restored"
+            else:
+                unit.status = "suspended"
+                unit.suspended_at = utcnow()
+                action_name = "airport_suspended"
+            db.session.add(SuperAdminAudit(
+                actor_identity_id=platform_actor.id, unit_id=unit.id,
+                action=action_name, safe_summary=f"{action_name}: {unit.code}",
+            ))
+            db.session.commit()
+            return redirect(url_for("platform_admin"))
+        else:
+            abort(400)
     rows = []
-    for unit in Unit.query.order_by(Unit.code).all():
+    for unit in Unit.query.filter(
+        Unit.status != "platform_control"
+    ).order_by(Unit.code).all():
         active_accounts = UnitMembership.query.filter_by(
             unit_id=unit.id, status="active"
         ).count()
@@ -5049,6 +5231,87 @@ def platform_admin():
             "activity_count": int(activity or 0),
         })
     return render_template("platform_admin.html", rows=rows)
+
+
+@app.route("/unit/accounts", methods=["GET", "POST"])
+@login_required
+def unit_accounts():
+    if not is_admin_user(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    unit = db.session.get(Unit, unit_id)
+    if not unit:
+        abort(404)
+    if request.method == "POST":
+        _validate_csrf()
+        action = (request.form.get("action") or "").strip()
+        if action == "create_account":
+            name = (request.form.get("name") or "").strip()
+            username = (request.form.get("username") or "").strip().lower()
+            password = request.form.get("password") or ""
+            if not name or not username or len(password) < 12:
+                flash("Name, username, and a 12-character password are required.", "error")
+                return redirect(url_for("unit_accounts"))
+            if db.session.query(Staff).execution_options(skip_tenant_scope=True).filter_by(
+                username=username
+            ).first():
+                flash("That username already exists.", "error")
+                return redirect(url_for("unit_accounts"))
+            try:
+                staff = Staff(
+                    unit_id=unit_id, username=username, name=name,
+                    staff_no=f"{unit.code}-LOGIN-{secrets.token_hex(3).upper()}",
+                    role="user", is_operational=False,
+                )
+                staff.set_password(password)
+                db.session.add(staff)
+                db.session.flush()
+                identity = PlatformIdentity(
+                    public_id=f"member-{secrets.token_hex(12)}",
+                    username=username, password_hash=staff.password_hash,
+                )
+                db.session.add(identity)
+                db.session.flush()
+                membership = UnitMembership(
+                    identity_id=identity.id, unit_id=unit_id,
+                    person_id=staff.id, role="StaffUser", status="invited",
+                )
+                db.session.add(membership)
+                db.session.flush()
+                from account_limits import activate_membership
+                activate_membership(db, Unit, UnitMembership, membership.id)
+                membership.activated_at = utcnow()
+                db.session.commit()
+                flash("Account activated.", "ok")
+            except ValueError as exc:
+                db.session.rollback()
+                flash(str(exc), "error")
+            return redirect(url_for("unit_accounts"))
+        if action == "deactivate":
+            membership_id = int(request.form.get("membership_id") or 0)
+            membership = UnitMembership.query.filter_by(
+                id=membership_id, unit_id=unit_id, status="active"
+            ).first_or_404()
+            if membership.person_id == current_user.id:
+                flash("You cannot deactivate your own account.", "error")
+            else:
+                membership.status = "suspended"
+                membership.suspended_at = utcnow()
+                linked = db.session.get(Staff, membership.person_id) if membership.person_id else None
+                if linked:
+                    linked.membership_status = "suspended"
+                db.session.commit()
+                flash("Account deactivated.", "ok")
+            return redirect(url_for("unit_accounts"))
+        abort(400)
+    memberships = UnitMembership.query.filter_by(unit_id=unit_id).order_by(
+        UnitMembership.id
+    ).all()
+    active_count = sum(1 for row in memberships if row.status == "active")
+    return render_template(
+        "unit_accounts.html", unit=unit, memberships=memberships,
+        active_count=active_count,
+    )
 
 
 @app.route("/unit/onboarding", methods=["GET", "POST"])

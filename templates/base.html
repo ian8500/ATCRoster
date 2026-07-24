@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <link rel="icon" href="{{ url_for('favicon') }}" type="image/svg+xml">
   <title>{% block title %}{% endblock %} – ATC Roster</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,22 +29,33 @@
       <div class="brand">
         <h1 class="logo">ATC Roster Tool</h1>
         <p class="logo-sub">Precision scheduling for elite controllers</p>
+        {% if current_user.is_authenticated and current_unit %}
+          <div class="airport-context" role="status"
+               aria-label="Logged into {{ current_unit.name }}, airport code {{ current_unit.code }}">
+            <span class="airport-context__label">Logged into</span>
+            <strong class="airport-context__name">{{ current_unit.name }}</strong>
+            <span class="airport-context__code">{{ current_unit.code }}</span>
+          </div>
+        {% endif %}
       </div>
       <nav class="main-nav" aria-label="Primary">
         {% if current_user.is_authenticated %}
-          <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}">📅 Roster</a>
-          <a href="{{ url_for('requests_page') }}" class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}">📝 Requests</a>
-          <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}">👤 Profile</a>
-
-          {% if is_admin or is_editor %}
-            <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}">🛰️ Overtime Finder</a>
-            <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}">📝 Leave / Sickness</a>
-            <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}">📑 Reports</a>
+          {% if current_user.role == 'superadmin' %}
+            <a href="{{ url_for('platform_admin') }}" class="nav-link {% if request.endpoint == 'platform_admin' %}active{% endif %}">🛡️ Platform Admin</a>
+          {% else %}
+            <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}">📅 Roster</a>
+            <a href="{{ url_for('requests_page') }}" class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}">📝 Requests</a>
+            <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}">👤 Profile</a>
+            {% if is_admin or is_editor %}
+              <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}">🛰️ Overtime Finder</a>
+              <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}">📝 Leave / Sickness</a>
+              <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}">📑 Reports</a>
+            {% endif %}
+            {% if is_admin %}
+              <a href="{{ url_for('unit_accounts') }}" class="nav-link {% if request.endpoint == 'unit_accounts' %}active{% endif %}">👥 Accounts</a>
+              <a href="{{ url_for('admin') }}" class="nav-link {% if request.endpoint == 'admin' %}active{% endif %}">⚙️ Admin</a>
+            {% endif %}
           {% endif %}
-          {% if is_admin %}
-            <a href="{{ url_for('admin') }}" class="nav-link {% if request.endpoint == 'admin' %}active{% endif %}">⚙️ Admin</a>
-          {% endif %}
-
           <a href="{{ url_for('logout') }}" class="nav-link">🚪 Logout</a>
         {% else %}
           <a href="{{ url_for('login') }}" class="nav-link {% if request.endpoint == 'login' %}active{% endif %}">🔐 Login</a>
