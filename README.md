@@ -493,6 +493,12 @@ docker compose run --rm web flask --app app bootstrap-platform
 docker compose up -d web
 ```
 
+For managed hosting, `railway.toml` configures the Docker build, Alembic
+pre-deployment migration, Waitress production server and readiness health
+check. Create separate Railway PostgreSQL and application services, keep all
+secrets in Railway's encrypted variables, and follow
+`docs/production_runbook.md` for bootstrap and verification.
+
 The Compose port binds to loopback. Place a maintained HTTPS reverse proxy in
 front of it; do not expose the application port directly.
 

@@ -8,3 +8,6 @@ env/
 .pytest_cache/
 *.sqlite3
 *.db
+1 Version to deploy/
+2 Working Version/
+3 Last Known Working/

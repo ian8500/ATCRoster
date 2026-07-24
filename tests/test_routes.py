@@ -302,6 +302,9 @@ def test_security_headers_are_present(client):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["Content-Security-Policy"].startswith(
+        "default-src 'self'"
+    )
 
 
 def test_role_permission_matrix_and_cross_airport_isolation():

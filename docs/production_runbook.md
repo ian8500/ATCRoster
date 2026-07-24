@@ -47,6 +47,24 @@ docker compose run --rm web flask --app app bootstrap-platform
 docker compose up -d web
 ```
 
+### Railway
+
+The repository includes `railway.toml` for a managed Railway deployment.
+Provision one PostgreSQL service and one application service, then set these
+application variables through Railway's encrypted variable store:
+
+- `ATCROSTER_ENVIRONMENT=production`
+- `ATCROSTER_SECURE_COOKIES=true`
+- `FLASK_SECRET_KEY` with at least 32 random characters
+- `ATCROSTER_FIELD_ENCRYPTION_KEY` generated with Fernet
+- `DATABASE_URL` using the PostgreSQL service's private connection variables
+
+The deployment runs Alembic before starting, serves through Waitress on port
+8080 and uses `/health/ready` as its health check. After the first healthy
+deployment, run `flask --app app bootstrap-platform` once with a unique
+administrator password. Do not upload acceptance data or local environment
+files.
+
 ## Reverse proxy
 
 Terminate TLS at the proxy, redirect HTTP to HTTPS, preserve the original host
