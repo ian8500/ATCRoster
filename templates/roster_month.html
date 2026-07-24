@@ -156,10 +156,11 @@
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
                 name="code"
-                class="code-input {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
+                class="code-input code-len-{{ code|length }} {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
                 onchange="this.form.submit()"
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 {% if f %}title="{{ ', '.join(f) }}"{% endif %}
+                aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
                 aria-invalid="{% if f %}true{% else %}false{% endif %}"
               >
                 <option value="" {% if not code %}selected{% endif %}>—</option>
@@ -204,6 +205,7 @@
                 onchange="this.form.submit()"
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 title="Annotate"
+                aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"
               >
                 <option value="" {% if not ann %}selected{% endif %}>—</option>
                 {% for group, opts in annotation_groups.items() %}

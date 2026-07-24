@@ -10,7 +10,7 @@
     {% if request_id %}<p>Reference: <code>{{ request_id }}</code></p>{% endif %}
     <div class="action-buttons">
       <button class="btn ghost" type="button" onclick="history.back()">Go back</button>
-      <a class="btn btn-primary" href="{{ url_for('index') }}">Return to roster</a>
+      <a class="btn btn-primary" href="{{ home_url or url_for('index') }}">{{ home_label or 'Return to roster' }}</a>
     </div>
   </div></section>
 </div>

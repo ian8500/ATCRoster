@@ -695,9 +695,26 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
   padding:0;
   font-size:.86rem;
   text-align:center;
+  text-align-last:center;
   font-weight:600;
+  letter-spacing:-.02em;
   background:transparent;
+  background-image:none;
   color:inherit;
+  appearance:none;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+}
+
+.roster .cell select.code-input.code-len-3{
+  font-size:calc(.78rem * var(--ui-scale));
+}
+.roster .cell select.code-input.code-len-4{
+  font-size:calc(.68rem * var(--ui-scale));
+}
+.roster .cell select.code-input.code-len-5,
+.roster .cell select.code-input.code-len-6{
+  font-size:calc(.58rem * var(--ui-scale));
 }
 
 .roster .cell select.code-input:focus{outline:none; box-shadow:none;}

@@ -27,20 +27,20 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="add">
         <div class="col-md-3">
-          <label class="form-label">Date</label>
-          <input type="date" name="day" class="form-control" required>
+          <label class="form-label" for="request-day">Date</label>
+          <input id="request-day" type="date" name="day" class="form-control" required>
         </div>
         <div class="col-md-3">
-          <label class="form-label">Code</label>
-          <select name="code" class="form-select" required>
+          <label class="form-label" for="request-code">Code</label>
+          <select id="request-code" name="code" class="form-select" required>
             {% for code in codes %}
               <option value="{{ code }}">{{ code }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="col-md-4">
-          <label class="form-label">Comment (optional)</label>
-          <input type="text" name="comment" maxlength="500" class="form-control" placeholder="Reason or note to admin">
+          <label class="form-label" for="request-comment">Comment (optional)</label>
+          <input id="request-comment" type="text" name="comment" maxlength="500" class="form-control" placeholder="Reason or note to admin">
         </div>
         <div class="col-md-2">
           <button class="btn btn-primary w-100" type="submit">Save</button>
@@ -108,12 +108,12 @@
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="ym" value="{{ admin_ym or '' }}">
                         <div class="input-group input-group-sm" style="max-width: 520px;">
-                          <select class="form-select" name="status">
+                          <select class="form-select" name="status" aria-label="Status for {{ req.staff.name }} on {{ day.strftime('%d %B %Y') }}">
                             {% for st in ['pending','approved','rejected','fulfilled','cancelled'] %}
                               <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
                             {% endfor %}
                           </select>
-                          <input class="form-control" name="admin_response" placeholder="Comment to requester" value="{{ req.admin_response or '' }}">
+                          <input class="form-control" name="admin_response" aria-label="Response to {{ req.staff.name }} for {{ day.strftime('%d %B %Y') }}" placeholder="Comment to requester" value="{{ req.admin_response or '' }}">
                           <button class="btn btn-secondary" type="submit">Respond</button>
                         </div>
                       </form>
