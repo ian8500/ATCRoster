@@ -15,6 +15,46 @@
 </section>
 
 <div class="publication-grid">
+  <section class="card publication-assurance">
+    <div class="card-hd">Pre-publication assurance</div>
+    <div class="card-bd">
+      <div class="assurance-grid">
+        <article class="{{ 'danger' if preflight.unassigned else 'success' }}"><span>Unassigned cells</span><strong>{{ preflight.unassigned|length }}</strong></article>
+        <article class="{{ 'danger' if preflight.qualification_gaps else 'success' }}"><span>Competence failures</span><strong>{{ preflight.qualification_gaps|length }}</strong></article>
+        <article class="{{ 'warning' if preflight.coverage_gaps else 'success' }}"><span>Coverage shortfalls</span><strong>{{ preflight.coverage_gaps|length }}</strong></article>
+        <article class="{{ 'warning' if preflight.fatigue_total else 'success' }}"><span>Fatigue findings</span><strong>{{ preflight.fatigue_total }}</strong></article>
+      </div>
+      {% if preflight.hard_blocks %}
+        <p class="publication-block"><i class="fa-solid fa-ban"></i> Publication is blocked until every assignment and required qualification is valid.</p>
+      {% elif preflight.exceptions %}
+        <p class="publication-warning"><i class="fa-solid fa-triangle-exclamation"></i> Publication requires an accountable-manager exception rationale.</p>
+      {% else %}
+        <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> No automated release exceptions found.</p>
+      {% endif %}
+      {% if preflight.coverage_gaps %}
+        <details>
+          <summary>Review staffing shortfalls</summary>
+          <div class="assurance-exceptions">
+            {% for gap in preflight.coverage_gaps[:20] %}
+              <span>{{ gap.day.strftime('%d %b') }} · {{ gap.group }}: {{ gap.available }}/{{ gap.needed }}</span>
+            {% endfor %}
+            {% if preflight.coverage_gaps|length > 20 %}<span>+ {{ preflight.coverage_gaps|length - 20 }} more</span>{% endif %}
+          </div>
+        </details>
+      {% endif %}
+      {% if preflight.qualification_gaps %}
+        <details>
+          <summary>Review competence failures</summary>
+          <div class="assurance-exceptions">
+            {% for gap in preflight.qualification_gaps %}
+              <span>{{ gap.day.strftime('%d %b') }} · {{ gap.staff.name }} · {{ gap.shift.code }} requires {{ gap.qualification }}</span>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
+    </div>
+  </section>
+
   <section class="card">
     <div class="card-hd">Current status</div>
     <div class="card-bd">
@@ -24,6 +64,23 @@
           <h3>Version {{ active.version }}</h3>
           <p>Published {{ active.published_at.strftime('%d %b %Y at %H:%M') }}</p>
           <p><strong>{{ acknowledgements|length }}</strong> of <strong>{{ operational_count }}</strong> operational staff acknowledged.</p>
+          {% if release_assurance %}
+            <details>
+              <summary>Release assurance record</summary>
+              <dl class="release-record">
+                <dt>Fatigue findings</dt><dd>{{ release_assurance.fatigue_findings }}</dd>
+                <dt>Coverage shortfalls</dt><dd>{{ release_assurance.coverage_shortfalls }}</dd>
+                <dt>Competence failures</dt><dd>{{ release_assurance.qualification_failures }}</dd>
+                <dt>Manager rationale</dt><dd>{{ release_assurance.exception_reason or 'No exceptions recorded' }}</dd>
+              </dl>
+            </details>
+          {% endif %}
+          {% if unacknowledged_staff %}
+            <details>
+              <summary>{{ unacknowledged_staff|length }} awaiting acknowledgement</summary>
+              <p>{{ unacknowledged_staff|map(attribute='name')|join(', ') }}</p>
+            </details>
+          {% endif %}
           {% if acknowledged %}
             <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> You acknowledged this version.</p>
           {% else %}
@@ -45,15 +102,22 @@
   <section class="card">
     <div class="card-hd">Unit Admin action</div>
     <div class="card-bd">
-      <p>Run the compliance review before publishing. This creates a permanent snapshot and notifies active operational staff.</p>
-      <div class="compliance-actions">
+      <p>Run the compliance review, resolve all hard blocks, and record your accountable-manager declaration. Publishing creates a permanent snapshot and notifies active operational staff.</p>
+      <form method="post" class="publication-release-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="publish">
+        <label>Exception rationale
+          <textarea name="exception_reason" rows="3" maxlength="1000" placeholder="Required when fatigue findings or staffing shortfalls remain. Record the operational assessment and mitigations."></textarea>
+        </label>
+        <label class="checkbox release-declaration">
+          <input type="checkbox" name="release_declaration" value="yes" required>
+          I confirm that coverage, competence, fatigue findings, breaks and operational contingencies have been reviewed under the unit’s approved rostering system.
+        </label>
+        <div class="compliance-actions">
         <a class="btn" href="{{ url_for('compliance_centre', ym=ym) }}">Review compliance</a>
-        <form method="post">
-          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="action" value="publish">
-          <button class="btn btn-primary" type="submit">{{ 'Publish replacement' if active else 'Publish roster' }}</button>
-        </form>
-      </div>
+          <button class="btn btn-primary" type="submit" {% if preflight.hard_blocks %}disabled aria-disabled="true"{% endif %}>{{ 'Publish replacement' if active else 'Publish roster' }}</button>
+        </div>
+      </form>
     </div>
   </section>
   {% endif %}
