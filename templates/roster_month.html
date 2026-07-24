@@ -174,9 +174,11 @@
               </select>
             </form>
 
-            {% set req_code = req_pending_map.get((s.id, d)) %}
-            {% if req_code %}
-              <div class="req-badge" title="Request: {{ req_code }}">{{ req_code }}</div>
+            {% set req_info = req_pending_map.get((s.id, d)) %}
+            {% if req_info %}
+              <div class="req-badge req-badge--{{ req_info.status }}" role="status"
+                   aria-label="{{ req_info.status|capitalize }} shift request for {{ req_info.code }}"
+                   title="{{ req_info.status|capitalize }} request: {{ req_info.code }}">{{ req_info.code }}</div>
             {% endif %}
 
             <!-- ANNOTATION -->

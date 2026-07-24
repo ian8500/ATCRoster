@@ -18,16 +18,21 @@
     <details class="collapsible-card" open>
       <summary class="collapsible-title">Add Annotation</summary>
       <form method="post" class="row inline-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="annotation_new">
         <label>Code <input name="code" required class="input-sm" placeholder="e.g. A2"></label>
         <label>Label <input name="label" class="input-xl" placeholder="Display name"></label>
         <label>Category <input name="category" class="input-lg" placeholder="Dropdown group"></label>
+        <label>Colour <input name="colour" type="color" value="#6c757d"></label>
+        <label>Description <input name="description" class="input-xl" placeholder="Help text shown in the cell editor"></label>
         <label>Tags <input name="tags" class="input-xl" placeholder="Comma-separated e.g. ot,aava"></label>
         <label>Allow suffix <input type="checkbox" name="allow_suffix"></label>
         <label>Suffixes <input name="suffixes" class="input-sm" placeholder="MDAN"></label>
         <label>TOIL half-days <input type="number" name="toil_half_days" class="input-sm" min="0" value="0"></label>
         <label>Sort order <input type="number" name="sort_order" class="input-sm" value="0"></label>
         <label>Active <input type="checkbox" name="is_active" checked></label>
+        <label>Note required <input type="checkbox" name="note_required"></label>
+        <label>Unit Admin only <input type="checkbox" name="admin_only"></label>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">Add Annotation</button>
         </div>
@@ -66,14 +71,16 @@
               <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="is_active" {% if ann.is_active %}checked{% endif %}></td>
               <td class="table-actions">
                 <form method="post" id="ann-form-{{ ann.id }}" class="inline-form inline-form--tight">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="form" value="annotation_edit">
                   <input type="hidden" name="annotation_id" value="{{ ann.id }}">
                   <button class="btn" type="submit">Save</button>
                 </form>
                 <form method="post" class="inline-form" onsubmit="return confirm('Remove annotation {{ ann.code }}?');">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="form" value="annotation_delete">
                   <input type="hidden" name="annotation_id" value="{{ ann.id }}">
-                  <button class="btn" type="submit">Delete</button>
+                  <button class="btn" type="submit">Deactivate</button>
                 </form>
               </td>
             </tr>
@@ -95,6 +102,7 @@
   <div class="section-body stack">
     {% for item in settings %}
     <form method="post" class="card">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="settings_codes">
       <input type="hidden" name="key" value="{{ item.key }}">
       <div class="card-body">

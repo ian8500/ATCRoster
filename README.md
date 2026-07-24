@@ -1,71 +1,485 @@
-# ATC Roster
+# ATCRoster
 
-Flask + SQLAlchemy app for rostering ATCOs.
+ATCRoster is a roster planning and workforce-compliance application for airport
+air traffic control units. It supports day-to-day roster editing, shift
+requests, fatigue checks, qualifications, annotations and TOIL, reporting,
+scenario planning, and versioned publication. Airport operational data is
+tenant-bound; the platform administration area exposes account and service
+aggregates only.
 
-## Quick start
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-FLASK_APP=app.py FLASK_ENV=development flask run
+## Contents
+
+1. [Roles and privacy](#roles-and-privacy)
+2. [Getting started](#getting-started)
+3. [Airport onboarding](#airport-onboarding)
+4. [Using the roster](#using-the-roster)
+5. [Shift requests](#shift-requests)
+6. [Annotations and TOIL](#annotations-and-toil)
+7. [Qualifications and compliance](#qualifications-and-compliance)
+8. [Coverage and scenario planning](#coverage-and-scenario-planning)
+9. [Leave, sickness, overtime, and reports](#leave-sickness-overtime-and-reports)
+10. [Accounts and platform administration](#accounts-and-platform-administration)
+11. [Installation and deployment](#installation-and-deployment)
+12. [Database migrations and legacy import](#database-migrations-and-legacy-import)
+13. [Security operations](#security-operations)
+14. [Backup, restore, and recovery](#backup-restore-and-recovery)
+15. [Testing](#testing)
+16. [Troubleshooting](#troubleshooting)
+
+## Roles and privacy
+
+| Role | Intended access |
+| --- | --- |
+| `SuperAdmin` | Airport account metadata, plans, feature flags, database health, migration state, storage, and aggregate activity. No personnel or roster data. |
+| `UnitAdmin` | Full administration of their own airport, including people, unit configuration, request decisions, and annotation definitions. |
+| `RosterEditor` | Roster editing and permitted annotation application. Cannot edit annotation definitions. |
+| `WatchManager` | Explicitly granted watch and annotation actions only. |
+| `StaffUser` | Their own roster, requests, notifications, and permitted self-service functions. |
+| `ReadOnlyAuditor` | Read-only unit records and reports explicitly exposed for audit. |
+
+An operational `Person` does not need a login. Authentication belongs to a
+`PlatformIdentity`; airport access belongs to `UnitMembership`, which may link
+to a roster `Person`. The authenticated membership determines the airport
+context. Forms and query strings never select a tenant database.
+
+The platform administrator must never be given operational database
+credentials, staff search, impersonation, or exports. Future support access
+requires a separate airport-approved, time-limited, reason-bound,
+MFA-protected, fully audited design.
+
+## Getting started
+
+After signing in:
+
+- Use **Roster** for the monthly operational view.
+- Use **Shift Requests** to request a future requestable shift or, as a Unit
+  Admin, respond to requests.
+- Use **Admin** for people, watches, shifts, staffing requirements, and leave.
+- Use **Reference Data** to manage annotation definitions and roster code
+  lists if you are a Unit Admin.
+- Use **Reports** for fatigue, sickness, leave-year, overtime, swap, and
+  extension information.
+- Use **Qualification compliance** at `/compliance`.
+- Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
+- Use **Roster scenarios** at `/planning/scenarios`.
+- Use **Airport onboarding** at `/unit/onboarding`.
+
+Dates are displayed using the airport configuration. Server timestamps and
+audit events are recorded in UTC.
+
+## Airport onboarding
+
+Unit Admins complete the ten-stage wizard at `/unit/onboarding`:
+
+1. Enter airport name/code, timezone, locale, date format, and branding.
+2. Configure watches or teams.
+3. Create active shift definitions and reusable templates.
+4. Add qualification types such as Medical, ADI, APP, APS, OJTI, UCA, and
+   English Language.
+5. Configure qualification warnings, commonly 180/90/60/30 days.
+6. Enter staffing requirements.
+7. Configure fatigue rules and the shift-request window/deadline.
+8. Import CSV data after reviewing the validation preview.
+9. Invite Unit Admins.
+10. Review the go-live checklist.
+
+Do not go live until the timezone, request deadline, working/non-working codes,
+qualifications, staffing requirements, and initial roster have been checked by
+two authorised unit users.
+
+## Using the roster
+
+Open a month from **Roster**. Each row represents a person and each column a
+date. Requirement indicators show whether coverage meets the configured
+minimum for Morning, Day, Afternoon, and Night duties.
+
+### Editing a cell
+
+1. Select a shift code.
+2. Review any fatigue, qualification, leave/sickness, roster-lock, or validity
+   warning.
+3. Apply only an authorised override, recording the reason where required.
+4. Optionally select a permitted annotation.
+
+Direct cell editing cannot be used for protected leave, sickness, or TOIL-use
+codes; use the dedicated workflow so balances and reports stay consistent.
+When a cell is changed to the exact shift requested by a pending or approved
+request, the request is retained, marked `fulfilled`, and linked to the
+assignment.
+
+### Roster request badges
+
+- Pending requests use a warning-style badge and accessible pending label.
+- Approved requests use a distinct success-style badge and accessible
+  approved label.
+- Rejected, cancelled, and fulfilled requests do not appear as active roster
+  badges.
+
+### Publication and acknowledgement
+
+Roster publication records support `draft`, `published`, and `superseded`
+states with versioned snapshots. Staff acknowledgements are stored against a
+specific published version. A rollback must create or restore an auditable
+version; it must not erase intervening history.
+
+## Shift requests
+
+### Default rule
+
+By default, staff can request shifts in the next three calendar months. A
+target month locks at the start of the **20th day of the immediately preceding
+month**. Unit Admins can configure both the number of future months and lock
+day. The server, UI, helper functions, and tests use the same rule.
+
+For example, October requests lock on 20 September. Boundary dates are
+inclusive: requests are allowed from the first day of the first configured
+future month through the last day of the final configured month, provided the
+target month has not locked.
+
+### Creating or updating a request
+
+1. Open **Shift Requests**.
+2. Select a date in the permitted window.
+3. Choose an active shift explicitly marked as requestable.
+4. Add an optional requester comment of up to 500 characters.
+5. Save.
+
+A person can have one request per date. Saving again updates that pending
+request. A request cannot be edited after it leaves `pending`. Users may only
+create requests for themselves.
+
+### Cancelling
+
+Only the requester can cancel their pending, unlocked request. Cancellation
+sets the status to `cancelled`; it does not delete the business record.
+Approved, rejected, fulfilled, and already-cancelled requests cannot be
+removed with a forged form submission.
+
+### Admin decisions
+
+Valid states are:
+
+- `pending`
+- `approved`
+- `rejected`
+- `fulfilled`
+- `cancelled`
+
+**Approve only** records the decision without changing the roster.
+
+**Approve and apply to roster** checks the shift, airport ownership, roster
+lock, qualifications, and fatigue rules. Permitted conflicts are shown as
+warnings and require explicit override confirmation. A successful application
+creates or updates the assignment, records its ID, and marks the request
+`fulfilled`.
+
+The selected admin month is preserved after an action. The requester receives
+an in-app notification when a request becomes pending again, approved,
+rejected, or fulfilled.
+
+Every transition records actor, UTC timestamp, old value, new value, and
+reason in the request audit.
+
+## Annotations and TOIL
+
+Unit Admins manage definitions in **Admin → Reference Data**. Definitions are
+scoped to the airport and include:
+
+- code and display label;
+- category, colour, and description/help text;
+- active state and sort order;
+- allowed suffixes;
+- reporting tags;
+- optional TOIL half-day value;
+- whether a note is required;
+- whether Unit Admin permission is required.
+
+Codes must be unique within an airport; another airport may use the same code.
+Suffixes are validated on the server. Once a definition has been used, its
+code is immutable. “Delete” deactivates the definition so historical entries
+remain readable.
+
+Roster Editors may apply or remove permitted annotations but cannot edit
+definitions. Watch and deputy watch managers receive only their explicitly
+configured permissions. Unit-Admin-only annotations return a permission error
+for other roles.
+
+Application/removal and definition changes are audited. TOIL updates and the
+annotation assignment occur in one database transaction. Optional transaction
+keys make retries idempotent so TOIL is not applied twice.
+
+For bulk changes, prepare the person/date range and preview all affected cells,
+notes, permission checks, and TOIL deltas before saving. Never bypass the
+preview for a live roster.
+
+## Qualifications and compliance
+
+The dashboard at `/compliance` categorises qualifications as:
+
+- missing;
+- expired;
+- expiring within the warning window;
+- valid.
+
+Configure warning periods per qualification type; the standard defaults are
+180, 90, 60, and 30 days. Assignment and request-application checks must use
+the current airport’s qualification records only.
+
+## Coverage and scenario planning
+
+Open `/planning/coverage/YYYY-MM` for a date/shift coverage heatmap. Zero
+coverage is highlighted as a critical gap; low coverage is a warning.
+Staffing and qualification requirements should be reviewed together before
+publication.
+
+Use `/planning/scenarios` to save proposed changes without affecting the live
+roster. Scenario changes are stored as a previewable change set. Automated
+suggestions must explain why each person is eligible or unsuitable. Applying
+any automated or scenario change requires a separate human approval step.
+
+## Leave, sickness, overtime, and reports
+
+- Record leave through **Leave**, not a roster-cell shortcut.
+- Record sickness using the dedicated sickness workflow.
+- Configure Twilio before sending overtime SMS messages.
+- Reports include fatigue, sickness, leave year, overtime, swaps, extensions,
+  and CSV exports.
+
+Twilio environment variables:
+
+```text
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_FROM_NUMBER
 ```
 
-## Styling and colour themes
+When they are absent, SMS sending is disabled.
 
-The application ships with a bespoke dark palette defined in
-[`static/styles.css`](static/styles.css). The Bootstrap bundle is loaded in
-dark mode via `data-bs-theme="dark"` on the root `<html>` element and the
-`<meta name="color-scheme" content="dark">` hint in
-[`templates/base.html`](templates/base.html). These settings do not block you
-from applying a new colour scheme, but they do tell the browser and Bootstrap
-to prefer dark-friendly defaults for controls.
+## Accounts and platform administration
 
-To roll out a different palette you can either override the CSS custom
-properties in `styles.css` or introduce an alternative `[data-theme]`
-modifier—just remember to update the `data-bs-theme` attribute if you want
-Bootstrap's components to follow suit (e.g. switch it to `light` for a light
-look). Removing or changing the `color-scheme` meta tag is also safe if you
-need to support light form controls.
+Unit Admins can see active accounts used versus permitted and pending
+invitations during onboarding. Active-login limits are stored as integers;
+common plans use 10, 15, 20, 25, or 30, and custom values are supported.
 
-## SMS configuration
+The limit is enforced transactionally while the airport row is locked.
+Invited-but-not-active, disabled invitations, suspended memberships, and
+operational people without login access do not count. If the limit is reached,
+deactivate an account before activating or restoring another.
 
-Overtime SMS notifications use Twilio's REST API. Set the following environment variables before starting the app:
+`/platform/admin` is restricted to `superadmin` and displays only:
 
-* `TWILIO_ACCOUNT_SID`
-* `TWILIO_AUTH_TOKEN`
-* `TWILIO_FROM_NUMBER`
+- airport name/code, status, and plan;
+- active-account aggregate and limit;
+- enabled features;
+- database health, migration version, and storage aggregate;
+- aggregate activity;
+- created, trial-ending, renewal, suspended, and last-active dates.
 
-If these are not configured the send button on the overtime page will be disabled.
+Plan changes, feature flags, suspension actions, aggregate usage, and platform
+changes have dedicated history/audit models. The portal deliberately does not
+join operational people, assignments, requests, leave, sickness,
+qualifications, or identifying audit content.
 
-## Run as a native desktop app (macOS/Windows)
+## Installation and deployment
 
-You can ship ATC Roster as a native desktop executable by embedding the Flask server in a local webview.
+### Local development
 
-### 1) Install dependencies
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate
 pip install -r requirements.txt
+export FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export DATABASE_URL="sqlite:///instance/roster.db"
+flask --app app.py run
 ```
 
-### 2) Run desktop mode in development
+The development server defaults to `127.0.0.1`. Never use the checked-in
+fallback secret in production.
+
+### PostgreSQL production
+
+Use a central control database for identities, memberships, plans, feature
+flags, database routing metadata, and aggregate usage. Provision a separate
+operational PostgreSQL database for each airport.
+
+Database routing metadata stores a deployment-secret **name**, not a password
+or editable URL. Define that secret in the deployment environment, for
+example:
+
+```text
+CONTROL_DATABASE_URL=postgresql+psycopg://...
+ATCROSTER_UNIT_1_DATABASE_URL=postgresql+psycopg://...
+```
+
+The `OperationalDatabaseRouter` resolves only the authenticated unit and reads
+credentials from deployment secrets. Do not accept a database name, secret
+name, unit ID, or connection URL from a form/query parameter.
+
+Run behind an HTTPS reverse proxy and set:
+
+```text
+FLASK_SECRET_KEY=<high-entropy deployment secret>
+DATABASE_URL=<database URL for the selected deployment role>
+```
+
+### Native desktop mode
+
 ```bash
 python desktop_app.py
 ```
 
-### 3) Build a distributable executable
+Build on the target operating system:
 
-#### macOS
 ```bash
 pyinstaller --noconfirm --onefile --windowed --name "ATCRoster" desktop_app.py
 ```
 
-#### Windows (PowerShell)
-```powershell
-pyinstaller --noconfirm --onefile --windowed --name "ATCRoster" desktop_app.py
+The desktop launcher binds locally. If the native webview is unavailable, it
+falls back to the default browser.
+
+## Database migrations and legacy import
+
+### Alembic
+
+Production changes use Alembic:
+
+```bash
+export DATABASE_URL="postgresql+psycopg://..."
+alembic upgrade head
 ```
 
-The built app lands in `dist/ATCRoster` (`ATCRoster.exe` on Windows). On first run it creates/uses the same local SQLite database under `instance/`.
+The tenant-foundation migration creates the first airport, adds tenant keys to
+legacy operational tables, adds request lifecycle fields, and extends shift
+and annotation definitions. It is intentionally not automatically
+downgradable because removing tenant keys would destroy security boundaries.
 
-### Notes
-- The desktop app hosts the site on `127.0.0.1` only (not publicly exposed).
-- If a native webview runtime is unavailable on a machine, the launcher falls back to the default browser.
+Older SQLite desktop databases also receive an idempotent compatibility
+upgrade at startup. Back up the file first.
+
+### Importing the existing database as the first airport
+
+Create and migrate the target operational database, then run:
+
+```bash
+python scripts/import_first_unit.py \
+  --source-url sqlite:////absolute/path/to/legacy-roster.db \
+  --target-url postgresql+psycopg://user:password@host/database \
+  --unit-id 1 \
+  --checkpoint .import-first-unit.json
+```
+
+The importer:
+
+- copies only columns present in the target;
+- assigns every operational row to the selected airport;
+- skips primary keys already present;
+- checkpoints each completed table so interruption is resumable;
+- prints before/after counts for reconciliation.
+
+Review every table count and retain the report with the migration change
+record before go-live.
+
+## Security operations
+
+- CSRF tokens protect shift-request and annotation-definition changes.
+- IDs, dates, status values, comments, codes, and suffixes are validated on
+  the server.
+- Login clears prior session state before establishing identity.
+- `next` redirects must be local paths.
+- Tenant context comes from the authenticated membership.
+- Cross-airport reads, writes, references, and admin actions return no data.
+- Passwords use Werkzeug’s password hashing; never store plaintext passwords.
+- Invitation tokens must be random, store only a digest, expire, and be
+  single-use.
+- Add MFA challenge enforcement at the identity layer before enabling
+  privileged production access.
+- Apply rate limits at the reverse proxy and application layer for login,
+  invitation, password reset, export, and write endpoints.
+- Emit structured security events without personnel data into the platform
+  health plane.
+
+Do not log secrets, passwords, MFA seeds, request comments, medical details,
+or database URLs. Review operational audit access as personnel data.
+
+## Backup, restore, and recovery
+
+Back up the control database and each airport database independently using
+encrypted, access-controlled storage. Record database identifier, migration
+version, start/end time, size, checksum, and outcome—never row contents—in the
+control-plane health record.
+
+Test restores regularly:
+
+1. Provision an isolated target.
+2. Restore control and one selected airport database.
+3. Apply the recorded migration version.
+4. compare table counts and checksums;
+5. run tenant-isolation and smoke tests;
+6. destroy the isolated environment securely.
+
+Do not restore one airport over another airport’s database route.
+
+## Testing
+
+Install dependencies and run:
+
+```bash
+python -m pytest -q
+```
+
+The suite covers legacy helpers/routes plus request persistence, request
+windows and lock boundaries, requestable shifts, one-request-per-date,
+pending updates, forged deletion, status validation, approve-only,
+approve-and-apply, qualification conflicts, CSRF, audit/notifications, and
+cross-unit read/write isolation.
+
+Before release also run:
+
+```bash
+python -m compileall -q app.py tenancy.py saas_models.py account_limits.py scripts
+```
+
+For production, add integration tests against PostgreSQL and the deployment’s
+secret manager, backup service, email/SMS provider, and reverse proxy.
+
+## Troubleshooting
+
+### A shift is absent from the request list
+
+Confirm it belongs to the signed-in airport and is both active and explicitly
+marked `is_requestable`.
+
+### A request month is locked earlier or later than expected
+
+Check the airport’s request lock day. The default is the 20th of the
+immediately preceding month, not two months before.
+
+### Approve and apply shows a conflict
+
+Review fatigue flags, required qualifications, shift state, roster lock, and
+airport ownership. Confirm an override only when unit policy permits it and
+record a clear reason.
+
+### An annotation code cannot be renamed
+
+Used codes are immutable to preserve historical meaning. Deactivate the old
+definition and create a new code.
+
+### An account cannot be activated
+
+The active-login limit has been reached. Suspended and inactive accounts do
+not count; safely deactivate an active membership before adding another.
+
+### Database connection fails
+
+Check that routing metadata references the correct deployment-secret name and
+that the secret exists. Never copy credentials into the tenant-editable
+database.
+
+### Tests report missing packages
+
+Activate the intended virtual environment and reinstall:
+
+```bash
+python -m pip install -r requirements.txt
+```

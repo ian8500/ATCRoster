@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Platform Administration{% endblock %}
+{% block content %}
+<div class="container my-4">
+  <h2>Platform Administration</h2>
+  <p class="text-muted">Privacy-safe airport account and service-health aggregates. Personnel and roster data are intentionally unavailable.</p>
+  <div class="table-responsive">
+    <table class="table">
+      <thead><tr><th>Airport</th><th>Status / plan</th><th>Accounts</th><th>Features</th><th>Database</th><th>Usage</th><th>Dates</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.unit.name }} ({{ row.unit.code }})</td>
+          <td>{{ row.unit.status }} / {{ row.unit.plan }}</td>
+          <td>{{ row.active_accounts }} / {{ row.unit.active_user_limit }}</td>
+          <td>{% for key, enabled in row.flags.items() if enabled %}<span class="badge bg-secondary">{{ key }}</span> {% endfor %}</td>
+          <td>{{ row.database_health }} · {{ row.migration_version or "unreported" }} · {{ row.storage_bytes }} bytes</td>
+          <td>{{ row.activity_count }} aggregate events</td>
+          <td>Created {{ row.unit.created_at }}<br>Trial {{ row.unit.trial_ends_at or "—" }}<br>Renewal {{ row.unit.renews_at or "—" }}<br>Last active {{ row.unit.last_active_at or "—" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No airport accounts.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

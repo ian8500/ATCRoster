@@ -5,7 +5,7 @@ from collections import defaultdict, Counter, OrderedDict, deque
 from typing import Optional, Tuple
 import base64
 from urllib import parse as urllib_parse, request as urllib_request, error as urllib_error
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g
 from flask import render_template as flask_render_template
 import os
 import re
@@ -89,10 +89,61 @@ def utcnow():
     """Return the current UTC time as a timezone-aware datetime."""
     return datetime.now(timezone.utc)
 
+
+REQUEST_STATUSES = frozenset({"pending", "approved", "rejected", "fulfilled", "cancelled"})
+
+
+def _current_unit_id() -> int:
+    """Derive tenancy from the authenticated membership, never request data."""
+    return int(getattr(current_user, "unit_id", 0) or 0)
+
+
+def csrf_token() -> str:
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+def _validate_csrf() -> None:
+    supplied = request.form.get("_csrf_token") or request.headers.get("X-CSRF-Token")
+    expected = session.get("_csrf_token")
+    if not expected or not supplied or not secrets.compare_digest(str(expected), str(supplied)):
+        abort(400, "Invalid or missing CSRF token.")
+
+
+app.jinja_env.globals["csrf_token"] = csrf_token
+
 # Database & login
 db = SQLAlchemy(app, session_options={"expire_on_commit": False})
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
+
+from tenancy import bind_authenticated_unit, reset_authenticated_unit
+
+
+@app.before_request
+def _bind_tenant_context():
+    g.tenant_context_token = None
+    if current_user.is_authenticated:
+        unit_id = int(getattr(current_user, "unit_id", 0) or 0)
+        if unit_id:
+            g.tenant_context_token = bind_authenticated_unit(unit_id)
+
+
+@app.teardown_request
+def _reset_tenant_context(_error=None):
+    token = getattr(g, "tenant_context_token", None)
+    if token is not None:
+        reset_authenticated_unit(token)
+
+
+def _is_safe_local_redirect(target: str | None) -> bool:
+    if not target:
+        return False
+    parsed = urllib_parse.urlsplit(target)
+    return not parsed.scheme and not parsed.netloc and target.startswith("/")
 
 
 # ----- SQLite performance helpers (define only; run after db exists) -----
@@ -395,17 +446,46 @@ class RosterSetting(db.Model):
     value = db.Column(db.Text, nullable=False, default="")
 
 
+class Unit(db.Model):
+    """An airport tenant. Operational rows always belong to exactly one unit."""
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(12), unique=True, nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    timezone = db.Column(db.String(64), nullable=False, default="Europe/London")
+    locale = db.Column(db.String(20), nullable=False, default="en-GB")
+    date_format = db.Column(db.String(30), nullable=False, default="%d/%m/%Y")
+    branding_json = db.Column(db.Text, nullable=False, default="{}")
+    status = db.Column(db.String(20), nullable=False, default="active")
+    plan = db.Column(db.String(40), nullable=False, default="starter")
+    request_months_ahead = db.Column(db.Integer, nullable=False, default=3)
+    request_lock_day = db.Column(db.Integer, nullable=False, default=20)
+    active_user_limit = db.Column(db.Integer, nullable=False, default=10)
+    onboarding_step = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    trial_ends_at = db.Column(db.DateTime)
+    renews_at = db.Column(db.DateTime)
+    suspended_at = db.Column(db.DateTime)
+    last_active_at = db.Column(db.DateTime)
+
+
 class AnnotationType(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(10), unique=True, nullable=False)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
+    code = db.Column(db.String(10), nullable=False)
     label = db.Column(db.String(80), nullable=False, default="")
     category = db.Column(db.String(40), nullable=False, default="General")
+    colour = db.Column(db.String(20), nullable=False, default="#6c757d")
+    description = db.Column(db.Text, nullable=False, default="")
     allow_suffix = db.Column(db.Boolean, default=False)
     suffixes = db.Column(db.String(20), default="")
     toil_half_days = db.Column(db.Integer, default=0)
     tags = db.Column(db.String(200), default="")
+    note_required = db.Column(db.Boolean, default=False)
+    admin_only = db.Column(db.Boolean, default=False)
+    has_been_used = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
     sort_order = db.Column(db.Integer, default=100)
+    __table_args__ = (db.UniqueConstraint("unit_id", "code", name="uq_annotation_unit_code"),)
 
 
 # -------------------- Models --------------------
@@ -413,8 +493,10 @@ class AnnotationType(db.Model):
 
 class Watch(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(32), unique=True, nullable=False)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
+    name = db.Column(db.String(32), nullable=False)
     order_index = db.Column(db.Integer, nullable=False, default=0)
+    __table_args__ = (db.UniqueConstraint("unit_id", "name", name="uq_watch_unit_name"),)
 
 
 class Staff(UserMixin, db.Model):
@@ -430,11 +512,16 @@ class Staff(UserMixin, db.Model):
         return bool(self.password_hash) and check_password_hash(self.password_hash, password)
 
     # Auth
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
+    # Legacy login remains globally unique until all deployments use
+    # PlatformIdentity. This prevents ambiguous cross-unit authentication.
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
 
     # Roles: 'admin' | 'editor' | 'user'
     role = db.Column(db.String(10), nullable=False, default="user")
+    membership_status = db.Column(db.String(20), nullable=False, default="active")
+    permissions_json = db.Column(db.Text, nullable=False, default="{}")
 
     phone_number = db.Column(db.String(30), default="")
 
@@ -454,7 +541,7 @@ class Staff(UserMixin, db.Model):
 
     # Identity / roster fields
     name = db.Column(db.String(80), nullable=False)
-    staff_no = db.Column(db.String(20), unique=True, nullable=False)
+    staff_no = db.Column(db.String(20), nullable=False)
 
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"))
     watch = db.relationship("Watch", backref="members")
@@ -491,6 +578,9 @@ class Staff(UserMixin, db.Model):
     leave_entitlement_days = db.Column(db.Integer, default=0)
     leave_public_holidays = db.Column(db.Integer, default=0)
     leave_carryover_days = db.Column(db.Integer, default=0)
+    __table_args__ = (
+        db.UniqueConstraint("unit_id", "staff_no", name="uq_staff_unit_number"),
+    )
 
 
 def migrate_add_met_and_assessor():
@@ -524,17 +614,23 @@ def migrate_add_met_and_assessor():
 
 class ShiftType(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(10), unique=True, nullable=False)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
+    code = db.Column(db.String(10), nullable=False)
     name = db.Column(db.String(40), nullable=False, default="")
     start_time = db.Column(db.Time, nullable=True)
     end_time = db.Column(db.Time, nullable=True)
     is_working = db.Column(db.Boolean, default=True)
     # training flag (counts to fatigue but excluded from daily M/D/A/N counters)
     is_training = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    is_requestable = db.Column(db.Boolean, nullable=False, default=False)
+    required_qualification = db.Column(db.String(40), nullable=False, default="")
+    __table_args__ = (db.UniqueConstraint("unit_id", "code", name="uq_shift_unit_code"),)
 
 
 class Requirement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     year = db.Column(db.Integer, nullable=False)
     month = db.Column(db.Integer, nullable=False)
     req_m = db.Column(db.Integer, default=0)
@@ -542,11 +638,12 @@ class Requirement(db.Model):
     req_a = db.Column(db.Integer, default=0)
     req_n = db.Column(db.Integer, default=0)
     __table_args__ = (db.UniqueConstraint(
-        "year", "month", name="uniq_year_month"),)
+        "unit_id", "year", "month", name="uniq_unit_year_month"),)
 
 
 class Leave(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     staff_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False)
     staff = db.relationship("Staff", backref="leaves")
     leave_type = db.Column(db.String(10), nullable=False)  # AL/PL/SPL only
@@ -556,6 +653,7 @@ class Leave(db.Model):
 
 class Sickness(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     staff_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False)
     start = db.Column(db.Date, nullable=False)
     end = db.Column(db.Date, nullable=False)
@@ -565,6 +663,7 @@ class Sickness(db.Model):
 
 class Assignment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     staff_id = db.Column(db.Integer, db.ForeignKey("staff.id"), index=True)
     staff = db.relationship("Staff", backref="assignments")
     day = db.Column(db.Date, index=True)
@@ -579,33 +678,77 @@ class Assignment(db.Model):
 
 class ShiftRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     staff_id = db.Column(db.Integer, db.ForeignKey(
         "staff.id"), index=True, nullable=False)
     staff = db.relationship("Staff", backref="shift_requests")
     day = db.Column(db.Date, index=True, nullable=False)
     code = db.Column(db.String(10), nullable=False)
-    submitted_at = db.Column(db.DateTime, default=utcnow)
+    requester_comment = db.Column(db.String(500), nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    submitted_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    fulfilled_at = db.Column(db.DateTime)
+    cancelled_at = db.Column(db.DateTime)
+    resulting_assignment_id = db.Column(db.Integer, db.ForeignKey("assignment.id"))
     __table_args__ = (db.UniqueConstraint("staff_id", "day",
                       name="uniq_shift_request_staff_day"),)
     # >>> NEW admin response fields
     admin_response = db.Column(db.Text, default="")
     responded_by_id = db.Column(db.Integer)  # FK optional (kept simple)
     responded_at = db.Column(db.DateTime)
-    # pending/approved/rejected/closed
+    # pending/approved/rejected/fulfilled/cancelled
     status = db.Column(db.String(20), default="pending")
+
+
+class RequestAudit(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    request_id = db.Column(db.Integer, db.ForeignKey("shift_request.id"), nullable=False, index=True)
+    actor_id = db.Column(db.Integer, nullable=False)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    transition = db.Column(db.String(30), nullable=False)
+    old_value = db.Column(db.Text, nullable=False, default="")
+    new_value = db.Column(db.Text, nullable=False, default="")
+    reason = db.Column(db.String(500), nullable=False, default="")
+
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    kind = db.Column(db.String(40), nullable=False)
+    message = db.Column(db.String(500), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    read_at = db.Column(db.DateTime)
+
+
+class AnnotationAudit(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    annotation_type_id = db.Column(db.Integer, db.ForeignKey("annotation_type.id"), index=True)
+    assignment_id = db.Column(db.Integer, db.ForeignKey("assignment.id"), index=True)
+    actor_id = db.Column(db.Integer, nullable=False)
+    action = db.Column(db.String(30), nullable=False)
+    old_value = db.Column(db.Text, nullable=False, default="")
+    new_value = db.Column(db.Text, nullable=False, default="")
+    occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    transaction_key = db.Column(db.String(64), unique=True)
 
 
 class AiRuleSet(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     year = db.Column(db.Integer, nullable=False)
     month = db.Column(db.Integer, nullable=False)
     rules_json = db.Column(db.Text, nullable=False, default="{}")
     __table_args__ = (db.UniqueConstraint(
-        "year", "month", name="uniq_ai_ruleset_month"),)
+        "unit_id", "year", "month", name="uniq_ai_ruleset_unit_month"),)
 
 
 class ChangeLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     when = db.Column(db.DateTime, nullable=False,
                      default=utcnow, index=True)
     who_user_id = db.Column(db.Integer, index=True)
@@ -620,12 +763,76 @@ class ChangeLog(db.Model):
 
 class StaffWatchHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     staff_id = db.Column(db.Integer, db.ForeignKey(
         "staff.id"), nullable=False, index=True)
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"), nullable=False)
     effective_date = db.Column(db.Date, nullable=False, index=True)
     staff = db.relationship("Staff", backref="watch_history")
     watch = db.relationship("Watch")
+
+
+# Control-plane and advanced product entities live in a separate module so
+# they can move to the central database without rewriting the legacy UI.
+from saas_models import register_saas_models
+SaaS = register_saas_models(db, utcnow)
+PlatformIdentity = SaaS.PlatformIdentity
+UnitMembership = SaaS.UnitMembership
+SecureInvitation = SaaS.SecureInvitation
+DatabaseRoutingMetadata = SaaS.DatabaseRoutingMetadata
+FeatureFlag = SaaS.FeatureFlag
+PlanHistory = SaaS.PlanHistory
+AggregateUsageEvent = SaaS.AggregateUsageEvent
+SuperAdminAudit = SaaS.SuperAdminAudit
+QualificationType = SaaS.QualificationType
+PersonQualification = SaaS.PersonQualification
+RosterPublication = SaaS.RosterPublication
+RosterAcknowledgement = SaaS.RosterAcknowledgement
+Scenario = SaaS.Scenario
+
+# Enforce the authenticated airport on all legacy operational SELECTs and
+# stamp new rows. This protects older routes while they move to repositories.
+from sqlalchemy import event
+from sqlalchemy.orm import Session as OrmSession, with_loader_criteria
+from tenancy import authenticated_unit_id
+
+TENANT_OPERATIONAL_MODELS = (
+    AnnotationType, Watch, Staff, ShiftType, Requirement, Leave, Sickness,
+    Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
+    AiRuleSet, ChangeLog, StaffWatchHistory, QualificationType,
+    PersonQualification, RosterPublication, RosterAcknowledgement, Scenario,
+)
+
+
+@event.listens_for(OrmSession, "do_orm_execute")
+def _scope_operational_selects(execute_state):
+    if not execute_state.is_select or execute_state.execution_options.get("skip_tenant_scope"):
+        return
+    try:
+        unit_id = authenticated_unit_id()
+    except RuntimeError:
+        return
+    statement = execute_state.statement
+    for model in TENANT_OPERATIONAL_MODELS:
+        statement = statement.options(with_loader_criteria(
+            model, lambda cls, tenant=unit_id: cls.unit_id == tenant,
+            include_aliases=True,
+        ))
+    execute_state.statement = statement
+
+
+@event.listens_for(OrmSession, "before_flush")
+def _stamp_operational_writes(session_obj, _flush_context, _instances):
+    try:
+        unit_id = authenticated_unit_id()
+    except RuntimeError:
+        return
+    for record in session_obj.new:
+        if isinstance(record, TENANT_OPERATIONAL_MODELS):
+            supplied = getattr(record, "unit_id", None)
+            if supplied not in (None, unit_id):
+                raise PermissionError("Cross-unit writes are forbidden")
+            record.unit_id = unit_id
 
 # -------------------- Reference data helpers --------------------
 
@@ -1669,6 +1876,74 @@ def would_create_new_fatigue_issues(
 # -------------------- Migrations / seeding --------------------
 
 
+def migrate_tenant_foundation_compat():
+    """Idempotently upgrade legacy SQLite desktops before normal startup."""
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    if "unit" not in inspector.get_table_names():
+        db.create_all()
+        inspector = inspect(db.engine)
+    if not db.session.get(Unit, 1):
+        db.session.add(Unit(id=1, code="FIRST", name="First airport unit"))
+        db.session.commit()
+    additions = {
+        "staff": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "membership_status": "VARCHAR(20) NOT NULL DEFAULT 'active'",
+            "permissions_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+        "watch": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "requirement": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "leave": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "sickness": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "ai_rule_set": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "change_log": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "staff_watch_history": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "shift_type": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "is_active": "BOOLEAN NOT NULL DEFAULT 1",
+            "is_requestable": "BOOLEAN NOT NULL DEFAULT 0",
+            "required_qualification": "VARCHAR(40) NOT NULL DEFAULT ''",
+        },
+        "assignment": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "shift_request": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "requester_comment": "VARCHAR(500) NOT NULL DEFAULT ''",
+            "created_at": "DATETIME",
+            "updated_at": "DATETIME",
+            "fulfilled_at": "DATETIME",
+            "cancelled_at": "DATETIME",
+            "resulting_assignment_id": "INTEGER",
+        },
+        "annotation_type": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "colour": "VARCHAR(20) NOT NULL DEFAULT '#6c757d'",
+            "description": "TEXT NOT NULL DEFAULT ''",
+            "note_required": "BOOLEAN NOT NULL DEFAULT 0",
+            "admin_only": "BOOLEAN NOT NULL DEFAULT 0",
+            "has_been_used": "BOOLEAN NOT NULL DEFAULT 0",
+        },
+    }
+    for table_name, columns in additions.items():
+        if table_name not in inspector.get_table_names():
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table_name)}
+        for name, ddl in columns.items():
+            if name not in existing:
+                db.session.execute(text(
+                    f'ALTER TABLE "{table_name}" ADD COLUMN "{name}" {ddl}'
+                ))
+        db.session.execute(text(
+            f'CREATE INDEX IF NOT EXISTS "ix_{table_name}_unit_id" '
+            f'ON "{table_name}" ("unit_id")'
+        ))
+    db.session.execute(text(
+        "UPDATE shift_request SET created_at = COALESCE(created_at, submitted_at), "
+        "updated_at = COALESCE(updated_at, submitted_at)"
+    ))
+    db.session.commit()
+
+
 def migrate_add_perf_indexes():
     from sqlalchemy import text
     try:
@@ -2523,12 +2798,13 @@ def roster_month(ym):
 
 # Pending requests for the month (indexed)
     reqs = ShiftRequest.query.filter(
+        ShiftRequest.unit_id == _current_unit_id(),
         ShiftRequest.day >= start, ShiftRequest.day < month_end
     ).all()
     req_pending_map = {
-        (r.staff_id, r.day): r.code
+        (r.staff_id, r.day): {"code": r.code, "status": (r.status or "pending").lower()}
         for r in reqs
-        if (r.status or "pending").lower() != "closed"
+        if (r.status or "pending").lower() in {"pending", "approved"}
     }
 
     # --- Unified editability flags ---
@@ -2694,26 +2970,55 @@ def assign_cell(staff_id, ym, day):
         old = a.annotation or ""
         newv = (annot or "").strip().upper()
         if old != newv:
-            if newv and not parse_annotation(newv):
+            parsed = parse_annotation(newv) if newv else None
+            ann_def = None
+            if parsed:
+                ann_def = AnnotationType.query.filter_by(
+                    unit_id=_current_unit_id(), code=parsed["type"]
+                ).first()
+            if newv and (not parsed or not ann_def):
                 flash(f"Unknown annotation '{newv}'.", "error")
+                return redirect(url_for("roster_month", ym=ym))
+            if ann_def and ann_def.admin_only and not is_admin_user(current_user):
+                abort(403)
+            if ann_def and ann_def.note_required and not (request.form.get("annotation_note") or "").strip():
+                flash(f"{ann_def.code} requires a note.", "error")
+                return redirect(url_for("roster_month", ym=ym))
+            transaction_key = (request.form.get("transaction_key") or "").strip()[:64]
+            if transaction_key and AnnotationAudit.query.filter_by(transaction_key=transaction_key).first():
                 return redirect(url_for("roster_month", ym=ym))
             _apply_toil_annotation_delta(
                 staff=st, old_annot=old, new_annot=newv)
             a.annotation = newv
+            if ann_def:
+                ann_def.has_been_used = True
+            db.session.flush()
+            db.session.add(AnnotationAudit(
+                unit_id=_current_unit_id(), annotation_type_id=ann_def.id if ann_def else None,
+                assignment_id=a.id, actor_id=current_user.id,
+                action="applied" if newv else "removed",
+                old_value=old, new_value=newv,
+                transaction_key=transaction_key or None,
+            ))
 
     # clear any pending request now that the roster cell is written
-    req = ShiftRequest.query.filter_by(staff_id=staff_id, day=d).first()
-    if req:
-        # Keep the request for auditing/history. Auto-close only if it had
-        # never been actioned so that explicit admin decisions (approved /
-        # rejected) remain visible to the requester.
-        status = (req.status or "pending").lower()
-        if status == "pending":
-            req.status = "closed"
+    req = ShiftRequest.query.filter_by(
+        unit_id=_current_unit_id(), staff_id=staff_id, day=d
+    ).first()
+    if req and code == req.code and req.status in {"pending", "approved"}:
+        old_status = req.status
+        req.status = "fulfilled"
+        req.fulfilled_at = utcnow()
+        req.resulting_assignment_id = a.id
+        req.updated_at = utcnow()
         if not req.responded_at:
             req.responded_at = utcnow()
         if not req.responded_by_id:
             req.responded_by_id = getattr(current_user, "id", None)
+        db.session.flush()
+        _request_audit(req, current_user.id, "fulfilled", old_status, "fulfilled",
+                       "Roster cell updated to requested shift")
+        _notify_requester(req)
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))
@@ -2995,6 +3300,9 @@ def admin():
 @login_required
 @admin_required
 def admin_reference():
+    unit_id = _current_unit_id()
+    if not unit_id:
+        abort(403)
     settings_meta = {
         "working_codes": {
             "label": "Working shift codes",
@@ -3019,6 +3327,7 @@ def admin_reference():
     }
 
     if request.method == "POST":
+        _validate_csrf()
         form = request.form.get("form", "")
         try:
             if form == "annotation_new":
@@ -3046,17 +3355,28 @@ def admin_reference():
                 is_active = bool(request.form.get("is_active", True))
 
                 ann = AnnotationType(
+                    unit_id=unit_id,
                     code=code,
                     label=label or code,
                     category=category or "Other",
+                    colour=(request.form.get("colour") or "#6c757d")[:20],
+                    description=(request.form.get("description") or "")[:1000],
                     allow_suffix=allow_suffix,
                     suffixes=suffixes,
                     toil_half_days=toil_half_days,
                     tags=tags,
+                    note_required=bool(request.form.get("note_required")),
+                    admin_only=bool(request.form.get("admin_only")),
                     is_active=is_active,
                     sort_order=sort_order,
                 )
                 db.session.add(ann)
+                db.session.flush()
+                db.session.add(AnnotationAudit(
+                    unit_id=unit_id, annotation_type_id=ann.id,
+                    actor_id=current_user.id, action="definition_created",
+                    new_value=json.dumps({"code": code, "label": label}),
+                ))
                 db.session.commit()
                 refresh_annotation_cache()
                 flash("Annotation added.", "ok")
@@ -3064,11 +3384,19 @@ def admin_reference():
 
             if form == "annotation_edit":
                 aid = int(request.form.get("annotation_id"))
-                ann = AnnotationType.query.get_or_404(aid)
+                ann = AnnotationType.query.filter_by(id=aid, unit_id=unit_id).first_or_404()
                 new_code = (request.form.get("code") or ann.code).strip().upper()
+                if ann.has_been_used and new_code != ann.code:
+                    abort(409, "A used annotation code is immutable; deactivate it and create a new definition.")
+                old_value = {
+                    "code": ann.code, "label": ann.label, "category": ann.category,
+                    "active": ann.is_active, "sort_order": ann.sort_order,
+                }
                 ann.code = new_code or ann.code
                 ann.label = (request.form.get("label") or ann.label or new_code).strip() or new_code
                 ann.category = (request.form.get("category") or ann.category or "Other").strip() or "Other"
+                ann.colour = (request.form.get("colour") or ann.colour or "#6c757d")[:20]
+                ann.description = (request.form.get("description") or ann.description or "")[:1000]
                 ann.allow_suffix = bool(request.form.get("allow_suffix"))
                 ann.suffixes = "".join(sorted({
                     c.strip().upper() for c in (request.form.get("suffixes") or "") if c.strip()
@@ -3081,11 +3409,22 @@ def admin_reference():
                     t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
                 }))
                 ann.tags = tags
+                ann.note_required = bool(request.form.get("note_required"))
+                ann.admin_only = bool(request.form.get("admin_only"))
                 try:
                     ann.sort_order = int(request.form.get("sort_order") or ann.sort_order or 0)
                 except ValueError:
                     pass
                 ann.is_active = bool(request.form.get("is_active"))
+                db.session.add(AnnotationAudit(
+                    unit_id=unit_id, annotation_type_id=ann.id,
+                    actor_id=current_user.id, action="definition_updated",
+                    old_value=json.dumps(old_value, sort_keys=True),
+                    new_value=json.dumps({
+                        "code": ann.code, "label": ann.label, "category": ann.category,
+                        "active": ann.is_active, "sort_order": ann.sort_order,
+                    }, sort_keys=True),
+                ))
                 db.session.commit()
                 refresh_annotation_cache()
                 flash("Annotation updated.", "ok")
@@ -3093,11 +3432,21 @@ def admin_reference():
 
             if form == "annotation_delete":
                 aid = int(request.form.get("annotation_id"))
-                ann = AnnotationType.query.get_or_404(aid)
-                db.session.delete(ann)
+                ann = AnnotationType.query.filter_by(id=aid, unit_id=unit_id).first_or_404()
+                used = Assignment.query.filter(
+                    Assignment.unit_id == unit_id,
+                    Assignment.annotation.like(f"{ann.code}%"),
+                ).first() is not None
+                ann.has_been_used = ann.has_been_used or used
+                ann.is_active = False
+                db.session.add(AnnotationAudit(
+                    unit_id=unit_id, annotation_type_id=ann.id,
+                    actor_id=current_user.id, action="definition_deactivated",
+                    old_value="active", new_value="inactive",
+                ))
                 db.session.commit()
                 refresh_annotation_cache()
-                flash("Annotation removed.", "ok")
+                flash("Annotation deactivated; historical use remains readable.", "ok")
                 return redirect(url_for("admin_reference"))
 
             if form == "settings_codes":
@@ -3117,7 +3466,7 @@ def admin_reference():
             flash(f"Update failed: {exc}", "error")
             return redirect(url_for("admin_reference"))
 
-    annotations = (AnnotationType.query
+    annotations = (AnnotationType.query.filter_by(unit_id=unit_id)
                    .order_by(AnnotationType.sort_order, AnnotationType.code)
                    .all())
 
@@ -4368,29 +4717,93 @@ def report_sickness():
 # -------------------- Request Sheets (shift requests) --------------------
 
 
-def _lock_date_for_target_month(y: int, m: int):
-    prev2_m = m - 2
-    prev2_y = y
-    if prev2_m <= 0:
-        prev2_m += 12
-        prev2_y -= 1
-    return date(prev2_y, prev2_m, 20)
+def _unit_request_rules(unit_id: int | None = None) -> tuple[int, int]:
+    unit = db.session.get(Unit, unit_id or _current_unit_id())
+    months = max(1, min(int(getattr(unit, "request_months_ahead", 3) or 3), 24))
+    lock_day = max(1, min(int(getattr(unit, "request_lock_day", 20) or 20), 28))
+    return months, lock_day
 
 
-def _is_month_locked(y: int, m: int, today: date | None = None):
+def _lock_date_for_target_month(y: int, m: int, unit_id: int | None = None):
+    _, lock_day = _unit_request_rules(unit_id)
+    prev_m = m - 1
+    prev_y = y
+    if prev_m <= 0:
+        prev_m = 12
+        prev_y -= 1
+    return date(prev_y, prev_m, lock_day)
+
+
+def _is_month_locked(y: int, m: int, today: date | None = None, unit_id: int | None = None):
     today = today or date.today()
-    return today >= _lock_date_for_target_month(y, m)
+    return today >= _lock_date_for_target_month(y, m, unit_id)
+
+
+def _add_months(first: date, count: int) -> date:
+    idx = first.year * 12 + first.month - 1 + count
+    return date(idx // 12, idx % 12 + 1, 1)
+
+
+def _request_date_bounds(today: date, unit_id: int) -> tuple[date, date]:
+    months, _ = _unit_request_rules(unit_id)
+    start = _add_months(date(today.year, today.month, 1), 1)
+    next_after_window = _add_months(start, months)
+    return start, next_after_window - timedelta(days=1)
+
+
+def _request_audit(req: ShiftRequest, actor_id: int, transition: str,
+                   old_value: object, new_value: object, reason: str = "") -> None:
+    db.session.add(RequestAudit(
+        unit_id=req.unit_id,
+        request_id=req.id,
+        actor_id=actor_id,
+        transition=transition,
+        old_value=json.dumps(old_value, default=str, sort_keys=True),
+        new_value=json.dumps(new_value, default=str, sort_keys=True),
+        reason=(reason or "")[:500],
+    ))
+
+
+def _notify_requester(req: ShiftRequest) -> None:
+    if req.status not in {"pending", "approved", "rejected", "fulfilled"}:
+        return
+    db.session.add(Notification(
+        unit_id=req.unit_id,
+        recipient_id=req.staff_id,
+        kind=f"shift_request_{req.status}",
+        message=f"Your {req.code} request for {req.day.isoformat()} is now {req.status}.",
+    ))
+
+
+def _staff_has_shift_qualification(staff: Staff, shift: ShiftType) -> bool:
+    required = (shift.required_qualification or "").strip().lower()
+    if not required:
+        return True
+    mapping = {
+        "medical": bool(staff.medical_expiry and staff.medical_expiry >= date.today()),
+        "tower": bool(staff.tower_ut),
+        "radar": bool(staff.radar_ut),
+        "met": bool(staff.met_ut),
+        "ojti": bool(staff.has_ojti),
+        "assessor": bool(staff.has_assessor),
+    }
+    return mapping.get(required, False)
 
 
 @app.route("/requests", methods=["GET", "POST"])
 @login_required
 def requests_page():
     today = date.today()
+    unit_id = _current_unit_id()
+    if not unit_id:
+        abort(403)
+    months_ahead, _ = _unit_request_rules(unit_id)
+    first_allowed, last_allowed = _request_date_bounds(today, unit_id)
 
-    # ---- user/editor: show next 3 months they can request into ----
+    # ---- user/editor: show configured future months they can request into ----
     months = []
     base_y, base_m = today.year, today.month
-    for k in range(1, 4):
+    for k in range(1, months_ahead + 1):
         t_m = base_m + k
         t_y = base_y + (t_m - 1) // 12
         t_m = ((t_m - 1) % 12) + 1
@@ -4398,53 +4811,95 @@ def requests_page():
 
     # ---- POST (create/delete own requests) ----
     if request.method == "POST":
+        _validate_csrf()
         form = request.form.get("form", "")
         if form == "add":
-            day = date.fromisoformat(request.form["day"])
-            code = request.form["code"].upper().strip()
-            if not get_shift(code):
-                flash("Invalid code.", "error")
+            try:
+                day = date.fromisoformat(request.form.get("day", ""))
+            except (TypeError, ValueError):
+                flash("Enter a valid request date.", "error")
                 return redirect(url_for("requests_page"))
-            if _is_month_locked(day.year, day.month, today):
+            code = (request.form.get("code") or "").upper().strip()
+            comment = (request.form.get("comment") or "").strip()
+            if len(comment) > 500:
+                flash("Requester comments are limited to 500 characters.", "error")
+                return redirect(url_for("requests_page"))
+            shift = ShiftType.query.filter_by(
+                unit_id=unit_id, code=code, is_active=True, is_requestable=True
+            ).first()
+            if not shift:
+                flash("That shift is inactive or cannot be requested.", "error")
+                return redirect(url_for("requests_page"))
+            if day < first_allowed or day > last_allowed:
+                flash(f"Requests must be between {first_allowed} and {last_allowed}.", "error")
+                return redirect(url_for("requests_page"))
+            if _is_month_locked(day.year, day.month, today, unit_id):
                 flash("Requests for that month are locked.", "error")
                 return redirect(url_for("requests_page"))
             ex = ShiftRequest.query.filter_by(
-                staff_id=current_user.id, day=day).first()
+                unit_id=unit_id, staff_id=current_user.id, day=day).first()
             if not ex:
-                ex = ShiftRequest(staff_id=current_user.id, day=day, code=code)
+                ex = ShiftRequest(
+                    unit_id=unit_id, staff_id=current_user.id, day=day,
+                    code=code, requester_comment=comment,
+                )
                 db.session.add(ex)
+                db.session.flush()
+                _request_audit(ex, current_user.id, "created", {}, {
+                    "code": code, "comment": comment, "status": "pending",
+                })
             else:
+                if ex.status != "pending":
+                    flash("Only pending requests can be edited.", "error")
+                    return redirect(url_for("requests_page"))
+                old = {"code": ex.code, "comment": ex.requester_comment, "status": ex.status}
                 ex.code = code
-                # reset status on change by the requester
+                ex.requester_comment = comment
+                ex.updated_at = utcnow()
+                ex.submitted_at = utcnow()
                 ex.status = "pending"
                 ex.admin_response = ""
                 ex.responded_by_id = None
                 ex.responded_at = None
+                _request_audit(ex, current_user.id, "updated", old, {
+                    "code": code, "comment": comment, "status": "pending",
+                })
             db.session.commit()
             flash("Request saved.", "ok")
             return redirect(url_for("requests_page"))
 
         if form == "del":
-            rid = int(request.form["rid"])
-            req = ShiftRequest.query.get_or_404(rid)
-            if req.staff_id != current_user.id and not is_admin_user(current_user):
-                flash("Not allowed.", "error")
-                return redirect(url_for("requests_page"))
-            if _is_month_locked(req.day.year, req.day.month, today):
+            try:
+                rid = int(request.form.get("rid", ""))
+            except (TypeError, ValueError):
+                abort(400)
+            req = ShiftRequest.query.filter_by(id=rid, unit_id=unit_id).first_or_404()
+            if req.staff_id != current_user.id:
+                abort(403)
+            if req.status != "pending":
+                abort(409, "Only pending requests can be cancelled.")
+            if _is_month_locked(req.day.year, req.day.month, today, unit_id):
                 flash("Requests for that month are locked.", "error")
                 return redirect(url_for("requests_page"))
-            db.session.delete(req)
+            old = req.status
+            req.status = "cancelled"
+            req.cancelled_at = utcnow()
+            req.updated_at = utcnow()
+            _request_audit(req, current_user.id, "cancelled", old, req.status, "Cancelled by requester")
             db.session.commit()
-            flash("Request deleted.", "ok")
+            flash("Request cancelled; its history has been preserved.", "ok")
             return redirect(url_for("requests_page"))
+        abort(400)
 
     # ---- My requests (everyone) ----
-    my_reqs = ShiftRequest.query.filter_by(staff_id=current_user.id).all()
+    my_reqs = ShiftRequest.query.filter_by(unit_id=unit_id, staff_id=current_user.id).all()
     req_map = defaultdict(dict)
     for r in my_reqs:
         req_map[(r.day.year, r.day.month)][r.day] = r
 
-    all_shifts = ShiftType.query.order_by(ShiftType.code).all()
+    all_shifts = ShiftType.query.filter_by(
+        unit_id=unit_id, is_active=True, is_requestable=True
+    ).order_by(ShiftType.code).all()
     codes = [s.code for s in all_shifts]
 
     # ---- Admin: month-selectable “All requests” panel ----
@@ -4470,7 +4925,8 @@ def requests_page():
         # fetch only the chosen month; order by day then staff name
         admin_requests = (ShiftRequest.query
                           .join(Staff, ShiftRequest.staff_id == Staff.id)
-                          .filter(ShiftRequest.day >= start_of_month,
+                          .filter(ShiftRequest.unit_id == unit_id,
+                                  ShiftRequest.day >= start_of_month,
                                   ShiftRequest.day <= end_of_month)
                           .order_by(ShiftRequest.day.asc(), Staff.name.asc())
                           .all())
@@ -4505,14 +4961,194 @@ def requests_page():
 def admin_request_respond(rid):
     if not is_admin_user(current_user):
         abort(403)
-    r = ShiftRequest.query.get_or_404(rid)
-    r.admin_response = (request.form.get("admin_response") or "").strip()
-    r.status = request.form.get("status", r.status or "pending")
+    _validate_csrf()
+    unit_id = _current_unit_id()
+    r = ShiftRequest.query.filter_by(id=rid, unit_id=unit_id).first_or_404()
+    action = (request.form.get("action") or "status").strip()
+    response = (request.form.get("admin_response") or "").strip()
+    if len(response) > 500:
+        abort(400, "Response is limited to 500 characters.")
+    requested_status = (request.form.get("status") or "").strip().lower()
+    if action == "approve_only":
+        requested_status = "approved"
+    elif action == "approve_apply":
+        requested_status = "fulfilled"
+    if requested_status not in REQUEST_STATUSES:
+        abort(400, "Invalid request status.")
+
+    old = {"status": r.status, "response": r.admin_response}
+    if action == "approve_apply":
+        shift = ShiftType.query.filter_by(
+            unit_id=unit_id, code=r.code, is_active=True, is_requestable=True
+        ).first()
+        if not shift:
+            abort(409, "The requested shift is no longer valid.")
+        if _is_month_locked(r.day.year, r.day.month, unit_id=unit_id):
+            abort(409, "The roster month is locked.")
+        conflicts = list(would_create_new_fatigue_issues(r.staff, r.day, r.code).values())
+        if not _staff_has_shift_qualification(r.staff, shift):
+            conflicts.append(["Required qualification is missing or expired."])
+        override = request.form.get("confirm_override") == "yes"
+        if conflicts and not override:
+            flash("Applying this request has conflicts. Review and confirm the permitted override.", "error")
+            return redirect(url_for("requests_page", ym=request.form.get("ym") or ""))
+        assignment = Assignment.query.filter_by(
+            unit_id=unit_id, staff_id=r.staff_id, day=r.day
+        ).first()
+        if not assignment:
+            assignment = Assignment(unit_id=unit_id, staff_id=r.staff_id, day=r.day)
+            db.session.add(assignment)
+        assignment.code = r.code
+        assignment.source = "request"
+        assignment.note = f"Applied from shift request #{r.id}"
+        db.session.flush()
+        r.resulting_assignment_id = assignment.id
+        r.fulfilled_at = utcnow()
+
+    r.admin_response = response
+    r.status = requested_status
     r.responded_by_id = getattr(current_user, "id", None)
     r.responded_at = utcnow()
+    r.updated_at = utcnow()
+    _request_audit(r, current_user.id, action, old, {
+        "status": r.status, "response": response,
+        "assignment_id": r.resulting_assignment_id,
+    }, response)
+    _notify_requester(r)
     db.session.commit()
     flash("Response saved.", "ok")
-    return redirect(url_for("requests_page"))
+    return redirect(url_for("requests_page", ym=request.form.get("ym") or ""))
+
+
+@app.route("/platform/admin")
+@login_required
+def platform_admin():
+    """Privacy-preserving control plane: aggregates and unit metadata only."""
+    if getattr(current_user, "role", "") != "superadmin":
+        abort(403)
+    rows = []
+    for unit in Unit.query.order_by(Unit.code).all():
+        active_accounts = UnitMembership.query.filter_by(
+            unit_id=unit.id, status="active"
+        ).count()
+        flags = {
+            row.key: row.enabled
+            for row in FeatureFlag.query.filter_by(unit_id=unit.id).all()
+        }
+        routing = db.session.get(DatabaseRoutingMetadata, unit.id)
+        activity = db.session.query(
+            db.func.coalesce(db.func.sum(AggregateUsageEvent.count), 0)
+        ).filter(AggregateUsageEvent.unit_id == unit.id).scalar()
+        rows.append({
+            "unit": unit,
+            "active_accounts": active_accounts,
+            "flags": flags,
+            "database_health": routing.health if routing else "unknown",
+            "migration_version": routing.migration_version if routing else "",
+            "storage_bytes": routing.storage_bytes if routing else 0,
+            "activity_count": int(activity or 0),
+        })
+    return render_template("platform_admin.html", rows=rows)
+
+
+@app.route("/unit/onboarding", methods=["GET", "POST"])
+@login_required
+def unit_onboarding():
+    if not is_admin_user(current_user):
+        abort(403)
+    unit = db.session.get(Unit, _current_unit_id())
+    if not unit:
+        abort(404)
+    if request.method == "POST":
+        _validate_csrf()
+        step = max(1, min(int(request.form.get("step") or unit.onboarding_step), 10))
+        if step == 1:
+            unit.name = (request.form.get("name") or unit.name).strip()[:120]
+            unit.code = (request.form.get("code") or unit.code).strip().upper()[:12]
+            unit.timezone = (request.form.get("timezone") or unit.timezone).strip()[:64]
+            unit.locale = (request.form.get("locale") or unit.locale).strip()[:20]
+            unit.date_format = (request.form.get("date_format") or unit.date_format).strip()[:30]
+        unit.onboarding_step = min(step + 1, 10)
+        db.session.commit()
+        flash("Onboarding progress saved.", "ok")
+        return redirect(url_for("unit_onboarding"))
+    active = UnitMembership.query.filter_by(unit_id=unit.id, status="active").count()
+    pending = UnitMembership.query.filter_by(unit_id=unit.id, status="invited").count()
+    return render_template(
+        "unit_onboarding.html", unit=unit, active_accounts=active,
+        pending_invitations=pending,
+    )
+
+
+@app.route("/compliance")
+@login_required
+def qualification_compliance():
+    unit_id = _current_unit_id()
+    today = date.today()
+    qualifications = (
+        PersonQualification.query
+        .filter_by(unit_id=unit_id)
+        .join(QualificationType, PersonQualification.qualification_type_id == QualificationType.id)
+        .all()
+    )
+    rows = []
+    for qual in qualifications:
+        qtype = db.session.get(QualificationType, qual.qualification_type_id)
+        person = Staff.query.filter_by(id=qual.person_id, unit_id=unit_id).first()
+        if not person:
+            continue
+        days = None if not qual.expires_on else (qual.expires_on - today).days
+        state = "missing" if not qual.expires_on else (
+            "expired" if days < 0 else "expiring" if days <= 180 else "valid"
+        )
+        rows.append({"person": person, "type": qtype, "qualification": qual,
+                     "days": days, "state": state})
+    return render_template("qualification_compliance.html", rows=rows)
+
+
+@app.route("/planning/coverage/<ym>")
+@login_required
+def coverage_heatmap(ym):
+    year, month = parse_ym(ym)
+    start, days = month_range(year, month)
+    end = days[-1]
+    counts = defaultdict(Counter)
+    assignments = Assignment.query.filter(
+        Assignment.unit_id == _current_unit_id(),
+        Assignment.day >= start, Assignment.day <= end,
+    ).all()
+    for assignment in assignments:
+        counts[assignment.day][(assignment.code or "")[:1]] += 1
+    return render_template("coverage_heatmap.html", days=days, counts=counts, ym=ym)
+
+
+@app.route("/planning/scenarios", methods=["GET", "POST"])
+@login_required
+def scenarios_page():
+    if not can_edit_roster(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    if request.method == "POST":
+        _validate_csrf()
+        changes = request.form.get("changes_json") or "[]"
+        try:
+            parsed = json.loads(changes)
+            if not isinstance(parsed, list):
+                raise ValueError
+        except (ValueError, json.JSONDecodeError):
+            abort(400, "Scenario changes must be a JSON list")
+        scenario = Scenario(
+            unit_id=unit_id,
+            name=(request.form.get("name") or "Untitled scenario")[:120],
+            changes_json=json.dumps(parsed),
+            created_by_id=current_user.id,
+        )
+        db.session.add(scenario)
+        db.session.commit()
+        flash("Scenario saved without changing the live roster.", "ok")
+        return redirect(url_for("scenarios_page"))
+    rows = Scenario.query.filter_by(unit_id=unit_id).order_by(Scenario.id.desc()).all()
+    return render_template("scenarios.html", scenarios=rows)
 
 # -------------------- Manual TOIL entry page (no bulk seed in UI) --------------------
 
@@ -4584,11 +5220,16 @@ def signin_form():   # function name can be anything; endpoint is 'login'
         password = (request.form.get("password") or "").strip()
         user = Staff.query.filter_by(username=username).first()
         if user and user.check_password(password):
+            if user.membership_status != "active":
+                flash("This account is not active.", "error")
+                return render_template("login.html"), 403
+            session.clear()  # rotate session state on privilege establishment
             login_user(user)
+            session["_session_started_at"] = utcnow().isoformat()
             flash("Logged in successfully", "ok")
             # support ?next=... to return where user was going
             nxt = request.args.get("next")
-            return redirect(nxt or url_for("index"))
+            return redirect(nxt if _is_safe_local_redirect(nxt) else url_for("index"))
         flash("Invalid username or password.", "error")
     return render_template("login.html")
 
@@ -4597,35 +5238,41 @@ def signin_form():   # function name can be anything; endpoint is 'login'
 
 with app.app_context():
     db.create_all()
-    migrate_add_perf_indexes()
-    migrate_add_met_and_assessor()
-    migrate_add_toil_half_days_and_convert()
-    migrate_add_ut_flags()
-    migrate_add_assignment_annotation()
-    migrate_add_unique_assignment_key()
-    migrate_add_requirement_req_d()
-    migrate_add_is_training()
-    migrate_add_wm_dwm_exclude()
-    migrate_add_phone_number()
-    migrate_add_role_and_calendar_token()
+    is_sqlite = db.engine.dialect.name == "sqlite"
+    if is_sqlite:
+        # Compatibility only for legacy desktop databases. PostgreSQL schema
+        # changes are exclusively Alembic-managed.
+        migrate_tenant_foundation_compat()
+        migrate_add_perf_indexes()
+        migrate_add_met_and_assessor()
+        migrate_add_toil_half_days_and_convert()
+        migrate_add_ut_flags()
+        migrate_add_assignment_annotation()
+        migrate_add_unique_assignment_key()
+        migrate_add_requirement_req_d()
+        migrate_add_is_training()
+        migrate_add_wm_dwm_exclude()
+        migrate_add_phone_number()
+        migrate_add_role_and_calendar_token()
 
     # >>> Ensure new ShiftRequest columns exist (SQLite safe)
-    from sqlalchemy import text
-    cols = [row[1] for row in db.session.execute(
-        text("PRAGMA table_info(shift_request)"))]
+    if is_sqlite:
+        from sqlalchemy import text
+        cols = [row[1] for row in db.session.execute(
+            text("PRAGMA table_info(shift_request)"))]
 
-    def _add_col(name, ddl):
-        if name not in cols:
-            try:
-                db.session.execute(
-                    text(f"ALTER TABLE shift_request ADD COLUMN {ddl}"))
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-    _add_col("admin_response", "admin_response TEXT DEFAULT ''")
-    _add_col("responded_by_id", "responded_by_id INTEGER")
-    _add_col("responded_at", "responded_at TEXT")
-    _add_col("status", "status VARCHAR(20) DEFAULT 'pending'")
+        def _add_col(name, ddl):
+            if name not in cols:
+                try:
+                    db.session.execute(
+                        text(f"ALTER TABLE shift_request ADD COLUMN {ddl}"))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+        _add_col("admin_response", "admin_response TEXT DEFAULT ''")
+        _add_col("responded_by_id", "responded_by_id INTEGER")
+        _add_col("responded_at", "responded_at TEXT")
+        _add_col("status", "status VARCHAR(20) DEFAULT 'pending'")
 
     seed_once()
     refresh_shift_cache()
@@ -4645,4 +5292,3 @@ application = app
 if __name__ == "__main__":
     # bind explicitly & avoid debug reloader port conflicts
     app.run(host="127.0.0.1", port=5001, debug=False)
-
