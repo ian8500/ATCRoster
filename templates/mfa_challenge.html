@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Verification · ATC Roster{% endblock %}
+{% block content %}
+<div class="container container--xs py-5">
+  <section class="card"><div class="card-hd"><i class="fa-solid fa-shield-halved"></i> Multi-factor verification</div><div class="card-bd">
+    <p>Enter the six-digit code from your authenticator app or one unused recovery code.</p>
+    <form method="post" class="operations-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" autofocus required></label>
+      <button class="btn btn-primary" type="submit">Verify and sign in</button>
+    </form>
+  </div></section>
+</div>
+{% endblock %}

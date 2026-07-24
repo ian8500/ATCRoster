@@ -4,6 +4,7 @@ import tempfile
 from datetime import date, time
 
 import pytest
+import pyotp
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if REPO_ROOT not in sys.path:
@@ -125,6 +126,30 @@ def test_compliance_centre_and_evidence_export(client):
 def test_roster_publication_and_acknowledgement(client):
     login(client)
     token = csrf(client)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
+        position = app.OperationalPosition(
+            unit_id=admin.unit_id, code="PUB", label="Publication test position"
+        )
+        db.session.add(position)
+        db.session.flush()
+        db.session.add(app.PositionRequirement(
+            unit_id=admin.unit_id, day=date(2025, 4, 1), shift_code="M",
+            position_id=position.id, required_count=0, contingency_count=0,
+        ))
+        db.session.add(app.BreakPlan(
+            unit_id=admin.unit_id, day=date(2025, 4, 1),
+            person_id=admin.id, start_time=time(10, 0), end_time=time(10, 30),
+            recorded_by_id=admin.id,
+        ))
+        db.session.add(app.RosterRuleVersion(
+            unit_id=admin.unit_id, version=1, name="Approved test rules",
+            rules_json="{}", state="approved", effective_from=date(2025, 1, 1),
+            change_reference="TEST-001",
+            consultation_summary="Approved test consultation evidence.",
+            approved_by_id=admin.id, approved_at=app.utcnow(),
+        ))
+        db.session.commit()
     rejected = client.post(
         "/publications/2025-04",
         data={"_csrf_token": token, "action": "publish"},
@@ -173,6 +198,91 @@ def test_security_headers_are_present(client):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+
+def test_health_endpoints_report_ready(client):
+    assert client.get("/health/live").get_json()["status"] == "ok"
+    ready = client.get("/health/ready")
+    assert ready.status_code == 200
+    assert ready.get_json()["status"] == "ready"
+
+
+def test_production_operations_and_fatigue_workflows(client):
+    login(client)
+    token = csrf(client)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
+        admin_id = admin.id
+
+    position_response = client.post(
+        "/operations/2025-04",
+        data={
+            "_csrf_token": token, "action": "create_position",
+            "code": "TWR", "label": "Tower Controller",
+            "description": "Aerodrome control position",
+            "is_safety_critical": "on",
+        },
+        follow_redirects=True,
+    )
+    assert position_response.status_code == 200
+    with app.app.app_context():
+        position = app.OperationalPosition.query.filter_by(code="TWR").first()
+        assert position is not None
+        position_id = position.id
+
+    endorsement_response = client.post(
+        "/operations/2025-04",
+        data={
+            "_csrf_token": token, "action": "grant_endorsement",
+            "person_id": admin_id, "position_id": position_id,
+            "valid_from": "2025-01-01", "valid_until": "2026-12-31",
+            "restrictions": "",
+        },
+        follow_redirects=True,
+    )
+    assert b"Operational assurance record saved" in endorsement_response.data
+
+    requirement_response = client.post(
+        "/operations/2025-04",
+        data={
+            "_csrf_token": token, "action": "set_position_requirement",
+            "day": "2025-04-01", "shift_code": "M",
+            "position_id": position_id, "required_count": "1",
+            "contingency_count": "1",
+        },
+        follow_redirects=True,
+    )
+    assert requirement_response.status_code == 200
+
+    break_response = client.post(
+        "/operations/2025-04",
+        data={
+            "_csrf_token": token, "action": "add_break",
+            "day": "2025-04-01", "person_id": admin_id,
+            "position_id": position_id, "start_time": "10:00",
+            "end_time": "10:30", "kind": "break",
+        },
+        follow_redirects=True,
+    )
+    assert break_response.status_code == 200
+
+    fatigue_response = client.post(
+        "/fatigue/report",
+        data={
+            "_csrf_token": token, "duty_day": "2025-04-01",
+            "severity": "medium",
+            "summary": "Reduced sleep before the planned morning duty.",
+        },
+        follow_redirects=True,
+    )
+    assert b"Fatigue report submitted" in fatigue_response.data
+    with app.app.app_context():
+        assert app.PositionEndorsement.query.count() == 1
+        assert app.PositionRequirement.query.filter_by(
+            position_id=position_id
+        ).count() == 1
+        assert app.BreakPlan.query.filter_by(position_id=position_id).count() == 1
+        assert app.FatigueReport.query.count() == 1
 
 
 def test_index_redirects_to_roster(client):
@@ -343,3 +453,35 @@ def test_admin_watch_move_flow(client):
     # Sanity check that the main admin dashboard still renders after the flow
     admin_resp = client.get("/admin")
     assert admin_resp.status_code == 200
+
+
+def test_mfa_challenge_completes_login(client):
+    client.get("/logout")
+    secret = pyotp.random_base32()
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
+        app.MfaCredential.query.filter_by(person_id=admin.id).delete()
+        db.session.add(app.MfaCredential(
+            unit_id=admin.unit_id,
+            person_id=admin.id,
+            encrypted_secret=app._field_cipher().encrypt(secret.encode()).decode(),
+            enabled=True,
+            enrolled_at=app.utcnow(),
+        ))
+        db.session.commit()
+    password_step = client.post(
+        "/login", data=ADMIN_CREDENTIALS, follow_redirects=False
+    )
+    assert password_step.status_code == 302
+    assert "/login/mfa" in password_step.headers["Location"]
+    challenge = client.get("/login/mfa")
+    assert challenge.status_code == 200
+    with client.session_transaction() as sess:
+        token = sess["_csrf_token"]
+    verified = client.post(
+        "/login/mfa",
+        data={"_csrf_token": token, "code": pyotp.TOTP(secret).now()},
+        follow_redirects=False,
+    )
+    assert verified.status_code == 302
+    assert "/roster/" in client.get("/", follow_redirects=False).headers["Location"]

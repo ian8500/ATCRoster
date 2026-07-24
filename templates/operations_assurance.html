@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Operational Assurance · {{ ym }}{% endblock %}
+{% block content %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Production operations</span>
+    <h2>Operational assurance · {{ ym }}</h2>
+    <p>Position competence, resilient staffing, breaks, achieved duty, fatigue reports and governed roster rules.</p>
+  </div>
+  <div class="compliance-actions">
+    <a class="btn" href="{{ url_for('publication_centre', ym=ym) }}">Publication gate</a>
+    <a class="btn" href="{{ url_for('compliance_centre', ym=ym) }}">Fatigue compliance</a>
+  </div>
+</section>
+
+<nav class="admin-section-nav" aria-label="Operational assurance sections">
+  <a href="#position-coverage">Position coverage</a>
+  <a href="#breaks">Break plan</a>
+  <a href="#actual-duty">Achieved duty</a>
+  <a href="#fatigue-reports">Fatigue reports</a>
+  <a href="#rule-governance">Rule governance</a>
+</nav>
+
+<section id="position-coverage" class="card mt-3">
+  <div class="card-hd">Position and endorsement coverage</div>
+  <div class="card-bd">
+    <div class="assurance-grid">
+      <article><span>Positions</span><strong>{{ positions|length }}</strong></article>
+      <article><span>Endorsements</span><strong>{{ endorsements|length }}</strong></article>
+      <article class="{{ 'danger' if assurance|selectattr('shortfall')|list else 'success' }}"><span>Requirement shortfalls</span><strong>{{ assurance|selectattr('shortfall')|list|length }}</strong></article>
+      <article><span>Requirements</span><strong>{{ assurance|length }}</strong></article>
+    </div>
+    <div class="operations-grid mt-3">
+      <form method="post" class="operations-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create_position">
+        <h3>Create position</h3>
+        <label>Code<input name="code" maxlength="30" required></label>
+        <label>Label<input name="label" maxlength="120" required></label>
+        <label>Description<textarea name="description"></textarea></label>
+        <label class="checkbox"><input type="checkbox" name="is_safety_critical" checked> Safety critical</label>
+        <button class="btn" type="submit">Create position</button>
+      </form>
+      <form method="post" class="operations-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="grant_endorsement">
+        <h3>Grant endorsement</h3>
+        <label>Controller<select name="person_id" required>{% for person in staff %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}</select></label>
+        <label>Position<select name="position_id" required>{% for position in positions %}<option value="{{ position.id }}">{{ position.code }} · {{ position.label }}</option>{% endfor %}</select></label>
+        <label>Valid from<input type="date" name="valid_from" required></label>
+        <label>Valid until<input type="date" name="valid_until"></label>
+        <label>Restrictions<input name="restrictions" maxlength="1000"></label>
+        <button class="btn" type="submit" {% if not positions %}disabled{% endif %}>Save endorsement</button>
+      </form>
+      <form method="post" class="operations-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="set_position_requirement">
+        <h3>Set daily requirement</h3>
+        <label>Date<input type="date" name="day" required></label>
+        <label>Shift<select name="shift_code" required>{% for shift in shifts if shift.is_working %}<option>{{ shift.code }}</option>{% endfor %}</select></label>
+        <label>Position<select name="position_id" required>{% for position in positions %}<option value="{{ position.id }}">{{ position.code }}</option>{% endfor %}</select></label>
+        <label>Minimum<input type="number" min="0" name="required_count" value="1" required></label>
+        <label>Resilience reserve<input type="number" min="0" name="contingency_count" value="0" required></label>
+        <button class="btn" type="submit" {% if not positions %}disabled{% endif %}>Save requirement</button>
+      </form>
+    </div>
+    {% if assurance %}
+      <div class="table-scroll mt-3"><table class="mini"><thead><tr><th>Date</th><th>Shift</th><th>Position</th><th>Eligible</th><th>Target</th><th>Status</th></tr></thead><tbody>
+      {% for row in assurance %}<tr><td>{{ row.requirement.day }}</td><td>{{ row.requirement.shift_code }}</td><td>{{ row.position.code if row.position else 'Removed' }}</td><td>{{ row.eligible }}</td><td>{{ row.target }}</td><td><span class="status-pill {{ 'danger' if row.shortfall else 'success' }}">{{ 'Short ' ~ row.shortfall if row.shortfall else 'Covered' }}</span></td></tr>{% endfor %}
+      </tbody></table></div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="operations-grid mt-3">
+  <section id="breaks" class="card"><div class="card-hd">Break planning</div><div class="card-bd">
+    <form method="post" class="operations-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_break">
+      <label>Date<input type="date" name="day" required></label>
+      <label>Controller<select name="person_id">{% for person in staff %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}</select></label>
+      <label>Position<select name="position_id"><option value="">General duty</option>{% for position in positions %}<option value="{{ position.id }}">{{ position.code }}</option>{% endfor %}</select></label>
+      <label>Start<input type="time" name="start_time" required></label><label>End<input type="time" name="end_time" required></label>
+      <input type="hidden" name="kind" value="break"><button class="btn" type="submit">Add planned break</button>
+    </form>
+    <div class="operations-list">{% for row in breaks %}<div><strong>{{ row.day }} · {{ row.start_time.strftime('%H:%M') }}–{{ row.end_time.strftime('%H:%M') }}</strong><span>{{ staff_by_id.get(row.person_id).name if staff_by_id.get(row.person_id) else row.person_id }}</span></div>{% else %}<p>No break plan recorded.</p>{% endfor %}</div>
+  </div></section>
+
+  <section id="actual-duty" class="card"><div class="card-hd">Planned versus achieved duty</div><div class="card-bd">
+    <form method="post" class="operations-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="record_actual">
+      <label>Date<input type="date" name="day" required></label>
+      <label>Controller<select name="person_id">{% for person in staff %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}</select></label>
+      <label>Actual start<input type="datetime-local" name="actual_start" required></label>
+      <label>Actual end<input type="datetime-local" name="actual_end" required></label>
+      <label>Duty type<select name="duty_type"><option>operational</option><option>training</option><option>office</option><option>on-call</option></select></label>
+      <label>Variance reason<textarea name="variance_reason" maxlength="500"></textarea></label>
+      <button class="btn" type="submit">Record achieved duty</button>
+    </form>
+    <div class="operations-list">{% for row in actuals %}<div><strong>{{ row.day }} · {{ staff_by_id.get(row.person_id).name if staff_by_id.get(row.person_id) else row.person_id }}</strong><span>{{ row.actual_start.strftime('%H:%M') }}–{{ row.actual_end.strftime('%H:%M') }} · {{ row.duty_type }}</span></div>{% else %}<p>No achieved duties recorded.</p>{% endfor %}</div>
+  </div></section>
+</div>
+
+<section id="fatigue-reports" class="card mt-3"><div class="card-hd">Fatigue reports requiring management action</div><div class="card-bd operations-list">
+  {% for report in reports %}<article><div><strong>{{ report.duty_day }} · {{ staff_by_id.get(report.person_id).name if staff_by_id.get(report.person_id) else report.person_id }}</strong><span class="status-pill {{ 'danger' if report.severity in ('high','unfit') else 'warning' }}">{{ report.severity }}</span><p>{{ report.summary }}</p></div>
+  <form method="post" class="operations-review"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="review_fatigue"><input type="hidden" name="report_id" value="{{ report.id }}"><textarea name="manager_response" placeholder="Assessment and action taken" required></textarea><select name="status"><option>reviewed</option><option>closed</option></select><button class="btn" type="submit">Record review</button></form></article>{% else %}<p>No open fatigue reports.</p>{% endfor %}
+</div></section>
+
+<section id="rule-governance" class="card mt-3"><div class="card-hd">Approved rostering-system rules</div><div class="card-bd">
+  <form method="post" class="operations-form operations-rule-form"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create_rule_version"><label>Name<input name="name" required></label><label>Change reference<input name="change_reference" required></label><label>Consultation summary<textarea name="consultation_summary" minlength="20" required></textarea></label><label>Rules JSON<textarea name="rules_json" required>{"maximum_consecutive_duties": 6, "maximum_duty_hours": 10, "minimum_rest_hours": 12}</textarea></label><button class="btn" type="submit">Create draft version</button></form>
+  <div class="operations-list">{% for rule in rules %}<article><div><strong>v{{ rule.version }} · {{ rule.name }}</strong><span class="status-pill {{ 'success' if rule.state == 'approved' else 'muted' }}">{{ rule.state }}</span><p>{{ rule.change_reference }}</p></div>{% if rule.state == 'draft' %}<form method="post" class="operations-review"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="approve_rule_version"><input type="hidden" name="rule_id" value="{{ rule.id }}"><label>Effective date<input type="date" name="effective_from" required></label><button class="btn" type="submit">Approve version</button></form>{% endif %}</article>{% else %}<p>No governed rule version exists.</p>{% endfor %}</div>
+</div></section>
+{% endblock %}

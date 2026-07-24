@@ -19,6 +19,8 @@ copying operational personnel data into the report.
   parameter.
 - Operational models are tenant-filtered and cross-airport writes are rejected.
 - Passwords are stored using Werkzeug password hashing.
+- TOTP MFA is supported with secrets encrypted using a deployment Fernet key;
+  production forces unenrolled users through MFA setup.
 - Privileged and sensitive write routes use CSRF tokens.
 - Login rotates session state.
 - Cookies are HTTP-only and SameSite=Lax. Production deployments must set
@@ -38,7 +40,9 @@ Before processing live operational data:
 2. Terminate TLS at a maintained reverse proxy and force HTTPS.
 3. Enable secure cookies.
 4. Restrict database and backup credentials through a managed secret store.
-5. Enable MFA or organisation SSO before internet-facing production use.
+5. Complete TOTP MFA enrollment for every account before operational use, or
+   integrate an organisation identity provider through an independently
+   assessed authentication boundary.
 6. Configure encrypted backups and complete a witnessed restore test.
 7. Run dependency, static-analysis, tenant-isolation and penetration tests.
 8. Define log retention, incident response, access review and leaver processes.
@@ -49,6 +53,6 @@ Before processing live operational data:
 ## Known readiness gaps
 
 The repository does not currently claim Cyber Essentials, ISO 27001, SOC 2,
-CAA approval or EASA certification. Passkeys, MFA, enterprise SSO, centralised
-rate limiting and SIEM integration remain required for a broadly available
+CAA approval or EASA certification. Passkeys, enterprise SSO, centralised rate
+limiting and SIEM integration remain recommended for a broadly available
 hosted service.

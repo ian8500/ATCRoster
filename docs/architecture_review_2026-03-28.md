@@ -1,104 +1,85 @@
-# ATCRoster Architecture Review (2026-03-28)
+# ATCRoster production architecture review
 
-## Scope
-This review compares the current codebase against the stated commercial target architecture:
-- React + TypeScript + Tailwind frontend
-- FastAPI + SQLAlchemy + Pydantic + Alembic backend
-- SQLite (MVP), Tauri desktop shell
-- strict multi-unit (tenant) data isolation
+Updated 24 July 2026. The filename is retained to preserve existing links.
 
-## Current state summary
-The current implementation is a Flask monolith with server-rendered templates and a single SQLite database binding. Core models such as `Staff`, `Watch`, `Assignment`, `Leave`, and `Requirement` are implemented directly in `app.py` without a tenant boundary column. Authentication is present, but login is staff-centric and does not establish an explicit active unit context.
+## Current platform
 
-## Strengths worth keeping
-1. **Existing domain depth**: rostering, leave, sickness, watch history, shift requests, annotations, and changelog already exist and can seed migration.
-2. **Practical UX features already built**: roster month loading, caching, and overtime SMS hooks.
-3. **Test baseline exists**: pytest route/helper coverage is in place and can be expanded while refactoring.
+ATCRoster is a Flask/SQLAlchemy application with server-rendered responsive
+views, a PostgreSQL production target, Alembic migrations and a desktop SQLite
+compatibility mode.
 
-## Critical gaps vs commercial multi-tenant target
+The production platform now includes:
 
-### 1) Stack mismatch (High)
-- Current app is Flask + Jinja templates in a single file (`app.py`), not React/FastAPI/Tauri.
-- No service-layer boundary; request handlers and business logic are tightly coupled.
+- authenticated airport tenant context and query/write isolation;
+- separate platform identities, airport memberships and operational people;
+- Super Admin airport/account control without operational-data access;
+- roster, request, leave, sickness, overtime, annotations and TOIL workflows;
+- explainable fatigue and qualification compliance;
+- operational positions, endorsements and resilient staffing demand;
+- break plans and planned-versus-achieved duty records;
+- controller fatigue reports and manager review;
+- governed, versioned rostering-system rules;
+- controlled publication, assurance declarations and acknowledgements;
+- encrypted TOTP MFA and one-time recovery codes;
+- production startup validation, readiness/liveness endpoints and request IDs;
+- Docker/Compose packaging and GitHub CI.
 
-**Fix direction**
-- Introduce a new `backend/` FastAPI app alongside current Flask app.
-- Introduce a `frontend/` React + TypeScript + Tailwind app.
-- Use a temporary strangler pattern: new APIs are built first while old views remain until parity is reached.
+## Production boundaries
 
-### 2) Tenant isolation missing (Critical)
-- Core business tables do not include `unit_id`.
-- No backend-enforced tenant scoping primitive.
-- A user can conceptually interact with all global data in one DB namespace.
+The application is production-capable software, not evidence by itself of
+operational or regulatory approval. A live airport deployment still requires:
 
-**Fix direction**
-- Create `Unit` table and add `unit_id` foreign keys to all unit-scoped tables.
-- Enforce tenant filter in every query at repository/service layer.
-- Add defensive checks in write paths to block cross-unit foreign key references.
-- Add tests proving cross-unit data cannot be read or edited.
+- competent validation of the configured rostering rules;
+- integration into the provider's Safety Management System;
+- DPIA and data-controller/processor agreements;
+- independent penetration and accessibility testing;
+- rehearsed backup, restore, incident and contingency procedures;
+- CAA notification/approval where required by the provider's change process;
+- organisation-specific operating instructions and training.
 
-### 3) Authentication model mismatch (High)
-- `Staff` currently doubles as the auth principal.
-- Required model calls for independent `User` entity (`email`, `password_hash`, `role`, `unit_id`).
+## Architectural decisions
 
-**Fix direction**
-- Introduce separate `User` model.
-- Link to `unit_id`; keep `Staff` as operational workforce entity.
-- Include active-unit context in session/JWT and enforce server-side authorization.
+### Flask rather than a forced rewrite
 
-### 4) Rules engine not isolated (High)
-- No dedicated dynamic rules engine module driven by per-unit `RuleSet` + `RuleConfig`.
-- Fatigue/business rules are not centralized into a configurable evaluator contract.
+The current server-rendered platform retains substantial tested operational
+domain behaviour. A React/FastAPI rewrite would introduce a long parity and
+safety-validation period without directly improving roster assurance. New
+domain models and workflows therefore remain within the tested application
+while service boundaries are progressively extracted.
 
-**Fix direction**
-- Build `rules_engine/` package with:
-  - rule registry
-  - config adapters
-  - evaluation context loader (unit, staff, range)
-  - violation output schema
-- Store rule values in DB JSON (`RuleConfig.config_json`) and resolve at runtime.
+### Tenant isolation
 
-### 5) Migration and schema governance (High)
-- Schema changes in current code are partly handled by ad-hoc migration helpers in app runtime.
-- No Alembic migration history controlling repeatable upgrades.
+Every operational record carries `unit_id`. Authenticated tenant context is
+bound server-side; forms and query strings cannot select an airport.
+SQLAlchemy applies defensive tenant criteria and stamps/rejects writes.
+Negative tests cover sequential sessions and cross-airport operational data.
 
-**Fix direction**
-- Adopt Alembic as the single migration mechanism in new backend.
-- Add baseline migration + data migration scripts from legacy schema.
+### Schema control
 
-### 6) Desktop packaging path mismatch (Medium)
-- Current desktop packaging uses Python launcher/webview approach, not Tauri.
+Production disables runtime `create_all`, compatibility alters and seed data.
+Alembic owns production upgrades. SQLite runtime upgrades remain limited to
+desktop/development compatibility.
 
-**Fix direction**
-- Replace/augment with Tauri shell serving React frontend and local FastAPI backend process.
-- Ensure first-run DB initialization and migration are automatic.
+### Authentication
 
-## Recommended implementation roadmap (incremental)
+Passwords use Werkzeug hashes. TOTP secrets use Fernet encryption with a
+deployment-only key. Production forces users without MFA enrollment to the
+setup flow. Enterprise SSO/passkeys can be added later without weakening the
+current enforced MFA boundary.
 
-1. **Foundation**
-   - Scaffold FastAPI backend with SQLAlchemy models and Alembic.
-   - Add `Unit` + `User` + tenant context middleware/dependency.
-2. **Core data migration**
-   - Port `Staff`, `Watch`, `ShiftType`, `Assignment`, `Leave`, `Requirement` with `unit_id`.
-   - Add migration scripts and one-time legacy import utility.
-3. **Roster API + frontend shell**
-   - Build roster grid API and React grid view (editable cells, watch grouping, day columns).
-4. **Rules engine**
-   - Implement `RuleSet`/`RuleConfig` tables and evaluator pipeline.
-   - Implement baseline fatigue rules from config values.
-5. **Security + audit hardening**
-   - Unit-scoped audit logs, robust authz checks, and cross-unit negative tests.
-6. **Tauri packaging**
-   - Bundle frontend and backend startup into single desktop installer.
+### Safety assurance
 
-## Immediate tactical fixes done in this pass
-- Updated tests to use `db.session.get(...)` instead of legacy `Query.get(...)`, removing SQLAlchemy 2.x deprecation noise and aligning with modern API usage.
+Automated findings are decision support. Publication applies hard blocks for
+incomplete assignments, competence failures, operational configuration,
+position shortfalls and unresolved high/unfit fatigue reports. Remaining
+exceptions require an accountable-manager rationale and are stored with the
+immutable publication snapshot.
 
-## Suggested next coding tasks
-1. Add `Unit` and `User` models in a new backend package.
-2. Add a tenant-aware query helper/dependency and enforce it in one pilot endpoint (`GET /staff`).
-3. Create first Alembic migration with unitized schema for core entities.
-4. Add tests:
-   - read isolation (`unit A` cannot list `unit B` staff)
-   - write isolation (cannot assign `unit B` watch/staff)
-5. Start React roster page consuming API (read-only first, edit second).
+## Recommended next architectural work
+
+1. Extract authentication, assurance and roster services from `app.py`.
+2. Add a documented versioned REST API for approved integrations.
+3. Add PostgreSQL integration tests in CI.
+4. Integrate central rate limiting, SIEM and organisation SSO.
+5. Add traffic-demand/sector-opening integrations where the unit can supply an
+   authoritative data source.

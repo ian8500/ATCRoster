@@ -49,11 +49,13 @@
             <a href="{{ url_for('requests_page') }}" class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}">📝 Requests</a>
             <a href="{{ url_for('publication_index') }}" class="nav-link {% if request.endpoint in ('publication_index','publication_centre') %}active{% endif %}">✅ Published</a>
             <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}">👤 Profile</a>
+            <a href="{{ url_for('fatigue_self_report') }}" class="nav-link {% if request.endpoint == 'fatigue_self_report' %}active{% endif %}">⚠️ Fatigue</a>
             {% if is_admin or is_editor %}
               <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}">🛰️ Overtime Finder</a>
               <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}">📝 Leave / Sickness</a>
               <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}">📑 Reports</a>
               <a href="{{ url_for('compliance_centre') }}" class="nav-link {% if request.endpoint in ('compliance_centre','compliance_centre_export') %}active{% endif %}">🛡️ Compliance</a>
+              {% if is_admin %}<a href="{{ url_for('operations_assurance', ym=now().strftime('%Y-%m')) }}" class="nav-link {% if request.endpoint == 'operations_assurance' %}active{% endif %}">🗼 Operations</a>{% endif %}
             {% endif %}
             {% if is_admin %}
               <a href="{{ url_for('unit_accounts') }}" class="nav-link {% if request.endpoint == 'unit_accounts' %}active{% endif %}">👥 Accounts</a>

@@ -12,6 +12,14 @@ depends_on = None
 
 
 def upgrade():
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "staff" not in inspector.get_table_names():
+        # Fresh production install: create the complete metadata baseline.
+        # Subsequent revisions remain explicit incremental migrations.
+        from app import db
+        db.metadata.create_all(bind=bind)
+        return
     op.create_table(
         "unit",
         sa.Column("id", sa.Integer(), primary_key=True),

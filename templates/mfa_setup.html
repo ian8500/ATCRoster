@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Multi-factor Authentication · ATC Roster{% endblock %}
+{% block content %}
+<div class="container container--narrow py-4">
+  <section class="card"><div class="card-hd"><i class="fa-solid fa-shield-halved"></i> Multi-factor authentication</div><div class="card-bd">
+    {% if recovery_codes %}
+      <h2>Save your recovery codes</h2>
+      <p>These codes are displayed once. Store them in an approved password manager. Each code works only once.</p>
+      <div class="recovery-code-grid">{% for code in recovery_codes %}<code>{{ code }}</code>{% endfor %}</div>
+      <a class="btn btn-primary mt-3" href="{{ url_for('index') }}">I have stored the codes</a>
+    {% elif enabled %}
+      <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> Multi-factor authentication is enabled.</p>
+      <p>Contact an authorised administrator through the approved support process if access must be recovered.</p>
+    {% else %}
+      <h2>Protect your account</h2>
+      <ol class="compliance-workflow">
+        <li>Add an account in your authenticator app.</li>
+        <li>Enter this setup key: <code class="mfa-secret">{{ secret }}</code></li>
+        <li>Confirm using the current six-digit code.</li>
+      </ol>
+      <details><summary>Authenticator provisioning URI</summary><code class="profile-calendar-url">{{ provisioning_uri }}</code></details>
+      <form method="post" class="operations-form mt-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <label>Current six-digit code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+        <button class="btn btn-primary" type="submit">Enable MFA</button>
+      </form>
+    {% endif %}
+  </div></section>
+</div>
+{% endblock %}

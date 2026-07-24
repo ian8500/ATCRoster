@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Service error · ATC Roster{% endblock %}
+{% block content %}
+<div class="container container--narrow py-5">
+  <section class="card"><div class="card-hd">We could not complete that request</div><div class="card-bd">
+    <p>The event has been recorded. Do not repeat safety-critical changes until you have confirmed whether the first attempt succeeded.</p>
+    <p>Reference: <code>{{ request_id }}</code></p>
+    <a class="btn" href="{{ url_for('index') }}">Return to roster</a>
+  </div></section>
+</div>
+{% endblock %}

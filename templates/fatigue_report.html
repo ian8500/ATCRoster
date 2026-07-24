@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Report Fatigue · ATC Roster{% endblock %}
+{% block content %}
+<section class="compliance-hero">
+  <div><span class="admin-step">Fit for duty</span><h2>Report a fatigue concern</h2><p>This record supports the unit fatigue process. If you may be unfit for duty, use the unit's immediate operational reporting procedure as well.</p></div>
+</section>
+<div class="publication-grid">
+  <section class="card"><div class="card-hd">New report</div><form method="post" class="card-bd operations-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label>Related duty date<input type="date" name="duty_day" value="{{ today.isoformat() }}" required></label>
+    <label>Severity<select name="severity" required><option value="">Select…</option><option value="low">Low concern</option><option value="medium">Medium concern</option><option value="high">High concern</option><option value="unfit">May be unfit for duty</option></select></label>
+    <label>Operational summary<textarea name="summary" minlength="10" maxlength="500" required></textarea></label>
+    <button class="btn btn-primary" type="submit">Submit fatigue report</button>
+  </form></section>
+  <section class="card"><div class="card-hd">My reports</div><div class="card-bd operations-list">
+    {% for report in reports %}<article><div><strong>{{ report.duty_day }} · {{ report.severity }}</strong><span class="status-pill {{ report.status }}">{{ report.status }}</span><p>{{ report.summary }}</p>{% if report.manager_response %}<small>Manager response: {{ report.manager_response }}</small>{% endif %}</div></article>{% else %}<p>No fatigue reports submitted.</p>{% endfor %}
+  </div></section>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+services:
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: atcroster
+      POSTGRES_USER: atcroster
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - atcroster_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atcroster -d atcroster"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    environment: &app_environment
+      ATCROSTER_ENVIRONMENT: production
+      ATCROSTER_SECURE_COOKIES: "true"
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY}
+      ATCROSTER_FIELD_ENCRYPTION_KEY: ${ATCROSTER_FIELD_ENCRYPTION_KEY:?set ATCROSTER_FIELD_ENCRYPTION_KEY}
+      DATABASE_URL: postgresql+psycopg://atcroster:${POSTGRES_PASSWORD}@database:5432/atcroster
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build: .
+    restart: unless-stopped
+    environment: *app_environment
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /srv/atcroster/instance
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  atcroster_db:
