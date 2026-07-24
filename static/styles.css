@@ -1392,6 +1392,25 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
   .profile-stats { grid-template-columns:1fr 1fr; }
 }
 .publication-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.publication-assurance { grid-column:1 / -1; }
+.assurance-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.65rem; }
+.assurance-grid article { padding:.8rem; border:1px solid rgba(255,255,255,.1); border-radius:10px; background:rgba(255,255,255,.035); }
+.assurance-grid article.warning { border-color:rgba(216,155,50,.55); }
+.assurance-grid article.danger { border-color:rgba(228,100,100,.65); }
+.assurance-grid article.success { border-color:rgba(97,213,154,.4); }
+.assurance-grid span { display:block; color:var(--muted,#aab7c4); font-size:.78rem; }
+.assurance-grid strong { font-size:1.35rem; }
+.publication-block,.publication-warning { margin:1rem 0 .4rem; padding:.8rem; border-radius:9px; }
+.publication-block { color:#ffaaaa; background:rgba(228,100,100,.1); }
+.publication-warning { color:#f5c979; background:rgba(216,155,50,.1); }
+.assurance-exceptions { display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.7rem; }
+.assurance-exceptions span { padding:.35rem .55rem; border-radius:999px; background:rgba(255,255,255,.06); font-size:.8rem; }
+.publication-release-form { display:grid; gap:.8rem; }
+.publication-release-form textarea { width:100%; }
+.release-declaration { align-items:flex-start; line-height:1.4; }
+.release-record { display:grid; grid-template-columns:max-content 1fr; gap:.35rem .8rem; margin:.7rem 0 0; }
+.release-record dt { color:var(--muted,#aab7c4); }
+.release-record dd { margin:0; }
 .publication-current h3 { margin:.7rem 0 .25rem; }
 .publication-history { display:grid; gap:.65rem; }
 .publication-history article { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.75rem; border:1px solid rgba(255,255,255,.08); border-radius:10px; }
@@ -1399,6 +1418,7 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
 .publication-history small { color:var(--muted,#aab7c4); text-align:right; }
 @media (max-width:760px) {
   .publication-grid { grid-template-columns:1fr; }
+  .assurance-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .publication-history article { align-items:flex-start; flex-direction:column; }
   .publication-history small { text-align:left; }
 }

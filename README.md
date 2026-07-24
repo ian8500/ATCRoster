@@ -158,13 +158,29 @@ assignment.
 ### Publication and acknowledgement
 
 Open **Published** or `/publications/YYYY-MM`. A Unit Admin can publish the
-current month after reviewing the Compliance Centre. Publication creates an
-immutable JSON snapshot and notifies active operational staff.
+current month after completing the pre-publication assurance gate. The gate
+checks:
+
+- every operational controller has an explicit assignment for every day;
+- working shifts do not violate their configured required qualification;
+- Morning, Day, Afternoon and Night staffing meet the configured requirement;
+- all explainable fatigue findings have been reviewed.
+
+Missing assignments and required-qualification failures block publication.
+Remaining fatigue findings or staffing shortfalls require an accountable
+manager rationale of at least 20 characters. The manager must also confirm the
+release declaration covering competence, coverage, fatigue, breaks and
+operational contingencies.
+
+Publication creates an immutable JSON snapshot containing the roster and its
+release-assurance summary, records the declaration in the change log, and
+notifies active operational staff.
 
 Publishing a replacement marks the previous version `superseded`; it does not
 delete it. Staff acknowledge the active version, and acknowledgements remain
-tied to that exact version. A rollback must create or restore an auditable
-version; it must not erase intervening history.
+tied to that exact version. The publication screen lists staff still awaiting
+acknowledgement. A rollback must create or restore an auditable version; it
+must not erase intervening history.
 
 ## Shift requests
 
@@ -551,6 +567,9 @@ secret manager, backup service, email/SMS provider, and reverse proxy.
 See [SECURITY.md](SECURITY.md) for production requirements and known gaps, and
 [docs/pilot_readiness.md](docs/pilot_readiness.md) for the recommended pilot
 acceptance and evidence plan.
+
+The accountable-manager product assessment and remaining operational roadmap
+are recorded in [docs/atc_manager_review.md](docs/atc_manager_review.md).
 
 ## Troubleshooting
 

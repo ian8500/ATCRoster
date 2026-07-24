@@ -125,9 +125,23 @@ def test_compliance_centre_and_evidence_export(client):
 def test_roster_publication_and_acknowledgement(client):
     login(client)
     token = csrf(client)
-    published = client.post(
+    rejected = client.post(
         "/publications/2025-04",
         data={"_csrf_token": token, "action": "publish"},
+        follow_redirects=True,
+    )
+    assert b"release declaration" in rejected.data
+    published = client.post(
+        "/publications/2025-04",
+        data={
+            "_csrf_token": token,
+            "action": "publish",
+            "release_declaration": "yes",
+            "exception_reason": (
+                "Operational manager reviewed staffing and fatigue exceptions "
+                "with mitigations in place."
+            ),
+        },
         follow_redirects=True,
     )
     assert published.status_code == 200
@@ -137,6 +151,9 @@ def test_roster_publication_and_acknowledgement(client):
             year=2025, month=4, state="published"
         ).first()
         assert publication is not None
+        snapshot = app.json.loads(publication.snapshot_json)
+        assert snapshot["release_assurance"]["declared_by_id"]
+        assert snapshot["release_assurance"]["exception_reason"]
         publication_id = publication.id
     acknowledged = client.post(
         "/publications/2025-04",

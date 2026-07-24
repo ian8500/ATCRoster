@@ -2834,6 +2834,66 @@ def _roster_snapshot(year: int, month: int) -> dict:
     }
 
 
+def _publication_preflight(year: int, month: int) -> dict:
+    _, days = month_range(year, month)
+    staff = Staff.query.filter_by(is_operational=True).order_by(Staff.name).all()
+    assignments = Assignment.query.filter(
+        Assignment.day >= days[0], Assignment.day <= days[-1]
+    ).all()
+    assignment_map = {(row.staff_id, row.day): row for row in assignments}
+    requirement = Requirement.query.filter_by(year=year, month=month).first()
+    counts = {day: Counter() for day in days}
+    qualification_gaps = []
+    unassigned = []
+
+    for person in staff:
+        for day in days:
+            assignment = assignment_map.get((person.id, day))
+            if not assignment:
+                unassigned.append({"staff": person, "day": day})
+                continue
+            shift = get_shift(assignment.code)
+            if (
+                shift and shift.is_working and shift.required_qualification
+                and not _staff_has_shift_qualification(person, shift)
+            ):
+                qualification_gaps.append({
+                    "staff": person, "day": day, "shift": shift,
+                    "qualification": shift.required_qualification,
+                })
+            if (
+                shift and shift.is_working and not shift.is_training
+                and assignment.code not in get_exclude_from_counters()
+            ):
+                group = assignment.code[:1].upper()
+                if group in ("M", "D", "A", "N"):
+                    counts[day][group] += 1
+
+    coverage_gaps = []
+    for day in days:
+        for group in ("M", "D", "A", "N"):
+            needed = int(getattr(requirement, f"req_{group.lower()}", 0) or 0)
+            available = counts[day][group]
+            if available < needed:
+                coverage_gaps.append({
+                    "day": day, "group": group,
+                    "available": available, "needed": needed,
+                    "shortfall": needed - available,
+                })
+
+    fatigue = _compliance_findings(year, month)
+    return {
+        "fatigue_total": fatigue["total"],
+        "fatigue_critical": fatigue["critical"],
+        "coverage_gaps": coverage_gaps,
+        "qualification_gaps": qualification_gaps,
+        "unassigned": unassigned,
+        "hard_blocks": len(qualification_gaps) + len(unassigned),
+        "exceptions": fatigue["total"] + len(coverage_gaps),
+        "ready": not qualification_gaps and not unassigned,
+    }
+
+
 @app.route("/publications")
 @login_required
 def publication_index():
@@ -2853,6 +2913,31 @@ def publication_centre(ym):
         if action == "publish":
             if not is_admin_user(current_user):
                 abort(403)
+            preflight = _publication_preflight(year, month)
+            declaration = request.form.get("release_declaration") == "yes"
+            exception_reason = (
+                request.form.get("exception_reason") or ""
+            ).strip()
+            if preflight["hard_blocks"]:
+                flash(
+                    "Publication blocked: resolve all missing assignments and "
+                    "required-qualification failures first.",
+                    "error",
+                )
+                return redirect(url_for("publication_centre", ym=ym))
+            if not declaration:
+                flash(
+                    "Confirm the accountable manager release declaration before publishing.",
+                    "error",
+                )
+                return redirect(url_for("publication_centre", ym=ym))
+            if preflight["exceptions"] and len(exception_reason) < 20:
+                flash(
+                    "Record an exception rationale of at least 20 characters "
+                    "for fatigue findings or staffing shortfalls.",
+                    "error",
+                )
+                return redirect(url_for("publication_centre", ym=ym))
             current = (
                 RosterPublication.query.filter_by(
                     year=year, month=month, state="published"
@@ -2873,12 +2958,27 @@ def publication_centre(ym):
             if current:
                 current.state = "superseded"
                 current.superseded_at = utcnow()
+            snapshot = _roster_snapshot(year, month)
+            snapshot["release_assurance"] = {
+                "declared_by_id": current_user.id,
+                "declared_at": utcnow().isoformat(),
+                "declaration": (
+                    "Coverage, competence, fatigue findings and operational "
+                    "contingencies reviewed by the accountable roster manager."
+                ),
+                "exception_reason": exception_reason,
+                "fatigue_findings": preflight["fatigue_total"],
+                "critical_fatigue_findings": preflight["fatigue_critical"],
+                "coverage_shortfalls": len(preflight["coverage_gaps"]),
+                "qualification_failures": len(preflight["qualification_gaps"]),
+                "unassigned_cells": len(preflight["unassigned"]),
+            }
             publication = RosterPublication(
                 unit_id=_current_unit_id(),
                 year=year, month=month,
                 version=latest_version + 1,
                 state="published",
-                snapshot_json=json.dumps(_roster_snapshot(year, month)),
+                snapshot_json=json.dumps(snapshot),
                 published_at=utcnow(),
             )
             db.session.add(publication)
@@ -2897,7 +2997,10 @@ def publication_centre(ym):
             db.session.commit()
             log_change(
                 "RosterPublication", publication.id, "state", "draft",
-                "published", context_day=date(year, month, 1),
+                "published", note=(
+                    f"Manager declaration recorded. Exceptions: "
+                    f"{exception_reason or 'none'}"
+                ), context_day=date(year, month, 1),
             )
             flash(f"Roster version {publication.version} published.", "ok")
             return redirect(url_for("publication_centre", ym=ym))
@@ -2926,8 +3029,14 @@ def publication_centre(ym):
         .all()
     )
     active = next((row for row in publications if row.state == "published"), None)
+    preflight = _publication_preflight(year, month)
     acknowledged = False
     acknowledgements = []
+    expected_staff = Staff.query.filter_by(
+        is_operational=True, membership_status="active"
+    ).order_by(Staff.name).all()
+    unacknowledged_staff = []
+    release_assurance = {}
     if active:
         acknowledgements = RosterAcknowledgement.query.filter_by(
             publication_id=active.id
@@ -2935,6 +3044,16 @@ def publication_centre(ym):
         acknowledged = any(
             row.person_id == current_user.id for row in acknowledgements
         )
+        acknowledged_ids = {row.person_id for row in acknowledgements}
+        unacknowledged_staff = [
+            person for person in expected_staff if person.id not in acknowledged_ids
+        ]
+        try:
+            release_assurance = json.loads(
+                active.snapshot_json or "{}"
+            ).get("release_assurance", {})
+        except (TypeError, json.JSONDecodeError):
+            release_assurance = {}
     py, pm = _month_add(year, month, -1)
     ny, nm = _month_add(year, month, 1)
     return render_template(
@@ -2943,7 +3062,10 @@ def publication_centre(ym):
         month_title=date(year, month, 1).strftime("%B %Y"),
         publications=publications, active=active,
         acknowledgements=acknowledgements, acknowledged=acknowledged,
-        operational_count=Staff.query.filter_by(is_operational=True).count(),
+        operational_count=len(expected_staff),
+        unacknowledged_staff=unacknowledged_staff,
+        release_assurance=release_assurance,
+        preflight=preflight,
         prev_ym=f"{py:04d}-{pm:02d}", next_ym=f"{ny:04d}-{nm:02d}",
     )
 
