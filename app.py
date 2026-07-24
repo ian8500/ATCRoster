@@ -237,13 +237,28 @@ def _bad_request(error):
 
 @app.errorhandler(403)
 def _forbidden(_error):
+    is_platform_admin = (
+        getattr(current_user, "is_authenticated", False)
+        and getattr(current_user, "role", "") == "superadmin"
+    )
     return render_template(
         "error.html",
         status_code=403,
         error_title="You do not have access to this area",
         error_message=(
-            "Your account role does not permit this action. Return to the "
-            "roster or ask your Unit Administrator for access."
+            "Platform administrators cannot access airport personnel or "
+            "operational roster data. Return to Platform Administration."
+            if is_platform_admin
+            else (
+                "Your account role does not permit this action. Return to the "
+                "roster or ask your Unit Administrator for access."
+            )
+        ),
+        home_url=url_for("platform_admin") if is_platform_admin else url_for("index"),
+        home_label=(
+            "Return to Platform Administration"
+            if is_platform_admin
+            else "Return to roster"
         ),
         request_id=getattr(g, "request_id", ""),
     ), 403

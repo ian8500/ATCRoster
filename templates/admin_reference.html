@@ -60,15 +60,15 @@
           <tbody>
             {% for ann in annotations %}
             <tr>
-              <td><input form="ann-form-{{ ann.id }}" name="code" value="{{ ann.code }}" class="input-sm"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="label" value="{{ ann.label }}" class="input-xl"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="category" value="{{ ann.category }}" class="input-lg"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="tags" value="{{ ann.tags }}" class="input-xl" placeholder="Comma-separated"></td>
-              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="allow_suffix" {% if ann.allow_suffix %}checked{% endif %}></td>
-              <td><input form="ann-form-{{ ann.id }}" name="suffixes" value="{{ ann.suffixes }}" class="input-sm"></td>
-              <td><input form="ann-form-{{ ann.id }}" type="number" name="toil_half_days" value="{{ ann.toil_half_days }}" class="input-xs"></td>
-              <td><input form="ann-form-{{ ann.id }}" type="number" name="sort_order" value="{{ ann.sort_order or 0 }}" class="input-xs"></td>
-              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="is_active" {% if ann.is_active %}checked{% endif %}></td>
+              <td><input form="ann-form-{{ ann.id }}" name="code" aria-label="Code for {{ ann.label }}" value="{{ ann.code }}" class="input-sm"></td>
+              <td><input form="ann-form-{{ ann.id }}" name="label" aria-label="Label for {{ ann.code }}" value="{{ ann.label }}" class="input-xl"></td>
+              <td><input form="ann-form-{{ ann.id }}" name="category" aria-label="Category for {{ ann.code }}" value="{{ ann.category }}" class="input-lg"></td>
+              <td><input form="ann-form-{{ ann.id }}" name="tags" aria-label="Tags for {{ ann.code }}" value="{{ ann.tags }}" class="input-xl" placeholder="Comma-separated"></td>
+              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="allow_suffix" aria-label="Allow suffix for {{ ann.code }}" {% if ann.allow_suffix %}checked{% endif %}></td>
+              <td><input form="ann-form-{{ ann.id }}" name="suffixes" aria-label="Suffixes for {{ ann.code }}" value="{{ ann.suffixes }}" class="input-sm"></td>
+              <td><input form="ann-form-{{ ann.id }}" type="number" name="toil_half_days" aria-label="TOIL half-days for {{ ann.code }}" value="{{ ann.toil_half_days }}" class="input-xs"></td>
+              <td><input form="ann-form-{{ ann.id }}" type="number" name="sort_order" aria-label="Sort order for {{ ann.code }}" value="{{ ann.sort_order or 0 }}" class="input-xs"></td>
+              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="is_active" aria-label="Active state for {{ ann.code }}" {% if ann.is_active %}checked{% endif %}></td>
               <td class="table-actions">
                 <form method="post" id="ann-form-{{ ann.id }}" class="inline-form inline-form--tight">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -108,7 +108,7 @@
       <div class="card-body">
         <h4>{{ item.label }}</h4>
         <p class="muted">{{ item.help }}</p>
-        <textarea name="values" rows="3" class="input-xl" placeholder="Comma or space separated codes">{{ item.value }}</textarea>
+        <textarea name="values" rows="3" class="input-xl" aria-label="{{ item.label }} codes" placeholder="Comma or space separated codes">{{ item.value }}</textarea>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">Save {{ item.label }}</button>
         </div>

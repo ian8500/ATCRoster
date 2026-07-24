@@ -24,16 +24,16 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="leave_add">
         <div class="col-md-4">
-          <label class="form-label">Staff</label>
-          <select class="form-select" name="staff_id" required>
+          <label class="form-label" for="leave-staff">Staff</label>
+          <select id="leave-staff" class="form-select" name="staff_id" required>
             {% for s in staff %}
             <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }})</option>
             {% endfor %}
           </select>
         </div>
         <div class="col-md-2">
-          <label class="form-label">Type</label>
-          <select class="form-select" name="leave_type" required>
+          <label class="form-label" for="leave-type">Type</label>
+          <select id="leave-type" class="form-select" name="leave_type" required>
             <option value="AL">AL</option>
             <option value="PL">PL</option>
             <option value="SPL">SPL</option>
@@ -42,12 +42,12 @@
           </select>
         </div>
         <div class="col-md-2">
-          <label class="form-label">Start</label>
-          <input type="date" class="form-control" name="start" required>
+          <label class="form-label" for="leave-start">Start</label>
+          <input id="leave-start" type="date" class="form-control" name="start" required>
         </div>
         <div class="col-md-2">
-          <label class="form-label">End</label>
-          <input type="date" class="form-control" name="end" required>
+          <label class="form-label" for="leave-end">End</label>
+          <input id="leave-end" type="date" class="form-control" name="end" required>
         </div>
         <div class="col-md-2 d-grid">
           <button type="submit" class="btn btn-primary">Save Leave</button>
@@ -64,27 +64,27 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="sick_add">
         <div class="col-md-4">
-          <label class="form-label">Staff</label>
-          <select class="form-select" name="staff_id" required>
+          <label class="form-label" for="sickness-staff">Staff</label>
+          <select id="sickness-staff" class="form-select" name="staff_id" required>
             {% for s in staff %}
             <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }})</option>
             {% endfor %}
           </select>
         </div>
         <div class="col-md-2">
-          <label class="form-label">Code</label>
-          <select class="form-select" name="sick_code" required>
+          <label class="form-label" for="sickness-code">Code</label>
+          <select id="sickness-code" class="form-select" name="sick_code" required>
             <option value="SC">SC</option>
             <option value="SSC">SSC</option>
           </select>
         </div>
         <div class="col-md-2">
-          <label class="form-label">Start</label>
-          <input type="date" class="form-control" name="start" required>
+          <label class="form-label" for="sickness-start">Start</label>
+          <input id="sickness-start" type="date" class="form-control" name="start" required>
         </div>
         <div class="col-md-2">
-          <label class="form-label">End</label>
-          <input type="date" class="form-control" name="end" required>
+          <label class="form-label" for="sickness-end">End</label>
+          <input id="sickness-end" type="date" class="form-control" name="end" required>
         </div>
         <div class="col-md-2 d-grid">
           <button type="submit" class="btn btn-primary">Save Sickness</button>
@@ -130,7 +130,7 @@
                 <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
                 <input type="hidden" name="start" value="{{ a.day }}">
                 <input type="hidden" name="end" value="{{ a.day }}">
-                <select name="sick_code" class="form-select form-select-sm d-inline-block" style="width:110px;">
+                <select name="sick_code" aria-label="Sickness code for {{ a.staff.name }} on {{ a.day.strftime('%d %B %Y') }}" class="form-select form-select-sm d-inline-block" style="width:110px;">
                   <option value="SC" {% if a.code=='SC' %}selected{% endif %}>SC</option>
                   <option value="SSC" {% if a.code=='SSC' %}selected{% endif %}>SSC</option>
                 </select>
@@ -183,8 +183,8 @@
                 <input type="hidden" name="leave_id" value="{{ lv.id }}">
                 <input type="hidden" name="staff_id" value="{{ lv.staff_id }}">
                 <input type="hidden" name="leave_type" value="{{ lv.leave_type }}">
-                <input type="date" class="form-control form-control-sm d-inline-block" style="width: 150px" name="start" value="{{ lv.start }}">
-                <input type="date" class="form-control form-control-sm d-inline-block" style="width: 150px" name="end" value="{{ lv.end }}">
+                <input type="date" aria-label="Leave start date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block" style="width: 150px" name="start" value="{{ lv.start }}">
+                <input type="date" aria-label="Leave end date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block" style="width: 150px" name="end" value="{{ lv.end }}">
                 <button class="btn btn-sm btn-secondary" type="submit">Save</button>
               </form>
               <form class="d-inline ms-1" method="post"

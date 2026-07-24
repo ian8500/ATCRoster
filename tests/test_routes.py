@@ -196,11 +196,15 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="0.90"' in response.data
     assert b'data-roster-zoom="1"' in response.data
     assert b'data-roster-zoom="fit"' in response.data
+    assert b"code-input code-len-3" in response.data
+    assert b"shift on 01 April 2025" in response.data
 
     stylesheet = client.get("/static/styles.css")
     assert stylesheet.status_code == 200
     assert b".roster .cell select.code-input.off" in stylesheet.data
     assert b"background: var(--off-blue)" in stylesheet.data
+    assert b"select.code-input.code-len-5" in stylesheet.data
+    assert b"-webkit-appearance:none" in stylesheet.data
 
 
 def test_favicon_is_served(client):
@@ -387,6 +391,9 @@ def test_role_permission_matrix_and_cross_airport_isolation():
     assert clients["superadmin"].get("/").headers["Location"].endswith(
         "/platform/admin"
     )
+    platform_denial = clients["superadmin"].get("/roster/2025-04")
+    assert b"Return to Platform Administration" in platform_denial.data
+    assert b"ask your Unit Administrator" not in platform_denial.data
 
     with app.app.app_context():
         admin = Staff.query.filter_by(
