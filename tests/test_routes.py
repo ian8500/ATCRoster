@@ -198,6 +198,9 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="fit"' in response.data
     assert b"code-input code-len-3" in response.data
     assert b"shift on 01 April 2025" in response.data
+    assert b"Active unit" in response.data
+    assert b"data-operational-clock" in response.data
+    assert b"Secure session" in response.data
 
     stylesheet = client.get("/static/styles.css")
     assert stylesheet.status_code == 200
