@@ -21,6 +21,7 @@
     <div class="card-header"><strong>Add Annual/Parental/Special Leave</strong></div>
     <div class="card-body">
       <form class="row g-3 align-items-end" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="leave_add">
         <div class="col-md-4">
           <label class="form-label">Staff</label>
@@ -60,6 +61,7 @@
     <div class="card-header"><strong>Add Sickness (SC/SSC)</strong></div>
     <div class="card-body">
       <form class="row g-3 align-items-end" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="sick_add">
         <div class="col-md-4">
           <label class="form-label">Staff</label>
@@ -123,6 +125,7 @@
             <td>{{ a.code }}</td>
             <td>
               <form class="d-inline" method="post">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="form" value="sick_edit">
                 <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
                 <input type="hidden" name="start" value="{{ a.day }}">
@@ -133,7 +136,9 @@
                 </select>
                 <button class="btn btn-sm btn-secondary" type="submit">Save</button>
               </form>
-              <form class="d-inline ms-1" method="post">
+              <form class="d-inline ms-1" method="post"
+                    onsubmit="return confirm('Delete this sickness record?');">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="form" value="sick_delete">
                 <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
                 <input type="hidden" name="start" value="{{ a.day }}">
@@ -173,6 +178,7 @@
             <td>{{ lv.end }}</td>
             <td>
               <form class="d-inline" method="post">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="form" value="leave_edit">
                 <input type="hidden" name="leave_id" value="{{ lv.id }}">
                 <input type="hidden" name="staff_id" value="{{ lv.staff_id }}">
@@ -181,7 +187,9 @@
                 <input type="date" class="form-control form-control-sm d-inline-block" style="width: 150px" name="end" value="{{ lv.end }}">
                 <button class="btn btn-sm btn-secondary" type="submit">Save</button>
               </form>
-              <form class="d-inline ms-1" method="post">
+              <form class="d-inline ms-1" method="post"
+                    onsubmit="return confirm('Delete this leave record?');">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="form" value="leave_delete">
                 <input type="hidden" name="leave_id" value="{{ lv.id }}">
                 <button class="btn btn-sm btn-danger" type="submit">Delete</button>

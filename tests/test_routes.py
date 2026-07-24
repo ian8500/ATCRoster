@@ -23,6 +23,7 @@ from app import (
     Staff,
     ShiftType,
     StaffWatchHistory,
+    Unit,
     ensure_month_requirement,
     generate_month,
     refresh_shift_cache,
@@ -39,6 +40,9 @@ def setup_database():
         db.drop_all()
         db.create_all()
 
+        db.session.add(Unit(
+            id=1, code="TST", name="Test Airport", active_user_limit=20
+        ))
         watch_a = Watch(name="Watch A", order_index=1)
         watch_b = Watch(name="Watch B", order_index=2)
         db.session.add_all([watch_a, watch_b])
@@ -64,6 +68,61 @@ def setup_database():
         )
         admin.set_password(ADMIN_CREDENTIALS["password"])
         db.session.add(admin)
+        role_users = [
+            Staff(
+                unit_id=1, username="editor_test", name="Editor Test",
+                staff_no="ED-001", role="editor", watch=watch_a,
+                is_operational=True,
+            ),
+            Staff(
+                unit_id=1, username="watch_manager_test", name="Watch Manager Test",
+                staff_no="WM-001", role="user", watch=watch_a,
+                is_wm=True, is_operational=True,
+            ),
+            Staff(
+                unit_id=1, username="duty_watch_manager_test",
+                name="Duty Watch Manager Test", staff_no="DWM-001",
+                role="user", watch=watch_b, is_dwm=True,
+                is_operational=True,
+            ),
+            Staff(
+                unit_id=1, username="staff_test", name="Staff Test",
+                staff_no="USR-001", role="user", watch=watch_b,
+                is_operational=True,
+            ),
+        ]
+        for user in role_users:
+            user.set_password("password123")
+        db.session.add_all(role_users)
+
+        control = Unit(
+            id=2, code="CTRL", name="Platform Control",
+            status="platform_control", active_user_limit=5,
+        )
+        other_unit = Unit(
+            id=3, code="OTH", name="Other Airport", active_user_limit=5,
+        )
+        db.session.add_all([control, other_unit])
+        db.session.flush()
+        platform_user = Staff(
+            unit_id=control.id, username="platform_test",
+            name="Platform Test", staff_no="CTRL-001",
+            role="superadmin", is_operational=False,
+        )
+        platform_user.set_password("password123")
+        other_user = Staff(
+            unit_id=other_unit.id, username="other_staff_test",
+            name="Other Airport Staff", staff_no="OTH-001",
+            role="user", is_operational=True,
+        )
+        other_user.set_password("password123")
+        db.session.add_all([platform_user, other_user])
+        db.session.flush()
+        db.session.add(app.PlatformIdentity(
+            public_id="platform-role-test",
+            username=platform_user.username,
+            password_hash=platform_user.password_hash,
+        ))
         db.session.commit()
 
         ensure_month_requirement(2025, 4)
@@ -104,6 +163,39 @@ def test_login_page_loads(client):
     resp = client.get("/login")
     assert resp.status_code == 200
     assert b"Login" in resp.data
+    assert b"Skip to main content" in resp.data
+    assert b'class="nav-toggle"' in resp.data
+    assert b'data-password-toggle="login-password"' in resp.data
+
+
+def test_friendly_error_pages_preserve_status_codes(client):
+    missing = client.get("/this-page-does-not-exist")
+    assert missing.status_code == 404
+    assert b"That page or record was not found" in missing.data
+
+    login(client)
+    expired_form = client.post(
+        "/leave",
+        data={
+            "form": "leave_add",
+            "staff_id": "1",
+            "leave_type": "AL",
+            "start": "2025-04-01",
+            "end": "2025-04-01",
+        },
+    )
+    assert expired_form.status_code == 400
+    assert b"page or form has expired" in expired_form.data
+
+
+def test_roster_has_persistent_zoom_presets(client):
+    login(client)
+    response = client.get("/roster/2025-04")
+    assert response.status_code == 200
+    assert b'data-roster-zoom="0.75"' in response.data
+    assert b'data-roster-zoom="0.90"' in response.data
+    assert b'data-roster-zoom="1"' in response.data
+    assert b'data-roster-zoom="fit"' in response.data
 
 
 def test_favicon_is_served(client):
@@ -200,11 +292,161 @@ def test_security_headers_are_present(client):
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
 
+def test_role_permission_matrix_and_cross_airport_isolation():
+    credentials = {
+        "superadmin": "platform_test",
+        "admin": ADMIN_CREDENTIALS["username"],
+        "editor": "editor_test",
+        "watch_manager": "watch_manager_test",
+        "duty_watch_manager": "duty_watch_manager_test",
+        "staff": "staff_test",
+    }
+    common = {
+        "roster": "/roster/2025-04",
+        "requests": "/requests",
+        "published": "/publications/2025-04",
+        "fatigue": "/fatigue/report",
+        "overtime": "/overtime",
+        "leave": "/leave",
+        "reports": "/reports",
+        "metrics": "/metrics",
+        "qualification": "/compliance",
+        "compliance": "/compliance-centre?ym=2025-04",
+        "operations": "/operations/2025-04",
+        "coverage": "/planning/coverage/2025-04",
+        "scenarios": "/planning/scenarios",
+        "accounts": "/unit/accounts",
+        "onboarding": "/unit/onboarding",
+        "admin": "/admin",
+        "reference": "/admin/reference",
+        "platform": "/platform/admin",
+    }
+    expected = {
+        "superadmin": {
+            **{name: 403 for name in common},
+            "platform": 200,
+        },
+        "admin": {
+            **{name: 200 for name in common},
+            "platform": 403,
+        },
+        "editor": {
+            "roster": 200, "requests": 200, "published": 200,
+            "fatigue": 200, "overtime": 200, "leave": 200,
+            "reports": 302, "metrics": 200, "qualification": 200,
+            "compliance": 403, "operations": 403, "coverage": 200,
+            "scenarios": 200, "accounts": 403, "onboarding": 403,
+            "admin": 403, "reference": 403, "platform": 403,
+        },
+        "watch_manager": {
+            "roster": 200, "requests": 200, "published": 200,
+            "fatigue": 200, "overtime": 403, "leave": 403,
+            "reports": 403, "metrics": 403, "qualification": 403,
+            "compliance": 403, "operations": 403, "coverage": 200,
+            "scenarios": 200, "accounts": 403, "onboarding": 403,
+            "admin": 403, "reference": 403, "platform": 403,
+        },
+        "duty_watch_manager": {
+            "roster": 200, "requests": 200, "published": 200,
+            "fatigue": 200, "overtime": 403, "leave": 403,
+            "reports": 403, "metrics": 403, "qualification": 403,
+            "compliance": 403, "operations": 403, "coverage": 200,
+            "scenarios": 200, "accounts": 403, "onboarding": 403,
+            "admin": 403, "reference": 403, "platform": 403,
+        },
+        "staff": {
+            "roster": 200, "requests": 200, "published": 200,
+            "fatigue": 200, "overtime": 403, "leave": 403,
+            "reports": 403, "metrics": 403, "qualification": 403,
+            "compliance": 403, "operations": 403, "coverage": 403,
+            "scenarios": 403, "accounts": 403, "onboarding": 403,
+            "admin": 403, "reference": 403, "platform": 403,
+        },
+    }
+
+    clients = {}
+    for role, username in credentials.items():
+        role_client = app.app.test_client()
+        response = role_client.post(
+            "/login",
+            data={"username": username, "password": "password123"},
+        )
+        assert response.status_code == 302
+        clients[role] = role_client
+        for capability, path in common.items():
+            actual = role_client.get(path).status_code
+            assert actual == expected[role][capability], (
+                role, capability, actual, expected[role][capability]
+            )
+
+    assert clients["superadmin"].get("/").headers["Location"].endswith(
+        "/platform/admin"
+    )
+
+    with app.app.app_context():
+        admin = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        same_unit_other = Staff.query.filter_by(username="staff_test").one()
+        other_airport = db.session.query(Staff).execution_options(
+            skip_tenant_scope=True
+        ).filter_by(username="other_staff_test").one()
+
+    assert clients["staff"].get(
+        f"/staff/{same_unit_other.id}"
+    ).status_code == 200
+    assert clients["staff"].get(f"/staff/{admin.id}").status_code == 403
+    assert clients["admin"].get(f"/staff/{same_unit_other.id}").status_code == 200
+    assert clients["admin"].get(f"/staff/{other_airport.id}").status_code == 404
+
+    target_day = "2025-04-02"
+    assert clients["staff"].post(
+        f"/assign/{admin.id}/2025-04/{target_day}",
+        data={"_csrf_token": csrf(clients["staff"]), "code": "A"},
+    ).status_code == 403
+    assert clients["watch_manager"].post(
+        f"/assign/{admin.id}/2025-04/{target_day}",
+        data={
+            "_csrf_token": csrf(clients["watch_manager"]),
+            "code": "A",
+        },
+    ).status_code == 302
+    assert clients["duty_watch_manager"].post(
+        f"/assign/{admin.id}/2025-04/{target_day}",
+        data={
+            "_csrf_token": csrf(clients["duty_watch_manager"]),
+            "code": "N",
+        },
+    ).status_code == 302
+    assert clients["editor"].post(
+        f"/assign/{admin.id}/2025-04/{target_day}",
+        data={"_csrf_token": csrf(clients["editor"]), "code": "M"},
+    ).status_code == 302
+
+
 def test_health_endpoints_report_ready(client):
     assert client.get("/health/live").get_json()["status"] == "ok"
     ready = client.get("/health/ready")
     assert ready.status_code == 200
     assert ready.get_json()["status"] == "ready"
+
+
+def test_overtime_finder_reports_an_empty_search_instead_of_looking_broken(client):
+    login(client)
+    token = csrf(client)
+    response = client.post(
+        "/overtime",
+        data={
+            "_csrf_token": token,
+            "action": "find",
+            "date": "2025-04-01",
+            "shift_code": "M",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Eligibility result" in response.data
+    assert b"Nobody is eligible for overtime for this date and shift" in response.data
 
 
 def test_production_operations_and_fatigue_workflows(client):

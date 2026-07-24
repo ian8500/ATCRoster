@@ -36,7 +36,7 @@ aggregates only.
 | `RosterEditor` | Roster editing and permitted annotation application. Cannot edit annotation definitions. |
 | `WatchManager` | Explicitly granted watch and annotation actions only. |
 | `StaffUser` | Their own roster, requests, notifications, and permitted self-service functions. |
-| `ReadOnlyAuditor` | Read-only unit records and reports explicitly exposed for audit. |
+| `ReadOnlyAuditor` | Product target only; not currently provisionable. Do not offer until its read-only route/export contract is implemented and tested. |
 
 An operational `Person` does not need a login. Authentication belongs to a
 `PlatformIdentity`; airport access belongs to `UnitMembership`, which may link
@@ -76,6 +76,20 @@ After signing in:
 - Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
 - Use **Roster scenarios** at `/planning/scenarios`.
 - Use **Airport onboarding** at `/unit/onboarding`.
+
+The shared interface includes:
+
+- a compact mobile **Menu** that keeps the current page and airport context
+  visible;
+- keyboard skip navigation, visible focus states and reduced-motion support;
+- persistent roster zoom presets at 75%, 90%, 100% and **Fit width**;
+- clear success/error announcements and purpose-built 400, 403, 404 and 500
+  recovery pages;
+- duplicate-submit protection on write forms;
+- confirmation before deleting requests, leave/sickness records or
+  deactivating accounts;
+- CSRF protection on leave/sickness, overtime, requests, publication,
+  operational assurance, accounts and platform administration workflows.
 
 Dates are displayed using the airport configuration. Server timestamps and
 audit events are recorded in UTC.
@@ -598,12 +612,47 @@ Install dependencies and run:
 python -m pytest -q
 ```
 
-The suite covers legacy helpers/routes plus platform airport creation,
+The suite covers legacy helpers/routes plus shared UX/error recovery, roster
+zoom controls, overtime empty states, platform airport creation,
 account-limit enforcement, unit account management, request persistence,
 request windows and lock boundaries, requestable shifts,
 one-request-per-date, pending updates, forged deletion, status validation,
 approve-only, approve-and-apply, qualification conflicts, CSRF,
 audit/notifications, and cross-unit read/write isolation.
+
+### Repeatable acceptance dataset
+
+Create a clean, date-relative test platform with Leeds Bradford, East
+Midlands and Inverness airports:
+
+```bash
+python scripts/seed_acceptance_data.py --reset
+export DATABASE_URL="sqlite:///instance/acceptance.db"
+export FLASK_SECRET_KEY="local-acceptance-secret"
+flask --app app.py run --port 5001
+```
+
+The generated `instance/acceptance.manifest.json` lists the local test
+credentials and rolling month values. It is ignored by Git and must never be
+used in production. The seed command creates:
+
+- three isolated airport tenants and a platform-control account;
+- 42 operational ATCOs across four watches;
+- Unit Admin, Roster Editor and Staff User accounts;
+- four complete rolling roster months;
+- leave, sickness, requests, notifications, qualifications, annotations and
+  TOIL examples;
+- operational positions, endorsements, position requirements, break plans,
+  achieved duty, fatigue reports and governed rules;
+- scenarios, a previous published roster and an acknowledgement;
+- exactly one spare account at each airport for a quick account-limit test.
+
+The full ordered acceptance procedure and result sheets are in
+[docs/manual_acceptance_test.md](docs/manual_acceptance_test.md). Re-run the
+seed command to return to a known baseline between test cycles.
+
+The latest implemented-role access and isolation evidence is recorded in
+[docs/permission_test_report_2026-07-24.md](docs/permission_test_report_2026-07-24.md).
 
 Before release also run:
 

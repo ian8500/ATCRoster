@@ -50,6 +50,12 @@ from app import (
 )
 
 
+def csrf(client):
+    client.get("/roster/2025-07")
+    with client.session_transaction() as session:
+        return session["_csrf_token"]
+
+
 @pytest.fixture(scope="module", autouse=True)
 def setup_database():
     """Create a clean database for the duration of the module."""
@@ -166,7 +172,7 @@ def test_assign_cell_keeps_request_record_and_marks_fulfilled():
 
     assign_resp = client.post(
         f"/assign/{requester.id}/2025-07/{req_day.isoformat()}",
-        data={"code": "M"},
+        data={"_csrf_token": csrf(client), "code": "M"},
         follow_redirects=False,
     )
     assert assign_resp.status_code == 302

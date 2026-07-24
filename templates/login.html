@@ -7,13 +7,19 @@
     <div class="card-bd">
       <form method="post" class="grid">
         <label>Username
-          <input name="username" autocomplete="username" required>
+          <input name="username" autocomplete="username" required autofocus>
         </label>
         <label>Password
-          <input name="password" type="password" autocomplete="current-password" required>
+          <span class="password-field">
+            <input id="login-password" name="password" type="password"
+                   autocomplete="current-password" required>
+            <button class="password-toggle" type="button"
+                    data-password-toggle="login-password"
+                    aria-label="Show password" aria-pressed="false">Show</button>
+          </span>
         </label>
         <div>
-          <button class="btn"><i class="fa-solid fa-right-to-bracket"></i> Sign in</button>
+          <button class="btn btn-primary" type="submit"><i class="fa-solid fa-right-to-bracket"></i> Sign in</button>
         </div>
       </form>
     </div>

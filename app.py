@@ -209,6 +209,58 @@ def _internal_error(error):
     )
     return render_template("error.html", request_id=getattr(g, "request_id", "")), 500
 
+
+@app.errorhandler(400)
+def _bad_request(error):
+    description = getattr(error, "description", "") or ""
+    if "CSRF" in description:
+        message = (
+            "This page or form has expired. Reload the page and try the action "
+            "once more."
+        )
+    elif description and not description.startswith(
+        "The browser (or proxy) sent a request"
+    ):
+        message = description
+    else:
+        message = (
+            "The request was not valid. Check the entered values and try again."
+        )
+    return render_template(
+        "error.html",
+        status_code=400,
+        error_title="We could not validate that request",
+        error_message=message,
+        request_id=getattr(g, "request_id", ""),
+    ), 400
+
+
+@app.errorhandler(403)
+def _forbidden(_error):
+    return render_template(
+        "error.html",
+        status_code=403,
+        error_title="You do not have access to this area",
+        error_message=(
+            "Your account role does not permit this action. Return to the "
+            "roster or ask your Unit Administrator for access."
+        ),
+        request_id=getattr(g, "request_id", ""),
+    ), 403
+
+
+@app.errorhandler(404)
+def _not_found(_error):
+    return render_template(
+        "error.html",
+        status_code=404,
+        error_title="That page or record was not found",
+        error_message=(
+            "It may have moved, been removed, or belong to a different airport."
+        ),
+        request_id=getattr(g, "request_id", ""),
+    ), 404
+
 # Database & login
 db = SQLAlchemy(app, session_options={"expire_on_commit": False})
 login_manager = LoginManager(app)
@@ -221,6 +273,18 @@ from tenancy import bind_authenticated_unit, reset_authenticated_unit
 def _bind_tenant_context():
     g.request_id = request.headers.get("X-Request-ID") or secrets.token_hex(12)
     g.tenant_context_token = None
+    if (
+        current_user.is_authenticated
+        and getattr(current_user, "role", "") == "superadmin"
+    ):
+        allowed_platform_endpoints = {
+            "platform_admin", "logout", "password_change", "mfa_setup",
+            "static", "favicon", "health_live", "health_ready",
+        }
+        if request.endpoint == "index":
+            return redirect(url_for("platform_admin"))
+        if request.endpoint not in allowed_platform_endpoints:
+            abort(403)
     if current_user.is_authenticated and getattr(current_user, "role", "") != "superadmin":
         unit_id = int(getattr(current_user, "unit_id", 0) or 0)
         if unit_id:
@@ -3477,6 +3541,7 @@ def __can():
 def admin_ai_generate(ym):
     if not is_admin_user(current_user):
         abort(403)
+    _validate_csrf()
     y, m = parse_ym(ym)
     try:
         res = generate_month_roster(y, m, current_user) or {}
@@ -3513,6 +3578,7 @@ def admin_ai_generate(ym):
 @login_required
 @roster_edit_required
 def assign_cell(staff_id, ym, day):
+    _validate_csrf()
     # parse inputs
     d = date.fromisoformat(day)
     st = db.session.get(Staff, staff_id) or Staff.query.get_or_404(staff_id)
@@ -4349,8 +4415,7 @@ def change_log_page():
 def leave():
     # Page visibility: editors & admins only
     if not (is_admin_user(current_user) or getattr(current_user, "role", "") in ("editor", "admin")):
-        flash("Editors or Admins only.", "error")
-        return redirect(url_for("index"))
+        abort(403)
 
     staff = Staff.query.order_by(Staff.name).all()
 
@@ -4364,6 +4429,7 @@ def leave():
     prev_ym, next_ym = _clamp_prev_next(year, month)
 
     if request.method == "POST":
+        _validate_csrf()
         # (still restrict POST actions too)
         if not (is_admin_user(current_user) or getattr(current_user, "role", "") in ("editor", "admin")):
             flash("Editors or Admins only.", "error")
@@ -4762,8 +4828,7 @@ def _fy_start_for(d: date) -> date:
 @login_required
 def metrics():
     if not (is_admin_user(current_user) or getattr(current_user, "role", "") in ("editor", "admin")):
-        flash("Editors or Admins only.", "error")
-        return redirect(url_for("index"))
+        abort(403)
     # ... existing body unchanged ...
     today = date.today()
     default_start = _fy_start_for(today)
@@ -4846,8 +4911,7 @@ def _has_in_date_ue(s: Staff, ref_day: date) -> bool:
 @login_required
 def metrics_export():
     if not is_admin_user(current_user):
-        flash("Admins only!", "error")
-        return redirect(url_for("index"))
+        abort(403)
     today = date.today()
     default_start = _fy_start_for(today)
     start_day = date.fromisoformat(
@@ -4913,9 +4977,16 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
     ensure_assignments_for_range(chosen_date - timedelta(days=30),
                                  chosen_date + timedelta(days=lookahead_days))
 
-    staff_members = (Staff.query
-                     .outerjoin(Watch, Staff.watch_id == Watch.id)
-                     .order_by(Watch.order_index, Staff.name).all())
+    staff_members = (
+        Staff.query
+        .outerjoin(Watch, Staff.watch_id == Watch.id)
+        .filter(
+            Staff.is_operational.is_(True),
+            Staff.membership_status == "active",
+        )
+        .order_by(Watch.order_index, Staff.name)
+        .all()
+    )
 
     soal_codes = annotation_codes_for_tag("soal", active_only=False)
     soal_display = "SOAL"
@@ -4927,6 +4998,9 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
     results = []
     for s in staff_members:
         if s.exclude_from_ot:
+            continue
+
+        if not _staff_has_shift_qualification(s, sh):
             continue
 
         a_today = Assignment.query.filter_by(
@@ -4996,8 +5070,7 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
 @login_required
 def overtime():
     if not (is_admin_user(current_user) or getattr(current_user, "role", "") in ("editor", "admin")):
-        flash("Editors or Admins only.", "error")
-        return redirect(url_for("index"))
+        abort(403)
 
     shifts = ShiftType.query.filter_by(
         is_working=True).order_by(ShiftType.code).all()
@@ -5006,8 +5079,10 @@ def overtime():
     chosen_shift = None
     selected_staff_ids: set[str] = set()
     sms_body = ""
+    searched = request.method == "POST"
 
     if request.method == "POST":
+        _validate_csrf()
         action = request.form.get("action", "find")
         chosen_date = _parse_date(request.form.get("date"))
         chosen_shift = (request.form.get("shift_code") or "").upper().strip()
@@ -5062,7 +5137,8 @@ def overtime():
                            shifts=shifts, results=results,
                            chosen_date=chosen_date, chosen_shift=chosen_shift,
                            sms_body=sms_body, sms_ready=sms_ready,
-                           selected_staff_ids=selected_staff_ids)
+                           selected_staff_ids=selected_staff_ids,
+                           searched=searched)
 
 # -------------------- Calendar subscription --------------------
 
@@ -5171,8 +5247,7 @@ def _leave_summary_for_month(year: int, month: int):
 @login_required
 def report_leave(ym):
     if not is_admin_user(current_user):
-        flash("Admins only!", "error")
-        return redirect(url_for("index"))
+        abort(403)
     year, month = parse_ym(ym)
     ensure_month_requirement(year, month)
     generate_month(year, month)
@@ -5189,8 +5264,7 @@ def report_leave(ym):
 @login_required
 def report_leave_csv():
     if not is_admin_user(current_user):
-        flash("Admins only!", "error")
-        return redirect(url_for("index"))
+        abort(403)
     ym = request.args.get("ym")
     if not ym:
         abort(400)
@@ -5277,8 +5351,7 @@ def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_da
 @login_required
 def report_leave_year():
     if not is_admin_user(current_user):
-        flash("Admins only!", "error")
-        return redirect(url_for("index"))
+        abort(403)
     today = date.today()
     people = (Staff.query
               .outerjoin(Watch, Staff.watch_id == Watch.id)
@@ -5334,8 +5407,7 @@ def _group_consecutive_days(days_set):
 @login_required
 def report_sickness():
     if not is_admin_user(current_user):
-        flash("Admins only!", "error")
-        return redirect(url_for("index"))
+        abort(403)
     today = date.today()
     start = today - timedelta(days=365)
     people = (Staff.query
@@ -5963,6 +6035,8 @@ def unit_onboarding():
 @app.route("/compliance")
 @login_required
 def qualification_compliance():
+    if not is_editor_user(current_user):
+        abort(403)
     unit_id = _current_unit_id()
     today = date.today()
     qualifications = (
@@ -6264,6 +6338,8 @@ def fatigue_self_report():
 @app.route("/planning/coverage/<ym>")
 @login_required
 def coverage_heatmap(ym):
+    if not can_edit_roster(current_user):
+        abort(403)
     year, month = parse_ym(ym)
     start, days = month_range(year, month)
     end = days[-1]
@@ -6364,8 +6440,7 @@ def reports_index():
         return redirect(url_for("metrics"))
 
     # Everyone else: no access
-    flash("Admins only.", "error")
-    return redirect(url_for("index"))
+    abort(403)
 
 
 @app.route("/login", methods=["GET", "POST"], endpoint="login")

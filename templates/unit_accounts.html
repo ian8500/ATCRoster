@@ -30,7 +30,8 @@
         <td>{{ membership.status }}</td>
         <td>
           {% if membership.status == "active" and membership.person_id != current_user.id %}
-          <form method="post">
+          <form method="post"
+                onsubmit="return confirm('Deactivate this account? The user will no longer be able to sign in.');">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="deactivate">
             <input type="hidden" name="membership_id" value="{{ membership.id }}">

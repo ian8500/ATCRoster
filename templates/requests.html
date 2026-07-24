@@ -92,7 +92,8 @@
                   </td>
                   <td>
                     {% if not is_locked(day.year, day.month) and (req.status or 'pending') == 'pending' %}
-                      <form method="post" class="d-inline">
+                      <form method="post" class="d-inline"
+                            onsubmit="return confirm('Cancel this pending shift request?');">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="form" value="del">
                         <input type="hidden" name="rid" value="{{ req.id }}">
