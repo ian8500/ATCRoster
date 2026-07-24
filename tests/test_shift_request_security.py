@@ -173,6 +173,32 @@ def test_sequential_tenant_sessions_do_not_reuse_first_unit_filter(secured_clien
     assert b">BBB<" in airport_b.data
 
 
+def test_operational_assurance_is_tenant_isolated(secured_client):
+    with app.app.app_context():
+        own = app.OperationalPosition(
+            unit_id=1, code="TWR-A", label="Airport A Tower"
+        )
+        secret = app.OperationalPosition(
+            unit_id=2, code="TWR-B", label="AIRPORT-B-SECRET-POSITION"
+        )
+        db.session.add_all([own, secret])
+        db.session.commit()
+        secret_id = secret.id
+    token = login(secured_client, "admin-a")
+    page = secured_client.get("/operations/2026-10")
+    assert page.status_code == 200
+    assert b"Airport A Tower" in page.data
+    assert b"AIRPORT-B-SECRET-POSITION" not in page.data
+    cross_write = secured_client.post("/operations/2026-10", data={
+        "_csrf_token": token,
+        "action": "grant_endorsement",
+        "person_id": 1,
+        "position_id": secret_id,
+        "valid_from": "2026-01-01",
+    })
+    assert cross_write.status_code == 404
+
+
 def test_approve_only_then_apply_and_notify(secured_client):
     with app.app.app_context():
         user = Staff.query.filter_by(username="user-a").one()

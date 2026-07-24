@@ -138,4 +138,125 @@ def register_saas_models(db, utcnow):
         approved_by_id = db.Column(db.Integer)
         applied_at = db.Column(db.DateTime)
 
+    class OperationalPosition(db.Model):
+        __tablename__ = "operational_position"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        code = db.Column(db.String(30), nullable=False)
+        label = db.Column(db.String(120), nullable=False)
+        description = db.Column(db.Text, nullable=False, default="")
+        is_safety_critical = db.Column(db.Boolean, nullable=False, default=True)
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "code", name="uq_position_unit_code"),
+        )
+
+    class PositionEndorsement(db.Model):
+        __tablename__ = "position_endorsement"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        person_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+        position_id = db.Column(db.Integer, db.ForeignKey("operational_position.id"), nullable=False, index=True)
+        valid_from = db.Column(db.Date, nullable=False)
+        valid_until = db.Column(db.Date)
+        status = db.Column(db.String(20), nullable=False, default="valid")
+        restrictions = db.Column(db.Text, nullable=False, default="")
+        __table_args__ = (
+            db.UniqueConstraint(
+                "unit_id", "person_id", "position_id",
+                name="uq_position_endorsement_person",
+            ),
+        )
+
+    class PositionRequirement(db.Model):
+        __tablename__ = "position_requirement"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        day = db.Column(db.Date, nullable=False, index=True)
+        shift_code = db.Column(db.String(10), nullable=False)
+        position_id = db.Column(db.Integer, db.ForeignKey("operational_position.id"), nullable=False)
+        required_count = db.Column(db.Integer, nullable=False, default=1)
+        contingency_count = db.Column(db.Integer, nullable=False, default=0)
+        __table_args__ = (
+            db.UniqueConstraint(
+                "unit_id", "day", "shift_code", "position_id",
+                name="uq_position_requirement_day_shift",
+            ),
+        )
+
+    class BreakPlan(db.Model):
+        __tablename__ = "break_plan"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        day = db.Column(db.Date, nullable=False, index=True)
+        person_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+        position_id = db.Column(db.Integer, db.ForeignKey("operational_position.id"))
+        start_time = db.Column(db.Time, nullable=False)
+        end_time = db.Column(db.Time, nullable=False)
+        kind = db.Column(db.String(20), nullable=False, default="break")
+        state = db.Column(db.String(20), nullable=False, default="planned")
+        recorded_by_id = db.Column(db.Integer, nullable=False)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    class AchievedDuty(db.Model):
+        __tablename__ = "achieved_duty"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        person_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+        day = db.Column(db.Date, nullable=False, index=True)
+        planned_assignment_id = db.Column(db.Integer, db.ForeignKey("assignment.id"))
+        actual_start = db.Column(db.DateTime, nullable=False)
+        actual_end = db.Column(db.DateTime, nullable=False)
+        duty_type = db.Column(db.String(30), nullable=False, default="operational")
+        variance_reason = db.Column(db.String(500), nullable=False, default="")
+        recorded_by_id = db.Column(db.Integer, nullable=False)
+        recorded_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "person_id", "day", name="uq_achieved_duty_person_day"),
+        )
+
+    class FatigueReport(db.Model):
+        __tablename__ = "fatigue_report"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        person_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+        duty_day = db.Column(db.Date, nullable=False, index=True)
+        severity = db.Column(db.String(20), nullable=False)
+        summary = db.Column(db.String(500), nullable=False)
+        status = db.Column(db.String(20), nullable=False, default="open")
+        reported_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        manager_response = db.Column(db.String(1000), nullable=False, default="")
+        reviewed_by_id = db.Column(db.Integer)
+        reviewed_at = db.Column(db.DateTime)
+        closed_at = db.Column(db.DateTime)
+
+    class RosterRuleVersion(db.Model):
+        __tablename__ = "roster_rule_version"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        version = db.Column(db.Integer, nullable=False)
+        name = db.Column(db.String(120), nullable=False)
+        rules_json = db.Column(db.Text, nullable=False, default="{}")
+        state = db.Column(db.String(20), nullable=False, default="draft")
+        effective_from = db.Column(db.Date)
+        change_reference = db.Column(db.String(120), nullable=False, default="")
+        consultation_summary = db.Column(db.Text, nullable=False, default="")
+        approved_by_id = db.Column(db.Integer)
+        approved_at = db.Column(db.DateTime)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "version", name="uq_roster_rule_unit_version"),
+        )
+
+    class MfaCredential(db.Model):
+        __tablename__ = "mfa_credential"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        person_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, unique=True)
+        encrypted_secret = db.Column(db.Text, nullable=False)
+        enabled = db.Column(db.Boolean, nullable=False, default=False)
+        enrolled_at = db.Column(db.DateTime)
+        last_used_step = db.Column(db.BigInteger)
+        recovery_codes_digest = db.Column(db.Text, nullable=False, default="[]")
+
     return SimpleNamespace(**locals())

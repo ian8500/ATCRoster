@@ -1422,6 +1422,26 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
   .publication-history article { align-items:flex-start; flex-direction:column; }
   .publication-history small { text-align:left; }
 }
+.operations-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.operations-grid > .operations-form:nth-child(3) { grid-column:1 / -1; }
+.operations-form { display:grid; gap:.65rem; padding:.8rem; border:1px solid rgba(255,255,255,.08); border-radius:10px; }
+.operations-form h3 { margin:0 0 .2rem; font-size:1rem; }
+.operations-form label { display:grid; gap:.3rem; }
+.operations-list { display:grid; gap:.6rem; margin-top:1rem; }
+.operations-list > div,.operations-list > article { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; padding:.75rem; border:1px solid rgba(255,255,255,.08); border-radius:10px; }
+.operations-list span { display:block; color:var(--muted,#aab7c4); }
+.operations-list p { margin:.35rem 0 0; }
+.operations-review { display:grid; grid-template-columns:minmax(180px,1fr) auto auto; gap:.5rem; align-items:end; }
+.operations-rule-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.operations-rule-form label:nth-of-type(3),.operations-rule-form label:nth-of-type(4),.operations-rule-form button { grid-column:1 / -1; }
+.recovery-code-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.5rem; }
+.recovery-code-grid code,.mfa-secret { display:block; padding:.65rem; text-align:center; letter-spacing:.08em; border:1px solid rgba(255,255,255,.12); border-radius:8px; background:rgba(255,255,255,.04); }
+@media (max-width:760px) {
+  .operations-grid,.operations-rule-form { grid-template-columns:1fr; }
+  .operations-grid > .operations-form:nth-child(3),.operations-rule-form label:nth-of-type(3),.operations-rule-form label:nth-of-type(4),.operations-rule-form button { grid-column:auto; }
+  .operations-list > div,.operations-list > article { flex-direction:column; }
+  .operations-review { grid-template-columns:1fr; width:100%; }
+}
 .onboarding-score { display:grid; place-items:center; min-width:100px; padding:1rem; border-radius:50%; aspect-ratio:1; background:rgba(83,170,255,.12); border:2px solid rgba(83,170,255,.55); }
 .onboarding-score strong { font-size:1.5rem; }
 .onboarding-score span { color:var(--muted,#aab7c4); font-size:.8rem; }

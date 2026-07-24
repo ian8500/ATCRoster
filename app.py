@@ -5,7 +5,7 @@ from collections import defaultdict, Counter, OrderedDict, deque
 from typing import Optional, Tuple
 import base64
 from urllib import parse as urllib_parse, request as urllib_request, error as urllib_error
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g, send_from_directory, jsonify
 from flask import render_template as flask_render_template
 import os
 import re
@@ -16,6 +16,11 @@ from functools import lru_cache
 from datetime import date, datetime, time, timedelta, timezone
 import json
 import json as _json
+import logging
+import click
+import hashlib
+import pyotp
+from cryptography.fernet import Fernet, InvalidToken
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -54,6 +59,9 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "max_overflow": 5,
 }
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["MAX_CONTENT_LENGTH"] = int(
+    os.environ.get("ATCROSTER_MAX_REQUEST_BYTES", 2 * 1024 * 1024)
+)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ATCROSTER_SECURE_COOKIES", "").lower() in {
@@ -64,6 +72,40 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=12)
 # Make external URLs prefer https behind PA’s proxy
 app.config["PREFERRED_URL_SCHEME"] = "https"
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+DEPLOYMENT_ENV = os.environ.get("ATCROSTER_ENVIRONMENT", "development").lower()
+FIELD_ENCRYPTION_KEY = os.environ.get("ATCROSTER_FIELD_ENCRYPTION_KEY", "")
+if DEPLOYMENT_ENV == "production":
+    if app.config["SECRET_KEY"] == "fallback-change-me" or len(
+        app.config["SECRET_KEY"]
+    ) < 32:
+        raise RuntimeError(
+            "Production requires FLASK_SECRET_KEY with at least 32 characters."
+        )
+    if str(app.config["SQLALCHEMY_DATABASE_URI"]).startswith("sqlite"):
+        raise RuntimeError("Production requires PostgreSQL; SQLite is not supported.")
+    if not app.config["SESSION_COOKIE_SECURE"]:
+        raise RuntimeError(
+            "Production requires ATCROSTER_SECURE_COOKIES=true."
+        )
+    if not FIELD_ENCRYPTION_KEY:
+        raise RuntimeError(
+            "Production requires ATCROSTER_FIELD_ENCRYPTION_KEY."
+        )
+    try:
+        Fernet(FIELD_ENCRYPTION_KEY.encode())
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "ATCROSTER_FIELD_ENCRYPTION_KEY must be a valid Fernet key."
+        ) from exc
+else:
+    FIELD_ENCRYPTION_KEY = base64.urlsafe_b64encode(
+        hashlib.sha256(str(app.config["SECRET_KEY"]).encode()).digest()
+    ).decode()
+
+
+def _field_cipher() -> Fernet:
+    return Fernet(FIELD_ENCRYPTION_KEY.encode())
 
 # Jinja helper
 app.jinja_env.globals['now'] = lambda: datetime.now()
@@ -128,6 +170,45 @@ def favicon():
         app.static_folder, "favicon.svg", mimetype="image/svg+xml"
     )
 
+
+@app.get("/health/live")
+def health_live():
+    return jsonify({
+        "status": "ok",
+        "service": "atcroster",
+        "environment": DEPLOYMENT_ENV,
+    })
+
+
+@app.get("/health/ready")
+def health_ready():
+    try:
+        db.session.execute(text("SELECT 1"))
+        required_tables = {
+            "unit", "staff", "assignment", "roster_publication",
+            "operational_position", "fatigue_report", "roster_rule_version",
+        }
+        from sqlalchemy import inspect
+        present = set(inspect(db.engine).get_table_names())
+        missing = sorted(required_tables - present)
+        if missing:
+            return jsonify({
+                "status": "not_ready", "missing_tables": missing,
+            }), 503
+        return jsonify({"status": "ready", "database": "ok"})
+    except Exception:
+        app.logger.exception("readiness_check_failed")
+        return jsonify({"status": "not_ready", "database": "unavailable"}), 503
+
+
+@app.errorhandler(500)
+def _internal_error(error):
+    app.logger.error(
+        "unhandled_request_error request_id=%s path=%s",
+        getattr(g, "request_id", ""), request.path, exc_info=error,
+    )
+    return render_template("error.html", request_id=getattr(g, "request_id", "")), 500
+
 # Database & login
 db = SQLAlchemy(app, session_options={"expire_on_commit": False})
 login_manager = LoginManager(app)
@@ -138,15 +219,30 @@ from tenancy import bind_authenticated_unit, reset_authenticated_unit
 
 @app.before_request
 def _bind_tenant_context():
+    g.request_id = request.headers.get("X-Request-ID") or secrets.token_hex(12)
     g.tenant_context_token = None
     if current_user.is_authenticated and getattr(current_user, "role", "") != "superadmin":
         unit_id = int(getattr(current_user, "unit_id", 0) or 0)
         if unit_id:
             g.tenant_context_token = bind_authenticated_unit(unit_id)
+    if (
+        current_user.is_authenticated
+        and DEPLOYMENT_ENV == "production"
+        and request.endpoint not in {
+            "mfa_setup", "logout", "static", "favicon",
+            "health_live", "health_ready",
+        }
+    ):
+        credential = MfaCredential.query.filter_by(
+            person_id=current_user.id, enabled=True
+        ).first()
+        if not credential:
+            return redirect(url_for("mfa_setup"))
 
 
 @app.after_request
 def _security_headers(response):
+    response.headers["X-Request-ID"] = getattr(g, "request_id", "")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -157,6 +253,8 @@ def _security_headers(response):
         response.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
         )
+    if current_user.is_authenticated:
+        response.headers.setdefault("Cache-Control", "no-store, private")
     return response
 
 
@@ -817,6 +915,14 @@ PersonQualification = SaaS.PersonQualification
 RosterPublication = SaaS.RosterPublication
 RosterAcknowledgement = SaaS.RosterAcknowledgement
 Scenario = SaaS.Scenario
+OperationalPosition = SaaS.OperationalPosition
+PositionEndorsement = SaaS.PositionEndorsement
+PositionRequirement = SaaS.PositionRequirement
+BreakPlan = SaaS.BreakPlan
+AchievedDuty = SaaS.AchievedDuty
+FatigueReport = SaaS.FatigueReport
+RosterRuleVersion = SaaS.RosterRuleVersion
+MfaCredential = SaaS.MfaCredential
 
 # Enforce the authenticated airport on all legacy operational SELECTs and
 # stamp new rows. This protects older routes while they move to repositories.
@@ -829,6 +935,9 @@ TENANT_OPERATIONAL_MODELS = (
     Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
     AiRuleSet, ChangeLog, StaffWatchHistory, QualificationType,
     PersonQualification, RosterPublication, RosterAcknowledgement, Scenario,
+    OperationalPosition, PositionEndorsement, PositionRequirement, BreakPlan,
+    AchievedDuty, FatigueReport, RosterRuleVersion,
+    MfaCredential,
 )
 
 
@@ -2882,15 +2991,54 @@ def _publication_preflight(year: int, month: int) -> dict:
                 })
 
     fatigue = _compliance_findings(year, month)
+    position_rows = _position_assurance(year, month)
+    position_shortfalls = [row for row in position_rows if row["shortfall"]]
+    approved_rule = RosterRuleVersion.query.filter(
+        RosterRuleVersion.state == "approved",
+        db.or_(
+            RosterRuleVersion.effective_from.is_(None),
+            RosterRuleVersion.effective_from <= days[0],
+        ),
+    ).order_by(RosterRuleVersion.version.desc()).first()
+    critical_reports = FatigueReport.query.filter(
+        FatigueReport.duty_day >= days[0],
+        FatigueReport.duty_day <= days[-1],
+        FatigueReport.severity.in_(("high", "unfit")),
+        FatigueReport.status != "closed",
+    ).all()
+    configuration_blocks = []
+    if not OperationalPosition.query.filter_by(is_active=True).first():
+        configuration_blocks.append("No active operational positions configured.")
+    if not PositionRequirement.query.filter(
+        PositionRequirement.day >= days[0],
+        PositionRequirement.day <= days[-1],
+    ).first():
+        configuration_blocks.append("No position requirements configured for the month.")
+    if not approved_rule:
+        configuration_blocks.append("No approved rostering rule version governs the month.")
+    if not BreakPlan.query.filter(
+        BreakPlan.day >= days[0], BreakPlan.day <= days[-1]
+    ).first():
+        configuration_blocks.append("No operational break plan is recorded for the month.")
+    hard_blocks = (
+        len(qualification_gaps) + len(unassigned)
+        + len(position_shortfalls) + len(critical_reports)
+        + len(configuration_blocks)
+    )
     return {
         "fatigue_total": fatigue["total"],
         "fatigue_critical": fatigue["critical"],
         "coverage_gaps": coverage_gaps,
         "qualification_gaps": qualification_gaps,
         "unassigned": unassigned,
-        "hard_blocks": len(qualification_gaps) + len(unassigned),
+        "position_assurance": position_rows,
+        "position_shortfalls": position_shortfalls,
+        "critical_fatigue_reports": critical_reports,
+        "configuration_blocks": configuration_blocks,
+        "approved_rule": approved_rule,
+        "hard_blocks": hard_blocks,
         "exceptions": fatigue["total"] + len(coverage_gaps),
-        "ready": not qualification_gaps and not unassigned,
+        "ready": hard_blocks == 0,
     }
 
 
@@ -2920,8 +3068,8 @@ def publication_centre(ym):
             ).strip()
             if preflight["hard_blocks"]:
                 flash(
-                    "Publication blocked: resolve all missing assignments and "
-                    "required-qualification failures first.",
+                    "Publication blocked: resolve all configuration, competence, "
+                    "position-coverage and critical fatigue-report failures first.",
                     "error",
                 )
                 return redirect(url_for("publication_centre", ym=ym))
@@ -2972,6 +3120,14 @@ def publication_centre(ym):
                 "coverage_shortfalls": len(preflight["coverage_gaps"]),
                 "qualification_failures": len(preflight["qualification_gaps"]),
                 "unassigned_cells": len(preflight["unassigned"]),
+                "position_shortfalls": len(preflight["position_shortfalls"]),
+                "open_critical_fatigue_reports": len(
+                    preflight["critical_fatigue_reports"]
+                ),
+                "approved_rule_version": (
+                    preflight["approved_rule"].version
+                    if preflight["approved_rule"] else None
+                ),
             }
             publication = RosterPublication(
                 unit_id=_current_unit_id(),
@@ -5830,6 +5986,281 @@ def qualification_compliance():
     return render_template("qualification_compliance.html", rows=rows)
 
 
+def _valid_endorsement(person_id: int, position_id: int, on_day: date) -> bool:
+    row = PositionEndorsement.query.filter_by(
+        person_id=person_id, position_id=position_id, status="valid"
+    ).first()
+    return bool(
+        row and row.valid_from <= on_day
+        and (row.valid_until is None or row.valid_until >= on_day)
+    )
+
+
+def _position_assurance(year: int, month: int) -> list[dict]:
+    _, days = month_range(year, month)
+    requirements = PositionRequirement.query.filter(
+        PositionRequirement.day >= days[0],
+        PositionRequirement.day <= days[-1],
+    ).order_by(PositionRequirement.day, PositionRequirement.shift_code).all()
+    positions = {
+        row.id: row for row in OperationalPosition.query.all()
+    }
+    rows = []
+    for requirement in requirements:
+        assignments = Assignment.query.filter_by(
+            day=requirement.day, code=requirement.shift_code
+        ).all()
+        eligible = [
+            assignment for assignment in assignments
+            if _valid_endorsement(
+                assignment.staff_id, requirement.position_id, requirement.day
+            )
+        ]
+        target = requirement.required_count + requirement.contingency_count
+        rows.append({
+            "requirement": requirement,
+            "position": positions.get(requirement.position_id),
+            "eligible": len(eligible),
+            "target": target,
+            "shortfall": max(0, target - len(eligible)),
+        })
+    return rows
+
+
+@app.route("/operations/<ym>", methods=["GET", "POST"])
+@login_required
+def operations_assurance(ym):
+    if not is_admin_user(current_user):
+        abort(403)
+    year, month = _compliance_month(ym)
+    if request.method == "POST":
+        _validate_csrf()
+        action = (request.form.get("action") or "").strip()
+        try:
+            if action == "create_position":
+                code = (request.form.get("code") or "").strip().upper()
+                label = (request.form.get("label") or "").strip()
+                if not re.fullmatch(r"[A-Z0-9_-]{2,30}", code) or not label:
+                    raise ValueError("Position code and label are required.")
+                db.session.add(OperationalPosition(
+                    unit_id=_current_unit_id(), code=code, label=label,
+                    description=(request.form.get("description") or "").strip()[:1000],
+                    is_safety_critical=request.form.get("is_safety_critical") == "on",
+                ))
+            elif action == "grant_endorsement":
+                person_id = int(request.form.get("person_id") or 0)
+                position_id = int(request.form.get("position_id") or 0)
+                person = Staff.query.filter_by(id=person_id, is_operational=True).first_or_404()
+                position = OperationalPosition.query.filter_by(id=position_id).first_or_404()
+                row = PositionEndorsement.query.filter_by(
+                    person_id=person.id, position_id=position.id
+                ).first()
+                if not row:
+                    row = PositionEndorsement(
+                        unit_id=_current_unit_id(), person_id=person.id,
+                        position_id=position.id,
+                    )
+                    db.session.add(row)
+                row.valid_from = date.fromisoformat(request.form["valid_from"])
+                valid_until = (request.form.get("valid_until") or "").strip()
+                row.valid_until = date.fromisoformat(valid_until) if valid_until else None
+                row.status = "valid"
+                row.restrictions = (request.form.get("restrictions") or "").strip()[:1000]
+            elif action == "set_position_requirement":
+                position_id = int(request.form.get("position_id") or 0)
+                OperationalPosition.query.filter_by(id=position_id, is_active=True).first_or_404()
+                duty_day = date.fromisoformat(request.form["day"])
+                shift_code = (request.form.get("shift_code") or "").strip().upper()
+                ShiftType.query.filter_by(code=shift_code, is_active=True).first_or_404()
+                required = max(0, int(request.form.get("required_count") or 0))
+                contingency = max(0, int(request.form.get("contingency_count") or 0))
+                row = PositionRequirement.query.filter_by(
+                    day=duty_day, shift_code=shift_code, position_id=position_id
+                ).first()
+                if not row:
+                    row = PositionRequirement(
+                        unit_id=_current_unit_id(), day=duty_day,
+                        shift_code=shift_code, position_id=position_id,
+                    )
+                    db.session.add(row)
+                row.required_count = required
+                row.contingency_count = contingency
+            elif action == "add_break":
+                duty_day = date.fromisoformat(request.form["day"])
+                start_time = time.fromisoformat(request.form["start_time"])
+                end_time = time.fromisoformat(request.form["end_time"])
+                if end_time <= start_time:
+                    raise ValueError("Break end must be after its start.")
+                person_id = int(request.form.get("person_id") or 0)
+                Staff.query.filter_by(id=person_id, is_operational=True).first_or_404()
+                position_id = int(request.form.get("position_id") or 0) or None
+                if position_id:
+                    OperationalPosition.query.filter_by(id=position_id).first_or_404()
+                db.session.add(BreakPlan(
+                    unit_id=_current_unit_id(), day=duty_day,
+                    person_id=person_id, position_id=position_id,
+                    start_time=start_time, end_time=end_time,
+                    kind=(request.form.get("kind") or "break")[:20],
+                    recorded_by_id=current_user.id,
+                ))
+            elif action == "record_actual":
+                duty_day = date.fromisoformat(request.form["day"])
+                person_id = int(request.form.get("person_id") or 0)
+                Staff.query.filter_by(id=person_id, is_operational=True).first_or_404()
+                actual_start = datetime.fromisoformat(request.form["actual_start"])
+                actual_end = datetime.fromisoformat(request.form["actual_end"])
+                if actual_end <= actual_start:
+                    raise ValueError("Actual duty end must be after its start.")
+                assignment = Assignment.query.filter_by(
+                    staff_id=person_id, day=duty_day
+                ).first()
+                row = AchievedDuty.query.filter_by(
+                    person_id=person_id, day=duty_day
+                ).first()
+                if not row:
+                    row = AchievedDuty(
+                        unit_id=_current_unit_id(), person_id=person_id,
+                        day=duty_day, recorded_by_id=current_user.id,
+                    )
+                    db.session.add(row)
+                row.planned_assignment_id = assignment.id if assignment else None
+                row.actual_start = actual_start
+                row.actual_end = actual_end
+                row.duty_type = (request.form.get("duty_type") or "operational")[:30]
+                row.variance_reason = (
+                    request.form.get("variance_reason") or ""
+                ).strip()[:500]
+            elif action == "review_fatigue":
+                report = FatigueReport.query.filter_by(
+                    id=int(request.form.get("report_id") or 0)
+                ).first_or_404()
+                response = (request.form.get("manager_response") or "").strip()
+                if len(response) < 10:
+                    raise ValueError("Record the assessment and action taken.")
+                report.manager_response = response[:1000]
+                report.status = request.form.get("status") if request.form.get(
+                    "status"
+                ) in {"reviewed", "closed"} else "reviewed"
+                report.reviewed_by_id = current_user.id
+                report.reviewed_at = utcnow()
+                report.closed_at = utcnow() if report.status == "closed" else None
+            elif action == "create_rule_version":
+                latest = db.session.query(
+                    db.func.max(RosterRuleVersion.version)
+                ).filter(
+                    RosterRuleVersion.unit_id == _current_unit_id()
+                ).scalar() or 0
+                rules = request.form.get("rules_json") or "{}"
+                parsed = json.loads(rules)
+                if not isinstance(parsed, dict):
+                    raise ValueError("Rules must be a JSON object.")
+                db.session.add(RosterRuleVersion(
+                    unit_id=_current_unit_id(), version=latest + 1,
+                    name=(request.form.get("name") or f"Rule set {latest + 1}")[:120],
+                    rules_json=json.dumps(parsed),
+                    change_reference=(request.form.get("change_reference") or "")[:120],
+                    consultation_summary=(
+                        request.form.get("consultation_summary") or ""
+                    )[:2000],
+                ))
+            elif action == "approve_rule_version":
+                rule = RosterRuleVersion.query.filter_by(
+                    id=int(request.form.get("rule_id") or 0), state="draft"
+                ).first_or_404()
+                if not rule.change_reference or len(rule.consultation_summary) < 20:
+                    raise ValueError(
+                        "Approval requires a change reference and consultation summary."
+                    )
+                RosterRuleVersion.query.filter_by(state="approved").update({
+                    "state": "superseded"
+                })
+                rule.state = "approved"
+                rule.effective_from = date.fromisoformat(
+                    request.form["effective_from"]
+                )
+                rule.approved_by_id = current_user.id
+                rule.approved_at = utcnow()
+            else:
+                abort(400)
+            db.session.commit()
+            log_change(
+                "OperationalAssurance", 0, action, None, "completed",
+                context_day=date(year, month, 1),
+            )
+            flash("Operational assurance record saved.", "ok")
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            db.session.rollback()
+            flash(str(exc), "error")
+        return redirect(url_for("operations_assurance", ym=ym))
+
+    positions = OperationalPosition.query.filter_by(is_active=True).order_by(
+        OperationalPosition.code
+    ).all()
+    staff = Staff.query.filter_by(is_operational=True).order_by(Staff.name).all()
+    endorsements = PositionEndorsement.query.order_by(
+        PositionEndorsement.valid_until
+    ).all()
+    breaks = BreakPlan.query.filter(
+        BreakPlan.day >= date(year, month, 1),
+        BreakPlan.day < date(*_month_add(year, month, 1), 1),
+    ).order_by(BreakPlan.day, BreakPlan.start_time).all()
+    actuals = AchievedDuty.query.filter(
+        AchievedDuty.day >= date(year, month, 1),
+        AchievedDuty.day < date(*_month_add(year, month, 1), 1),
+    ).order_by(AchievedDuty.day.desc()).all()
+    reports = FatigueReport.query.filter(
+        FatigueReport.status.in_(("open", "reviewed"))
+    ).order_by(FatigueReport.reported_at.desc()).all()
+    rules = RosterRuleVersion.query.order_by(
+        RosterRuleVersion.version.desc()
+    ).all()
+    assurance = _position_assurance(year, month)
+    return render_template(
+        "operations_assurance.html", ym=ym, year=year, month=month,
+        positions=positions, staff=staff, endorsements=endorsements,
+        breaks=breaks, actuals=actuals, reports=reports, rules=rules,
+        assurance=assurance,
+        staff_by_id={row.id: row for row in staff},
+        positions_by_id={row.id: row for row in positions},
+        shifts=ShiftType.query.filter_by(is_active=True).order_by(ShiftType.code).all(),
+    )
+
+
+@app.route("/fatigue/report", methods=["GET", "POST"])
+@login_required
+def fatigue_self_report():
+    if getattr(current_user, "role", "") == "superadmin":
+        abort(403)
+    if request.method == "POST":
+        _validate_csrf()
+        try:
+            duty_day = date.fromisoformat(request.form["duty_day"])
+            severity = request.form.get("severity") or ""
+            summary = (request.form.get("summary") or "").strip()
+            if severity not in {"low", "medium", "high", "unfit"}:
+                raise ValueError("Select a fatigue severity.")
+            if len(summary) < 10:
+                raise ValueError("Provide a short description of the fatigue concern.")
+            db.session.add(FatigueReport(
+                unit_id=_current_unit_id(), person_id=current_user.id,
+                duty_day=duty_day, severity=severity, summary=summary[:500],
+            ))
+            db.session.commit()
+            flash(
+                "Fatigue report submitted. If you may be unfit for duty, "
+                "follow the unit's immediate reporting procedure as well.",
+                "ok",
+            )
+            return redirect(url_for("fatigue_self_report"))
+        except (ValueError, KeyError) as exc:
+            db.session.rollback()
+            flash(str(exc), "error")
+    reports = FatigueReport.query.filter_by(
+        person_id=current_user.id
+    ).order_by(FatigueReport.reported_at.desc()).all()
+    return render_template("fatigue_report.html", reports=reports, today=date.today())
+
+
 @app.route("/planning/coverage/<ym>")
 @login_required
 def coverage_heatmap(ym):
@@ -5947,7 +6378,17 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             if user.membership_status != "active":
                 flash("This account is not active.", "error")
                 return render_template("login.html"), 403
-            session.clear()  # rotate session state on privilege establishment
+            credential = MfaCredential.query.filter_by(
+                person_id=user.id, enabled=True
+            ).first()
+            session.clear()
+            if credential:
+                session["_mfa_user_id"] = user.id
+                session["_mfa_next"] = (
+                    request.args.get("next")
+                    if _is_safe_local_redirect(request.args.get("next")) else ""
+                )
+                return redirect(url_for("mfa_challenge"))
             login_user(user)
             session["_session_started_at"] = utcnow().isoformat()
             flash("Logged in successfully", "ok")
@@ -5958,48 +6399,195 @@ def signin_form():   # function name can be anything; endpoint is 'login'
     return render_template("login.html")
 
 
+def _decrypt_mfa_secret(credential) -> str:
+    try:
+        return _field_cipher().decrypt(
+            credential.encrypted_secret.encode()
+        ).decode()
+    except (InvalidToken, ValueError) as exc:
+        raise RuntimeError("MFA credential cannot be decrypted.") from exc
+
+
+def _matching_totp_step(secret: str, code: str) -> int | None:
+    totp = pyotp.TOTP(secret)
+    now = utcnow()
+    for offset in (-1, 0, 1):
+        candidate_time = now + timedelta(seconds=offset * 30)
+        candidate = totp.at(candidate_time)
+        if secrets.compare_digest(candidate, code):
+            return int(candidate_time.timestamp() // 30)
+    return None
+
+
+@app.route("/login/mfa", methods=["GET", "POST"])
+def mfa_challenge():
+    user_id = int(session.get("_mfa_user_id") or 0)
+    if not user_id:
+        return redirect(url_for("login"))
+    user = db.session.get(Staff, user_id)
+    credential = MfaCredential.query.filter_by(
+        person_id=user_id, enabled=True
+    ).first()
+    if not user or not credential:
+        session.clear()
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        _validate_csrf()
+        code = re.sub(r"[\s-]", "", request.form.get("code") or "").upper()
+        accepted = False
+        if re.fullmatch(r"\d{6}", code):
+            step = _matching_totp_step(_decrypt_mfa_secret(credential), code)
+            if step is not None and (
+                credential.last_used_step is None
+                or step > credential.last_used_step
+            ):
+                credential.last_used_step = step
+                accepted = True
+        elif re.fullmatch(r"[A-Z0-9]{10}", code):
+            digests = json.loads(credential.recovery_codes_digest or "[]")
+            digest = hashlib.sha256(code.encode()).hexdigest()
+            if digest in digests:
+                digests.remove(digest)
+                credential.recovery_codes_digest = json.dumps(digests)
+                accepted = True
+        if accepted:
+            next_url = session.pop("_mfa_next", "")
+            session.pop("_mfa_user_id", None)
+            login_user(user)
+            session["_session_started_at"] = utcnow().isoformat()
+            db.session.commit()
+            return redirect(next_url or url_for("index"))
+        flash("Invalid, expired or already-used verification code.", "error")
+    return render_template("mfa_challenge.html")
+
+
+@app.route("/security/mfa", methods=["GET", "POST"])
+@login_required
+def mfa_setup():
+    credential = MfaCredential.query.filter_by(
+        person_id=current_user.id
+    ).first()
+    if credential and credential.enabled:
+        return render_template("mfa_setup.html", enabled=True)
+    pending = session.get("_pending_mfa_secret")
+    if not pending:
+        pending = pyotp.random_base32()
+        session["_pending_mfa_secret"] = pending
+    issuer = "ATCRoster"
+    provisioning_uri = pyotp.TOTP(pending).provisioning_uri(
+        name=current_user.username, issuer_name=issuer
+    )
+    if request.method == "POST":
+        _validate_csrf()
+        code = re.sub(r"\s", "", request.form.get("code") or "")
+        if not pyotp.TOTP(pending).verify(code, valid_window=1):
+            flash("The verification code is not valid.", "error")
+            return redirect(url_for("mfa_setup"))
+        recovery_codes = [
+            secrets.token_hex(5).upper() for _ in range(10)
+        ]
+        if not credential:
+            credential = MfaCredential(
+                unit_id=_current_unit_id(), person_id=current_user.id,
+                encrypted_secret="",
+            )
+            db.session.add(credential)
+        credential.encrypted_secret = _field_cipher().encrypt(
+            pending.encode()
+        ).decode()
+        credential.enabled = True
+        credential.enrolled_at = utcnow()
+        credential.recovery_codes_digest = json.dumps([
+            hashlib.sha256(code.encode()).hexdigest()
+            for code in recovery_codes
+        ])
+        db.session.commit()
+        session.pop("_pending_mfa_secret", None)
+        return render_template(
+            "mfa_setup.html", enabled=True, recovery_codes=recovery_codes
+        )
+    return render_template(
+        "mfa_setup.html", enabled=False, secret=pending,
+        provisioning_uri=provisioning_uri,
+    )
+
+
+@app.cli.command("bootstrap-platform")
+@click.option("--username", prompt=True)
+@click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
+def bootstrap_platform(username, password):
+    """Create the one-time platform control unit and Super Admin."""
+    username = username.strip().lower()
+    if len(password) < 12:
+        raise click.ClickException("Password must contain at least 12 characters.")
+    if PlatformIdentity.query.filter_by(username=username).first():
+        raise click.ClickException("That platform identity already exists.")
+    control = Unit.query.filter_by(status="platform_control").first()
+    if not control:
+        control = Unit(
+            code="PLATFORM", name="ATCRoster Platform",
+            status="platform_control", plan="internal", active_user_limit=5,
+        )
+        db.session.add(control)
+        db.session.flush()
+    user = Staff(
+        unit_id=control.id, username=username, name="Platform Super Admin",
+        staff_no=f"PLATFORM-{secrets.token_hex(3).upper()}",
+        role="superadmin", membership_status="active", is_operational=False,
+    )
+    user.set_password(password)
+    db.session.add(user)
+    db.session.flush()
+    db.session.add(PlatformIdentity(
+        public_id=f"platform-{secrets.token_hex(12)}",
+        username=username, password_hash=user.password_hash,
+    ))
+    db.session.commit()
+    click.echo(f"Platform Super Admin {username} created.")
+
+
 # -------------------- DB init (single, safe block) --------------------
 
 with app.app_context():
-    db.create_all()
-    is_sqlite = db.engine.dialect.name == "sqlite"
-    if is_sqlite:
-        # Compatibility only for legacy desktop databases. PostgreSQL schema
-        # changes are exclusively Alembic-managed.
-        migrate_tenant_foundation_compat()
-        migrate_add_perf_indexes()
-        migrate_add_met_and_assessor()
-        migrate_add_toil_half_days_and_convert()
-        migrate_add_ut_flags()
-        migrate_add_assignment_annotation()
-        migrate_add_unique_assignment_key()
-        migrate_add_requirement_req_d()
-        migrate_add_is_training()
-        migrate_add_wm_dwm_exclude()
-        migrate_add_phone_number()
-        migrate_add_role_and_calendar_token()
+    if (
+        DEPLOYMENT_ENV != "production"
+        and os.environ.get("ATCROSTER_SKIP_RUNTIME_SCHEMA") != "1"
+    ):
+        db.create_all()
+        is_sqlite = db.engine.dialect.name == "sqlite"
+        if is_sqlite:
+            # Legacy desktop compatibility only. Production uses Alembic.
+            migrate_tenant_foundation_compat()
+            migrate_add_perf_indexes()
+            migrate_add_met_and_assessor()
+            migrate_add_toil_half_days_and_convert()
+            migrate_add_ut_flags()
+            migrate_add_assignment_annotation()
+            migrate_add_unique_assignment_key()
+            migrate_add_requirement_req_d()
+            migrate_add_is_training()
+            migrate_add_wm_dwm_exclude()
+            migrate_add_phone_number()
+            migrate_add_role_and_calendar_token()
 
-    # >>> Ensure new ShiftRequest columns exist (SQLite safe)
-    if is_sqlite:
-        from sqlalchemy import text
-        cols = [row[1] for row in db.session.execute(
-            text("PRAGMA table_info(shift_request)"))]
+            cols = [row[1] for row in db.session.execute(
+                text("PRAGMA table_info(shift_request)"))]
 
-        def _add_col(name, ddl):
-            if name not in cols:
-                try:
-                    db.session.execute(
-                        text(f"ALTER TABLE shift_request ADD COLUMN {ddl}"))
-                    db.session.commit()
-                except Exception:
-                    db.session.rollback()
-        _add_col("admin_response", "admin_response TEXT DEFAULT ''")
-        _add_col("responded_by_id", "responded_by_id INTEGER")
-        _add_col("responded_at", "responded_at TEXT")
-        _add_col("status", "status VARCHAR(20) DEFAULT 'pending'")
+            def _add_col(name, ddl):
+                if name not in cols:
+                    try:
+                        db.session.execute(
+                            text(f"ALTER TABLE shift_request ADD COLUMN {ddl}"))
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+            _add_col("admin_response", "admin_response TEXT DEFAULT ''")
+            _add_col("responded_by_id", "responded_by_id INTEGER")
+            _add_col("responded_at", "responded_at TEXT")
+            _add_col("status", "status VARCHAR(20) DEFAULT 'pending'")
 
-    seed_once()
-    refresh_shift_cache()
+        seed_once()
+        refresh_shift_cache()
 
 # Expose helpers & models needed by Jinja templates that refer to them directly
 app.jinja_env.globals['month_range'] = month_range

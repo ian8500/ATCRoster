@@ -22,6 +22,7 @@
   <a href="{{ url_for('requests_page') }}"><i class="fa-solid fa-calendar-plus"></i><span><strong>Request a shift</strong><small>Submit or review requests</small></span></a>
   <a href="{{ url_for('calendar_feed', sid=staff.id, token=staff.calendar_token) if staff.calendar_token else '#' }}"><i class="fa-regular fa-calendar"></i><span><strong>Roster calendar</strong><small>Subscribe on your phone</small></span></a>
   <a href="{{ url_for('password_change') }}"><i class="fa-solid fa-key"></i><span><strong>Security</strong><small>Change your password</small></span></a>
+  <a href="{{ url_for('mfa_setup') }}"><i class="fa-solid fa-shield-halved"></i><span><strong>Multi-factor authentication</strong><small>Protect your account</small></span></a>
 </div>
 
 <div class="profile-dashboard">

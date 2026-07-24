@@ -11,6 +11,8 @@ psycopg[binary]==3.2.3
 
 # Security / password hashing
 Werkzeug==3.0.4
+cryptography==43.0.1
+pyotp==2.9.0
 
 # Utilities
 itsdangerous==2.2.0

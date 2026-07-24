@@ -69,6 +69,10 @@ After signing in:
 - Use **Qualification compliance** at `/compliance`.
 - Use **Compliance** at `/compliance-centre` for explainable fatigue findings
   and the regulator/auditor evidence export.
+- Use **Operations** for position endorsements, resilient staffing
+  requirements, break planning, achieved duty, fatigue-report review and
+  approved rostering-rule versions.
+- Use **Fatigue** to submit a personal fatigue concern for manager review.
 - Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
 - Use **Roster scenarios** at `/planning/scenarios`.
 - Use **Airport onboarding** at `/unit/onboarding`.
@@ -299,6 +303,28 @@ and the explainable finding. It is intended to support competent human review,
 not declare a roster legally compliant. Correct the roster or record an
 authorised decision through the controlled change process before publication.
 
+### Production operational assurance
+
+The Unit Admin **Operations** workspace at `/operations/YYYY-MM` provides:
+
+- safety-critical operational positions;
+- controller position endorsements with validity and restrictions;
+- daily position/shift demand plus a resilience reserve;
+- eligible endorsed-controller coverage and shortfalls;
+- planned operational breaks;
+- achieved duty start/end and planned-versus-actual variance reasons;
+- manager review and closure of controller fatigue reports;
+- draft, approved and superseded rostering-rule versions.
+
+Rule approval requires a change reference, consultation summary and effective
+date. Publication is blocked when the month has no operational positions,
+position requirements, break plan or approved rule version; when an endorsed
+position is short; or when a high/unfit fatigue report remains open.
+
+Controllers submit fatigue concerns through `/fatigue/report`. This supports,
+but does not replace, the unit's immediate fit-for-duty reporting procedure or
+Safety Management System.
+
 ## Coverage and scenario planning
 
 Open `/planning/coverage/YYYY-MM` for a date/shift coverage heatmap. Zero
@@ -435,7 +461,31 @@ Run behind an HTTPS reverse proxy and set:
 FLASK_SECRET_KEY=<high-entropy deployment secret>
 DATABASE_URL=<database URL for the selected deployment role>
 ATCROSTER_SECURE_COOKIES=true
+ATCROSTER_FIELD_ENCRYPTION_KEY=<Fernet key from the managed secret store>
 ```
+
+Production mode refuses to start with SQLite, the fallback/short Flask secret,
+insecure cookies or a missing/invalid field-encryption key. Schema creation and
+seed data are disabled at runtime; Alembic exclusively controls the production
+schema.
+
+Container deployment files are provided:
+
+```bash
+cp .env.example .env
+docker compose build
+docker compose run --rm migrate
+docker compose run --rm web flask --app app bootstrap-platform
+docker compose up -d web
+```
+
+The Compose port binds to loopback. Place a maintained HTTPS reverse proxy in
+front of it; do not expose the application port directly.
+
+Health endpoints:
+
+- `/health/live` — process liveness;
+- `/health/ready` — database connectivity and required-schema readiness.
 
 ### Native desktop mode
 
@@ -567,6 +617,9 @@ secret manager, backup service, email/SMS provider, and reverse proxy.
 See [SECURITY.md](SECURITY.md) for production requirements and known gaps, and
 [docs/pilot_readiness.md](docs/pilot_readiness.md) for the recommended pilot
 acceptance and evidence plan.
+
+Deployment, monitoring, backup, restore, incident and upgrade procedures are
+in [docs/production_runbook.md](docs/production_runbook.md).
 
 The accountable-manager product assessment and remaining operational roadmap
 are recorded in [docs/atc_manager_review.md](docs/atc_manager_review.md).

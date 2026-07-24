@@ -23,6 +23,10 @@
         <article class="{{ 'danger' if preflight.qualification_gaps else 'success' }}"><span>Competence failures</span><strong>{{ preflight.qualification_gaps|length }}</strong></article>
         <article class="{{ 'warning' if preflight.coverage_gaps else 'success' }}"><span>Coverage shortfalls</span><strong>{{ preflight.coverage_gaps|length }}</strong></article>
         <article class="{{ 'warning' if preflight.fatigue_total else 'success' }}"><span>Fatigue findings</span><strong>{{ preflight.fatigue_total }}</strong></article>
+        <article class="{{ 'danger' if preflight.position_shortfalls else 'success' }}"><span>Position shortfalls</span><strong>{{ preflight.position_shortfalls|length }}</strong></article>
+        <article class="{{ 'danger' if preflight.critical_fatigue_reports else 'success' }}"><span>Open high/unfit reports</span><strong>{{ preflight.critical_fatigue_reports|length }}</strong></article>
+        <article class="{{ 'danger' if not preflight.approved_rule else 'success' }}"><span>Approved rule version</span><strong>{{ 'v' ~ preflight.approved_rule.version if preflight.approved_rule else 'None' }}</strong></article>
+        <article class="{{ 'danger' if preflight.configuration_blocks else 'success' }}"><span>Configuration blocks</span><strong>{{ preflight.configuration_blocks|length }}</strong></article>
       </div>
       {% if preflight.hard_blocks %}
         <p class="publication-block"><i class="fa-solid fa-ban"></i> Publication is blocked until every assignment and required qualification is valid.</p>
@@ -39,6 +43,24 @@
               <span>{{ gap.day.strftime('%d %b') }} · {{ gap.group }}: {{ gap.available }}/{{ gap.needed }}</span>
             {% endfor %}
             {% if preflight.coverage_gaps|length > 20 %}<span>+ {{ preflight.coverage_gaps|length - 20 }} more</span>{% endif %}
+          </div>
+        </details>
+      {% endif %}
+      {% if preflight.configuration_blocks %}
+        <details open>
+          <summary>Resolve production configuration blocks</summary>
+          <div class="assurance-exceptions">
+            {% for message in preflight.configuration_blocks %}<span>{{ message }}</span>{% endfor %}
+          </div>
+        </details>
+      {% endif %}
+      {% if preflight.position_shortfalls %}
+        <details>
+          <summary>Review position and endorsement shortfalls</summary>
+          <div class="assurance-exceptions">
+            {% for row in preflight.position_shortfalls %}
+              <span>{{ row.requirement.day.strftime('%d %b') }} · {{ row.requirement.shift_code }} · {{ row.position.code }}: {{ row.eligible }}/{{ row.target }}</span>
+            {% endfor %}
           </div>
         </details>
       {% endif %}
@@ -71,6 +93,8 @@
                 <dt>Fatigue findings</dt><dd>{{ release_assurance.fatigue_findings }}</dd>
                 <dt>Coverage shortfalls</dt><dd>{{ release_assurance.coverage_shortfalls }}</dd>
                 <dt>Competence failures</dt><dd>{{ release_assurance.qualification_failures }}</dd>
+                <dt>Position shortfalls</dt><dd>{{ release_assurance.position_shortfalls }}</dd>
+                <dt>Rule version</dt><dd>{{ release_assurance.approved_rule_version }}</dd>
                 <dt>Manager rationale</dt><dd>{{ release_assurance.exception_reason or 'No exceptions recorded' }}</dd>
               </dl>
             </details>
