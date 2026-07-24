@@ -26,6 +26,7 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body class="app-body">
+  <a class="skip-link" href="#main">Skip to main content</a>
   <header class="site-header">
     <div class="nav-container">
       <div class="brand">
@@ -40,12 +41,17 @@
           </div>
         {% endif %}
       </div>
-      <nav class="main-nav" aria-label="Primary">
+      <button class="nav-toggle" type="button" aria-expanded="false"
+              aria-controls="primary-navigation">
+        <span aria-hidden="true">☰</span>
+        <span>Menu</span>
+      </button>
+      <nav class="main-nav" id="primary-navigation" aria-label="Primary">
         {% if current_user.is_authenticated %}
           {% if current_user.role == 'superadmin' %}
-            <a href="{{ url_for('platform_admin') }}" class="nav-link {% if request.endpoint == 'platform_admin' %}active{% endif %}">🛡️ Platform Admin</a>
+            <a href="{{ url_for('platform_admin') }}" {% if request.endpoint == 'platform_admin' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'platform_admin' %}active{% endif %}">🛡️ Platform Admin</a>
           {% else %}
-            <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}">📅 Roster</a>
+            <a href="{{ url_for('index') }}" {% if request.endpoint == 'roster_month' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}">📅 Roster</a>
             <a href="{{ url_for('requests_page') }}" class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}">📝 Requests</a>
             <a href="{{ url_for('publication_index') }}" class="nav-link {% if request.endpoint in ('publication_index','publication_centre') %}active{% endif %}">✅ Published</a>
             <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}">👤 Profile</a>
@@ -70,11 +76,11 @@
     </div>
   </header>
 
-  <main id="main" class="app-main">
+  <main id="main" class="app-main" tabindex="-1">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         <div class="container-xl">
-          <ul class="flashes">
+          <ul class="flashes" role="status" aria-live="polite" aria-atomic="true">
             {% for category, message in messages %}
               <li class="flash {{ category }}">{{ message }}</li>
             {% endfor %}
@@ -105,10 +111,128 @@
 
     function printRoster(){ window.print(); }
 
+    const navToggle = document.querySelector('.nav-toggle');
+    const primaryNavigation = document.querySelector('#primary-navigation');
+    if (navToggle && primaryNavigation) {
+      navToggle.addEventListener('click', () => {
+        const open = navToggle.getAttribute('aria-expanded') === 'true';
+        navToggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+        primaryNavigation.classList.toggle('is-open', !open);
+      });
+      primaryNavigation.addEventListener('click', (event) => {
+        if (event.target.closest('a') && window.innerWidth <= 900) {
+          navToggle.setAttribute('aria-expanded', 'false');
+          primaryNavigation.classList.remove('is-open');
+        }
+      });
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && navToggle && primaryNavigation) {
+        navToggle.setAttribute('aria-expanded', 'false');
+        primaryNavigation.classList.remove('is-open');
+        navToggle.focus();
+      }
+    });
+
+    document.querySelectorAll('[data-password-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const input = document.getElementById(button.dataset.passwordToggle);
+        if (!input) return;
+        const reveal = input.type === 'password';
+        input.type = reveal ? 'text' : 'password';
+        button.textContent = reveal ? 'Hide' : 'Show';
+        button.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+        button.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+        input.focus();
+      });
+    });
+
+    document.querySelectorAll('.nav-link.active').forEach((link) => {
+      link.setAttribute('aria-current', 'page');
+    });
+
+    // Prevent accidental duplicate writes while preserving the clicked
+    // submit button's action/name in the submitted payload.
+    document.querySelectorAll('form[method="post"], form[method="POST"]').forEach((form) => {
+      form.addEventListener('submit', (event) => {
+        if (form.dataset.submitting === 'true') {
+          event.preventDefault();
+          return;
+        }
+        if (!form.checkValidity()) return;
+        form.dataset.submitting = 'true';
+        form.setAttribute('aria-busy', 'true');
+        const submitter = event.submitter;
+        if (submitter && submitter.name) {
+          const actionValue = document.createElement('input');
+          actionValue.type = 'hidden';
+          actionValue.name = submitter.name;
+          actionValue.value = submitter.value;
+          form.appendChild(actionValue);
+        }
+        window.setTimeout(() => {
+          form.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type])')
+            .forEach((button) => {
+              button.disabled = true;
+              button.setAttribute('aria-disabled', 'true');
+            });
+        }, 0);
+      });
+    });
+
+    const rosterZoomStorageKey = 'atcroster-roster-zoom';
+    let rosterZoomPreference = 'fit';
+    try {
+      const savedRosterZoom = window.localStorage.getItem(rosterZoomStorageKey);
+      if (['fit', '0.75', '0.90', '1'].includes(savedRosterZoom)) {
+        rosterZoomPreference = savedRosterZoom;
+      }
+    } catch (_error) {
+      rosterZoomPreference = 'fit';
+    }
+
+    function markRosterZoomPreset(value) {
+      document.querySelectorAll('[data-roster-zoom]').forEach((button) => {
+        const active = button.dataset.rosterZoom === value;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    }
+
+    function applyRosterZoom(scale, preference) {
+      const host = document.querySelector('#roster');
+      document.documentElement.style.setProperty('--ui-scale', scale.toFixed(3));
+      if (host) {
+        host.dataset.scale = scale.toFixed(3);
+        host.dataset.zoomMode = preference;
+      }
+      markRosterZoomPreset(preference);
+    }
+
+    function setRosterZoomPreset(value) {
+      rosterZoomPreference = ['fit', '0.75', '0.90', '1'].includes(value)
+        ? value : 'fit';
+      try {
+        window.localStorage.setItem(rosterZoomStorageKey, rosterZoomPreference);
+      } catch (_error) {
+        // Browser privacy settings may disable local storage.
+      }
+      if (rosterZoomPreference === 'fit') {
+        fitRoster(true);
+      } else {
+        applyRosterZoom(Number(rosterZoomPreference), rosterZoomPreference);
+      }
+    }
+
     // Auto-fit roster to viewport (scale UI, avoid horizontal scroll)
-    function fitRoster() {
+    function fitRoster(force = false) {
       const table = document.querySelector('#roster table.roster, table.roster');
       if (!table) return;
+
+      if (!force && rosterZoomPreference !== 'fit') {
+        applyRosterZoom(Number(rosterZoomPreference), rosterZoomPreference);
+        return;
+      }
 
       const host = table.closest('#roster') || table.parentElement;
       const hostRect = host ? host.getBoundingClientRect() : null;
@@ -142,10 +266,7 @@
       scale = Math.min(1, scale);
       if (scale < minScale) scale = minScale;
 
-      document.documentElement.style.setProperty('--ui-scale', scale.toFixed(3));
-      if (host) {
-        host.dataset.scale = scale.toFixed(3);
-      }
+      applyRosterZoom(scale, 'fit');
     }
 
     // Schedule layout work so rapid resize events don't thrash the layout engine
@@ -162,7 +283,11 @@
     let rosterResizeObserver = null;
 
     window.addEventListener('load', () => {
-      fitRoster();
+      if (rosterZoomPreference === 'fit') {
+        fitRoster(true);
+      } else {
+        applyRosterZoom(Number(rosterZoomPreference), rosterZoomPreference);
+      }
       window.addEventListener('resize', scheduleFit, { passive: true });
 
       const table = document.querySelector('#roster table.roster, table.roster');

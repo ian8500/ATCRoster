@@ -73,11 +73,24 @@
   <a class="btn" href="{{ url_for('roster_export_csv', ym=ym) }}" style="margin-left:1rem">Export CSV</a>
   <button class="btn" onclick="printRoster()">Print</button>
 
+  <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
+    <span class="roster-zoom-label">Zoom</span>
+    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.75"
+            onclick="setRosterZoomPreset('0.75')">75%</button>
+    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.90"
+            onclick="setRosterZoomPreset('0.90')">90%</button>
+    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="1"
+            onclick="setRosterZoomPreset('1')">100%</button>
+    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="fit"
+            onclick="setRosterZoomPreset('fit')">Fit width</button>
+  </div>
+
   {# Admin-only: Run AI for Month (POST) #}
   {% if current_user.is_authenticated and is_admin %}
     <form method="post"
           action="{{ url_for('admin_ai_generate', ym=ym) }}"
           style="display:inline;">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <button class="btn" type="submit" style="margin-left:.5rem;"
               onclick="return confirm('Run AI for {{ month_title }} now?');">
         Run AI for Month
@@ -140,6 +153,7 @@
           <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}">
             <!-- SHIFT CODE -->
             <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
                 name="code"
                 class="code-input {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
@@ -183,6 +197,7 @@
 
             <!-- ANNOTATION -->
             <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
                 name="annotation"
                 class="annot-select {% if ann %}has-annotation{% endif %}"

@@ -6,6 +6,8 @@
 <div class="card" style="margin-bottom:1rem">
   <div class="card-bd">
     <form method="post" class="toolbar">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="find">
       <label>Date <input type="date" name="date" value="{{ chosen_date }}"></label>
       <label>Shift
         <select name="shift_code">
@@ -19,12 +21,22 @@
   </div>
 </div>
 
-{% if results %}
+{% if searched %}
 <form method="post" class="card">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="action" value="send_sms">
   <input type="hidden" name="date" value="{{ chosen_date }}">
   <input type="hidden" name="shift_code" value="{{ chosen_shift }}">
   <div class="card-bd">
+    <div class="section-heading">
+      <div>
+        <h2>Eligibility result</h2>
+        <p class="muted">
+          {{ results|length }} eligible ATCO{% if results|length != 1 %}s{% endif %}
+          for {{ chosen_shift }} on {{ chosen_date }}.
+        </p>
+      </div>
+    </div>
     <div class="table-scroll">
       <table class="table">
         <thead>
@@ -65,12 +77,23 @@
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="7" class="muted">No eligible staff match the rules.</td></tr>
+            <tr>
+              <td colspan="7">
+                <strong>Nobody is eligible for overtime for this date and shift.</strong>
+                <div class="muted">
+                  Staff already working, opted out, without an in-date
+                  endorsement or required qualification, at six consecutive
+                  duties, or creating a blocking fatigue issue are excluded.
+                  Try another date or shift.
+                </div>
+              </td>
+            </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
 
+    {% if results %}
     <div class="grid grid-2" style="gap:1rem; margin-top:1rem; align-items:start">
       <label>Message
         <textarea name="message" rows="3" maxlength="480" placeholder="SMS body">{{ sms_body }}</textarea>
@@ -85,6 +108,7 @@
         </button>
       </div>
     </div>
+    {% endif %}
   </div>
 </form>
 {% endif %}
