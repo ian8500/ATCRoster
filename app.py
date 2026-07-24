@@ -54,6 +54,12 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "max_overflow": 5,
 }
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ATCROSTER_SECURE_COOKIES", "").lower() in {
+    "1", "true", "yes"
+}
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=12)
 
 # Make external URLs prefer https behind PA’s proxy
 app.config["PREFERRED_URL_SCHEME"] = "https"
@@ -137,6 +143,21 @@ def _bind_tenant_context():
         unit_id = int(getattr(current_user, "unit_id", 0) or 0)
         if unit_id:
             g.tenant_context_token = bind_authenticated_unit(unit_id)
+
+
+@app.after_request
+def _security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+    )
+    if request.is_secure:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 
 @app.teardown_request
@@ -1881,6 +1902,120 @@ def would_create_new_fatigue_issues(
             new_flags[d] = diff
     return new_flags
 
+
+def _compliance_month(ym: str | None) -> tuple[int, int]:
+    today = date.today()
+    value = (ym or f"{today.year:04d}-{today.month:02d}").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", value):
+        abort(400, "Month must use YYYY-MM.")
+    year, month = map(int, value.split("-"))
+    if month not in range(1, 13):
+        abort(400, "Invalid month.")
+    return year, month
+
+
+def _compliance_findings(year: int, month: int) -> dict:
+    _, days = month_range(year, month)
+    people = (
+        Staff.query.filter_by(is_operational=True)
+        .outerjoin(Watch, Staff.watch_id == Watch.id)
+        .order_by(Watch.order_index, Staff.name)
+        .all()
+    )
+    rows = []
+    rule_counts: Counter[str] = Counter()
+    for person in people:
+        flags = fatigue_flags_for_range(person, days)
+        issues = []
+        for finding_day, messages in sorted(flags.items()):
+            assignment = Assignment.query.filter_by(
+                staff_id=person.id, day=finding_day
+            ).first()
+            for message in messages:
+                rule = message.split(":", 1)[0].split("(", 1)[0].strip()
+                severity = "critical" if any(
+                    token in message
+                    for token in ("<11h", "3rd consecutive", ">200h", "> 10h")
+                ) else "warning"
+                rule_counts[rule] += 1
+                issues.append({
+                    "day": finding_day,
+                    "message": message,
+                    "rule": rule,
+                    "severity": severity,
+                    "assignment": assignment,
+                })
+        rows.append({"staff": person, "issues": issues, "total": len(issues)})
+    total = sum(row["total"] for row in rows)
+    return {
+        "days": days,
+        "rows": rows,
+        "total": total,
+        "affected": sum(1 for row in rows if row["total"]),
+        "critical": sum(
+            1 for row in rows for issue in row["issues"]
+            if issue["severity"] == "critical"
+        ),
+        "rule_counts": rule_counts.most_common(),
+    }
+
+
+@app.route("/compliance-centre")
+@login_required
+def compliance_centre():
+    if not is_admin_user(current_user):
+        abort(403)
+    year, month = _compliance_month(request.args.get("ym"))
+    findings = _compliance_findings(year, month)
+    py, pm = _month_add(year, month, -1)
+    ny, nm = _month_add(year, month, 1)
+    return render_template(
+        "compliance_centre.html",
+        ym=f"{year:04d}-{month:02d}",
+        month_title=date(year, month, 1).strftime("%B %Y"),
+        prev_ym=f"{py:04d}-{pm:02d}",
+        next_ym=f"{ny:04d}-{nm:02d}",
+        **findings,
+    )
+
+
+@app.route("/compliance-centre/export")
+@login_required
+def compliance_centre_export():
+    if not is_admin_user(current_user):
+        abort(403)
+    year, month = _compliance_month(request.args.get("ym"))
+    findings = _compliance_findings(year, month)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Airport", "Month", "ATCO", "Staff number", "Watch", "Date",
+        "Severity", "Rule", "Finding",
+    ])
+    unit = db.session.get(Unit, _current_unit_id())
+    for row in findings["rows"]:
+        person = row["staff"]
+        for issue in row["issues"]:
+            writer.writerow([
+                unit.code if unit else "",
+                f"{year:04d}-{month:02d}",
+                person.name,
+                person.staff_no,
+                person.watch.name if person.watch else "",
+                issue["day"].isoformat(),
+                issue["severity"],
+                issue["rule"],
+                issue["message"],
+            ])
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition":
+                f"attachment; filename=compliance-evidence-{year:04d}-{month:02d}.csv"
+        },
+    )
+
 # -------------------- Migrations / seeding --------------------
 
 
@@ -2639,6 +2774,7 @@ def admin_required(f):
 def password_change():
     """Allow any logged-in user to reset OWN password."""
     if request.method == "POST":
+        _validate_csrf()
         cur = request.form.get("current_password", "")
         new1 = request.form.get("new_password", "")
         new2 = request.form.get("confirm_password", "")
@@ -2647,6 +2783,12 @@ def password_change():
             return redirect(url_for("password_change"))
         if not new1 or new1 != new2:
             flash("New passwords do not match.", "error")
+            return redirect(url_for("password_change"))
+        if len(new1) < 12:
+            flash("Use a password of at least 12 characters.", "error")
+            return redirect(url_for("password_change"))
+        if new1 == cur:
+            flash("Choose a password different from the current password.", "error")
             return redirect(url_for("password_change"))
         u = db.session.get(Staff, current_user.id)
         u.set_password(new1)
@@ -2663,6 +2805,147 @@ def password_change():
 def index():
     t = date.today()
     return redirect(url_for("roster_month", ym=f"{t.year}-{t.month:02d}"))
+
+
+def _roster_snapshot(year: int, month: int) -> dict:
+    start = date(year, month, 1)
+    ny, nm = _month_add(year, month, 1)
+    end = date(ny, nm, 1)
+    assignments = (
+        Assignment.query.filter(
+            Assignment.day >= start, Assignment.day < end
+        )
+        .order_by(Assignment.staff_id, Assignment.day)
+        .all()
+    )
+    return {
+        "generated_at": utcnow().isoformat(),
+        "year": year,
+        "month": month,
+        "assignments": [
+            {
+                "staff_id": row.staff_id,
+                "day": row.day.isoformat(),
+                "code": row.code,
+                "annotation": row.annotation or "",
+            }
+            for row in assignments
+        ],
+    }
+
+
+@app.route("/publications")
+@login_required
+def publication_index():
+    today = date.today()
+    return redirect(url_for(
+        "publication_centre", ym=f"{today.year:04d}-{today.month:02d}"
+    ))
+
+
+@app.route("/publications/<ym>", methods=["GET", "POST"])
+@login_required
+def publication_centre(ym):
+    year, month = _compliance_month(ym)
+    if request.method == "POST":
+        _validate_csrf()
+        action = (request.form.get("action") or "").strip()
+        if action == "publish":
+            if not is_admin_user(current_user):
+                abort(403)
+            current = (
+                RosterPublication.query.filter_by(
+                    year=year, month=month, state="published"
+                )
+                .order_by(RosterPublication.version.desc())
+                .first()
+            )
+            latest_version = (
+                db.session.query(db.func.max(RosterPublication.version))
+                .filter(
+                    RosterPublication.unit_id == _current_unit_id(),
+                    RosterPublication.year == year,
+                    RosterPublication.month == month,
+                )
+                .scalar()
+                or 0
+            )
+            if current:
+                current.state = "superseded"
+                current.superseded_at = utcnow()
+            publication = RosterPublication(
+                unit_id=_current_unit_id(),
+                year=year, month=month,
+                version=latest_version + 1,
+                state="published",
+                snapshot_json=json.dumps(_roster_snapshot(year, month)),
+                published_at=utcnow(),
+            )
+            db.session.add(publication)
+            for person in Staff.query.filter_by(
+                is_operational=True, membership_status="active"
+            ).all():
+                db.session.add(Notification(
+                    unit_id=_current_unit_id(),
+                    recipient_id=person.id,
+                    kind="roster_published",
+                    message=(
+                        f"{date(year, month, 1).strftime('%B %Y')} roster "
+                        f"version {publication.version} is ready to review."
+                    ),
+                ))
+            db.session.commit()
+            log_change(
+                "RosterPublication", publication.id, "state", "draft",
+                "published", context_day=date(year, month, 1),
+            )
+            flash(f"Roster version {publication.version} published.", "ok")
+            return redirect(url_for("publication_centre", ym=ym))
+        if action == "acknowledge":
+            publication_id = int(request.form.get("publication_id") or 0)
+            publication = RosterPublication.query.filter_by(
+                id=publication_id, year=year, month=month, state="published"
+            ).first_or_404()
+            existing = RosterAcknowledgement.query.filter_by(
+                publication_id=publication.id, person_id=current_user.id
+            ).first()
+            if not existing:
+                db.session.add(RosterAcknowledgement(
+                    unit_id=_current_unit_id(),
+                    publication_id=publication.id,
+                    person_id=current_user.id,
+                ))
+                db.session.commit()
+            flash("Roster acknowledgement recorded.", "ok")
+            return redirect(url_for("publication_centre", ym=ym))
+        abort(400)
+
+    publications = (
+        RosterPublication.query.filter_by(year=year, month=month)
+        .order_by(RosterPublication.version.desc())
+        .all()
+    )
+    active = next((row for row in publications if row.state == "published"), None)
+    acknowledged = False
+    acknowledgements = []
+    if active:
+        acknowledgements = RosterAcknowledgement.query.filter_by(
+            publication_id=active.id
+        ).all()
+        acknowledged = any(
+            row.person_id == current_user.id for row in acknowledgements
+        )
+    py, pm = _month_add(year, month, -1)
+    ny, nm = _month_add(year, month, 1)
+    return render_template(
+        "publication_centre.html",
+        ym=ym, year=year, month=month,
+        month_title=date(year, month, 1).strftime("%B %Y"),
+        publications=publications, active=active,
+        acknowledgements=acknowledgements, acknowledged=acknowledged,
+        operational_count=Staff.query.filter_by(is_operational=True).count(),
+        prev_ym=f"{py:04d}-{pm:02d}", next_ym=f"{ny:04d}-{nm:02d}",
+    )
 
 
 def _clamp_prev_next(year, month):
@@ -4004,6 +4287,8 @@ def leave():
 @login_required
 def staff_profile(sid):
     s = Staff.query.get_or_404(sid)
+    if s.id != current_user.id and not is_editor_user(current_user):
+        abort(403)
     today = date.today()
 
     # ensure_month_requirement(today.year, today.month)
@@ -4048,10 +4333,51 @@ def staff_profile(sid):
         from urllib.parse import quote
         google_link = f"https://calendar.google.com/calendar/r?cid={quote(cal_link)}"
 
-    return render_template("staff_profile.html", staff=s,
-                           al_days=al_days, sick_days=sick_days,
-                           hours_this_month=hours_this_month,
-                           cal_link=cal_link, apple_link=apple_link, google_link=google_link)
+    upcoming = (
+        Assignment.query.filter(
+            Assignment.staff_id == s.id,
+            Assignment.day >= today,
+            Assignment.day <= today + timedelta(days=45),
+        )
+        .order_by(Assignment.day.asc())
+        .all()
+    )
+    next_duty = next(
+        (a for a in upcoming if getattr(get_shift(a.code), "is_working", False)),
+        None,
+    )
+    recent_requests = (
+        ShiftRequest.query.filter_by(staff_id=s.id)
+        .order_by(ShiftRequest.updated_at.desc())
+        .limit(5)
+        .all()
+    )
+    notifications = (
+        Notification.query.filter_by(recipient_id=s.id)
+        .order_by(Notification.created_at.desc())
+        .limit(8)
+        .all()
+    )
+    return render_template(
+        "staff_profile.html", staff=s,
+        al_days=al_days, sick_days=sick_days,
+        hours_this_month=hours_this_month,
+        cal_link=cal_link, apple_link=apple_link, google_link=google_link,
+        upcoming=upcoming[:10], next_duty=next_duty,
+        recent_requests=recent_requests, notifications=notifications,
+        unread_notifications=sum(1 for item in notifications if not item.read_at),
+    )
+
+
+@app.post("/notifications/read")
+@login_required
+def notifications_read():
+    _validate_csrf()
+    Notification.query.filter_by(
+        recipient_id=current_user.id, read_at=None
+    ).update({"read_at": utcnow()})
+    db.session.commit()
+    return redirect(url_for("staff_profile", sid=current_user.id))
 
 # -------------------- Metrics + CSV (date range; FYTD default) --------------------
 # (… unchanged metrics functions from your file …)
@@ -5337,9 +5663,22 @@ def unit_onboarding():
         return redirect(url_for("unit_onboarding"))
     active = UnitMembership.query.filter_by(unit_id=unit.id, status="active").count()
     pending = UnitMembership.query.filter_by(unit_id=unit.id, status="invited").count()
+    readiness = [
+        ("Airport identity", bool(unit.name and unit.code and unit.timezone), "unit_onboarding"),
+        ("Watches configured", Watch.query.count() > 0, "admin"),
+        ("Active shifts configured", ShiftType.query.filter_by(is_active=True).count() > 0, "admin"),
+        ("Operational staff added", Staff.query.filter_by(is_operational=True).count() > 0, "admin"),
+        ("Staffing requirements set", Requirement.query.count() > 0, "admin"),
+        ("Qualification types set", QualificationType.query.count() > 0, "qualification_compliance"),
+        ("Compliance review available", True, "compliance_centre"),
+        ("Unit Admin access active", active > 0, "unit_accounts"),
+    ]
+    readiness_complete = sum(1 for _, complete, _ in readiness if complete)
     return render_template(
         "unit_onboarding.html", unit=unit, active_accounts=active,
-        pending_invitations=pending,
+        pending_invitations=pending, readiness=readiness,
+        readiness_complete=readiness_complete,
+        readiness_percent=round(readiness_complete / len(readiness) * 100),
     )
 
 

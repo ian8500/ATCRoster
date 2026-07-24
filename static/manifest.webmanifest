@@ -1,0 +1,17 @@
+{
+  "name": "ATC Roster",
+  "short_name": "ATCRoster",
+  "description": "Compliance-first ATCO roster and workforce management.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101923",
+  "theme_color": "#16283a",
+  "icons": [
+    {
+      "src": "/static/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

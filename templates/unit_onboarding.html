@@ -1,29 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Airport Onboarding{% endblock %}
 {% block content %}
-<div class="container my-4">
-  <h2>Airport onboarding</h2>
-  <p>Step {{ unit.onboarding_step }} of 10 · active accounts {{ active_accounts }}/{{ unit.active_user_limit }} · pending invitations {{ pending_invitations }}</p>
-  <ol>
-    <li>Unit identity, locale and branding</li><li>Watches and teams</li>
-    <li>Shift definitions and templates</li><li>Qualification types</li>
-    <li>Qualification warning periods</li><li>Staffing requirements</li>
-    <li>Fatigue and request rules</li><li>CSV import preview</li>
-    <li>Invite Unit Admins</li><li>Go-live checklist</li>
-  </ol>
-  <form method="post" class="card card-body">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="step" value="{{ unit.onboarding_step }}">
-    {% if unit.onboarding_step == 1 %}
-      <label>Name <input class="form-control" name="name" value="{{ unit.name }}" required></label>
-      <label>Code <input class="form-control" name="code" value="{{ unit.code }}" required></label>
-      <label>Timezone <input class="form-control" name="timezone" value="{{ unit.timezone }}"></label>
-      <label>Locale <input class="form-control" name="locale" value="{{ unit.locale }}"></label>
-      <label>Date format <input class="form-control" name="date_format" value="{{ unit.date_format }}"></label>
-    {% else %}
-      <p>Configure this step using the linked unit administration screen, then continue.</p>
-    {% endif %}
-    <button class="btn btn-primary mt-3" type="submit">Save and continue</button>
-  </form>
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Pilot readiness</span>
+    <h2>Airport onboarding</h2>
+    <p>{{ unit.name }} · {{ active_accounts }}/{{ unit.active_user_limit }} active accounts · {{ pending_invitations }} pending invitations</p>
+  </div>
+  <div class="onboarding-score" aria-label="{{ readiness_percent }} percent configured">
+    <strong>{{ readiness_percent }}%</strong><span>configured</span>
+  </div>
+</section>
+
+<div class="onboarding-progress" role="progressbar" aria-valuenow="{{ readiness_percent }}" aria-valuemin="0" aria-valuemax="100">
+  <span style="width:{{ readiness_percent }}%"></span>
 </div>
+
+<div class="onboarding-layout">
+  <section class="card">
+    <div class="card-hd">Configuration checklist · {{ readiness_complete }}/{{ readiness|length }}</div>
+    <div class="card-bd onboarding-checklist">
+      {% for label, complete, endpoint in readiness %}
+        <a href="{{ url_for(endpoint) }}" class="{{ 'complete' if complete else '' }}">
+          <i class="fa-solid {{ 'fa-circle-check' if complete else 'fa-circle' }}"></i>
+          <span>{{ label }}</span>
+          <small>{{ 'Configured' if complete else 'Needs attention' }}</small>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-hd">Airport identity</div>
+    <form method="post" class="card-bd grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="step" value="1">
+      <label>Name <input class="form-control" name="name" value="{{ unit.name }}" required></label>
+      <label>Code <input class="form-control" name="code" value="{{ unit.code }}" pattern="[A-Za-z0-9]{2,12}" required></label>
+      <label>Timezone <input class="form-control" name="timezone" value="{{ unit.timezone }}" required></label>
+      <label>Locale <input class="form-control" name="locale" value="{{ unit.locale }}" required></label>
+      <label>Date format <input class="form-control" name="date_format" value="{{ unit.date_format }}" required></label>
+      <button class="btn btn-primary" type="submit">Save airport identity</button>
+    </form>
+  </section>
+</div>
+
+<section class="card mt-3">
+  <div class="card-hd">Recommended pilot sequence</div>
+  <div class="card-bd">
+    <ol class="compliance-workflow">
+      <li>Configure watches, shifts and staffing requirements.</li>
+      <li>Add operational staff and check their qualifications.</li>
+      <li>Import or build a representative roster month.</li>
+      <li>Review the Fatigue &amp; Compliance Centre with an authorised roster manager.</li>
+      <li>Publish a controlled version and test staff acknowledgement.</li>
+      <li>Complete restore, access-control and operational acceptance tests before live use.</li>
+    </ol>
+  </div>
+</section>
 {% endblock %}
