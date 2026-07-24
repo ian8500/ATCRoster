@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Roster Scenarios{% endblock %}
+{% block content %}
+<div class="container my-4"><h2>Roster scenarios</h2>
+<p>Scenarios are isolated from the live roster and require human approval before any future apply action.</p>
+<form method="post" class="card card-body">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<label>Name <input class="form-control" name="name" required></label>
+<label>Proposed changes (JSON preview) <textarea class="form-control" name="changes_json" rows="5">[]</textarea></label>
+<button class="btn btn-primary mt-2" type="submit">Save scenario</button>
+</form>
+<ul>{% for scenario in scenarios %}<li>{{ scenario.name }} · unapplied{% else %}<li>No scenarios yet.</li>{% endfor %}</ul>
+</div>
+{% endblock %}

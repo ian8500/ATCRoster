@@ -24,6 +24,7 @@
     <div class="card-header"><strong>Add / Update a Request</strong></div>
     <div class="card-body">
       <form class="row g-3 align-items-end" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="add">
         <div class="col-md-3">
           <label class="form-label">Date</label>
@@ -39,14 +40,14 @@
         </div>
         <div class="col-md-4">
           <label class="form-label">Comment (optional)</label>
-          <input type="text" name="comment" maxlength="120" class="form-control" placeholder="Reason or note to admin">
+          <input type="text" name="comment" maxlength="500" class="form-control" placeholder="Reason or note to admin">
         </div>
         <div class="col-md-2">
           <button class="btn btn-primary w-100" type="submit">Save</button>
         </div>
       </form>
       <div class="form-text mt-2">
-        You can request into the next three months only. A month becomes locked on the 20<span class="align-top">th</span> of the preceding month.
+        Requests are accepted for the configured future window. By default, a month locks on the 20<span class="align-top">th</span> of the preceding month.
       </div>
     </div>
   </div>
@@ -78,9 +79,13 @@
                   <td>{{ "%04d-%02d"|format(day.year, day.month) }}</td>
                   <td>{{ req.code }}</td>
                   <td>
-                    <span class="badge {% if (req.status or 'pending') in ['approved','closed'] %}bg-secondary{% elif (req.status or 'pending') == 'rejected' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                    <span class="badge {% if (req.status or 'pending') == 'approved' %}bg-success{% elif (req.status or 'pending') in ['rejected','cancelled'] %}bg-danger{% elif (req.status or 'pending') == 'fulfilled' %}bg-secondary{% else %}bg-warning text-dark{% endif %}"
+                          role="status" aria-label="Request status: {{ req.status or 'pending' }}">
                       {{ (req.status or 'pending')|capitalize }}
                     </span>
+                    {% if req.requester_comment %}
+                      <div class="small mt-1">Your note: {{ req.requester_comment }}</div>
+                    {% endif %}
                     {% if req.admin_response %}
                       <div class="text-muted small mt-1">“{{ req.admin_response }}”</div>
                     {% endif %}
@@ -88,6 +93,7 @@
                   <td>
                     {% if not is_locked(day.year, day.month) and (req.status or 'pending') == 'pending' %}
                       <form method="post" class="d-inline">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="form" value="del">
                         <input type="hidden" name="rid" value="{{ req.id }}">
                         <button class="btn btn-sm btn-danger" type="submit">Delete</button>
@@ -98,9 +104,11 @@
 
                     {% if current_user.is_admin_role %}
                       <form method="post" action="{{ url_for('admin_request_respond', rid=req.id) }}" class="d-inline ms-2">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="ym" value="{{ admin_ym or '' }}">
                         <div class="input-group input-group-sm" style="max-width: 520px;">
                           <select class="form-select" name="status">
-                            {% for st in ['pending','approved','rejected','closed'] %}
+                            {% for st in ['pending','approved','rejected','fulfilled','cancelled'] %}
                               <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
                             {% endfor %}
                           </select>
@@ -169,15 +177,22 @@
                   <td>{{ req.admin_response or '' }}</td>
                   <td>
                     <form method="post" action="{{ url_for('admin_request_respond', rid=req.id) }}" class="d-inline">
+                      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="ym" value="{{ admin_ym }}">
                       <div class="input-group input-group-sm">
                         <select class="form-select" name="status">
-                          {% for st in ['pending','approved','rejected','closed'] %}
+                          {% for st in ['pending','approved','rejected','fulfilled','cancelled'] %}
                             <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
                           {% endfor %}
                         </select>
                         <input class="form-control" name="admin_response" placeholder="Comment to requester" value="{{ req.admin_response or '' }}">
-                        <button class="btn btn-secondary" type="submit">Save</button>
+                        <button class="btn btn-secondary" name="action" value="status" type="submit">Save status</button>
                       </div>
+                      {% if (req.status or 'pending') == 'pending' %}
+                        <button class="btn btn-success btn-sm mt-1" name="action" value="approve_only" type="submit">Approve only</button>
+                        <button class="btn btn-primary btn-sm mt-1" name="action" value="approve_apply" type="submit">Approve and apply to roster</button>
+                        <label class="small ms-2"><input type="checkbox" name="confirm_override" value="yes"> Confirm permitted conflict override</label>
+                      {% endif %}
                     </form>
                   </td>
                 </tr>

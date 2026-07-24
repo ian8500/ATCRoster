@@ -125,7 +125,7 @@ def test_is_working_code_prefix_with_shift_records():
         assert _is_working_m_code("M123") is True
 
 
-def test_assign_cell_keeps_request_record_and_marks_closed():
+def test_assign_cell_keeps_request_record_and_marks_fulfilled():
     req_day = date(2025, 7, 1)
 
     with app.app.app_context():
@@ -173,8 +173,10 @@ def test_assign_cell_keeps_request_record_and_marks_closed():
 
     with app.app.app_context():
         req = ShiftRequest.query.filter_by(staff_id=requester.id, day=req_day).one()
-        # The request remains but is auto-closed because it had not been actioned.
-        assert req.status == "closed"
+        # The business record remains and links the resulting assignment.
+        assert req.status == "fulfilled"
+        assert req.fulfilled_at is not None
+        assert req.resulting_assignment_id is not None
         assert req.responded_by_id == admin.id
         assert req.responded_at is not None
 
@@ -251,4 +253,3 @@ def test_generate_month_roster_respects_night_cycle_and_eligibility():
             cycle_day = _cycle_day_for(assignment.staff, assignment.day)
             assert cycle_day in {5, 6}
             assert assignment.staff_id != blocked.id
-
