@@ -197,6 +197,11 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="1"' in response.data
     assert b'data-roster-zoom="fit"' in response.data
 
+    stylesheet = client.get("/static/styles.css")
+    assert stylesheet.status_code == 200
+    assert b".roster .cell select.code-input.off" in stylesheet.data
+    assert b"background: var(--off-blue)" in stylesheet.data
+
 
 def test_favicon_is_served(client):
     resp = client.get("/favicon.ico")

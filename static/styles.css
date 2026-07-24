@@ -709,15 +709,19 @@ select.code-input{
   text-transform:uppercase;
 }
 
-.code-input.group-m{ background: var(--green); color:#000; }
-.code-input.group-d{ background: var(--purple); color:#fff; }
-.code-input.group-a{ background: var(--orange); color:#000; }
-.code-input.group-n{ background: var(--yellow); color:#000; }
-.code-input.off{ background: var(--off-blue); color:#10243a; }
+.roster .cell select.code-input.group-m{ background: var(--green); color:#000; }
+.roster .cell select.code-input.group-d{ background: var(--purple); color:#fff; }
+.roster .cell select.code-input.group-a{ background: var(--orange); color:#000; }
+.roster .cell select.code-input.group-n{ background: var(--yellow); color:#000; }
+.roster .cell select.code-input.off{ background: var(--off-blue); color:#10243a; }
 
-.code-input.sc, .code-input.ssc{ background: var(--red); color:#fff; }
-.code-input.al, .code-input.pl, .code-input.spl,
-.code-input.toui, .code-input.tou8{ background: var(--blue); color:#000; }
+.roster .cell select.code-input.sc,
+.roster .cell select.code-input.ssc{ background: var(--red); color:#fff; }
+.roster .cell select.code-input.al,
+.roster .cell select.code-input.pl,
+.roster .cell select.code-input.spl,
+.roster .cell select.code-input.toui,
+.roster .cell select.code-input.tou8{ background: var(--blue); color:#000; }
 
 .annot-select{
   width:100%;
