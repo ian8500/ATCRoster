@@ -11,20 +11,21 @@ aggregates only.
 
 1. [Roles and privacy](#roles-and-privacy)
 2. [Getting started](#getting-started)
-3. [Airport onboarding](#airport-onboarding)
-4. [Using the roster](#using-the-roster)
-5. [Shift requests](#shift-requests)
-6. [Annotations and TOIL](#annotations-and-toil)
-7. [Qualifications and compliance](#qualifications-and-compliance)
-8. [Coverage and scenario planning](#coverage-and-scenario-planning)
-9. [Leave, sickness, overtime, and reports](#leave-sickness-overtime-and-reports)
-10. [Accounts and platform administration](#accounts-and-platform-administration)
-11. [Installation and deployment](#installation-and-deployment)
-12. [Database migrations and legacy import](#database-migrations-and-legacy-import)
-13. [Security operations](#security-operations)
-14. [Backup, restore, and recovery](#backup-restore-and-recovery)
-15. [Testing](#testing)
-16. [Troubleshooting](#troubleshooting)
+3. [Unit administration workspace](#unit-administration-workspace)
+4. [Airport onboarding](#airport-onboarding)
+5. [Using the roster](#using-the-roster)
+6. [Shift requests](#shift-requests)
+7. [Annotations and TOIL](#annotations-and-toil)
+8. [Qualifications and compliance](#qualifications-and-compliance)
+9. [Coverage and scenario planning](#coverage-and-scenario-planning)
+10. [Leave, sickness, overtime, and reports](#leave-sickness-overtime-and-reports)
+11. [Accounts and platform administration](#accounts-and-platform-administration)
+12. [Installation and deployment](#installation-and-deployment)
+13. [Database migrations and legacy import](#database-migrations-and-legacy-import)
+14. [Security operations](#security-operations)
+15. [Backup, restore, and recovery](#backup-restore-and-recovery)
+16. [Testing](#testing)
+17. [Troubleshooting](#troubleshooting)
 
 ## Roles and privacy
 
@@ -54,7 +55,11 @@ After signing in:
 - Use **Roster** for the monthly operational view.
 - Use **Shift Requests** to request a future requestable shift or, as a Unit
   Admin, respond to requests.
-- Use **Admin** for people, watches, shifts, staffing requirements, and leave.
+- Check the airport name and code in the page header before making changes.
+- Use **Admin** for staffing requirements, shift definitions, people, and
+  unit tools.
+- Use **Accounts** to create and deactivate login accounts if you are a Unit
+  Admin.
 - Use **Reference Data** to manage annotation definitions and roster code
   lists if you are a Unit Admin.
 - Use **Reports** for fatigue, sickness, leave-year, overtime, swap, and
@@ -66,6 +71,30 @@ After signing in:
 
 Dates are displayed using the airport configuration. Server timestamps and
 audit events are recorded in UTC.
+
+## Unit administration workspace
+
+The airport administration page at `/admin` is divided into focused sections:
+
+- **Overview** summarises the configured staffing months, shift codes, staff,
+  and supporting tools.
+- **Requirements** edits monthly Morning, Day, Afternoon, and Night minimums.
+- **Shifts** creates shift definitions and keeps existing definitions collapsed
+  until an administrator chooses one to edit.
+- **Staff** creates operational ATCO records and provides a name, watch, and
+  role search for existing records.
+- **Tools** links to reference data, AI rules, manual TOIL, the change log,
+  account management, and onboarding.
+
+The selected section is retained in the browser and reflected in the URL
+fragment, so returning to `/admin` resumes the last task. **Add shift** and
+**Add ATCO** open compact creation panels; they do not save anything until the
+form is submitted.
+
+Operational staff records and login accounts are separate concepts. Create
+controllers in **Admin → Staff**. Create users who can sign in through
+**Accounts**. An operational controller does not consume an account allowance
+unless they also have an active login membership.
 
 ## Airport onboarding
 
@@ -257,16 +286,40 @@ When they are absent, SMS sending is disabled.
 
 ## Accounts and platform administration
 
-Unit Admins can see active accounts used versus permitted and pending
-invitations during onboarding. Active-login limits are stored as integers;
-common plans use 10, 15, 20, 25, or 30, and custom values are supported.
+Unit Admins open `/unit/accounts` or select **Accounts** in the header to:
+
+1. Review active accounts against the airport allowance.
+2. Create a login using a globally unique username and a password of at least
+   12 characters.
+3. Deactivate an account that should no longer have access.
+
+The currently signed-in administrator cannot deactivate their own account.
+New accounts are activated immediately when capacity is available. If the
+allowance has been reached, creation is rolled back and the page explains that
+the active-account limit has been reached.
+
+Active-login limits are stored as integers; common plans use 10, 15, 20, 25,
+or 30, and custom values are supported.
 
 The limit is enforced transactionally while the airport row is locked.
 Invited-but-not-active, disabled invitations, suspended memberships, and
 operational people without login access do not count. If the limit is reached,
 deactivate an account before activating or restoring another.
 
-`/platform/admin` is restricted to `superadmin` and displays only:
+`/platform/admin` is restricted to `superadmin`. A Super Admin can:
+
+1. Create an airport using a unique 2–12 character code, display name, plan,
+   and active-user limit.
+2. Create that airport's initial Unit Admin in the same operation.
+3. Change an existing airport's account limit, provided it is not reduced
+   below the current active-account count.
+4. Suspend or restore an airport.
+
+The initial Unit Admin password must contain at least 12 characters. Share it
+through an approved secure channel; the application does not display or store
+the plaintext password after creation.
+
+The platform view displays only:
 
 - airport name/code, status, and plan;
 - active-account aggregate and limit;
@@ -279,6 +332,22 @@ Plan changes, feature flags, suspension actions, aggregate usage, and platform
 changes have dedicated history/audit models. The portal deliberately does not
 join operational people, assignments, requests, leave, sickness,
 qualifications, or identifying audit content.
+
+### Testing an account limit
+
+Use a non-production airport:
+
+1. Note the active count at `/unit/accounts`.
+2. In `/platform/admin`, set the allowance to one more than that count.
+3. Sign in as the airport Unit Admin and create one account.
+4. Attempt to create another account.
+5. Confirm the second account is rejected and the active count has not
+   increased.
+6. Deactivate the test account and restore the intended allowance.
+
+Never publish example or production passwords in this README. Locally created
+demo credentials should be distributed separately and rotated or deleted when
+testing is complete.
 
 ## Installation and deployment
 
@@ -427,11 +496,12 @@ Install dependencies and run:
 python -m pytest -q
 ```
 
-The suite covers legacy helpers/routes plus request persistence, request
-windows and lock boundaries, requestable shifts, one-request-per-date,
-pending updates, forged deletion, status validation, approve-only,
-approve-and-apply, qualification conflicts, CSRF, audit/notifications, and
-cross-unit read/write isolation.
+The suite covers legacy helpers/routes plus platform airport creation,
+account-limit enforcement, unit account management, request persistence,
+request windows and lock boundaries, requestable shifts,
+one-request-per-date, pending updates, forged deletion, status validation,
+approve-only, approve-and-apply, qualification conflicts, CSRF,
+audit/notifications, and cross-unit read/write isolation.
 
 Before release also run:
 
