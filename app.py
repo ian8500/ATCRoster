@@ -328,7 +328,20 @@ def _security_headers(response):
     response.headers.setdefault(
         "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
     )
-    if request.is_secure:
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "img-src 'self' data:; "
+        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com "
+        "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+    )
+    if request.is_secure or DEPLOYMENT_ENV == "production":
         response.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
         )
@@ -1237,11 +1250,13 @@ def bootstrap_reference_data() -> None:
     refresh_roster_settings_cache()
 
 
-try:
-    with app.app_context():
-        bootstrap_reference_data()
-except Exception:
-    db.session.rollback()
+if DEPLOYMENT_ENV != "production":
+    try:
+        with app.app_context():
+            bootstrap_reference_data()
+    except Exception:
+        with app.app_context():
+            db.session.rollback()
 
 # Cached shift lookup (define after models so ShiftType exists when called)
 
