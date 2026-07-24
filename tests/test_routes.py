@@ -99,6 +99,12 @@ def test_login_page_loads(client):
     assert b"Login" in resp.data
 
 
+def test_favicon_is_served(client):
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/svg+xml"
+
+
 def test_index_redirects_to_roster(client):
     login(client)
     resp = client.get("/")
@@ -130,6 +136,63 @@ def test_admin_pages_accessible(client):
     for url in endpoints:
         resp = client.get(url)
         assert resp.status_code == 200, f"Endpoint {url} returned {resp.status_code}"
+
+
+def test_admin_can_configure_requestable_shift(client):
+    login(client)
+    with app.app.app_context():
+        shift = ShiftType.query.filter_by(code="M").one()
+        shift_id = shift.id
+
+    response = client.post(
+        "/admin",
+        data={
+            "form": "shift_edit",
+            "shift_id": shift_id,
+            "name": "Morning",
+            "start": "07:00",
+            "end": "15:00",
+            "is_working": "on",
+            "is_active": "on",
+            "is_requestable": "on",
+            "required_qualification": "medical",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Shift updated" in response.data
+    assert b"Requestable" in response.data
+    assert b"Required qualification" in response.data
+
+    with app.app.app_context():
+        shift = db.session.get(ShiftType, shift_id)
+        assert shift.is_active is True
+        assert shift.is_requestable is True
+        assert shift.required_qualification == "medical"
+
+
+def test_non_working_shift_cannot_be_requestable(client):
+    login(client)
+    with app.app.app_context():
+        shift = ShiftType.query.filter_by(code="OFF").one()
+        shift_id = shift.id
+
+    response = client.post(
+        "/admin",
+        data={
+            "form": "shift_edit",
+            "shift_id": shift_id,
+            "name": "Off",
+            "is_active": "on",
+            "is_requestable": "on",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Only active working shifts can be requestable" in response.data
+
+    with app.app.app_context():
+        assert db.session.get(ShiftType, shift_id).is_requestable is False
 
 
 def test_admin_staff_edit_handles_missing_watch_history(client):

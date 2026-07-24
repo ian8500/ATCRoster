@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Account Management{% endblock %}
+{% block content %}
+<div class="container my-4">
+  <h2>Account management</h2>
+  <div class="alert {{ 'alert-danger' if active_count >= unit.active_user_limit else 'alert-info' }}" role="status">
+    <strong>{{ active_count }} of {{ unit.active_user_limit }}</strong> active accounts used.
+    {% if active_count >= unit.active_user_limit %}Deactivate an account before adding another.{% endif %}
+  </div>
+
+  <section class="card card-body mb-4">
+    <h3>Create and activate account</h3>
+    <form method="post" class="row g-3">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="create_account">
+      <div class="col-md-4"><label>Name<input class="form-control" name="name" required></label></div>
+      <div class="col-md-4"><label>Username<input class="form-control" name="username" required></label></div>
+      <div class="col-md-4"><label>Temporary password<input class="form-control" type="password" name="password" minlength="12" required autocomplete="new-password"></label></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit" {% if active_count >= unit.active_user_limit %}disabled{% endif %}>Activate account</button></div>
+    </form>
+  </section>
+
+  <table class="table">
+    <thead><tr><th>Account reference</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for membership in memberships %}
+      <tr>
+        <td>#{{ membership.id }}</td>
+        <td>{{ membership.role }}</td>
+        <td>{{ membership.status }}</td>
+        <td>
+          {% if membership.status == "active" and membership.person_id != current_user.id %}
+          <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="deactivate">
+            <input type="hidden" name="membership_id" value="{{ membership.id }}">
+            <button class="btn btn-sm" type="submit">Deactivate</button>
+          </form>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

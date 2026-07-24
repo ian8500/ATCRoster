@@ -141,6 +141,38 @@ def test_invalid_status_and_cross_unit_isolation(secured_client):
     assert b"UNIT-B-SECRET" not in page.data
 
 
+def test_sequential_tenant_sessions_do_not_reuse_first_unit_filter(secured_client):
+    with app.app.app_context():
+        user_a = Staff.query.filter_by(username="user-a").one()
+        user_b = Staff.query.filter_by(username="user-b").one()
+        db.session.add_all([
+            ShiftRequest(
+                unit_id=1, staff_id=user_a.id, day=request_day(), code="REQ",
+                requester_comment="AIRPORT-A-ONLY",
+            ),
+            ShiftRequest(
+                unit_id=2, staff_id=user_b.id, day=request_day(), code="REQ",
+                requester_comment="AIRPORT-B-ONLY",
+            ),
+        ])
+        db.session.commit()
+
+    login(secured_client, "user-a")
+    airport_a = secured_client.get("/requests")
+    assert b"AIRPORT-A-ONLY" in airport_a.data
+    assert b"AIRPORT-B-ONLY" not in airport_a.data
+    assert b"Airport A" in airport_a.data
+    assert b">AAA<" in airport_a.data
+
+    second_client = app.app.test_client()
+    login(second_client, "user-b")
+    airport_b = second_client.get("/requests")
+    assert b"AIRPORT-B-ONLY" in airport_b.data
+    assert b"AIRPORT-A-ONLY" not in airport_b.data
+    assert b"Airport B" in airport_b.data
+    assert b">BBB<" in airport_b.data
+
+
 def test_approve_only_then_apply_and_notify(secured_client):
     with app.app.app_context():
         user = Staff.query.filter_by(username="user-a").one()
