@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Bulk annotations{% endblock %}
+{% block content %}
+<div class="container my-4">
+  <div class="page-heading">
+    <div>
+      <h2>Bulk annotation editor</h2>
+      <p class="muted">Preview every affected roster cell and TOIL adjustment before saving.</p>
+    </div>
+  </div>
+
+  <form method="post" class="card card-body row g-3">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="preview">
+    <label class="col-md-4">Person
+      <select name="person_id" class="form-select" required>
+        {% for person in people %}
+          <option value="{{ person.id }}">{{ person.name }} · {{ person.staff_no }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="col-md-2">From
+      <input type="date" name="start" class="form-control" required>
+    </label>
+    <label class="col-md-2">To
+      <input type="date" name="end" class="form-control" required>
+    </label>
+    <label class="col-md-4">Annotation
+      <select name="annotation" class="form-select">
+        <option value="">Remove annotation</option>
+        {% for category, options in annotation_groups.items() %}
+          <optgroup label="{{ category }}">
+            {% for option in options %}
+              <option value="{{ option.code }}">{{ option.label }} ({{ option.code }}){% if option.toil_half_days %} · {{ "%+.1f"|format(option.toil_half_days / 2) }} day TOIL{% endif %}</option>
+            {% endfor %}
+          </optgroup>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="col-12">Note
+      <input name="note" maxlength="140" class="form-control" placeholder="Required by some annotation definitions">
+    </label>
+    <div class="col-12"><button class="btn btn-primary" type="submit">Preview changes</button></div>
+  </form>
+
+  {% if preview %}
+    <section class="card mt-4">
+      <div class="card-header"><strong>Preview for {{ preview.person.name }}</strong></div>
+      <div class="card-body">
+        <p>{{ preview.changes|length }} cell(s) will change. Net TOIL effect:
+          <strong>{{ "%+.1f"|format(preview.total_toil_delta / 2) }} days</strong>.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>Date</th><th>Current</th><th>Proposed</th><th>TOIL effect</th></tr></thead>
+            <tbody>
+              {% for change in preview.changes %}
+                <tr><td>{{ change.day }}</td><td>{{ change.old or '—' }}</td><td>{{ change.new or '—' }}</td><td>{{ "%+.1f"|format(change.toil_delta / 2) }} days</td></tr>
+              {% else %}
+                <tr><td colspan="4">No cells require a change.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if preview.changes %}
+          <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="apply">
+            <input type="hidden" name="nonce" value="{{ preview.nonce }}">
+            <button class="btn btn-danger" type="submit">Apply previewed changes</button>
+          </form>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

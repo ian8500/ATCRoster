@@ -29,6 +29,7 @@ from flask_login import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.exceptions import HTTPException
 from sqlalchemy import text
 
 try:
@@ -139,6 +140,10 @@ def utcnow():
 
 
 REQUEST_STATUSES = frozenset({"pending", "approved", "rejected", "fulfilled", "cancelled"})
+PLATFORM_FEATURE_FLAGS = frozenset({
+    "advanced_coverage", "scenario_planning", "calendar_exports",
+    "fatigue_reporting", "custom_branding",
+})
 
 
 def _current_unit_id() -> int:
@@ -162,6 +167,16 @@ def _validate_csrf() -> None:
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@app.before_request
+def _enforce_authenticated_csrf():
+    """Apply one default-deny CSRF boundary to every authenticated mutation."""
+    if (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and current_user.is_authenticated
+    ):
+        _validate_csrf()
 
 
 @app.route("/favicon.ico")
@@ -435,7 +450,12 @@ def _memoize(seconds=60):
 def _invalidate_month_cache_for_day(d: date):
     if _cache and d:
         try:
-            _cache.delete_memoized(_load_month_roster_fast, d.year, d.month)
+            _cache.delete_memoized(
+                _load_month_roster_fast,
+                int(_current_unit_id() or 1),
+                d.year,
+                d.month,
+            )
         except Exception:
             pass
 
@@ -660,8 +680,18 @@ DEFAULT_ROSTER_SETTINGS = {
 
 
 class RosterSetting(db.Model):
-    key = db.Column(db.String(50), primary_key=True)
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(
+        db.Integer, db.ForeignKey("unit.id"),
+        nullable=False, default=1, index=True,
+    )
+    key = db.Column(db.String(50), nullable=False)
     value = db.Column(db.Text, nullable=False, default="")
+    __table_args__ = (
+        db.UniqueConstraint(
+            "unit_id", "key", name="uq_roster_setting_unit_key"
+        ),
+    )
 
 
 class Unit(db.Model):
@@ -1023,7 +1053,7 @@ from sqlalchemy.orm import Session as OrmSession, with_loader_criteria
 from tenancy import authenticated_unit_id
 
 TENANT_OPERATIONAL_MODELS = (
-    AnnotationType, Watch, Staff, ShiftType, Requirement, Leave, Sickness,
+    RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement, Leave, Sickness,
     Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
     AiRuleSet, ChangeLog, StaffWatchHistory, QualificationType,
     PersonQualification, RosterPublication, RosterAcknowledgement, Scenario,
@@ -1076,27 +1106,25 @@ def _normalise_codes(values: list[str] | tuple[str, ...]) -> list[str]:
     return seen
 
 
-@lru_cache(maxsize=1)
-def _roster_settings_snapshot() -> dict[str, str]:
-    rows = RosterSetting.query.all()
+@lru_cache(maxsize=128)
+def _roster_settings_snapshot(unit_id: int) -> dict[str, str]:
+    rows = RosterSetting.query.filter_by(unit_id=unit_id).all()
     return {row.key: row.value for row in rows}
 
 
 def refresh_roster_settings_cache() -> None:
     _roster_settings_snapshot.cache_clear()
-    get_working_codes.cache_clear()
-    get_leave_codes.cache_clear()
-    get_banned_roster_codes.cache_clear()
-    get_exclude_from_counters.cache_clear()
-    get_non_working_codes.cache_clear()
     try:
         _shift_groups_snapshot.cache_clear()
     except NameError:
         pass
 
 
-def _load_codes_setting(key: str, default: list[str]) -> set[str]:
-    raw = _roster_settings_snapshot().get(key)
+def _load_codes_setting(
+    key: str, default: list[str], unit_id: int | None = None
+) -> set[str]:
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    raw = _roster_settings_snapshot(resolved_unit_id).get(key)
     if not raw:
         return set(_normalise_codes(default))
     try:
@@ -1106,34 +1134,30 @@ def _load_codes_setting(key: str, default: list[str]) -> set[str]:
     return set(_normalise_codes(parsed))
 
 
-@lru_cache(maxsize=1)
 def get_working_codes() -> set[str]:
     return _load_codes_setting("working_codes", DEFAULT_WORKING_CODES)
 
 
-@lru_cache(maxsize=1)
 def get_leave_codes() -> set[str]:
     return _load_codes_setting("leave_codes", DEFAULT_LEAVE_CODES)
 
 
-@lru_cache(maxsize=1)
 def get_banned_roster_codes() -> set[str]:
     return _load_codes_setting("banned_codes", DEFAULT_BANNED_ROSTER_CODES)
 
 
-@lru_cache(maxsize=1)
 def get_exclude_from_counters() -> set[str]:
     return _load_codes_setting("exclude_from_counters", DEFAULT_EXCLUDE_FROM_COUNTERS)
 
 
-@lru_cache(maxsize=1)
 def get_non_working_codes() -> set[str]:
     return _load_codes_setting("non_working_codes", DEFAULT_NON_WORKING_CODES)
 
 
-@lru_cache(maxsize=1)
-def _annotation_snapshot() -> dict[str, object]:
+@lru_cache(maxsize=128)
+def _annotation_snapshot(unit_id: int) -> dict[str, object]:
     rows = (AnnotationType.query
+            .filter(AnnotationType.unit_id == unit_id)
             .order_by(AnnotationType.sort_order, AnnotationType.code)
             .all())
     items = []
@@ -1147,10 +1171,14 @@ def _annotation_snapshot() -> dict[str, object]:
             "code": (row.code or "").upper(),
             "label": row.label or row.code.upper(),
             "category": row.category or "Other",
+            "colour": row.colour or "#6c757d",
+            "description": row.description or "",
             "allow_suffix": bool(row.allow_suffix),
             "suffixes": suffixes,
             "toil_half_days": int(row.toil_half_days or 0),
             "tags": tags,
+            "note_required": bool(row.note_required),
+            "admin_only": bool(row.admin_only),
             "is_active": bool(row.is_active),
             "sort_order": row.sort_order if row.sort_order is not None else 0,
         })
@@ -1162,18 +1190,24 @@ def refresh_annotation_cache() -> None:
     _annotation_snapshot.cache_clear()
 
 
-def get_annotation_types(active_only: bool = True) -> list[dict[str, object]]:
-    snap = _annotation_snapshot()
+def get_annotation_types(
+    active_only: bool = True, unit_id: int | None = None
+) -> list[dict[str, object]]:
+    snap = _annotation_snapshot(int(unit_id or _current_unit_id() or 1))
     items = snap["items"]
     if active_only:
         items = [item for item in items if item["is_active"]]
     return items
 
 
-def get_annotation_config(code: str | None) -> dict[str, object] | None:
+def get_annotation_config(
+    code: str | None, unit_id: int | None = None
+) -> dict[str, object] | None:
     if not code:
         return None
-    return _annotation_snapshot()["by_code"].get(code.strip().upper())
+    return _annotation_snapshot(
+        int(unit_id or _current_unit_id() or 1)
+    )["by_code"].get(code.strip().upper())
 
 
 def get_annotation_groups() -> OrderedDict[str, list[dict[str, object]]]:
@@ -1210,9 +1244,10 @@ def _parse_codes_input(raw: str) -> list[str]:
 
 def _save_codes_setting(key: str, values: list[str]) -> None:
     payload = json.dumps(_normalise_codes(values))
-    row = RosterSetting.query.filter_by(key=key).first()
+    unit_id = int(_current_unit_id() or 1)
+    row = RosterSetting.query.filter_by(unit_id=unit_id, key=key).first()
     if not row:
-        row = RosterSetting(key=key, value=payload)
+        row = RosterSetting(unit_id=unit_id, key=key, value=payload)
         db.session.add(row)
     else:
         row.value = payload
@@ -1221,8 +1256,15 @@ def _save_codes_setting(key: str, values: list[str]) -> None:
 
 
 def bootstrap_reference_data() -> None:
+    Unit.__table__.create(bind=db.engine, checkfirst=True)
     AnnotationType.__table__.create(bind=db.engine, checkfirst=True)
     RosterSetting.__table__.create(bind=db.engine, checkfirst=True)
+    if not db.session.get(Unit, 1):
+        db.session.add(Unit(
+            id=1, code="FIRST", name="First airport unit",
+            status="active",
+        ))
+        db.session.flush()
 
     if AnnotationType.query.count() == 0:
         for idx, cfg in enumerate(DEFAULT_ANNOTATION_TYPES):
@@ -1243,14 +1285,21 @@ def bootstrap_reference_data() -> None:
         db.session.commit()
 
     for key, values in DEFAULT_ROSTER_SETTINGS.items():
-        if not RosterSetting.query.filter_by(key=key).first():
-            db.session.add(RosterSetting(key=key, value=json.dumps(_normalise_codes(values))))
+        if not RosterSetting.query.filter_by(unit_id=1, key=key).first():
+            db.session.add(RosterSetting(
+                unit_id=1, key=key,
+                value=json.dumps(_normalise_codes(values)),
+            ))
     db.session.commit()
     refresh_annotation_cache()
     refresh_roster_settings_cache()
 
 
-if DEPLOYMENT_ENV != "production":
+if (
+    DEPLOYMENT_ENV != "production"
+    and os.environ.get("ATCROSTER_SKIP_BOOTSTRAP", "").lower()
+    not in {"1", "true", "yes"}
+):
     try:
         with app.app_context():
             bootstrap_reference_data()
@@ -1262,8 +1311,8 @@ if DEPLOYMENT_ENV != "production":
 
 
 @lru_cache(maxsize=256)
-def _shift_by_code(code: str):
-    return ShiftType.query.filter_by(code=code).first()
+def _shift_by_code(unit_id: int, code: str):
+    return ShiftType.query.filter_by(unit_id=unit_id, code=code).first()
 
 
 def refresh_shift_cache():
@@ -1279,7 +1328,7 @@ def load_user(user_id):
 # --------- Fast month loader & cache (uses functions defined later but safe) ----------
 
 
-def _load_month_roster_core(y: int, m: int):
+def _load_month_roster_core(unit_id: int, y: int, m: int):
     """
     Returns (days, staff_list, a_map, req) and NEVER returns None.
     On failure: returns ([], [], {}, ensure_month_requirement(y,m)).
@@ -1324,7 +1373,9 @@ def _load_month_roster_core(y: int, m: int):
     except Exception as e:
         try:
             app.logger.exception(
-                "Failed _load_month_roster_core(%s,%s): %s", y, m, e)
+                "Failed _load_month_roster_core(%s,%s,%s): %s",
+                unit_id, y, m, e,
+            )
         except Exception:
             pass
         # Ensure we still return a valid 4-tuple
@@ -1348,12 +1399,41 @@ def is_editor_user(u) -> bool:
     return getattr(u, "role", "") in ("editor", "admin")
 
 
+def user_permissions(u) -> dict[str, bool]:
+    try:
+        raw = json.loads(getattr(u, "permissions_json", "") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return {
+        str(key): bool(value)
+        for key, value in raw.items()
+        if isinstance(key, str)
+    } if isinstance(raw, dict) else {}
+
+
+def has_unit_permission(u, permission: str) -> bool:
+    return bool(user_permissions(u).get(permission, False))
+
+
 def can_edit_roster(u) -> bool:
     return (
         is_admin_user(u)
         or is_editor_user(u)
-        or bool(getattr(u, "is_wm", False))
-        or bool(getattr(u, "is_dwm", False))
+        or (
+            (
+                bool(getattr(u, "is_wm", False))
+                or bool(getattr(u, "is_dwm", False))
+            )
+            and has_unit_permission(u, "edit_roster")
+        )
+    )
+
+
+def can_apply_annotations(u) -> bool:
+    return (
+        is_admin_user(u)
+        or is_editor_user(u)
+        or has_unit_permission(u, "apply_annotations")
     )
 
 
@@ -1412,12 +1492,16 @@ def parse_ym(ym: str):
 
 def get_shift(code: str):
     # hot path → use cached lookup
-    return _shift_by_code((code or "").upper())
+    return _shift_by_code(
+        int(_current_unit_id() or 1), (code or "").upper()
+    )
 
 
-@lru_cache(maxsize=1)
-def _shift_groups_snapshot():
-    all_shifts = ShiftType.query.order_by(ShiftType.code).all()
+@lru_cache(maxsize=128)
+def _shift_groups_snapshot(unit_id: int):
+    all_shifts = ShiftType.query.filter_by(
+        unit_id=unit_id
+    ).order_by(ShiftType.code).all()
     banned = get_banned_roster_codes()
     allowed = [sh for sh in all_shifts if sh.code not in banned]
     working = sorted(
@@ -1585,7 +1669,7 @@ def generate_month(year: int, month: int, *args, **kwargs):
 NIGHT_ELIGIBLE_CYCLE_DAYS: set[int] = {5, 6}
 
 
-def generate_month_roster(year: int, month: int, who_user: "User"):
+def generate_month_roster(year: int, month: int, who_user: "Staff"):
     # Guard: lock
     if is_month_locked(year, month):
         raise RuntimeError(
@@ -1743,7 +1827,7 @@ def _is_working_day_code(code: str) -> bool:
         return False
 
     try:
-        sh = _shift_by_code(c)
+        sh = get_shift(c)
     except NameError:
         sh = None
     if sh is None:
@@ -2716,7 +2800,7 @@ def parse_annotation(s: str):
     if info:
         return {"type": info["code"], "suffix": None}
 
-    snap = _annotation_snapshot()["items"]
+    snap = _annotation_snapshot(int(_current_unit_id() or 1))["items"]
     for item in snap:
         if not item["allow_suffix"]:
             continue
@@ -2890,7 +2974,7 @@ def _is_working_code_prefix(code: str, prefix: str) -> bool:
 
     # Prefer cached lookup if present in your app
     try:
-        sh = _shift_by_code(cu)
+        sh = get_shift(cu)
     except NameError:
         sh = None
     if sh is None:
@@ -2995,6 +3079,11 @@ def password_change():
             return redirect(url_for("password_change"))
         u = db.session.get(Staff, current_user.id)
         u.set_password(new1)
+        identity = PlatformIdentity.query.filter_by(
+            username=u.username
+        ).first()
+        if identity:
+            identity.password_hash = u.password_hash
         db.session.commit()
         flash("Password updated.", "ok")
         return redirect(url_for("staff_profile", sid=current_user.id))
@@ -3271,6 +3360,118 @@ def publication_centre(ym):
                 db.session.commit()
             flash("Roster acknowledgement recorded.", "ok")
             return redirect(url_for("publication_centre", ym=ym))
+        if action == "rollback":
+            if not is_admin_user(current_user):
+                abort(403)
+            try:
+                publication_id = int(
+                    request.form.get("publication_id") or 0
+                )
+            except ValueError:
+                abort(400)
+            target = RosterPublication.query.filter_by(
+                id=publication_id, year=year, month=month,
+            ).first_or_404()
+            if target.state not in {"published", "superseded"}:
+                abort(409, "Only a released roster version can be restored.")
+            try:
+                target_snapshot = json.loads(target.snapshot_json)
+                target_rows = target_snapshot["assignments"]
+                if not isinstance(target_rows, list):
+                    raise ValueError
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                abort(409, "The selected snapshot is not restorable.")
+            valid_people = {
+                row.id for row in Staff.query.filter_by(
+                    unit_id=_current_unit_id()
+                ).all()
+            }
+            restored = {}
+            for item in target_rows:
+                try:
+                    staff_id = int(item["staff_id"])
+                    target_day = date.fromisoformat(item["day"])
+                    code = str(item["code"]).strip().upper()
+                except (KeyError, TypeError, ValueError):
+                    abort(409, "The selected snapshot contains invalid data.")
+                if (
+                    staff_id not in valid_people
+                    or target_day.year != year
+                    or target_day.month != month
+                    or not code
+                ):
+                    abort(409, "The snapshot does not belong to this roster.")
+                restored[(staff_id, target_day)] = {
+                    "code": code,
+                    "annotation": str(item.get("annotation") or "")[:20],
+                }
+            start = date(year, month, 1)
+            next_year, next_month = _month_add(year, month, 1)
+            end = date(next_year, next_month, 1)
+            existing_rows = Assignment.query.filter(
+                Assignment.unit_id == _current_unit_id(),
+                Assignment.day >= start, Assignment.day < end,
+            ).all()
+            existing = {
+                (row.staff_id, row.day): row for row in existing_rows
+            }
+            for key, row in existing.items():
+                if key not in restored:
+                    db.session.delete(row)
+            for (staff_id, target_day), values in restored.items():
+                row = existing.get((staff_id, target_day))
+                if not row:
+                    row = Assignment(
+                        unit_id=_current_unit_id(),
+                        staff_id=staff_id, day=target_day,
+                    )
+                    db.session.add(row)
+                row.code = values["code"]
+                row.annotation = values["annotation"]
+                row.source = "rollback"
+                row.note = f"Restored from roster version {target.version}"
+            current = RosterPublication.query.filter_by(
+                year=year, month=month, state="published"
+            ).first()
+            if current:
+                current.state = "superseded"
+                current.superseded_at = utcnow()
+            latest_version = (
+                db.session.query(db.func.max(RosterPublication.version))
+                .filter(
+                    RosterPublication.unit_id == _current_unit_id(),
+                    RosterPublication.year == year,
+                    RosterPublication.month == month,
+                ).scalar() or 0
+            )
+            restored_snapshot = dict(target_snapshot)
+            restored_snapshot["generated_at"] = utcnow().isoformat()
+            restored_snapshot["rollback"] = {
+                "source_version": target.version,
+                "approved_by_id": current_user.id,
+                "approved_at": utcnow().isoformat(),
+            }
+            release = RosterPublication(
+                unit_id=_current_unit_id(), year=year, month=month,
+                version=latest_version + 1, state="published",
+                snapshot_json=json.dumps(restored_snapshot),
+                published_at=utcnow(),
+            )
+            db.session.add(release)
+            db.session.commit()
+            log_change(
+                "RosterPublication", release.id, "state",
+                f"version {current.version if current else 'none'}",
+                f"rollback of version {target.version}",
+                note="Controlled roster rollback",
+                context_day=start,
+            )
+            flash(
+                f"Version {target.version} restored as new version "
+                f"{release.version}.",
+                "ok",
+            )
+            return redirect(url_for("publication_centre", ym=ym))
         abort(400)
 
     publications = (
@@ -3279,6 +3480,37 @@ def publication_centre(ym):
         .all()
     )
     active = next((row for row in publications if row.state == "published"), None)
+    active_assignments = {}
+    if active:
+        try:
+            active_assignments = {
+                (int(item["staff_id"]), item["day"]): (
+                    item.get("code"), item.get("annotation") or ""
+                )
+                for item in json.loads(active.snapshot_json).get(
+                    "assignments", []
+                )
+            }
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+            active_assignments = {}
+    publication_diffs = {}
+    for publication in publications:
+        try:
+            comparison = {
+                (int(item["staff_id"]), item["day"]): (
+                    item.get("code"), item.get("annotation") or ""
+                )
+                for item in json.loads(publication.snapshot_json).get(
+                    "assignments", []
+                )
+            }
+            keys = set(active_assignments) | set(comparison)
+            publication_diffs[publication.id] = sum(
+                active_assignments.get(key) != comparison.get(key)
+                for key in keys
+            )
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+            publication_diffs[publication.id] = None
     preflight = _publication_preflight(year, month)
     acknowledged = False
     acknowledgements = []
@@ -3311,6 +3543,7 @@ def publication_centre(ym):
         ym=ym, year=year, month=month,
         month_title=date(year, month, 1).strftime("%B %Y"),
         publications=publications, active=active,
+        publication_diffs=publication_diffs,
         acknowledgements=acknowledgements, acknowledged=acknowledged,
         operational_count=len(expected_staff),
         unacknowledged_staff=unacknowledged_staff,
@@ -3338,10 +3571,33 @@ def inject_perms():
         db.session.get(Unit, int(getattr(au, "unit_id", 0) or 0))
         if au and getattr(au, "role", "") != "superadmin" else None
     )
+    branding = {}
+    if current_unit:
+        try:
+            candidate = json.loads(current_unit.branding_json or "{}")
+            if isinstance(candidate, dict):
+                branding = candidate
+        except (TypeError, ValueError, json.JSONDecodeError):
+            branding = {}
+    primary_colour = branding.get("primary_colour", "")
+    accent_colour = branding.get("accent_colour", "")
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", primary_colour):
+        primary_colour = ""
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", accent_colour):
+        accent_colour = ""
     return {
         "is_admin":  bool(au) and is_admin_user(au),
         "is_editor": bool(au) and is_editor_user(au),
         "current_unit": current_unit,
+        "unit_branding": {
+            "primary_colour": primary_colour,
+            "accent_colour": accent_colour,
+            "display_name": (
+                branding.get("display_name") or (
+                    current_unit.name if current_unit else ""
+                )
+            )[:120],
+        },
     }
 
 
@@ -3349,6 +3605,7 @@ def inject_perms():
 @login_required
 def roster_month(ym):
     year, month = parse_ym(ym)
+    unit_id = _current_unit_id()
 
     # Build only if the month has no data yet
     if not month_has_data(year, month):
@@ -3356,7 +3613,9 @@ def roster_month(ym):
         generate_month(year, month)
 
     # Fast path: 2 queries total (staff + all assignments in month)
-    days, staff, a_map_tuples, req = _load_month_roster_fast(year, month)
+    days, staff, a_map_tuples, req = _load_month_roster_fast(
+        unit_id, year, month
+    )
 
     # --- ensure WM first, DWM second, then alphabetical within each watch ---
     def _rank_within_watch(person):
@@ -3387,7 +3646,9 @@ def roster_month(ym):
     month_end = date(ny, nm, 1)
 
     # Shift dropdown groupings (cached)
-    shifts_working, shifts_training, shifts_non = _shift_groups_snapshot()
+    shifts_working, shifts_training, shifts_non = _shift_groups_snapshot(
+        unit_id
+    )
     training_codes = {sh.code for sh in shifts_training}
 
     # --- Effective watch for THIS month (first day of the month) ---
@@ -3610,13 +3871,22 @@ def admin_ai_generate(ym):
 def assign_cell(staff_id, ym, day):
     _validate_csrf()
     # parse inputs
-    d = date.fromisoformat(day)
-    st = db.session.get(Staff, staff_id) or Staff.query.get_or_404(staff_id)
+    try:
+        d = date.fromisoformat(day)
+        year, month = parse_ym(ym)
+        if d.year != year or d.month != month:
+            raise ValueError
+    except (TypeError, ValueError):
+        abort(400, "Invalid roster date.")
+    unit_id = _current_unit_id()
+    st = Staff.query.filter_by(id=staff_id, unit_id=unit_id).first_or_404()
 
     # fetch or create the assignment row for that staff/day
-    a = Assignment.query.filter_by(staff_id=staff_id, day=d).first()
+    a = Assignment.query.filter_by(
+        unit_id=unit_id, staff_id=staff_id, day=d
+    ).first()
     if a is None:
-        a = Assignment(staff=st, day=d, code="OFF")
+        a = Assignment(unit_id=unit_id, staff=st, day=d, code="OFF")
         db.session.add(a)
 
     # form fields (each cell posts either code OR annotation)
@@ -3637,6 +3907,8 @@ def assign_cell(staff_id, ym, day):
 
     # if an annotation field was posted, apply delta + update
     if annot is not None:
+        if not can_apply_annotations(current_user):
+            abort(403)
         old = a.annotation or ""
         newv = (annot or "").strip().upper()
         if old != newv:
@@ -3644,27 +3916,40 @@ def assign_cell(staff_id, ym, day):
             ann_def = None
             if parsed:
                 ann_def = AnnotationType.query.filter_by(
-                    unit_id=_current_unit_id(), code=parsed["type"]
+                    unit_id=unit_id, code=parsed["type"]
                 ).first()
             if newv and (not parsed or not ann_def):
                 flash(f"Unknown annotation '{newv}'.", "error")
                 return redirect(url_for("roster_month", ym=ym))
+            if ann_def and not ann_def.is_active:
+                flash(
+                    f"{ann_def.code} is inactive and cannot be newly applied.",
+                    "error",
+                )
+                return redirect(url_for("roster_month", ym=ym))
             if ann_def and ann_def.admin_only and not is_admin_user(current_user):
                 abort(403)
-            if ann_def and ann_def.note_required and not (request.form.get("annotation_note") or "").strip():
+            annotation_note = (
+                request.form.get("annotation_note") or ""
+            ).strip()
+            if ann_def and ann_def.note_required and not annotation_note:
                 flash(f"{ann_def.code} requires a note.", "error")
                 return redirect(url_for("roster_month", ym=ym))
             transaction_key = (request.form.get("transaction_key") or "").strip()[:64]
-            if transaction_key and AnnotationAudit.query.filter_by(transaction_key=transaction_key).first():
+            if transaction_key and AnnotationAudit.query.filter_by(
+                unit_id=unit_id, transaction_key=transaction_key
+            ).first():
                 return redirect(url_for("roster_month", ym=ym))
             _apply_toil_annotation_delta(
                 staff=st, old_annot=old, new_annot=newv)
             a.annotation = newv
+            if annotation_note:
+                a.note = annotation_note[:140]
             if ann_def:
                 ann_def.has_been_used = True
             db.session.flush()
             db.session.add(AnnotationAudit(
-                unit_id=_current_unit_id(), annotation_type_id=ann_def.id if ann_def else None,
+                unit_id=unit_id, annotation_type_id=ann_def.id if ann_def else None,
                 assignment_id=a.id, actor_id=current_user.id,
                 action="applied" if newv else "removed",
                 old_value=old, new_value=newv,
@@ -3673,7 +3958,7 @@ def assign_cell(staff_id, ym, day):
 
     # clear any pending request now that the roster cell is written
     req = ShiftRequest.query.filter_by(
-        unit_id=_current_unit_id(), staff_id=staff_id, day=d
+        unit_id=unit_id, staff_id=staff_id, day=d
     ).first()
     if req and code == req.code and req.status in {"pending", "approved"}:
         old_status = req.status
@@ -3692,6 +3977,174 @@ def assign_cell(staff_id, ym, day):
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))
+
+
+@app.route("/annotations/bulk", methods=["GET", "POST"])
+@login_required
+def bulk_annotations():
+    """Preview and transactionally apply one annotation across a date range."""
+    if not can_edit_roster(current_user) or not can_apply_annotations(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    preview = None
+    if request.method == "POST":
+        _validate_csrf()
+        action = (request.form.get("action") or "preview").strip()
+        if action == "preview":
+            try:
+                person_id = int(request.form.get("person_id") or "")
+                start = date.fromisoformat(request.form.get("start") or "")
+                end = date.fromisoformat(request.form.get("end") or "")
+            except (TypeError, ValueError):
+                abort(400, "Invalid person or date range.")
+            if end < start or (end - start).days > 366:
+                abort(400, "Select a range of no more than 367 days.")
+            person = Staff.query.filter_by(
+                id=person_id, unit_id=unit_id
+            ).first_or_404()
+            raw_annotation = (
+                request.form.get("annotation") or ""
+            ).strip().upper()
+            parsed = parse_annotation(raw_annotation) if raw_annotation else None
+            definition = None
+            if parsed:
+                definition = AnnotationType.query.filter_by(
+                    unit_id=unit_id, code=parsed["type"], is_active=True
+                ).first()
+            if raw_annotation and (not parsed or not definition):
+                abort(400, "Select an active annotation for this airport.")
+            if definition and definition.admin_only and not is_admin_user(current_user):
+                abort(403)
+            note = (request.form.get("note") or "").strip()
+            if definition and definition.note_required and not note:
+                abort(400, f"{definition.code} requires a note.")
+            days = [
+                start + timedelta(days=offset)
+                for offset in range((end - start).days + 1)
+            ]
+            existing = {
+                row.day: row
+                for row in Assignment.query.filter(
+                    Assignment.unit_id == unit_id,
+                    Assignment.staff_id == person.id,
+                    Assignment.day >= start,
+                    Assignment.day <= end,
+                ).all()
+            }
+            changes = []
+            total_toil_delta = 0
+            for target_day in days:
+                old_value = (
+                    existing[target_day].annotation
+                    if target_day in existing else ""
+                ) or ""
+                if old_value == raw_annotation:
+                    continue
+                old_toil = _toil_accrual_half_days_from_annotation(
+                    parse_annotation(old_value)
+                )
+                new_toil = _toil_accrual_half_days_from_annotation(parsed)
+                delta = new_toil - old_toil
+                total_toil_delta += delta
+                changes.append({
+                    "day": target_day.isoformat(),
+                    "old": old_value,
+                    "new": raw_annotation,
+                    "toil_delta": delta,
+                })
+            nonce = secrets.token_urlsafe(18)
+            session["_bulk_annotation_preview"] = {
+                "nonce": nonce,
+                "unit_id": unit_id,
+                "person_id": person.id,
+                "annotation": raw_annotation,
+                "note": note[:140],
+                "changes": changes,
+            }
+            preview = {
+                "nonce": nonce,
+                "person": person,
+                "changes": changes,
+                "total_toil_delta": total_toil_delta,
+            }
+        elif action == "apply":
+            saved = session.get("_bulk_annotation_preview") or {}
+            nonce = (request.form.get("nonce") or "").strip()
+            if (
+                not nonce
+                or not secrets.compare_digest(nonce, str(saved.get("nonce") or ""))
+                or saved.get("unit_id") != unit_id
+            ):
+                abort(409, "The annotation preview has expired.")
+            person = Staff.query.filter_by(
+                id=saved.get("person_id"), unit_id=unit_id
+            ).first_or_404()
+            raw_annotation = saved.get("annotation") or ""
+            parsed = parse_annotation(raw_annotation) if raw_annotation else None
+            definition = None
+            if parsed:
+                definition = AnnotationType.query.filter_by(
+                    unit_id=unit_id, code=parsed["type"], is_active=True
+                ).first()
+            if raw_annotation and not definition:
+                abort(409, "The annotation is no longer active.")
+            if definition and definition.admin_only and not is_admin_user(current_user):
+                abort(403)
+            for change in saved.get("changes") or []:
+                target_day = date.fromisoformat(change["day"])
+                assignment = Assignment.query.filter_by(
+                    unit_id=unit_id, staff_id=person.id, day=target_day
+                ).first()
+                if not assignment:
+                    assignment = Assignment(
+                        unit_id=unit_id, staff_id=person.id,
+                        day=target_day, code="OFF",
+                    )
+                    db.session.add(assignment)
+                    db.session.flush()
+                transaction_key = f"bulk:{nonce}:{assignment.id}"[:64]
+                if AnnotationAudit.query.filter_by(
+                    unit_id=unit_id, transaction_key=transaction_key
+                ).first():
+                    continue
+                old_value = assignment.annotation or ""
+                if old_value == raw_annotation:
+                    continue
+                _apply_toil_annotation_delta(
+                    person, old_value, raw_annotation
+                )
+                assignment.annotation = raw_annotation
+                if saved.get("note"):
+                    assignment.note = saved["note"]
+                if definition:
+                    definition.has_been_used = True
+                db.session.add(AnnotationAudit(
+                    unit_id=unit_id,
+                    annotation_type_id=(
+                        definition.id if definition else None
+                    ),
+                    assignment_id=assignment.id,
+                    actor_id=current_user.id,
+                    action="bulk_applied" if raw_annotation else "bulk_removed",
+                    old_value=old_value,
+                    new_value=raw_annotation,
+                    transaction_key=transaction_key,
+                ))
+            db.session.commit()
+            session.pop("_bulk_annotation_preview", None)
+            flash("Bulk annotation changes applied.", "ok")
+            return redirect(url_for("bulk_annotations"))
+        else:
+            abort(400, "Invalid bulk annotation action.")
+    people = Staff.query.filter_by(
+        unit_id=unit_id
+    ).order_by(Staff.name).all()
+    return render_template(
+        "annotations_bulk.html",
+        people=people,
+        annotation_groups=get_annotation_groups(),
+        preview=preview,
+    )
 
 
 @app.route("/roster/<ym>/export")
@@ -3806,6 +4259,14 @@ def admin():
             is_wm = bool(request.form.get("is_wm"))
             is_dwm = bool(request.form.get("is_dwm"))
             exclude_from_ot = bool(request.form.get("exclude_from_ot"))
+            permissions = {
+                "edit_roster": bool(
+                    request.form.get("permission_edit_roster")
+                ),
+                "apply_annotations": bool(
+                    request.form.get("permission_apply_annotations")
+                ),
+            }
 
             # Leave/TOIL config
             leave_year_start_month = int(
@@ -3830,6 +4291,7 @@ def admin():
                     role=role,
                     is_wm=is_wm,
                     is_dwm=is_dwm,
+                    permissions_json=json.dumps(permissions, sort_keys=True),
                     exclude_from_ot=exclude_from_ot,
                     leave_year_start_month=leave_year_start_month,
                     leave_entitlement_days=leave_entitlement_days,
@@ -4028,19 +4490,29 @@ def admin_reference():
         try:
             if form == "annotation_new":
                 code = (request.form.get("code") or "").strip().upper()
-                if not code:
-                    flash("Annotation code is required.", "error")
+                if not re.fullmatch(r"[A-Z0-9]{1,10}", code):
+                    flash(
+                        "Annotation code must be 1–10 letters or numbers.",
+                        "error",
+                    )
+                    return redirect(url_for("admin_reference"))
+                if AnnotationType.query.filter_by(
+                    unit_id=unit_id, code=code
+                ).first():
+                    flash("That annotation code already exists.", "error")
                     return redirect(url_for("admin_reference"))
                 label = (request.form.get("label") or code).strip()
                 category = (request.form.get("category") or "Other").strip()
                 allow_suffix = bool(request.form.get("allow_suffix"))
                 suffixes = "".join(sorted({
-                    c.strip().upper() for c in (request.form.get("suffixes") or "") if c.strip()
+                    c.upper() for c in (request.form.get("suffixes") or "")
+                    if c.isalnum()
                 }))
                 try:
                     toil_half_days = int(request.form.get("toil_half_days") or 0)
                 except ValueError:
                     toil_half_days = 0
+                toil_half_days = max(-200, min(toil_half_days, 200))
                 tags = ",".join(sorted({
                     t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
                 }))
@@ -4055,7 +4527,14 @@ def admin_reference():
                     code=code,
                     label=label or code,
                     category=category or "Other",
-                    colour=(request.form.get("colour") or "#6c757d")[:20],
+                    colour=(
+                        request.form.get("colour")
+                        if re.fullmatch(
+                            r"#[0-9A-Fa-f]{6}",
+                            request.form.get("colour") or "",
+                        )
+                        else "#6c757d"
+                    ),
                     description=(request.form.get("description") or "")[:1000],
                     allow_suffix=allow_suffix,
                     suffixes=suffixes,
@@ -4079,11 +4558,23 @@ def admin_reference():
                 return redirect(url_for("admin_reference"))
 
             if form == "annotation_edit":
-                aid = int(request.form.get("annotation_id"))
+                try:
+                    aid = int(request.form.get("annotation_id") or "")
+                except ValueError:
+                    abort(400, "Invalid annotation ID.")
                 ann = AnnotationType.query.filter_by(id=aid, unit_id=unit_id).first_or_404()
                 new_code = (request.form.get("code") or ann.code).strip().upper()
+                if not re.fullmatch(r"[A-Z0-9]{1,10}", new_code):
+                    abort(400, "Invalid annotation code.")
                 if ann.has_been_used and new_code != ann.code:
                     abort(409, "A used annotation code is immutable; deactivate it and create a new definition.")
+                duplicate = AnnotationType.query.filter(
+                    AnnotationType.unit_id == unit_id,
+                    AnnotationType.code == new_code,
+                    AnnotationType.id != ann.id,
+                ).first()
+                if duplicate:
+                    abort(409, "That annotation code already exists.")
                 old_value = {
                     "code": ann.code, "label": ann.label, "category": ann.category,
                     "active": ann.is_active, "sort_order": ann.sort_order,
@@ -4091,16 +4582,21 @@ def admin_reference():
                 ann.code = new_code or ann.code
                 ann.label = (request.form.get("label") or ann.label or new_code).strip() or new_code
                 ann.category = (request.form.get("category") or ann.category or "Other").strip() or "Other"
-                ann.colour = (request.form.get("colour") or ann.colour or "#6c757d")[:20]
+                requested_colour = request.form.get("colour") or ann.colour
+                if not re.fullmatch(r"#[0-9A-Fa-f]{6}", requested_colour or ""):
+                    abort(400, "Invalid annotation colour.")
+                ann.colour = requested_colour
                 ann.description = (request.form.get("description") or ann.description or "")[:1000]
                 ann.allow_suffix = bool(request.form.get("allow_suffix"))
                 ann.suffixes = "".join(sorted({
-                    c.strip().upper() for c in (request.form.get("suffixes") or "") if c.strip()
+                    c.upper() for c in (request.form.get("suffixes") or "")
+                    if c.isalnum()
                 }))
                 try:
                     ann.toil_half_days = int(request.form.get("toil_half_days") or 0)
                 except ValueError:
                     ann.toil_half_days = 0
+                ann.toil_half_days = max(-200, min(ann.toil_half_days, 200))
                 tags = ",".join(sorted({
                     t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
                 }))
@@ -4127,7 +4623,10 @@ def admin_reference():
                 return redirect(url_for("admin_reference"))
 
             if form == "annotation_delete":
-                aid = int(request.form.get("annotation_id"))
+                try:
+                    aid = int(request.form.get("annotation_id") or "")
+                except ValueError:
+                    abort(400, "Invalid annotation ID.")
                 ann = AnnotationType.query.filter_by(id=aid, unit_id=unit_id).first_or_404()
                 used = Assignment.query.filter(
                     Assignment.unit_id == unit_id,
@@ -4157,6 +4656,9 @@ def admin_reference():
 
             flash("Unknown action.", "error")
             return redirect(url_for("admin_reference"))
+        except HTTPException:
+            db.session.rollback()
+            raise
         except Exception as exc:
             db.session.rollback()
             flash(f"Update failed: {exc}", "error")
@@ -4213,6 +4715,14 @@ def admin_staff_edit(sid):
         s.is_wm = bool(request.form.get("is_wm"))
         s.is_dwm = bool(request.form.get("is_dwm"))
         s.exclude_from_ot = bool(request.form.get("exclude_from_ot"))
+        s.permissions_json = json.dumps({
+            "edit_roster": bool(
+                request.form.get("permission_edit_roster")
+            ),
+            "apply_annotations": bool(
+                request.form.get("permission_apply_annotations")
+            ),
+        }, sort_keys=True)
 
         # update role
         s.role = request.form.get("role", s.role)
@@ -4255,7 +4765,10 @@ def admin_staff_edit(sid):
         return redirect(url_for("admin"))
 
     watches = Watch.query.order_by(Watch.order_index).all()
-    return render_template("staff_edit.html", s=s, watches=watches)
+    return render_template(
+        "staff_edit.html", s=s, watches=watches,
+        permissions=user_permissions(s),
+    )
 
 
 @app.route("/admin/staff/<int:sid>/watch-move", methods=["POST"])
@@ -4762,7 +5275,9 @@ def _compute_metrics_range(start_day: date, end_day: date):
                    .filter(Assignment.day >= start_day, Assignment.day <= end_day)
                    .all())
 
-    annotation_snapshot = _annotation_snapshot()["items"]
+    annotation_snapshot = _annotation_snapshot(
+        int(_current_unit_id() or 1)
+    )["items"]
     tag_map = {item["code"]: {t for t in item["tags"]} for item in annotation_snapshot}
     label_map = {item["code"]: item["label"] for item in annotation_snapshot}
 
@@ -5520,6 +6035,14 @@ def _notify_requester(req: ShiftRequest) -> None:
     ))
 
 
+def _safe_request_admin_month(raw_value: str | None, fallback: date) -> str:
+    """Return a canonical admin month without allowing malformed redirects."""
+    candidate = (raw_value or "").strip()
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", candidate):
+        return f"{fallback.year:04d}-{fallback.month:02d}"
+    return candidate
+
+
 def _staff_has_shift_qualification(staff: Staff, shift: ShiftType) -> bool:
     required = (shift.required_qualification or "").strip().lower()
     if not required:
@@ -5570,7 +6093,8 @@ def requests_page():
                 flash("Requester comments are limited to 500 characters.", "error")
                 return redirect(url_for("requests_page"))
             shift = ShiftType.query.filter_by(
-                unit_id=unit_id, code=code, is_active=True, is_requestable=True
+                unit_id=unit_id, code=code, is_active=True,
+                is_requestable=True, is_working=True,
             ).first()
             if not shift:
                 flash("That shift is inactive or cannot be requested.", "error")
@@ -5658,8 +6182,7 @@ def requests_page():
 
     if admin_view:
         # default to current month unless ?ym=YYYY-MM provided
-        admin_ym = request.args.get(
-            "ym") or f"{today.year:04d}-{today.month:02d}"
+        admin_ym = _safe_request_admin_month(request.args.get("ym"), today)
         ay, am = parse_ym(admin_ym)
         start_of_month, month_days = month_range(ay, am)
         end_of_month = month_days[-1]
@@ -5695,7 +6218,10 @@ def requests_page():
                            admin_ym=admin_ym,
                            admin_month_title=admin_month_title,
                            admin_prev_ym=admin_prev_ym,
-                           admin_next_ym=admin_next_ym)
+                           admin_next_ym=admin_next_ym,
+                           request_lock_day=_unit_request_rules(unit_id)[1],
+                           first_allowed=first_allowed,
+                           last_allowed=last_allowed)
 
 
 # >>> Admin can respond to a specific request
@@ -5710,6 +6236,9 @@ def admin_request_respond(rid):
     unit_id = _current_unit_id()
     r = ShiftRequest.query.filter_by(id=rid, unit_id=unit_id).first_or_404()
     action = (request.form.get("action") or "status").strip()
+    if action not in {"status", "approve_only", "approve_apply"}:
+        abort(400, "Invalid request action.")
+    return_month = _safe_request_admin_month(request.form.get("ym"), date.today())
     response = (request.form.get("admin_response") or "").strip()
     if len(response) > 500:
         abort(400, "Response is limited to 500 characters.")
@@ -5720,23 +6249,49 @@ def admin_request_respond(rid):
         requested_status = "fulfilled"
     if requested_status not in REQUEST_STATUSES:
         abort(400, "Invalid request status.")
+    if (r.status or "pending") not in REQUEST_STATUSES:
+        abort(409, "The request has an invalid current status.")
+    if not r.staff or r.staff.unit_id != unit_id:
+        abort(409, "The requester does not belong to this airport.")
 
     old = {"status": r.status, "response": r.admin_response}
     if action == "approve_apply":
+        if r.status not in {"pending", "approved"}:
+            abort(409, "Only pending or approved requests can be applied.")
         shift = ShiftType.query.filter_by(
-            unit_id=unit_id, code=r.code, is_active=True, is_requestable=True
+            unit_id=unit_id, code=r.code, is_active=True,
+            is_requestable=True, is_working=True,
         ).first()
         if not shift:
             abort(409, "The requested shift is no longer valid.")
         if _is_month_locked(r.day.year, r.day.month, unit_id=unit_id):
             abort(409, "The roster month is locked.")
+        published = RosterPublication.query.filter_by(
+            unit_id=unit_id, year=r.day.year, month=r.day.month,
+            state="published",
+        ).first()
+        if published:
+            abort(
+                409,
+                "The roster is published. Create a controlled superseding "
+                "version before applying this request.",
+            )
         conflicts = list(would_create_new_fatigue_issues(r.staff, r.day, r.code).values())
         if not _staff_has_shift_qualification(r.staff, shift):
             conflicts.append(["Required qualification is missing or expired."])
         override = request.form.get("confirm_override") == "yes"
         if conflicts and not override:
-            flash("Applying this request has conflicts. Review and confirm the permitted override.", "error")
-            return redirect(url_for("requests_page", ym=request.form.get("ym") or ""))
+            warning_text = "; ".join(
+                str(item)
+                for group in conflicts
+                for item in (group if isinstance(group, (list, tuple, set)) else [group])
+            )
+            flash(
+                "Applying this request has conflicts: "
+                f"{warning_text[:700]}. Review and confirm the permitted override.",
+                "error",
+            )
+            return redirect(url_for("requests_page", ym=return_month))
         assignment = Assignment.query.filter_by(
             unit_id=unit_id, staff_id=r.staff_id, day=r.day
         ).first()
@@ -5755,14 +6310,19 @@ def admin_request_respond(rid):
     r.responded_by_id = getattr(current_user, "id", None)
     r.responded_at = utcnow()
     r.updated_at = utcnow()
+    if requested_status == "fulfilled" and r.fulfilled_at is None:
+        r.fulfilled_at = utcnow()
+    if requested_status == "cancelled" and r.cancelled_at is None:
+        r.cancelled_at = utcnow()
     _request_audit(r, current_user.id, action, old, {
         "status": r.status, "response": response,
         "assignment_id": r.resulting_assignment_id,
     }, response)
-    _notify_requester(r)
+    if old["status"] != r.status:
+        _notify_requester(r)
     db.session.commit()
     flash("Response saved.", "ok")
-    return redirect(url_for("requests_page", ym=request.form.get("ym") or ""))
+    return redirect(url_for("requests_page", ym=return_month))
 
 
 @app.route("/platform/admin", methods=["GET", "POST"])
@@ -5910,6 +6470,35 @@ def platform_admin():
             ))
             db.session.commit()
             return redirect(url_for("platform_admin"))
+        elif action == "set_feature":
+            try:
+                unit_id = int(request.form.get("unit_id") or 0)
+            except ValueError:
+                abort(400)
+            key = (request.form.get("key") or "").strip()
+            if key not in PLATFORM_FEATURE_FLAGS:
+                abort(400, "Unknown feature flag.")
+            unit = db.session.get(Unit, unit_id)
+            if not unit or unit.status == "platform_control":
+                abort(404)
+            row = FeatureFlag.query.filter_by(
+                unit_id=unit.id, key=key
+            ).first()
+            if not row:
+                row = FeatureFlag(unit_id=unit.id, key=key)
+                db.session.add(row)
+            old_enabled = bool(row.enabled)
+            row.enabled = request.form.get("enabled") == "yes"
+            db.session.add(SuperAdminAudit(
+                actor_identity_id=platform_actor.id,
+                unit_id=unit.id,
+                action="feature_flag_changed",
+                safe_summary=(
+                    f"Changed {key} from {old_enabled} to {row.enabled}"
+                ),
+            ))
+            db.session.commit()
+            return redirect(url_for("platform_admin"))
         else:
             abort(400)
     rows = []
@@ -5936,7 +6525,10 @@ def platform_admin():
             "storage_bytes": routing.storage_bytes if routing else 0,
             "activity_count": int(activity or 0),
         })
-    return render_template("platform_admin.html", rows=rows)
+    return render_template(
+        "platform_admin.html", rows=rows,
+        feature_keys=sorted(PLATFORM_FEATURE_FLAGS),
+    )
 
 
 @app.route("/unit/accounts", methods=["GET", "POST"])
@@ -5951,6 +6543,41 @@ def unit_accounts():
     if request.method == "POST":
         _validate_csrf()
         action = (request.form.get("action") or "").strip()
+        if action == "create_invitation":
+            role = (request.form.get("role") or "StaffUser").strip()
+            allowed_roles = {
+                "UnitAdmin", "RosterEditor", "WatchManager",
+                "StaffUser", "ReadOnlyAuditor",
+            }
+            if role not in allowed_roles:
+                abort(400, "Invalid invitation role.")
+            try:
+                from account_limits import lock_unit_capacity
+                lock_unit_capacity(db, Unit, UnitMembership, unit_id)
+                raw_token = secrets.token_urlsafe(32)
+                invitation = SecureInvitation(
+                    unit_id=unit_id,
+                    token_digest=hashlib.sha256(
+                        raw_token.encode()
+                    ).hexdigest(),
+                    role=role,
+                    expires_at=utcnow() + timedelta(days=7),
+                )
+                db.session.add(invitation)
+                db.session.commit()
+            except ValueError as exc:
+                db.session.rollback()
+                flash(str(exc), "error")
+                return redirect(url_for("unit_accounts"))
+            invite_url = url_for(
+                "accept_invitation", token=raw_token, _external=True
+            )
+            flash(
+                "Invitation created. Copy this link now; it is shown only "
+                f"once: {invite_url}",
+                "ok",
+            )
+            return redirect(url_for("unit_accounts"))
         if action == "create_account":
             name = (request.form.get("name") or "").strip()
             username = (request.form.get("username") or "").strip().lower()
@@ -6009,14 +6636,170 @@ def unit_accounts():
                 db.session.commit()
                 flash("Account deactivated.", "ok")
             return redirect(url_for("unit_accounts"))
+        if action == "restore":
+            try:
+                membership_id = int(
+                    request.form.get("membership_id") or 0
+                )
+            except ValueError:
+                abort(400)
+            membership = UnitMembership.query.filter_by(
+                id=membership_id, unit_id=unit_id, status="suspended"
+            ).first_or_404()
+            try:
+                from account_limits import activate_membership
+                activate_membership(
+                    db, Unit, UnitMembership, membership.id
+                )
+                membership.suspended_at = None
+                membership.activated_at = (
+                    membership.activated_at or utcnow()
+                )
+                linked = (
+                    db.session.get(Staff, membership.person_id)
+                    if membership.person_id else None
+                )
+                if linked:
+                    linked.membership_status = "active"
+                db.session.commit()
+                flash("Account restored.", "ok")
+            except ValueError as exc:
+                db.session.rollback()
+                flash(str(exc), "error")
+            return redirect(url_for("unit_accounts"))
+        if action == "disable_invitation":
+            try:
+                invitation_id = int(
+                    request.form.get("invitation_id") or 0
+                )
+            except ValueError:
+                abort(400)
+            invitation = SecureInvitation.query.filter_by(
+                id=invitation_id, unit_id=unit_id,
+                accepted_at=None, disabled_at=None,
+            ).first_or_404()
+            invitation.disabled_at = utcnow()
+            db.session.commit()
+            flash("Invitation disabled.", "ok")
+            return redirect(url_for("unit_accounts"))
         abort(400)
     memberships = UnitMembership.query.filter_by(unit_id=unit_id).order_by(
         UnitMembership.id
     ).all()
     active_count = sum(1 for row in memberships if row.status == "active")
+    current_time = utcnow()
+    pending_invitations = SecureInvitation.query.filter(
+        SecureInvitation.unit_id == unit_id,
+        SecureInvitation.accepted_at.is_(None),
+        SecureInvitation.disabled_at.is_(None),
+        SecureInvitation.expires_at > current_time,
+    ).order_by(SecureInvitation.expires_at).all()
     return render_template(
         "unit_accounts.html", unit=unit, memberships=memberships,
         active_count=active_count,
+        pending_invitations=pending_invitations,
+    )
+
+
+@app.route("/invite/<token>", methods=["GET", "POST"])
+def accept_invitation(token):
+    """Accept a one-time, expiring invitation without trusting tenant input."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token or ""):
+        abort(404)
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    invitation = SecureInvitation.query.filter_by(
+        token_digest=digest
+    ).first_or_404()
+    expiry_now = utcnow()
+    if invitation.expires_at.tzinfo is None:
+        expiry_now = expiry_now.replace(tzinfo=None)
+    if (
+        invitation.accepted_at
+        or invitation.disabled_at
+        or invitation.expires_at <= expiry_now
+    ):
+        abort(410, "This invitation has expired or has already been used.")
+    unit = db.session.get(Unit, invitation.unit_id)
+    if not unit or unit.status != "active":
+        abort(409, "This airport account is not accepting invitations.")
+    if request.method == "POST":
+        _validate_csrf()
+        name = (request.form.get("name") or "").strip()
+        username = (request.form.get("username") or "").strip().lower()
+        password = request.form.get("password") or ""
+        if not name or not re.fullmatch(r"[a-z0-9._-]{3,120}", username):
+            flash("Enter a name and a valid username.", "error")
+            return render_template(
+                "invitation_accept.html", invitation=invitation, unit=unit
+            ), 400
+        if len(password) < 12:
+            flash("Use a password of at least 12 characters.", "error")
+            return render_template(
+                "invitation_accept.html", invitation=invitation, unit=unit
+            ), 400
+        if PlatformIdentity.query.filter_by(username=username).first() or (
+            db.session.query(Staff)
+            .execution_options(skip_tenant_scope=True)
+            .filter_by(username=username)
+            .first()
+        ):
+            flash("That username is unavailable.", "error")
+            return render_template(
+                "invitation_accept.html", invitation=invitation, unit=unit
+            ), 409
+        role_map = {
+            "UnitAdmin": "admin",
+            "RosterEditor": "editor",
+            "WatchManager": "user",
+            "StaffUser": "user",
+            "ReadOnlyAuditor": "auditor",
+        }
+        try:
+            staff = Staff(
+                unit_id=unit.id,
+                username=username,
+                name=name[:80],
+                staff_no=f"{unit.code}-LOGIN-{secrets.token_hex(3).upper()}",
+                role=role_map[invitation.role],
+                is_wm=invitation.role == "WatchManager",
+                is_operational=False,
+            )
+            staff.set_password(password)
+            db.session.add(staff)
+            db.session.flush()
+            identity = PlatformIdentity(
+                public_id=f"member-{secrets.token_hex(12)}",
+                username=username,
+                password_hash=staff.password_hash,
+            )
+            db.session.add(identity)
+            db.session.flush()
+            membership = UnitMembership(
+                identity_id=identity.id,
+                unit_id=unit.id,
+                person_id=staff.id,
+                role=invitation.role,
+                status="invited",
+            )
+            db.session.add(membership)
+            db.session.flush()
+            from account_limits import activate_membership
+            activate_membership(
+                db, Unit, UnitMembership, membership.id
+            )
+            membership.activated_at = utcnow()
+            invitation.accepted_at = utcnow()
+            db.session.commit()
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), "error")
+            return render_template(
+                "invitation_accept.html", invitation=invitation, unit=unit
+            ), 409
+        flash("Account created. Sign in and configure MFA.", "ok")
+        return redirect(url_for("login"))
+    return render_template(
+        "invitation_accept.html", invitation=invitation, unit=unit
     )
 
 
@@ -6028,21 +6811,165 @@ def unit_onboarding():
     unit = db.session.get(Unit, _current_unit_id())
     if not unit:
         abort(404)
+    csv_preview = None
     if request.method == "POST":
         _validate_csrf()
-        step = max(1, min(int(request.form.get("step") or unit.onboarding_step), 10))
-        if step == 1:
+        action = (request.form.get("action") or "identity").strip()
+        if action == "identity":
             unit.name = (request.form.get("name") or unit.name).strip()[:120]
-            unit.code = (request.form.get("code") or unit.code).strip().upper()[:12]
+            code = (request.form.get("code") or unit.code).strip().upper()
+            if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
+                abort(400, "Invalid airport code.")
+            duplicate = Unit.query.filter(
+                Unit.code == code, Unit.id != unit.id
+            ).first()
+            if duplicate:
+                abort(409, "That airport code is already used.")
+            unit.code = code
             unit.timezone = (request.form.get("timezone") or unit.timezone).strip()[:64]
             unit.locale = (request.form.get("locale") or unit.locale).strip()[:20]
             unit.date_format = (request.form.get("date_format") or unit.date_format).strip()[:30]
-        unit.onboarding_step = min(step + 1, 10)
-        db.session.commit()
-        flash("Onboarding progress saved.", "ok")
-        return redirect(url_for("unit_onboarding"))
+            primary = request.form.get("primary_colour") or "#16283a"
+            accent = request.form.get("accent_colour") or "#2c7be5"
+            if not re.fullmatch(r"#[0-9A-Fa-f]{6}", primary) or not re.fullmatch(
+                r"#[0-9A-Fa-f]{6}", accent
+            ):
+                abort(400, "Brand colours must be six-digit hex values.")
+            unit.branding_json = json.dumps({
+                "primary_colour": primary,
+                "accent_colour": accent,
+                "display_name": (
+                    request.form.get("display_name") or unit.name
+                ).strip()[:120],
+            }, sort_keys=True)
+            unit.onboarding_step = max(unit.onboarding_step, 2)
+            db.session.commit()
+            flash("Airport identity and branding saved.", "ok")
+            return redirect(url_for("unit_onboarding"))
+        if action == "request_rules":
+            try:
+                months = int(request.form.get("request_months_ahead") or 3)
+                lock_day = int(request.form.get("request_lock_day") or 20)
+            except ValueError:
+                abort(400, "Request rules must be whole numbers.")
+            if not 1 <= months <= 24 or not 1 <= lock_day <= 28:
+                abort(400, "Request window must be 1–24 months and lock day 1–28.")
+            unit.request_months_ahead = months
+            unit.request_lock_day = lock_day
+            unit.onboarding_step = max(unit.onboarding_step, 8)
+            db.session.commit()
+            flash("Fatigue and request rules saved.", "ok")
+            return redirect(url_for("unit_onboarding"))
+        if action == "seed_qualifications":
+            defaults = (
+                "MEDICAL", "ADI", "APP", "APS", "OJTI", "UCA", "ENGLISH"
+            )
+            for code in defaults:
+                if not QualificationType.query.filter_by(
+                    unit_id=unit.id, code=code
+                ).first():
+                    db.session.add(QualificationType(
+                        unit_id=unit.id, code=code,
+                        label=code.replace("_", " ").title(),
+                        warning_days_csv="180,90,60,30",
+                    ))
+            unit.onboarding_step = max(unit.onboarding_step, 5)
+            db.session.commit()
+            flash("Default qualification types added.", "ok")
+            return redirect(url_for("unit_onboarding"))
+        if action == "csv_preview":
+            upload = request.files.get("csv_file")
+            if not upload or not upload.filename:
+                abort(400, "Choose a CSV file.")
+            try:
+                content = upload.read().decode("utf-8-sig")
+            except UnicodeDecodeError:
+                abort(400, "CSV must use UTF-8 encoding.")
+            reader = csv.DictReader(io.StringIO(content))
+            required = {"name", "staff_no", "watch"}
+            if not reader.fieldnames or not required.issubset(
+                {field.strip() for field in reader.fieldnames}
+            ):
+                abort(400, "CSV requires name, staff_no and watch columns.")
+            watches = {
+                row.name.strip().lower(): row
+                for row in Watch.query.filter_by(unit_id=unit.id).all()
+            }
+            seen_numbers = set()
+            rows, errors = [], []
+            for line_number, raw in enumerate(reader, start=2):
+                if len(rows) + len(errors) >= 500:
+                    errors.append("CSV is limited to 500 records.")
+                    break
+                name = (raw.get("name") or "").strip()
+                staff_no = (raw.get("staff_no") or "").strip()
+                watch_name = (raw.get("watch") or "").strip()
+                watch = watches.get(watch_name.lower())
+                line_errors = []
+                if not name:
+                    line_errors.append("name is required")
+                if not re.fullmatch(r"[A-Za-z0-9._/-]{1,20}", staff_no):
+                    line_errors.append("invalid staff_no")
+                if staff_no.lower() in seen_numbers or Staff.query.filter_by(
+                    unit_id=unit.id, staff_no=staff_no
+                ).first():
+                    line_errors.append("duplicate staff_no")
+                if not watch:
+                    line_errors.append("unknown watch")
+                if line_errors:
+                    errors.append(
+                        f"Line {line_number}: {', '.join(line_errors)}"
+                    )
+                    continue
+                seen_numbers.add(staff_no.lower())
+                rows.append({
+                    "name": name[:80], "staff_no": staff_no,
+                    "watch_id": watch.id, "watch": watch.name,
+                })
+            nonce = secrets.token_urlsafe(18)
+            if not errors:
+                session["_onboarding_csv_preview"] = {
+                    "unit_id": unit.id, "nonce": nonce, "rows": rows,
+                }
+            else:
+                session.pop("_onboarding_csv_preview", None)
+            csv_preview = {
+                "rows": rows, "errors": errors, "nonce": nonce,
+            }
+        elif action == "csv_apply":
+            saved = session.get("_onboarding_csv_preview") or {}
+            nonce = request.form.get("nonce") or ""
+            if (
+                saved.get("unit_id") != unit.id
+                or not secrets.compare_digest(
+                    nonce, str(saved.get("nonce") or "")
+                )
+            ):
+                abort(409, "The import preview has expired.")
+            for row in saved.get("rows") or []:
+                person = Staff(
+                    unit_id=unit.id,
+                    username=(
+                        f"person-{unit.code.lower()}-"
+                        f"{secrets.token_hex(8)}"
+                    ),
+                    name=row["name"], staff_no=row["staff_no"],
+                    watch_id=row["watch_id"], role="user",
+                    membership_status="no_login", is_operational=True,
+                )
+                person.set_password(secrets.token_urlsafe(32))
+                db.session.add(person)
+            unit.onboarding_step = max(unit.onboarding_step, 9)
+            db.session.commit()
+            session.pop("_onboarding_csv_preview", None)
+            flash("Validated staff records imported.", "ok")
+            return redirect(url_for("unit_onboarding"))
+        else:
+            abort(400, "Unknown onboarding action.")
     active = UnitMembership.query.filter_by(unit_id=unit.id, status="active").count()
-    pending = UnitMembership.query.filter_by(unit_id=unit.id, status="invited").count()
+    pending = SecureInvitation.query.filter_by(
+        unit_id=unit.id, accepted_at=None, disabled_at=None
+    ).count()
     readiness = [
         ("Airport identity", bool(unit.name and unit.code and unit.timezone), "unit_onboarding"),
         ("Watches configured", Watch.query.count() > 0, "admin"),
@@ -6059,6 +6986,7 @@ def unit_onboarding():
         pending_invitations=pending, readiness=readiness,
         readiness_complete=readiness_complete,
         readiness_percent=round(readiness_complete / len(readiness) * 100),
+        csv_preview=csv_preview,
     )
 
 
@@ -6069,24 +6997,43 @@ def qualification_compliance():
         abort(403)
     unit_id = _current_unit_id()
     today = date.today()
-    qualifications = (
-        PersonQualification.query
-        .filter_by(unit_id=unit_id)
-        .join(QualificationType, PersonQualification.qualification_type_id == QualificationType.id)
-        .all()
-    )
+    qualification_types = QualificationType.query.filter_by(
+        unit_id=unit_id
+    ).order_by(QualificationType.code).all()
+    people = Staff.query.filter_by(
+        unit_id=unit_id, is_operational=True
+    ).order_by(Staff.name).all()
+    qualifications = PersonQualification.query.filter_by(
+        unit_id=unit_id
+    ).all()
+    by_person_type = {
+        (row.person_id, row.qualification_type_id): row
+        for row in qualifications
+    }
     rows = []
-    for qual in qualifications:
-        qtype = db.session.get(QualificationType, qual.qualification_type_id)
-        person = Staff.query.filter_by(id=qual.person_id, unit_id=unit_id).first()
-        if not person:
-            continue
-        days = None if not qual.expires_on else (qual.expires_on - today).days
-        state = "missing" if not qual.expires_on else (
-            "expired" if days < 0 else "expiring" if days <= 180 else "valid"
-        )
-        rows.append({"person": person, "type": qtype, "qualification": qual,
-                     "days": days, "state": state})
+    for person in people:
+        for qtype in qualification_types:
+            qual = by_person_type.get((person.id, qtype.id))
+            expires_on = qual.expires_on if qual else None
+            days = None if not expires_on else (expires_on - today).days
+            try:
+                warning_days = max(
+                    int(value.strip())
+                    for value in (qtype.warning_days_csv or "180").split(",")
+                    if value.strip()
+                )
+            except (TypeError, ValueError):
+                warning_days = 180
+            state = "missing" if not expires_on else (
+                "expired" if days < 0
+                else "expiring" if days <= warning_days
+                else "valid"
+            )
+            rows.append({
+                "person": person, "type": qtype,
+                "qualification": qual, "expires_on": expires_on,
+                "days": days, "state": state,
+            })
     return render_template("qualification_compliance.html", rows=rows)
 
 
@@ -6473,15 +7420,97 @@ def reports_index():
     abort(403)
 
 
+_login_attempts: dict[str, deque[datetime]] = defaultdict(deque)
+LOGIN_RATE_WINDOW = timedelta(minutes=15)
+LOGIN_RATE_LIMIT = 10
+
+
+def _login_rate_key(username: str) -> str:
+    remote = request.remote_addr or "unknown"
+    digest = hashlib.sha256(username.lower().encode()).hexdigest()[:16]
+    return f"{remote}:{digest}"
+
+
+def _security_event(event: str, **safe_fields) -> None:
+    payload = {
+        "event": event,
+        "request_id": getattr(g, "request_id", ""),
+        "occurred_at": utcnow().isoformat(),
+        **safe_fields,
+    }
+    app.logger.warning("security_event %s", json.dumps(
+        payload, sort_keys=True, default=str
+    ))
+
+
+def _record_successful_login(user: Staff) -> None:
+    now = utcnow()
+    identity = PlatformIdentity.query.filter_by(
+        username=user.username
+    ).first()
+    if identity:
+        identity.last_active_at = now
+    unit = db.session.get(Unit, user.unit_id)
+    if unit:
+        unit.last_active_at = now
+    if user.role != "superadmin":
+        db.session.add(AggregateUsageEvent(
+            unit_id=user.unit_id, event_type="login", count=1,
+        ))
+    db.session.commit()
+
+
 @app.route("/login", methods=["GET", "POST"], endpoint="login")
 def signin_form():   # function name can be anything; endpoint is 'login'
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = (request.form.get("password") or "").strip()
-        user = Staff.query.filter_by(username=username).first()
-        if user and user.check_password(password):
+        rate_key = _login_rate_key(username)
+        attempts = _login_attempts[rate_key]
+        cutoff = utcnow() - LOGIN_RATE_WINDOW
+        while attempts and attempts[0] < cutoff:
+            attempts.popleft()
+        if len(attempts) >= LOGIN_RATE_LIMIT:
+            _security_event("login_rate_limited", principal=rate_key[-16:])
+            abort(429, "Too many login attempts. Try again later.")
+        identity = PlatformIdentity.query.filter_by(username=username).first()
+        user = None
+        credentials_valid = False
+        if identity:
+            credentials_valid = check_password_hash(
+                identity.password_hash, password
+            )
+            if credentials_valid:
+                membership = UnitMembership.query.filter_by(
+                    identity_id=identity.id, status="active"
+                ).first()
+                if membership and membership.person_id:
+                    user = db.session.get(Staff, membership.person_id)
+                else:
+                    platform_user = Staff.query.filter_by(
+                        username=username, role="superadmin"
+                    ).first()
+                    user = platform_user
+        else:
+            user = Staff.query.filter_by(username=username).first()
+            credentials_valid = bool(
+                user and user.check_password(password)
+            )
+        if user and credentials_valid:
             if user.membership_status != "active":
                 flash("This account is not active.", "error")
+                return render_template("login.html"), 403
+            login_unit = db.session.get(Unit, user.unit_id)
+            if (
+                user.role != "superadmin"
+                and (not login_unit or login_unit.status != "active")
+            ):
+                _security_event(
+                    "suspended_unit_login_blocked",
+                    principal=rate_key[-16:],
+                    unit_id=user.unit_id,
+                )
+                flash("This airport account is not active.", "error")
                 return render_template("login.html"), 403
             credential = MfaCredential.query.filter_by(
                 person_id=user.id, enabled=True
@@ -6489,17 +7518,28 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             session.clear()
             if credential:
                 session["_mfa_user_id"] = user.id
+                session["_mfa_rate_key"] = rate_key
                 session["_mfa_next"] = (
                     request.args.get("next")
                     if _is_safe_local_redirect(request.args.get("next")) else ""
                 )
                 return redirect(url_for("mfa_challenge"))
             login_user(user)
+            session.permanent = True
             session["_session_started_at"] = utcnow().isoformat()
+            _login_attempts.pop(rate_key, None)
+            _security_event(
+                "login_succeeded",
+                principal=rate_key[-16:],
+                unit_id=user.unit_id,
+            )
+            _record_successful_login(user)
             flash("Logged in successfully", "ok")
             # support ?next=... to return where user was going
             nxt = request.args.get("next")
             return redirect(nxt if _is_safe_local_redirect(nxt) else url_for("index"))
+        attempts.append(utcnow())
+        _security_event("login_failed", principal=rate_key[-16:])
         flash("Invalid username or password.", "error")
     return render_template("login.html")
 
@@ -6559,7 +7599,19 @@ def mfa_challenge():
             next_url = session.pop("_mfa_next", "")
             session.pop("_mfa_user_id", None)
             login_user(user)
+            session.permanent = True
             session["_session_started_at"] = utcnow().isoformat()
+            rate_key = session.pop("_mfa_rate_key", "")
+            if rate_key:
+                _login_attempts.pop(rate_key, None)
+            _security_event(
+                "mfa_login_succeeded",
+                principal=hashlib.sha256(
+                    user.username.lower().encode()
+                ).hexdigest()[:16],
+                unit_id=user.unit_id,
+            )
+            _record_successful_login(user)
             db.session.commit()
             return redirect(next_url or url_for("index"))
         flash("Invalid, expired or already-used verification code.", "error")

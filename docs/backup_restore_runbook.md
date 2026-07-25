@@ -1,0 +1,35 @@
+# Backup and restore runbook
+
+## Backup
+
+1. Use an automated PostgreSQL custom-format backup for the control database
+   and every airport operational database.
+2. Encrypt in transit and at rest; store off-host with least-privilege access.
+3. Record database identifier, UTC timestamp, Alembic revision, byte size and
+   SHA-256 checksum without personnel content in the job log.
+4. Alert on failure or missed recovery-point objective.
+5. Retain and securely erase backups according to the approved retention plan.
+
+Example:
+
+```bash
+pg_dump --format=custom --no-owner --file=atcroster.dump "$DATABASE_URL"
+sha256sum atcroster.dump > atcroster.dump.sha256
+```
+
+## Restore rehearsal
+
+1. Authorise an isolated PostgreSQL target and restrict network access.
+2. Verify the backup checksum.
+3. Restore with `pg_restore --clean --if-exists`.
+4. Run `alembic upgrade head` using the matching release image.
+5. Check health endpoints and compare control totals.
+6. Run tenant-isolation, authentication, roster, publication and audit-history
+   acceptance checks.
+7. Record achieved RPO/RTO and discrepancies.
+8. Securely destroy the rehearsal environment.
+
+Restore tests must occur at least quarterly and before a migration with
+material tenant or publication impact. A successful backup job is not evidence
+of recoverability until this rehearsal passes.
+

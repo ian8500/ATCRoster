@@ -63,6 +63,7 @@
       <div><span class="admin-step">Planning</span><h3>Monthly staffing requirements</h3><p>Set the minimum staffing for each duty group.</p></div>
     </header>
     <form method="post" class="section-body">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="req">
       <div class="table-scroll admin-requirements-table">
         <table class="mini admin-table">
@@ -94,6 +95,7 @@
     <div class="admin-create-drawer" data-create-shift hidden>
       <h4>New shift</h4>
       <form method="post" class="admin-form-grid">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="shift_new">
         <label>Code<input name="code" required maxlength="10"></label>
         <label>Name<input name="name" required></label>
@@ -122,6 +124,7 @@
         </summary>
         <div class="admin-shift-editor">
           <form method="post" class="admin-form-grid">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="form" value="shift_edit"><input type="hidden" name="shift_id" value="{{ sh.id }}">
             <label>Name<input name="name" value="{{ sh.name }}"></label>
             <label>Start<input type="time" name="start" value="{{ sh.start_time.strftime('%H:%M') if sh.start_time else '' }}"></label>
@@ -136,6 +139,7 @@
             <div class="form-actions"><button class="btn btn-primary" type="submit">Save {{ sh.code }}</button></div>
           </form>
           <form method="post" class="admin-danger-action" onsubmit="return confirm('Delete shift {{ sh.code }}?');">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="form" value="shift_delete"><input type="hidden" name="shift_id" value="{{ sh.id }}">
             <button class="btn" type="submit">Delete shift</button>
           </form>
@@ -153,6 +157,7 @@
     <div class="admin-create-drawer" data-create-staff hidden>
       <h4>New ATCO</h4>
       <form method="post" class="admin-form-grid">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="staff_new">
         <label>Name<input name="name" required></label><label>Staff number<input name="staff_no" required></label><label>Username<input name="username" required></label>
         <label>Watch<select name="watch_id" required><option value="">Select watch</option>{% for w in watches %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></label>
@@ -161,7 +166,7 @@
         <label>Entitlement days<input type="number" name="leave_entitlement_days" min="0" value="25"></label>
         <label>Public holidays<input type="number" name="leave_public_holidays" min="0" value="8"></label>
         <label>Carryover days<input type="number" name="leave_carryover_days" min="0" value="0"></label>
-        <div class="admin-check-row"><label class="checkbox"><input type="checkbox" name="is_wm"> Watch Manager</label><label class="checkbox"><input type="checkbox" name="is_dwm"> Deputy WM</label><label class="checkbox"><input type="checkbox" name="exclude_from_ot"> Exclude from OT</label></div>
+        <div class="admin-check-row"><label class="checkbox"><input type="checkbox" name="is_wm"> Watch Manager</label><label class="checkbox"><input type="checkbox" name="is_dwm"> Deputy WM</label><label class="checkbox"><input type="checkbox" name="permission_edit_roster"> May edit roster</label><label class="checkbox"><input type="checkbox" name="permission_apply_annotations"> May apply annotations</label><label class="checkbox"><input type="checkbox" name="exclude_from_ot"> Exclude from OT</label></div>
         <div class="form-actions"><button class="btn btn-primary" type="submit">Create ATCO</button></div>
       </form>
     </div>
@@ -183,6 +188,7 @@
     <header class="admin-panel-heading"><div><span class="admin-step">Configuration</span><h3>Tools and reference data</h3><p>Open specialist settings without crowding the main workspace.</p></div></header>
     <div class="admin-tool-grid">
       <a href="{{ url_for('admin_reference') }}"><i class="fa-solid fa-tags"></i><span><strong>Reference data</strong><small>Annotations and roster code lists</small></span></a>
+      <a href="{{ url_for('bulk_annotations') }}"><i class="fa-solid fa-table-cells"></i><span><strong>Bulk annotations</strong><small>Preview and apply annotations across a date range</small></span></a>
       <a href="{{ url_for('admin_ai_rules') }}"><i class="fa-solid fa-wand-magic-sparkles"></i><span><strong>AI rules</strong><small>Automated roster constraints</small></span></a>
       <a href="{{ url_for('admin_toil_new') }}"><i class="fa-solid fa-clock-rotate-left"></i><span><strong>Manual TOIL</strong><small>Record a balance adjustment</small></span></a>
       <a href="{{ url_for('change_log_page') }}"><i class="fa-solid fa-list-check"></i><span><strong>Change log</strong><small>Review administrative history</small></span></a>

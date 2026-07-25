@@ -9,15 +9,38 @@
   </div>
 
   <section class="card card-body mb-4">
-    <h3>Create and activate account</h3>
+    <h3>Create secure invitation</h3>
+    <p class="muted">The recipient chooses their own credentials. Invitations expire after seven days and can be used once.</p>
     <form method="post" class="row g-3">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="create_account">
-      <div class="col-md-4"><label>Name<input class="form-control" name="name" required></label></div>
-      <div class="col-md-4"><label>Username<input class="form-control" name="username" required></label></div>
-      <div class="col-md-4"><label>Temporary password<input class="form-control" type="password" name="password" minlength="12" required autocomplete="new-password"></label></div>
-      <div class="col-12"><button class="btn btn-primary" type="submit" {% if active_count >= unit.active_user_limit %}disabled{% endif %}>Activate account</button></div>
+      <input type="hidden" name="action" value="create_invitation">
+      <div class="col-md-6"><label>Role
+        <select class="form-select" name="role">
+          <option value="StaffUser">Staff user</option>
+          <option value="WatchManager">Watch manager</option>
+          <option value="RosterEditor">Roster editor</option>
+          <option value="ReadOnlyAuditor">Read-only auditor</option>
+          <option value="UnitAdmin">Unit admin</option>
+        </select>
+      </label></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">Create one-time invitation link</button></div>
     </form>
+  </section>
+
+  <section class="card card-body mb-4">
+    <h3>Pending invitations</h3>
+    <p><strong>{{ pending_invitations|length }}</strong> invitation(s) awaiting acceptance.</p>
+    {% for invitation in pending_invitations %}
+      <form method="post" class="d-flex gap-2 align-items-center mb-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="disable_invitation">
+        <input type="hidden" name="invitation_id" value="{{ invitation.id }}">
+        <span>#{{ invitation.id }} · {{ invitation.role }} · expires {{ invitation.expires_at.strftime('%d %b %Y %H:%M') }}</span>
+        <button class="btn btn-sm" type="submit">Disable</button>
+      </form>
+    {% else %}
+      <p class="muted">No pending invitations.</p>
+    {% endfor %}
   </section>
 
   <table class="table">
@@ -36,6 +59,13 @@
             <input type="hidden" name="action" value="deactivate">
             <input type="hidden" name="membership_id" value="{{ membership.id }}">
             <button class="btn btn-sm" type="submit">Deactivate</button>
+          </form>
+          {% elif membership.status == "suspended" %}
+          <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="restore">
+            <input type="hidden" name="membership_id" value="{{ membership.id }}">
+            <button class="btn btn-sm" type="submit" {% if active_count >= unit.active_user_limit %}disabled{% endif %}>Restore</button>
           </form>
           {% else %}—{% endif %}
         </td>

@@ -1,10 +1,12 @@
+import io
+import json
 import os
 import sys
 import tempfile
 from datetime import date, time
 
-import pytest
 import pyotp
+import pytest
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if REPO_ROOT not in sys.path:
@@ -17,19 +19,18 @@ if os.path.exists(TEST_DB_PATH):
 
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
-import app  # noqa: E402
+import app
 from app import (
-    Watch,
-    Staff,
     ShiftType,
+    Staff,
     StaffWatchHistory,
     Unit,
+    Watch,
+    db,
     ensure_month_requirement,
     generate_month,
     refresh_shift_cache,
-    db,
 )
-
 
 ADMIN_CREDENTIALS = {"username": "admin_test", "password": "password123"}
 
@@ -78,12 +79,18 @@ def setup_database():
                 unit_id=1, username="watch_manager_test", name="Watch Manager Test",
                 staff_no="WM-001", role="user", watch=watch_a,
                 is_wm=True, is_operational=True,
+                permissions_json=json.dumps({
+                    "edit_roster": True, "apply_annotations": True,
+                }),
             ),
             Staff(
                 unit_id=1, username="duty_watch_manager_test",
                 name="Duty Watch Manager Test", staff_no="DWM-001",
                 role="user", watch=watch_b, is_dwm=True,
                 is_operational=True,
+                permissions_json=json.dumps({
+                    "edit_roster": True, "apply_annotations": True,
+                }),
             ),
             Staff(
                 unit_id=1, username="staff_test", name="Staff Test",
@@ -588,6 +595,7 @@ def test_admin_can_configure_requestable_shift(client):
         "/admin",
         data={
             "form": "shift_edit",
+            "_csrf_token": csrf(client),
             "shift_id": shift_id,
             "name": "Morning",
             "start": "07:00",
@@ -611,6 +619,74 @@ def test_admin_can_configure_requestable_shift(client):
         assert shift.required_qualification == "medical"
 
 
+def test_onboarding_branding_rules_and_csv_preview(client):
+    login(client)
+    token = csrf(client)
+    identity = client.post(
+        "/unit/onboarding",
+        data={
+            "_csrf_token": token,
+            "action": "identity",
+            "name": "Test Airport",
+            "code": "TST",
+            "timezone": "Europe/London",
+            "locale": "en-GB",
+            "date_format": "%d/%m/%Y",
+            "display_name": "TST Roster Control",
+            "primary_colour": "#123456",
+            "accent_colour": "#abcdef",
+        },
+        follow_redirects=True,
+    )
+    assert identity.status_code == 200
+    assert b"TST Roster Control" in identity.data
+    rules = client.post(
+        "/unit/onboarding",
+        data={
+            "_csrf_token": token,
+            "action": "request_rules",
+            "request_months_ahead": "6",
+            "request_lock_day": "18",
+        },
+        follow_redirects=True,
+    )
+    assert rules.status_code == 200
+    preview = client.post(
+        "/unit/onboarding",
+        data={
+            "_csrf_token": token,
+            "action": "csv_preview",
+            "csv_file": (
+                io.BytesIO(
+                    b"name,staff_no,watch\nImported Person,IMP-001,Watch A\n"
+                ),
+                "people.csv",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert preview.status_code == 200
+    assert b"Imported Person" in preview.data
+    with client.session_transaction() as session:
+        nonce = session["_onboarding_csv_preview"]["nonce"]
+    applied = client.post(
+        "/unit/onboarding",
+        data={
+            "_csrf_token": token,
+            "action": "csv_apply",
+            "nonce": nonce,
+        },
+        follow_redirects=True,
+    )
+    assert b"Validated staff records imported" in applied.data
+    with app.app.app_context():
+        imported = Staff.query.filter_by(staff_no="IMP-001").one()
+        assert imported.membership_status == "no_login"
+        unit = app.db.session.get(app.Unit, 1)
+        assert unit.request_months_ahead == 6
+        assert unit.request_lock_day == 18
+
+
 def test_non_working_shift_cannot_be_requestable(client):
     login(client)
     with app.app.app_context():
@@ -621,6 +697,7 @@ def test_non_working_shift_cannot_be_requestable(client):
         "/admin",
         data={
             "form": "shift_edit",
+            "_csrf_token": csrf(client),
             "shift_id": shift_id,
             "name": "Off",
             "is_active": "on",
@@ -668,7 +745,10 @@ def test_admin_watch_move_flow(client):
     # Create a new watch move and ensure redirect ends on staff edit page
     create_resp = client.post(
         f"/admin/staff/{staff.id}/watch-move",
-        data={"watch_id": watch_b.id, "effective_date": "2025-06-01"},
+        data={
+            "_csrf_token": csrf(client),
+            "watch_id": watch_b.id, "effective_date": "2025-06-01",
+        },
         follow_redirects=True,
     )
     assert create_resp.status_code == 200
@@ -687,7 +767,10 @@ def test_admin_watch_move_flow(client):
     # Update the existing watch move to a different watch and effective date
     update_resp = client.post(
         f"/admin/staff/watch-move/{entry.id}/edit",
-        data={"watch_id": watch_a.id, "effective_date": "2025-07-01"},
+        data={
+            "_csrf_token": csrf(client),
+            "watch_id": watch_a.id, "effective_date": "2025-07-01",
+        },
         follow_redirects=True,
     )
     assert update_resp.status_code == 200
@@ -702,6 +785,7 @@ def test_admin_watch_move_flow(client):
     # Delete the watch move and ensure other admin links still load
     delete_resp = client.post(
         f"/admin/staff/watch-move/{entry.id}/delete",
+        data={"_csrf_token": csrf(client)},
         follow_redirects=True,
     )
     assert delete_resp.status_code == 200

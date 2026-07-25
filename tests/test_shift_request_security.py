@@ -4,8 +4,20 @@ import pytest
 
 import app
 from app import (
-    Assignment, Notification, RequestAudit, ShiftRequest, ShiftType, Staff,
-    Unit, Watch, _lock_date_for_target_month, _request_date_bounds, db,
+    AnnotationAudit,
+    AnnotationType,
+    Assignment,
+    Notification,
+    RequestAudit,
+    ShiftRequest,
+    ShiftType,
+    Staff,
+    Unit,
+    Watch,
+    _lock_date_for_target_month,
+    _request_date_bounds,
+    db,
+    refresh_annotation_cache,
     refresh_shift_cache,
 )
 
@@ -29,6 +41,8 @@ def secured_client():
                       is_working=True, is_active=True, is_requestable=True),
             ShiftType(unit_id=1, code="HID", name="Not requestable", is_working=True,
                       is_active=True, is_requestable=False),
+            ShiftType(unit_id=1, code="REST", name="Invalid rest request",
+                      is_working=False, is_active=True, is_requestable=True),
             ShiftType(unit_id=1, code="QUAL", name="Qualified", start_time=time(9), end_time=time(17),
                       is_working=True, is_active=True, is_requestable=True,
                       required_qualification="medical"),
@@ -99,6 +113,18 @@ def test_csrf_and_non_requestable_shift_rejected(secured_client):
         "_csrf_token": token, "form": "add", "day": request_day().isoformat(), "code": "HID",
     }, follow_redirects=True)
     assert b"inactive or cannot be requested" in invalid.data
+    non_working = secured_client.post("/requests", data={
+        "_csrf_token": token, "form": "add",
+        "day": request_day().isoformat(), "code": "REST",
+    }, follow_redirects=True)
+    assert b"inactive or cannot be requested" in non_working.data
+
+
+def test_malformed_admin_month_is_safely_rejected_to_default(secured_client):
+    login(secured_client, "admin-a")
+    response = secured_client.get("/requests?ym=not-a-month")
+    assert response.status_code == 200
+    assert b"Shift Requests" in response.data
 
 
 def test_approved_request_cannot_be_forged_deleted(secured_client):
@@ -139,6 +165,37 @@ def test_invalid_status_and_cross_unit_isolation(secured_client):
     assert cross_write.status_code == 404
     page = secured_client.get(f"/requests?ym={request_day():%Y-%m}")
     assert b"UNIT-B-SECRET" not in page.data
+
+
+def test_admin_cancellation_records_timestamp_audit_and_safe_redirect(secured_client):
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="user-a").one()
+        row = ShiftRequest(
+            unit_id=1, staff_id=user.id, day=request_day(), code="REQ",
+        )
+        db.session.add(row)
+        db.session.commit()
+        rid = row.id
+    token = login(secured_client, "admin-a")
+    response = secured_client.post(
+        f"/admin/requests/{rid}/respond",
+        data={
+            "_csrf_token": token,
+            "action": "status",
+            "status": "cancelled",
+            "admin_response": "Operational reason",
+            "ym": "../../platform/admin",
+        },
+    )
+    assert response.status_code == 302
+    assert "/requests?ym=" in response.headers["Location"]
+    with app.app.app_context():
+        row = db.session.get(ShiftRequest, rid)
+        assert row.cancelled_at is not None
+        audit = RequestAudit.query.filter_by(
+            request_id=rid, transition="status"
+        ).one()
+        assert "cancelled" in audit.new_value
 
 
 def test_sequential_tenant_sessions_do_not_reuse_first_unit_filter(secured_client):
@@ -242,3 +299,95 @@ def test_qualification_conflict_requires_confirmed_override(secured_client):
     assert b"has conflicts" in response.data
     with app.app.app_context():
         assert db.session.get(ShiftRequest, rid).status == "pending"
+
+
+def test_annotation_application_is_tenant_scoped_and_audited(secured_client):
+    with app.app.app_context():
+        secret = AnnotationType(
+            unit_id=2, code="SECRET", label="UNIT-B-SECRET",
+            is_active=True,
+        )
+        own = AnnotationType(
+            unit_id=1, code="OWN", label="Own annotation",
+            is_active=True,
+        )
+        other_person = Staff.query.filter_by(username="user-b").one()
+        db.session.add_all([secret, own])
+        db.session.commit()
+        other_person_id = other_person.id
+        refresh_annotation_cache()
+    token = login(secured_client, "admin-a")
+    page = secured_client.get(f"/roster/{request_day():%Y-%m}")
+    assert b"Own annotation" in page.data
+    assert b"UNIT-B-SECRET" not in page.data
+    cross_write = secured_client.post(
+        f"/assign/{other_person_id}/{request_day():%Y-%m}/{request_day():%Y-%m-%d}",
+        data={"_csrf_token": token, "annotation": "SECRET"},
+    )
+    assert cross_write.status_code == 404
+
+
+def test_bulk_annotation_preview_apply_and_toil_idempotency(secured_client):
+    with app.app.app_context():
+        definition = AnnotationType(
+            unit_id=1, code="TOILX", label="TOIL award",
+            is_active=True, toil_half_days=2,
+        )
+        user = Staff.query.filter_by(username="user-a").one()
+        db.session.add(definition)
+        db.session.commit()
+        user_id = user.id
+        refresh_annotation_cache()
+    token = login(secured_client, "admin-a")
+    end = request_day().replace(day=request_day().day + 1)
+    preview = secured_client.post("/annotations/bulk", data={
+        "_csrf_token": token,
+        "action": "preview",
+        "person_id": user_id,
+        "start": request_day().isoformat(),
+        "end": end.isoformat(),
+        "annotation": "TOILX",
+    })
+    assert preview.status_code == 200
+    assert b"2 cell(s) will change" in preview.data
+    with secured_client.session_transaction() as session:
+        nonce = session["_bulk_annotation_preview"]["nonce"]
+    applied = secured_client.post("/annotations/bulk", data={
+        "_csrf_token": token, "action": "apply", "nonce": nonce,
+    })
+    assert applied.status_code == 302
+    replay = secured_client.post("/annotations/bulk", data={
+        "_csrf_token": token, "action": "apply", "nonce": nonce,
+    })
+    assert replay.status_code == 409
+    with app.app.app_context():
+        user = db.session.get(Staff, user_id)
+        assert user.toil_half_days == 4
+        assert AnnotationAudit.query.filter_by(
+            unit_id=1, action="bulk_applied"
+        ).count() == 2
+
+
+def test_watch_manager_needs_explicit_annotation_permission(secured_client):
+    with app.app.app_context():
+        watch = db.session.get(Watch, 1)
+        manager = Staff(
+            unit_id=1, username="wm-limited", name="Limited WM",
+            staff_no="WM-LIMIT", role="user", watch=watch, is_wm=True,
+            permissions_json='{"edit_roster": true}',
+        )
+        manager.set_password("password123")
+        definition = AnnotationType(
+            unit_id=1, code="WMTEST", label="Manager test", is_active=True,
+        )
+        target = Staff.query.filter_by(username="user-a").one()
+        db.session.add_all([manager, definition])
+        db.session.commit()
+        target_id = target.id
+        refresh_annotation_cache()
+    token = login(secured_client, "wm-limited")
+    response = secured_client.post(
+        f"/assign/{target_id}/{request_day():%Y-%m}/{request_day():%Y-%m-%d}",
+        data={"_csrf_token": token, "annotation": "WMTEST"},
+    )
+    assert response.status_code == 403
