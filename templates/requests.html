@@ -112,7 +112,7 @@
                         <input type="hidden" name="ym" value="{{ admin_ym or '' }}">
                         <div class="input-group input-group-sm" style="max-width: 520px;">
                           <select class="form-select" name="status" aria-label="Status for {{ req.staff.name }} on {{ day.strftime('%d %B %Y') }}">
-                            {% for st in ['pending','approved','rejected','fulfilled','cancelled'] %}
+                            {% for st in ['approved','rejected','cancelled'] %}
                               <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
                             {% endfor %}
                           </select>
@@ -185,7 +185,7 @@
                       <input type="hidden" name="ym" value="{{ admin_ym }}">
                       <div class="input-group input-group-sm">
                         <select class="form-select" name="status">
-                          {% for st in ['pending','approved','rejected','fulfilled','cancelled'] %}
+                          {% for st in ['approved','rejected','cancelled'] %}
                             <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
                           {% endfor %}
                         </select>

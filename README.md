@@ -395,14 +395,17 @@ deactivate an account before activating or restoring another.
 
 1. Create an airport using a unique 2–12 character code, display name, plan,
    and active-user limit.
-2. Create that airport's initial Unit Admin in the same operation.
+2. Generate an opaque, one-time bootstrap invitation without entering or
+   viewing administrator identity details.
 3. Change an existing airport's account limit, provided it is not reduced
    below the current active-account count.
 4. Suspend or restore an airport.
 
-The initial Unit Admin password must contain at least 12 characters. Share it
-through an approved secure channel; the application does not display or store
-the plaintext password after creation.
+Transfer the bootstrap link through the approved external secure channel. The
+airport administrator enters their own identity and password. The invitation
+is hashed at rest, expires, is single-use, rechecks capacity, and exposes only
+unused/accepted/expired/revoked status to the Super Admin. The first Unit Admin
+must enrol MFA before operational access.
 
 The platform view displays only:
 
@@ -465,14 +468,14 @@ CONTROL_DATABASE_URL=postgresql+psycopg://...
 ATCROSTER_UNIT_1_DATABASE_URL=postgresql+psycopg://...
 ```
 
-The `OperationalDatabaseRouter` resolves only the authenticated unit and reads
-credentials from deployment secrets. It is implemented and independently
-tested, but the current Flask-SQLAlchemy repositories still run in the shared
-database with mandatory `unit_id` scoping. Wiring ORM sessions to the router
-and migrating each airport is a recorded production launch gate; do not claim
-physical per-airport isolation until that gate is complete. Never accept a
-database name, secret name, unit ID, or connection URL from a form/query
-parameter.
+The tenant-routed SQLAlchemy session sends every operational mapper to the
+database selected by the authenticated membership. `OperationalDatabaseRouter`
+accepts only server-side routing metadata whose value is the name of a
+deployment secret. The platform-control context is explicitly denied an
+operational session. Local legacy development can temporarily use the shared
+database only outside production so it can be imported as the first unit.
+Never accept a database name, secret name, unit ID, or connection URL from a
+form or query parameter.
 
 Run behind an HTTPS reverse proxy and set:
 
@@ -534,9 +537,15 @@ falls back to the default browser.
 Production changes use Alembic:
 
 ```bash
-export DATABASE_URL="postgresql+psycopg://..."
-alembic upgrade head
+export CONTROL_DATABASE_URL="postgresql+psycopg://..."
+export DATABASE_URL="$CONTROL_DATABASE_URL"
+python scripts/migrate_all_databases.py
 ```
+
+Set every routed `ATCROSTER_UNIT_<id>_DATABASE_URL` deployment secret first.
+The command upgrades the control database, validates every route, refuses a
+control/operational URL collision, upgrades each operational database, and
+creates its local unit-boundary row.
 
 The tenant-foundation migration creates the first airport, adds tenant keys to
 legacy operational tables, adds request lifecycle fields, and extends shift
@@ -623,7 +632,8 @@ Install dependencies and run:
 python -m pytest -q
 ```
 
-The suite covers legacy helpers/routes plus shared UX/error recovery, roster
+The suite covers physical database routing and platform-control denial, five
+legacy migration fixtures, legacy helpers/routes, shared UX/error recovery, roster
 zoom controls, overtime empty states, platform airport creation,
 account-limit enforcement, unit account management, request persistence,
 request windows and lock boundaries, requestable shifts,

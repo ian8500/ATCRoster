@@ -98,7 +98,7 @@ Reset the dataset after A07–A09 if later testers need an unenrolled account.
 | --- | --- | --- | --- |
 | C01 | As Platform Super Admin, review LBA, EMA and INV cards. | Plan, limit, status, health, migration and aggregate usage display correctly. | |
 | C02 | Change INV’s account limit, plan or status, then reload. | Change persists and a safe platform audit event is recorded. | |
-| C03 | Create a new test airport with a unique code, initial admin and a 12+ character password. | Airport and initial Unit Admin are created atomically. No password is displayed afterward. | |
+| C03 | Create a new test airport with a unique code, plan and limit. Securely transfer the one-time bootstrap link. | No personal fields are requested. The recipient chooses identity/password, the link becomes accepted, and MFA is required before operational access. | |
 | C04 | Attempt to create an airport using an existing code. | Validation rejects the duplicate without partial records. | |
 | C05 | As LBA Unit Admin, open Accounts. | Usage reads `16 of 17`. | |
 | C06 | Create one LBA account with a unique username and 12+ character password. | Account activates and usage reads `17 of 17`. | |

@@ -14,7 +14,8 @@ is not legal, regulatory or safety assurance advice.
 
 ## Acceptance scenarios
 
-1. Create an airport and its initial Unit Admin.
+1. Create an airport, securely transfer its opaque bootstrap invitation, and
+   have the first Unit Admin choose credentials and enrol MFA.
 2. Verify that users cannot read or change another airport's data.
 3. Configure watches, shifts, qualifications and staffing requirements.
 4. Import or create a representative roster and reconcile record counts.

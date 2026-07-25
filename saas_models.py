@@ -24,7 +24,9 @@ def register_saas_models(db, utcnow):
         id = db.Column(db.Integer, primary_key=True)
         identity_id = db.Column(db.Integer, db.ForeignKey("platform_identity.id"), nullable=False)
         unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
-        person_id = db.Column(db.Integer, db.ForeignKey("staff.id"))
+        # Opaque operational person id. The referenced row lives in the
+        # airport database, so a cross-database foreign key is impossible.
+        person_id = db.Column(db.Integer)
         role = db.Column(db.String(30), nullable=False)
         status = db.Column(db.String(20), nullable=False, default="invited")
         permissions_json = db.Column(db.Text, nullable=False, default="{}")
@@ -94,6 +96,8 @@ def register_saas_models(db, utcnow):
         code = db.Column(db.String(30), nullable=False)
         label = db.Column(db.String(100), nullable=False)
         warning_days_csv = db.Column(db.String(100), nullable=False, default="180,90,60,30")
+        expiry_required = db.Column(db.Boolean, nullable=False, default=True)
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
         __table_args__ = (db.UniqueConstraint("unit_id", "code", name="uq_qualification_unit_code"),)
 
     class PersonQualification(db.Model):
@@ -102,8 +106,30 @@ def register_saas_models(db, utcnow):
         unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
         person_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
         qualification_type_id = db.Column(db.Integer, db.ForeignKey("qualification_type.id"), nullable=False)
+        issued_on = db.Column(db.Date)
+        valid_from = db.Column(db.Date)
         expires_on = db.Column(db.Date)
         status = db.Column(db.String(20), nullable=False, default="valid")
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint(
+                "unit_id", "person_id", "qualification_type_id",
+                name="uq_person_qualification_type",
+            ),
+        )
+
+    class PersonQualificationHistory(db.Model):
+        __tablename__ = "person_qualification_history"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        person_qualification_id = db.Column(
+            db.Integer, db.ForeignKey("person_qualification.id"),
+            nullable=False, index=True,
+        )
+        actor_id = db.Column(db.Integer, nullable=False)
+        action = db.Column(db.String(30), nullable=False)
+        snapshot_json = db.Column(db.Text, nullable=False)
+        occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
     class RosterPublication(db.Model):
         __tablename__ = "roster_publication"

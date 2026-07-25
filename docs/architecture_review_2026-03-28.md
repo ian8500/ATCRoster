@@ -49,10 +49,19 @@ while service boundaries are progressively extracted.
 
 ### Tenant isolation
 
-Every operational record carries `unit_id`. Authenticated tenant context is
-bound server-side; forms and query strings cannot select an airport.
-SQLAlchemy applies defensive tenant criteria and stamps/rejects writes.
-Negative tests cover sequential sessions and cross-airport operational data.
+The default connection is the central control database for identities,
+memberships, airport accounts, plans, feature flags, safe platform audits,
+aggregate usage and secret-name routing metadata. Every operational mapper is
+routed by `TenantRoutedSession` to the authenticated airport's engine.
+Credentials are resolved from deployment secrets and never from browser data.
+Missing or inconsistent production routes fail closed. Platform-control
+contexts are explicitly forbidden from resolving an operational engine.
+
+Every operational record also carries `unit_id` as defence in depth.
+SQLAlchemy applies tenant criteria and stamps/rejects writes, while physical
+database separation prevents cross-airport queries at the connection boundary.
+Flask integration tests exercise distinct SQLite files and PostgreSQL 16
+databases.
 
 ### Schema control
 
@@ -79,7 +88,7 @@ immutable publication snapshot.
 
 1. Extract authentication, assurance and roster services from `app.py`.
 2. Add a documented versioned REST API for approved integrations.
-3. Add PostgreSQL integration tests in CI.
+3. Run the existing PostgreSQL physical-isolation integration flow in CI.
 4. Integrate central rate limiting, SIEM and organisation SSO.
 5. Add traffic-demand/sector-opening integrations where the unit can supply an
    authoritative data source.

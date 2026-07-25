@@ -5,19 +5,23 @@ production release.
 
 ## Automated evidence
 
-- [ ] Full test suite passes on the release commit.
-- [ ] Tenant-isolation and cross-unit IDOR tests pass.
-- [ ] Super Admin privacy tests pass.
-- [ ] Account-limit, request, annotation and publication tests pass.
-- [ ] Clean-database `alembic upgrade head` succeeds.
-- [ ] `pip-audit -r requirements.txt` reports no known vulnerabilities.
-- [ ] Lint results are reviewed; new correctness/security findings are closed.
-- [ ] 30-airport scale smoke test meets the agreed environment threshold.
+- [x] Full test suite passes: 67 tests on 25 July 2026.
+- [x] Tenant-isolation and cross-unit IDOR tests pass.
+- [x] Super Admin privacy tests pass.
+- [x] Account-limit, request, annotation and publication tests pass.
+- [x] Clean SQLite fixtures and PostgreSQL 16 reach Alembic `20260725_08`.
+- [x] `pip-audit -r requirements.txt` reports no known vulnerabilities.
+- [x] Changed-file and correctness/security lint checks pass; remaining legacy
+  style debt is recorded as non-blocking.
+- [x] 30-airport/108,000-assignment smoke test passes locally.
+- [x] Production container builds and production configuration validation
+  passes.
 
 ## Production controls
 
 - [ ] PostgreSQL is used; SQLite and Flask development server are disabled.
-- [ ] Per-airport operational database routing is wired and verified.
+- [x] Per-airport operational database routing is wired and verified in
+  SQLite and PostgreSQL integration tests.
 - [ ] TLS, Secure/HttpOnly/SameSite cookies and trusted proxy settings are set.
 - [ ] Unique Flask, MFA encryption and database secrets are in a secret store.
 - [ ] MFA and account recovery have been acceptance tested.
@@ -34,4 +38,3 @@ production release.
 - [ ] Unit configuration and imported data receive two-person verification.
 - [ ] ATC operational/safety acceptance and go-live authority are recorded.
 - [ ] Rollback decision point and on-call coverage are confirmed.
-

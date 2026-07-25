@@ -4,17 +4,12 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Import model metadata without allowing development reference-data bootstrap
-# to create schema ahead of Alembic.
-os.environ["ATCROSTER_SKIP_BOOTSTRAP"] = "true"
-os.environ["ATCROSTER_SKIP_RUNTIME_SCHEMA"] = "1"
-from app import db
-
 config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
 config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url")))
-target_metadata = db.metadata
+# Production upgrades use explicit revision operations and never import Flask.
+target_metadata = None
 
 
 def run_migrations_offline():

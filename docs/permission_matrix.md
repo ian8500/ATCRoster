@@ -18,9 +18,9 @@ Explicit Watch Manager permissions are stored per membership/user.
 | Acknowledge publication | No | Own membership | Own membership | Own membership | Own membership | No |
 | Invite/deactivate logins | No | Allow within limit | No | No | No | No |
 | Platform feature flags/suspension | Allow, allowlist only | No | No | No | No | No |
+| Establish operational DB session | Denied | Own airport | Own airport | Own airport | Own airport | Own airport, read-only target |
 | Personnel exports/impersonation | No | Unit-scoped exports only | Role-scoped | Role-scoped | Own only | No |
 
 Denied routes must return 403 or conceal non-owned resources with 404. A role
 label never overrides unit ownership. Super Admin has no universal operational
 access.
-

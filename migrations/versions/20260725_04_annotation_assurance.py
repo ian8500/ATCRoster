@@ -17,7 +17,11 @@ def upgrade():
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     tables = set(inspector.get_table_names())
-    if "annotation_audit" not in tables:
+    if (
+        "annotation_audit" not in tables
+        and "annotation_type" in tables
+        and "assignment" in tables
+    ):
         op.create_table(
             "annotation_audit",
             sa.Column("id", sa.Integer(), primary_key=True),

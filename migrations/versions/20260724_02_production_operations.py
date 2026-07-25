@@ -33,6 +33,12 @@ def upgrade():
                 sa.Column("recovery_codes_digest", sa.Text(), nullable=False, server_default="[]"),
             )
         return
+    # Minimal historical installations may not contain the optional roster
+    # tables referenced by this assurance domain. Leave those features absent
+    # rather than manufacturing broken foreign keys; a later controlled import
+    # can add them after the core records are reconciled.
+    if not {"unit", "staff", "assignment"}.issubset(existing):
+        return
     op.create_table(
         "operational_position", *_tenant_columns(),
         sa.Column("code", sa.String(30), nullable=False),

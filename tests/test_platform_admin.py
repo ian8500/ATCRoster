@@ -1,5 +1,7 @@
 import re
 
+import pyotp
+
 import app
 from app import (
     PlatformIdentity,
@@ -73,16 +75,42 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional():
     assert b"Test Airport created" in created.data
     # The control-plane listing does not display personnel details.
     assert b"tst.admin" not in created.data
+    bootstrap_match = re.search(rb"/invite/([A-Za-z0-9_-]+)", created.data)
+    assert bootstrap_match
+    bootstrap_path = bootstrap_match.group(0).decode()
 
     with app.app.app_context():
         unit = Unit.query.filter_by(code="TST").one()
         assert unit.active_user_limit == 2
         memberships = UnitMembership.query.filter_by(unit_id=unit.id).all()
-        assert len(memberships) == 1
-        assert memberships[0].status == "active"
+        assert memberships == []
 
     unit_client = app.app.test_client()
+    bootstrap_csrf = _csrf(unit_client, bootstrap_path)
+    accepted_bootstrap = unit_client.post(
+        bootstrap_path,
+        data={
+            "_csrf_token": bootstrap_csrf,
+            "name": "Initial Unit Admin",
+            "username": "tst.admin",
+            "password": "UnitAdmin-Test-2026!",
+        },
+    )
+    assert accepted_bootstrap.status_code == 302
     _login(unit_client, "tst.admin", "UnitAdmin-Test-2026!")
+    setup = unit_client.get("/security/mfa")
+    assert setup.status_code == 200
+    with unit_client.session_transaction() as session:
+        secret = session["_pending_mfa_secret"]
+        mfa_csrf = session["_csrf_token"]
+    enrolled = unit_client.post(
+        "/security/mfa",
+        data={
+            "_csrf_token": mfa_csrf,
+            "code": pyotp.TOTP(secret).now(),
+        },
+    )
+    assert enrolled.status_code == 200
     unit_token = _csrf(unit_client, "/unit/accounts")
     second = unit_client.post(
         "/unit/accounts",
@@ -156,3 +184,40 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional():
             unit_id=unit.id, status="active",
             role="ReadOnlyAuditor",
         ).count() == 1
+
+
+def test_platform_admin_onboarding_contains_no_personal_identity_fields():
+    with app.app.app_context():
+        db.drop_all()
+        db.create_all()
+        control = Unit(
+            code="CTRL", name="Platform Control",
+            status="platform_control", active_user_limit=1,
+        )
+        db.session.add(control)
+        db.session.flush()
+        platform_user = Staff(
+            unit_id=control.id, username="privacy.platform",
+            name="Platform Operator", staff_no="CTRL-PRIV",
+            role="superadmin", is_operational=False,
+        )
+        platform_user.set_password("Platform-Privacy-2026!")
+        db.session.add(platform_user)
+        db.session.flush()
+        db.session.add(PlatformIdentity(
+            public_id="platform-privacy-test",
+            username=platform_user.username,
+            password_hash=platform_user.password_hash,
+        ))
+        db.session.commit()
+    client = app.app.test_client()
+    _login(client, "privacy.platform", "Platform-Privacy-2026!")
+    page = client.get("/platform/admin")
+    assert page.status_code == 200
+    prohibited = (
+        b"admin_name", b"admin_username", b"admin_password",
+        b"email", b"phone", b"staff_no", b"impersonat",
+    )
+    lower = page.data.lower()
+    for value in prohibited:
+        assert value not in lower

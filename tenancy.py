@@ -6,26 +6,43 @@ context variable for the lifetime of the request.
 """
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-import os
-from typing import Callable
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-
 _unit_context: ContextVar[int | None] = ContextVar("atc_roster_unit", default=None)
+_route_context: ContextVar[DatabaseRoute | None] = ContextVar(
+    "atc_roster_database_route", default=None
+)
+_operational_access_forbidden: ContextVar[bool] = ContextVar(
+    "atc_roster_operational_access_forbidden", default=False
+)
 
 
-def bind_authenticated_unit(unit_id: int):
+def bind_authenticated_unit(
+    unit_id: int, secret_name: str | None = None
+):
     if not isinstance(unit_id, int) or unit_id < 1:
         raise ValueError("A trusted positive unit id is required")
-    return _unit_context.set(unit_id)
+    unit_token = _unit_context.set(unit_id)
+    route_token = _route_context.set(
+        DatabaseRoute(unit_id, secret_name) if secret_name else None
+    )
+    return unit_token, route_token
 
 
 def reset_authenticated_unit(token) -> None:
-    _unit_context.reset(token)
+    if isinstance(token, tuple):
+        unit_token, route_token = token
+        _route_context.reset(route_token)
+        _unit_context.reset(unit_token)
+    else:
+        _unit_context.reset(token)
 
 
 def authenticated_unit_id() -> int:
@@ -66,6 +83,60 @@ class OperationalDatabaseRouter:
         for engine in self._engines.values():
             engine.dispose()
         self._engines.clear()
+
+
+def authenticated_database_route() -> DatabaseRoute:
+    route = _route_context.get()
+    unit_id = authenticated_unit_id()
+    if route is None:
+        raise RuntimeError("No operational database route is bound")
+    if route.unit_id != unit_id:
+        raise PermissionError("Operational database route is inconsistent")
+    return route
+
+
+_context_router = OperationalDatabaseRouter(
+    lambda unit_id: authenticated_database_route()
+)
+
+
+def operational_engine_for_authenticated_unit() -> Engine:
+    if _operational_access_forbidden.get():
+        raise PermissionError(
+            "Platform control context cannot open an operational database"
+        )
+    return _context_router.engine_for_authenticated_unit()
+
+
+def dispose_operational_engines() -> None:
+    _context_router.dispose()
+
+
+def bind_platform_control():
+    return _operational_access_forbidden.set(True)
+
+
+def reset_platform_control(token) -> None:
+    _operational_access_forbidden.reset(token)
+
+
+def clear_request_context() -> None:
+    """Force a clean boundary at HTTP request start/end."""
+    _unit_context.set(None)
+    _route_context.set(None)
+    _operational_access_forbidden.set(False)
+
+
+@contextmanager
+def operational_unit_context(
+    unit_id: int, secret_name: str
+):
+    """Required boundary for CLI jobs, exports and background operations."""
+    token = bind_authenticated_unit(unit_id, secret_name)
+    try:
+        yield operational_engine_for_authenticated_unit()
+    finally:
+        reset_authenticated_unit(token)
 
 
 class TenantRepository:

@@ -8,6 +8,8 @@ from app import (
     AnnotationType,
     Assignment,
     Notification,
+    PersonQualification,
+    QualificationType,
     RequestAudit,
     ShiftRequest,
     ShiftType,
@@ -167,6 +169,56 @@ def test_invalid_status_and_cross_unit_isolation(secured_client):
     assert b"UNIT-B-SECRET" not in page.data
 
 
+@pytest.mark.parametrize(
+    ("start", "target", "expected_status"),
+    [
+        ("pending", "approved", 302),
+        ("pending", "rejected", 302),
+        ("pending", "cancelled", 302),
+        ("pending", "pending", 409),
+        ("pending", "fulfilled", 400),
+        ("approved", "rejected", 302),
+        ("approved", "cancelled", 302),
+        ("approved", "approved", 409),
+        ("rejected", "approved", 409),
+        ("cancelled", "approved", 409),
+        ("fulfilled", "rejected", 409),
+    ],
+)
+def test_request_transition_table(
+    secured_client, start, target, expected_status
+):
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="user-a").one()
+        row = ShiftRequest(
+            unit_id=1, staff_id=user.id, day=request_day(),
+            code="REQ", status=start,
+        )
+        if start == "fulfilled":
+            assignment = Assignment(
+                unit_id=1, staff_id=user.id, day=request_day(),
+                code="REQ", source="request",
+            )
+            db.session.add(assignment)
+            db.session.flush()
+            row.resulting_assignment_id = assignment.id
+            row.fulfilled_at = app.utcnow()
+        db.session.add(row)
+        db.session.commit()
+        request_id = row.id
+    token = login(secured_client, "admin-a")
+    response = secured_client.post(
+        f"/admin/requests/{request_id}/respond",
+        data={
+            "_csrf_token": token,
+            "action": "status",
+            "status": target,
+            "admin_response": "Documented operational reason",
+        },
+    )
+    assert response.status_code == expected_status
+
+
 def test_admin_cancellation_records_timestamp_audit_and_safe_redirect(secured_client):
     with app.app.app_context():
         user = Staff.query.filter_by(username="user-a").one()
@@ -256,6 +308,37 @@ def test_operational_assurance_is_tenant_isolated(secured_client):
     assert cross_write.status_code == 404
 
 
+def test_rule_approval_supersedes_only_current_airport(secured_client):
+    with app.app.app_context():
+        own_rule = app.RosterRuleVersion(
+            unit_id=1, version=1, name="Airport A draft",
+            state="draft", rules_json="{}",
+            change_reference="A-CHANGE",
+            consultation_summary="Airport A consultation completed.",
+        )
+        other_rule = app.RosterRuleVersion(
+            unit_id=2, version=1, name="Airport B approved",
+            state="approved", rules_json="{}",
+            change_reference="B-CHANGE",
+            consultation_summary="Airport B consultation completed.",
+        )
+        db.session.add_all([own_rule, other_rule])
+        db.session.commit()
+        own_id = own_rule.id
+        other_id = other_rule.id
+    token = login(secured_client, "admin-a")
+    response = secured_client.post("/operations/2026-10", data={
+        "_csrf_token": token,
+        "action": "approve_rule_version",
+        "rule_id": own_id,
+        "effective_from": "2026-10-01",
+    })
+    assert response.status_code == 302
+    with app.app.app_context():
+        assert db.session.get(app.RosterRuleVersion, own_id).state == "approved"
+        assert db.session.get(app.RosterRuleVersion, other_id).state == "approved"
+
+
 def test_approve_only_then_apply_and_notify(secured_client):
     with app.app.app_context():
         user = Staff.query.filter_by(username="user-a").one()
@@ -274,7 +357,8 @@ def test_approve_only_then_apply_and_notify(secured_client):
         assert row.status == "approved"
         assert row.resulting_assignment_id is None
     applied = secured_client.post(f"/admin/requests/{rid}/respond", data={
-        "_csrf_token": token, "action": "approve_apply", "admin_response": "Applied",
+        "_csrf_token": token, "action": "approve_apply",
+        "admin_response": "Approved override after operational review",
         "ym": f"{request_day():%Y-%m}", "confirm_override": "yes",
     })
     assert applied.status_code == 302
@@ -299,6 +383,62 @@ def test_qualification_conflict_requires_confirmed_override(secured_client):
     assert b"has conflicts" in response.data
     with app.app.app_context():
         assert db.session.get(ShiftRequest, rid).status == "pending"
+
+
+def test_authoritative_qualification_is_duty_date_and_unit_scoped(
+    secured_client,
+):
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="user-a").one()
+        own_type = QualificationType(
+            unit_id=1, code="MEDICAL", label="Medical",
+            expiry_required=True, is_active=True,
+        )
+        other_type = QualificationType(
+            unit_id=2, code="MEDICAL", label="Other medical",
+            expiry_required=True, is_active=True,
+        )
+        db.session.add_all([own_type, other_type])
+        db.session.flush()
+        db.session.add(PersonQualification(
+            unit_id=1, person_id=user.id,
+            qualification_type_id=own_type.id,
+            valid_from=request_day() - app.timedelta(days=30),
+            expires_on=request_day() + app.timedelta(days=30),
+            status="valid",
+        ))
+        row = ShiftRequest(
+            unit_id=1, staff_id=user.id, day=request_day(), code="QUAL"
+        )
+        db.session.add(row)
+        db.session.commit()
+        request_id = row.id
+    token = login(secured_client, "admin-a")
+    with app.app.app_context():
+        from tenancy import bind_authenticated_unit, reset_authenticated_unit
+        context_token = bind_authenticated_unit(1)
+        try:
+            user = Staff.query.filter_by(username="user-a").one()
+            shift = ShiftType.query.filter_by(unit_id=1, code="QUAL").one()
+            assert app._staff_has_shift_qualification(
+                user, shift, request_day()
+            )
+        finally:
+            reset_authenticated_unit(context_token)
+    response = secured_client.post(
+        f"/admin/requests/{request_id}/respond",
+        data={
+            "_csrf_token": token,
+            "action": "approve_apply",
+            "admin_response": "Competence and operational conflicts checked",
+            "confirm_override": "yes",
+        },
+    )
+    assert response.status_code == 302
+    with app.app.app_context():
+        row = db.session.get(ShiftRequest, request_id)
+        assert row.status == "fulfilled"
+        assert row.resulting_assignment_id is not None
 
 
 def test_annotation_application_is_tenant_scoped_and_audited(secured_client):
@@ -373,7 +513,7 @@ def test_watch_manager_needs_explicit_annotation_permission(secured_client):
         watch = db.session.get(Watch, 1)
         manager = Staff(
             unit_id=1, username="wm-limited", name="Limited WM",
-            staff_no="WM-LIMIT", role="user", watch=watch, is_wm=True,
+            staff_no="WM-LIMIT", role="user", watch_id=watch.id, is_wm=True,
             permissions_json='{"edit_roster": true}',
         )
         manager.set_password("password123")
