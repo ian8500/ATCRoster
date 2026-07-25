@@ -4,6 +4,7 @@
 <h1><i class="fa-regular fa-id-card"></i> Edit {{ s.name }}</h1>
 
 <form method="post" class="grid">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
   <div class="card">
     <div class="card-hd">Identity</div>
     <div class="card-bd grid grid-3">
@@ -37,6 +38,8 @@
         <label><input type="checkbox" name="is_wm" {% if s.is_wm %}checked{% endif %}> WM</label>
         <label><input type="checkbox" name="is_dwm" {% if s.is_dwm %}checked{% endif %}> DWM</label>
         <label><input type="checkbox" name="exclude_from_ot" {% if s.exclude_from_ot %}checked{% endif %}> Exclude from OT</label>
+        <label><input type="checkbox" name="permission_edit_roster" {% if permissions.get('edit_roster') %}checked{% endif %}> May edit roster</label>
+        <label><input type="checkbox" name="permission_apply_annotations" {% if permissions.get('apply_annotations') %}checked{% endif %}> May apply annotations</label>
       </div>
     </div>
   </div>
@@ -100,6 +103,7 @@
 
 <!-- Watch move (needs backend route + history model wired) -->
 <form method="post" action="{{ url_for('admin_watch_move', sid=s.id) }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
   <h3>Move watch (effective date)</h3>
   <label>New watch:
     <select name="watch_id">
@@ -122,6 +126,7 @@
       <li>
         {{ hist_date_value or 'Date TBC' }} → {{ hist_watch_name }}
         <form method="post" action="{{ url_for('admin_watch_move_edit', hid=h.id) }}" class="d-inline" style="margin-left:.5rem">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <select name="watch_id">
             {% for w in watches %}<option value="{{ w.id }}" {% if h.watch_id==w.id %}selected{% endif %}>{{ w.name }}</option>{% endfor %}
           </select>
@@ -129,6 +134,7 @@
           <button class="btn btn-sm">Update</button>
         </form>
         <form method="post" action="{{ url_for('admin_watch_move_delete', hid=h.id) }}" class="d-inline">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-sm btn-danger" onclick="return confirm('Delete this watch move?')">Delete</button>
         </form>
       </li>

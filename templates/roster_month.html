@@ -45,8 +45,10 @@
     z-index:5;
   }
 
-  /* Request badge (unchanged) */
-  .req-badge{ display:inline-block; font-size:10px; padding:2px 4px; border-radius:4px; border:1px solid rgba(0,0,0,.2); }
+  /* Active request states remain visually distinct without relying on colour. */
+  .req-badge{ display:inline-block; font-size:10px; font-weight:700; padding:2px 4px; border-radius:4px; border:1px solid currentColor; }
+  .req-badge--pending{ color:#664d03; background:#fff3cd; }
+  .req-badge--approved{ color:#0f5132; background:#d1e7dd; }
 
   /* Tighten spacing (unchanged) */
   .roster-grid{ margin-bottom:0; }
@@ -71,6 +73,7 @@
   <a class="btn ghost" href="{{ url_for('roster_month', ym=next_ym) }}" style="margin-left:.5rem;">{{ next_ym }} &rarr;</a>
 
   <a class="btn" href="{{ url_for('roster_export_csv', ym=ym) }}" style="margin-left:1rem">Export CSV</a>
+  {% if can_edit %}<a class="btn ghost" href="{{ url_for('bulk_annotations') }}">Bulk annotations</a>{% endif %}
   <button class="btn" onclick="printRoster()">Print</button>
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
@@ -212,12 +215,19 @@
                   {% if opts %}
                   <optgroup label="{{ group }}">
                     {% for opt in opts %}
-                      <option value="{{ opt.code }}" {% if ann==opt.code %}selected{% endif %}>{{ opt.label }}</option>
+                      <option value="{{ opt.code }}" {% if ann==opt.code %}selected{% endif %}>
+                        {{ opt.label }} ({{ opt.code }}){% if opt.toil_half_days %} · {{ "%+.1f"|format(opt.toil_half_days / 2) }} day TOIL{% endif %}{% if opt.description %} — {{ opt.description }}{% endif %}
+                      </option>
                     {% endfor %}
                   </optgroup>
                   {% endif %}
                 {% endfor %}
               </select>
+              {% if ann %}<small class="annotation-current">Current: {{ ann }}</small>{% endif %}
+              <input name="annotation_note" class="annotation-note"
+                     maxlength="140" value=""
+                     placeholder="Annotation note (when required)"
+                     aria-label="{{ s.name }} annotation note on {{ d.strftime('%d %B %Y') }}">
             </form>
           </td>
         {% endfor %}

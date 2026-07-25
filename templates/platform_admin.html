@@ -23,14 +23,31 @@
 
   <div class="table-responsive">
     <table class="table">
-      <thead><tr><th>Airport</th><th>Status / plan</th><th>Active accounts</th><th>Features</th><th>Database</th><th>Usage</th><th>Account controls</th></tr></thead>
+      <thead><tr><th>Airport</th><th>Status / plan</th><th>Lifecycle</th><th>Active accounts</th><th>Features</th><th>Database</th><th>Usage</th><th>Account controls</th></tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
           <td><strong>{{ row.unit.name }}</strong><br><code>{{ row.unit.code }}</code></td>
           <td>{{ row.unit.status }} / {{ row.unit.plan }}</td>
+          <td>
+            Created {{ row.unit.created_at.strftime('%d %b %Y') if row.unit.created_at else '—' }}<br>
+            Trial {{ row.unit.trial_ends_at.strftime('%d %b %Y') if row.unit.trial_ends_at else '—' }} ·
+            Renewal {{ row.unit.renews_at.strftime('%d %b %Y') if row.unit.renews_at else '—' }}<br>
+            Last active {{ row.unit.last_active_at.strftime('%d %b %Y %H:%M') if row.unit.last_active_at else '—' }}
+          </td>
           <td>{{ row.active_accounts }} / {{ row.unit.active_user_limit }}</td>
-          <td>{% for key, enabled in row.flags.items() if enabled %}<span class="badge bg-secondary">{{ key }}</span> {% else %}—{% endfor %}</td>
+          <td>
+            {% for key in feature_keys %}
+              <form method="post" class="d-flex gap-1 mb-1">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="set_feature">
+                <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
+                <input type="hidden" name="key" value="{{ key }}">
+                <input type="hidden" name="enabled" value="{{ 'no' if row.flags.get(key) else 'yes' }}">
+                <button class="btn btn-sm" type="submit" aria-pressed="{{ 'true' if row.flags.get(key) else 'false' }}">{{ '✓' if row.flags.get(key) else '○' }} {{ key }}</button>
+              </form>
+            {% endfor %}
+          </td>
           <td>{{ row.database_health }} · {{ row.migration_version or "unreported" }}<br>{{ row.storage_bytes }} bytes</td>
           <td>{{ row.activity_count }} aggregate events</td>
           <td>
@@ -50,7 +67,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="7">No airport accounts.</td></tr>
+        <tr><td colspan="8">No airport accounts.</td></tr>
       {% endfor %}
       </tbody>
     </table>

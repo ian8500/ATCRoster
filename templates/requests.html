@@ -47,7 +47,10 @@
         </div>
       </form>
       <div class="form-text mt-2">
-        Requests are accepted for the configured future window. By default, a month locks on the 20<span class="align-top">th</span> of the preceding month.
+        Requests are accepted from {{ first_allowed.isoformat() }} to
+        {{ last_allowed.isoformat() }}. This airport locks each request month
+        on day {{ request_lock_day }} of the preceding month (the platform
+        default is day 20).
       </div>
     </div>
   </div>
@@ -97,7 +100,7 @@
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="form" value="del">
                         <input type="hidden" name="rid" value="{{ req.id }}">
-                        <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                        <button class="btn btn-sm btn-danger" type="submit">Cancel request</button>
                       </form>
                     {% else %}
                       —

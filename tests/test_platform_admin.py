@@ -1,6 +1,12 @@
+import re
+
 import app
 from app import (
-    PlatformIdentity, Staff, Unit, UnitMembership, Watch, db,
+    PlatformIdentity,
+    Staff,
+    Unit,
+    UnitMembership,
+    db,
 )
 
 
@@ -112,3 +118,41 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional():
         assert UnitMembership.query.filter_by(
             unit_id=unit.id, status="active"
         ).count() == 2
+
+        unit.active_user_limit = 3
+        db.session.commit()
+
+    invitation = unit_client.post(
+        "/unit/accounts",
+        data={
+            "_csrf_token": unit_token,
+            "action": "create_invitation",
+            "role": "ReadOnlyAuditor",
+        },
+        follow_redirects=True,
+    )
+    assert invitation.status_code == 200
+    match = re.search(rb"/invite/([A-Za-z0-9_-]+)", invitation.data)
+    assert match
+    invitation_path = match.group(0).decode()
+    invited_client = app.app.test_client()
+    invite_token = _csrf(invited_client, invitation_path)
+    accepted = invited_client.post(
+        invitation_path,
+        data={
+            "_csrf_token": invite_token,
+            "name": "Airport Auditor",
+            "username": "tst.auditor",
+            "password": "Auditor-Test-2026!",
+        },
+        follow_redirects=True,
+    )
+    assert accepted.status_code == 200
+    assert b"Account created" in accepted.data
+    _login(invited_client, "tst.auditor", "Auditor-Test-2026!")
+    with app.app.app_context():
+        unit = Unit.query.filter_by(code="TST").one()
+        assert UnitMembership.query.filter_by(
+            unit_id=unit.id, status="active",
+            role="ReadOnlyAuditor",
+        ).count() == 1

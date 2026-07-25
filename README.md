@@ -466,8 +466,13 @@ ATCROSTER_UNIT_1_DATABASE_URL=postgresql+psycopg://...
 ```
 
 The `OperationalDatabaseRouter` resolves only the authenticated unit and reads
-credentials from deployment secrets. Do not accept a database name, secret
-name, unit ID, or connection URL from a form/query parameter.
+credentials from deployment secrets. It is implemented and independently
+tested, but the current Flask-SQLAlchemy repositories still run in the shared
+database with mandatory `unit_id` scoping. Wiring ORM sessions to the router
+and migrating each airport is a recorded production launch gate; do not claim
+physical per-airport isolation until that gate is complete. Never accept a
+database name, secret name, unit ID, or connection URL from a form/query
+parameter.
 
 Run behind an HTTPS reverse proxy and set:
 
@@ -664,6 +669,8 @@ Before release also run:
 
 ```bash
 python -m compileall -q app.py tenancy.py saas_models.py account_limits.py scripts
+python scripts/scale_assurance.py
+pip-audit -r requirements.txt
 ```
 
 For production, add integration tests against PostgreSQL and the deployment’s
@@ -678,6 +685,15 @@ in [docs/production_runbook.md](docs/production_runbook.md).
 
 The accountable-manager product assessment and remaining operational roadmap
 are recorded in [docs/atc_manager_review.md](docs/atc_manager_review.md).
+
+Release assurance is collected in:
+
+- [security report](docs/release_security_report_2026-07-25.md);
+- [permission matrix](docs/permission_matrix.md);
+- [data classification](docs/data_classification.md);
+- [migration runbook](docs/migration_runbook.md);
+- [backup/restore runbook](docs/backup_restore_runbook.md);
+- [production release checklist](docs/release_checklist.md).
 
 ## Troubleshooting
 

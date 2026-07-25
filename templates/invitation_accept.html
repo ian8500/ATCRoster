@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Accept invitation{% endblock %}
+{% block content %}
+<div class="auth-shell">
+  <section class="card auth-card">
+    <h2>Join {{ unit.name }}</h2>
+    <p>You have been invited as {{ invitation.role }}. This link is single-use.</p>
+    <form method="post" class="stack">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Name<input name="name" maxlength="80" required autocomplete="name"></label>
+      <label>Username<input name="username" minlength="3" maxlength="120" required autocomplete="username"></label>
+      <label>Password<input type="password" name="password" minlength="12" required autocomplete="new-password"></label>
+      <button class="btn btn-primary" type="submit">Create account</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

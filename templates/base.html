@@ -20,6 +20,12 @@
   <style>
     *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @page { size: A4 landscape; margin:10mm; }
+    {% if unit_branding and unit_branding.primary_colour %}
+      :root{ --head:{{ unit_branding.primary_colour }}; --head2:{{ unit_branding.primary_colour }}; }
+    {% endif %}
+    {% if unit_branding and unit_branding.accent_colour %}
+      :root{ --accent:{{ unit_branding.accent_colour }}; --accent-strong:{{ unit_branding.accent_colour }}; }
+    {% endif %}
   </style>
 
   {# allow pages to add their own head content (CSS/JS) #}
@@ -33,7 +39,7 @@
         <span class="brand-mark" aria-hidden="true"><span></span></span>
         <div class="brand-copy">
           <span class="brand-eyebrow">Operational roster control</span>
-          <h1 class="logo">ATC Roster</h1>
+          <h1 class="logo">{{ unit_branding.display_name if unit_branding and unit_branding.display_name else 'ATC Roster' }}</h1>
           <p class="logo-sub">Precision scheduling for critical operations</p>
         </div>
       </div>
