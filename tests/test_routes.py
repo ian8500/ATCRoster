@@ -24,6 +24,7 @@ from app import (
     ShiftType,
     Staff,
     StaffWatchHistory,
+    QualificationType,
     Unit,
     Watch,
     db,
@@ -56,6 +57,10 @@ def setup_database():
             ShiftType(code="OFF", name="Off", start_time=None, end_time=None, is_working=False),
         ]
         db.session.add_all(shifts)
+        db.session.add(QualificationType(
+            unit_id=1, code="MEDICAL", label="Medical",
+            expiry_required=True, is_active=True,
+        ))
         db.session.commit()
         refresh_shift_cache()
 
@@ -603,7 +608,7 @@ def test_admin_can_configure_requestable_shift(client):
             "is_working": "on",
             "is_active": "on",
             "is_requestable": "on",
-            "required_qualification": "medical",
+            "required_qualification": "MEDICAL",
         },
         follow_redirects=True,
     )
@@ -616,7 +621,61 @@ def test_admin_can_configure_requestable_shift(client):
         shift = db.session.get(ShiftType, shift_id)
         assert shift.is_active is True
         assert shift.is_requestable is True
-        assert shift.required_qualification == "medical"
+        assert shift.required_qualification == "MEDICAL"
+
+
+def test_unit_admin_edits_and_previews_qualification_import(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(
+            username="staff_test", unit_id=1
+        ).one()
+        medical = QualificationType.query.filter_by(
+            unit_id=1, code="MEDICAL"
+        ).one()
+        person_id = person.id
+        medical_id = medical.id
+    token = csrf(client)
+    assigned = client.post("/compliance", data={
+        "_csrf_token": token,
+        "action": "save_person",
+        "person_id": person_id,
+        "type_id": medical_id,
+        "issued_on": "2026-01-01",
+        "valid_from": "2026-01-01",
+        "expires_on": "2027-01-01",
+        "status": "valid",
+    }, follow_redirects=True)
+    assert assigned.status_code == 200
+    assert b"Person qualification saved" in assigned.data
+    created = client.post("/compliance", data={
+        "_csrf_token": csrf(client),
+        "action": "create_type",
+        "code": "UCA",
+        "label": "Unit Competence Assessor",
+        "warning_days_csv": "180,90,60,30",
+        "expiry_required": "no",
+        "is_active": "yes",
+    }, follow_redirects=True)
+    assert created.status_code == 200
+    assert b"Qualification type saved" in created.data
+    preview = client.post(
+        "/compliance",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "import_preview",
+            "csv_file": (
+                io.BytesIO(
+                    b"staff_no,type_code,status,issued_on,valid_from,expires_on\n"
+                    b"USR-001,UCA,valid,2026-01-01,2026-01-01,\n"
+                ),
+                "qualifications.csv",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert preview.status_code == 200
+    assert b"1 validated records" in preview.data
 
 
 def test_onboarding_branding_rules_and_csv_preview(client):

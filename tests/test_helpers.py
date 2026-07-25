@@ -131,7 +131,7 @@ def test_is_working_code_prefix_with_shift_records():
         assert _is_working_m_code("M123") is True
 
 
-def test_assign_cell_keeps_request_record_and_marks_fulfilled():
+def test_assign_cell_keeps_request_pending_until_approve_and_apply():
     req_day = date(2025, 7, 1)
 
     with app.app.app_context():
@@ -179,12 +179,11 @@ def test_assign_cell_keeps_request_record_and_marks_fulfilled():
 
     with app.app.app_context():
         req = ShiftRequest.query.filter_by(staff_id=requester.id, day=req_day).one()
-        # The business record remains and links the resulting assignment.
-        assert req.status == "fulfilled"
-        assert req.fulfilled_at is not None
-        assert req.resulting_assignment_id is not None
-        assert req.responded_by_id == admin.id
-        assert req.responded_at is not None
+        # Direct grid edits never manufacture a fulfilled request. Only the
+        # transactional Approve and apply workflow may do that.
+        assert req.status == "pending"
+        assert req.fulfilled_at is None
+        assert req.resulting_assignment_id is None
 
 
 def test_generate_month_roster_respects_night_cycle_and_eligibility():

@@ -14,16 +14,16 @@
       <div class="col-md-4"><label>Airport name<input class="form-control" name="name" required></label></div>
       <div class="col-md-3"><label>Plan<select class="form-select" name="plan"><option>starter</option><option>standard</option><option>professional</option><option>enterprise</option></select></label></div>
       <div class="col-md-3"><label>Active-user limit<input class="form-control" type="number" name="active_user_limit" min="1" max="10000" value="10" required></label></div>
-      <div class="col-md-4"><label>Initial Unit Admin name<input class="form-control" name="admin_name" required></label></div>
-      <div class="col-md-4"><label>Initial Unit Admin username<input class="form-control" name="admin_username" required></label></div>
-      <div class="col-md-4"><label>Temporary password<input class="form-control" type="password" name="admin_password" minlength="12" required autocomplete="new-password"></label></div>
-      <div class="col-12"><button class="btn btn-primary" type="submit">Create airport and Unit Admin</button></div>
+      <div class="col-12">
+        <p class="form-text">The platform creates an opaque, one-time bootstrap invitation. The airport administrator enters their own identity and password and must configure MFA before accessing operational data.</p>
+        <button class="btn btn-primary" type="submit">Create airport and bootstrap invitation</button>
+      </div>
     </form>
   </section>
 
   <div class="table-responsive">
     <table class="table">
-      <thead><tr><th>Airport</th><th>Status / plan</th><th>Lifecycle</th><th>Active accounts</th><th>Features</th><th>Database</th><th>Usage</th><th>Account controls</th></tr></thead>
+      <thead><tr><th>Airport</th><th>Status / plan</th><th>Lifecycle</th><th>Bootstrap</th><th>Active accounts</th><th>Features</th><th>Database</th><th>Usage</th><th>Account controls</th></tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
@@ -35,6 +35,7 @@
             Renewal {{ row.unit.renews_at.strftime('%d %b %Y') if row.unit.renews_at else '—' }}<br>
             Last active {{ row.unit.last_active_at.strftime('%d %b %Y %H:%M') if row.unit.last_active_at else '—' }}
           </td>
+          <td>{{ row.bootstrap_status }}</td>
           <td>{{ row.active_accounts }} / {{ row.unit.active_user_limit }}</td>
           <td>
             {% for key in feature_keys %}
@@ -67,7 +68,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="8">No airport accounts.</td></tr>
+        <tr><td colspan="9">No airport accounts.</td></tr>
       {% endfor %}
       </tbody>
     </table>

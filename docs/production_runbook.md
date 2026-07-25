@@ -26,14 +26,18 @@ SQLite and the Flask development server are prohibited in production.
    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
 3. Build and inspect the container image.
-4. Run `alembic upgrade head`.
+4. Provide `CONTROL_DATABASE_URL`, `DATABASE_URL` and every secret referenced
+   by `database_routing_metadata`, then run
+   `python scripts/migrate_all_databases.py`.
 5. Run:
 
    ```bash
    flask --app app bootstrap-platform
    ```
 
-6. Sign in as the Super Admin and create the first airport and Unit Admin.
+6. Sign in as the Super Admin, create the first airport, and transfer its
+   one-time bootstrap invitation through the approved secure channel. The
+   airport administrator chooses credentials and enrols MFA.
 7. Configure the airport through **Onboarding** and **Operations**.
 8. Verify `/health/live` and `/health/ready`.
 9. Complete the acceptance plan in `docs/pilot_readiness.md`.
@@ -104,7 +108,7 @@ sha256sum atcroster.dump > atcroster.dump.sha256
 1. Provision an isolated PostgreSQL instance.
 2. Verify the stored checksum.
 3. Restore with `pg_restore --clean --if-exists`.
-4. Run `alembic upgrade head`.
+4. Run `python scripts/migrate_all_databases.py`.
 5. Check `/health/ready`.
 6. Run tenant-isolation and publication-history acceptance tests.
 7. Record recovery time and achieved recovery point.

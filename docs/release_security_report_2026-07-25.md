@@ -8,12 +8,13 @@ for unrestricted production launch**. The required independent penetration
 test, production backup/restore rehearsal and aviation/data-protection
 acceptance remain external release gates.
 
-The target architecture also calls for a separate operational database per
-airport. A secret-backed, authenticated-unit database router is implemented
-and tested, but the Flask-SQLAlchemy operational repositories still use the
-shared database with mandatory `unit_id` scoping. Physical database separation
-must be wired into the production session layer, migrated and exercised before
-claiming that architecture.
+Operational Flask-SQLAlchemy mappers now use a tenant-routed session backed by
+the authenticated membership and the control-plane secret-name route.
+Platform-control contexts are denied an operational bind. SQLite and
+PostgreSQL integration tests prove that two airports use different physical
+databases and cannot read the other airport's requests. The central membership
+stores an opaque operational person ID without an impossible cross-database
+foreign key.
 
 ## Controls verified
 
@@ -34,12 +35,16 @@ claiming that architecture.
 - Passwords are hashed; MFA secrets are encrypted when the production field
   key is configured; session cookies can be Secure/HttpOnly/SameSite.
 - `pip-audit` reports no known vulnerabilities for the pinned dependency set.
-- The Alembic chain upgrades a clean database through revision `20260725_05`.
+- The Alembic chain upgrades clean and legacy fixtures through revision
+  `20260725_08`.
 
 ## Verification evidence
 
-- Full automated suite: 46 passed on Python 3.12 (14 non-failing legacy
-  SQLAlchemy/test-fixture warnings).
+- Full automated suite: 67 passed on Python 3.12 without warnings.
+- PostgreSQL 16: control plus two physically separate airport databases
+  migrated and passed authenticated cross-database isolation.
+- Production container image built successfully and its production
+  configuration validation passed.
 - Dependency audit: `pip-audit -r requirements.txt`.
 - Scale smoke test: 30 fictitious airports, 40 people per airport and 90 roster
   days (108,000 assignments); seed 0.103 seconds and scoped month query 0.886
@@ -51,15 +56,13 @@ claiming that architecture.
 
 ## Residual risk and launch gates
 
-1. Integrate the operational database router with ORM session selection and
-   migrate each airport to its own operational database.
-2. Commission an independent authenticated penetration test, including IDOR,
+1. Commission an independent authenticated penetration test, including IDOR,
    privilege escalation, invitation/MFA recovery and export testing.
-3. Rehearse an encrypted PostgreSQL restore and record measured RPO/RTO.
-4. Complete DPIA, retention schedule, processor agreements and UK GDPR review.
-5. Complete accessibility testing with keyboard, screen reader and mobile
+2. Rehearse an encrypted PostgreSQL restore and record measured RPO/RTO.
+3. Complete DPIA, retention schedule, processor agreements and UK GDPR review.
+4. Complete accessibility testing with keyboard, screen reader and mobile
    devices against the agreed WCAG target.
-6. Obtain accountable ATC operational acceptance; ATCRoster is decision
+5. Obtain accountable ATC operational acceptance; ATCRoster is decision
    support and does not replace local safety management or contingency plans.
 
 ## Non-blocking improvements

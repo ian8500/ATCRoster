@@ -52,7 +52,7 @@ def upgrade():
             )
         )
 
-    if "request_audit" not in tables:
+    if "shift_request" in tables and "request_audit" not in tables:
         op.create_table(
             "request_audit",
             sa.Column("id", sa.Integer(), primary_key=True),
@@ -75,7 +75,7 @@ def upgrade():
             sa.Column("reason", sa.String(500), nullable=False, server_default=""),
         )
 
-    if "notification" not in tables:
+    if "staff" in tables and "notification" not in tables:
         op.create_table(
             "notification",
             sa.Column("id", sa.Integer(), primary_key=True),

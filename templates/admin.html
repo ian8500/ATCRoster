@@ -101,7 +101,7 @@
         <label>Name<input name="name" required></label>
         <label>Start<input type="time" name="start"></label>
         <label>End<input type="time" name="end"></label>
-        <label>Required qualification<select name="required_qualification"><option value="">None</option><option value="medical">Medical</option><option value="tower">Tower</option><option value="radar">Radar</option><option value="met">MET</option><option value="ojti">OJTI</option><option value="assessor">Assessor</option></select></label>
+        <label>Required qualification<select name="required_qualification"><option value="">None</option>{% for qtype in qualification_types %}<option value="{{ qtype.code }}">{{ qtype.label }} ({{ qtype.code }})</option>{% endfor %}</select></label>
         <div class="admin-check-row">
           <label class="checkbox"><input type="checkbox" name="is_working"> Working</label>
           <label class="checkbox"><input type="checkbox" name="is_training"> Training</label>
@@ -129,7 +129,7 @@
             <label>Name<input name="name" value="{{ sh.name }}"></label>
             <label>Start<input type="time" name="start" value="{{ sh.start_time.strftime('%H:%M') if sh.start_time else '' }}"></label>
             <label>End<input type="time" name="end" value="{{ sh.end_time.strftime('%H:%M') if sh.end_time else '' }}"></label>
-            <label>Required qualification<select name="required_qualification" aria-label="Required qualification for {{ sh.code }}">{% for value, label in [('', 'None'), ('medical', 'Medical'), ('tower', 'Tower'), ('radar', 'Radar'), ('met', 'MET'), ('ojti', 'OJTI'), ('assessor', 'Assessor')] %}<option value="{{ value }}" {% if sh.required_qualification == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+            <label>Required qualification<select name="required_qualification" aria-label="Required qualification for {{ sh.code }}"><option value="">None</option>{% for qtype in qualification_types %}<option value="{{ qtype.code }}" {% if sh.required_qualification|upper == qtype.code %}selected{% endif %}>{{ qtype.label }} ({{ qtype.code }})</option>{% endfor %}</select></label>
             <div class="admin-check-row">
               <label class="checkbox"><input type="checkbox" name="is_working" {% if sh.is_working %}checked{% endif %}> Working</label>
               <label class="checkbox"><input type="checkbox" name="is_training" {% if sh.is_training %}checked{% endif %}> Training</label>

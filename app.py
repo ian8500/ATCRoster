@@ -23,6 +23,7 @@ import pyotp
 from cryptography.fernet import Fernet, InvalidToken
 
 from flask_sqlalchemy import SQLAlchemy
+from flask_sqlalchemy.session import Session as FlaskSqlAlchemySession
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
     current_user, login_required
@@ -31,6 +32,15 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import HTTPException
 from sqlalchemy import text
+from tenancy import (
+    authenticated_unit_id,
+    bind_authenticated_unit,
+    bind_platform_control,
+    clear_request_context,
+    operational_engine_for_authenticated_unit,
+    reset_authenticated_unit,
+    reset_platform_control,
+)
 
 try:
     from flask_caching import Cache
@@ -140,6 +150,13 @@ def utcnow():
 
 
 REQUEST_STATUSES = frozenset({"pending", "approved", "rejected", "fulfilled", "cancelled"})
+REQUEST_TRANSITIONS = {
+    "pending": frozenset({"approved", "rejected", "cancelled"}),
+    "approved": frozenset({"rejected", "cancelled"}),
+    "rejected": frozenset(),
+    "cancelled": frozenset(),
+    "fulfilled": frozenset(),
+}
 PLATFORM_FEATURE_FLAGS = frozenset({
     "advanced_coverage", "scenario_planning", "calendar_exports",
     "fatigue_reporting", "custom_branding",
@@ -167,6 +184,11 @@ def _validate_csrf() -> None:
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@app.before_request
+def _start_request_tenant_boundary():
+    clear_request_context()
 
 
 @app.before_request
@@ -291,22 +313,70 @@ def _not_found(_error):
         request_id=getattr(g, "request_id", ""),
     ), 404
 
+OPERATIONAL_TABLE_NAMES = frozenset({
+    "roster_setting", "annotation_type", "watch", "staff", "shift_type",
+    "requirement", "leave", "sickness", "assignment", "shift_request",
+    "request_audit", "notification", "annotation_audit", "ai_rule_set",
+    "change_log", "staff_watch_history", "qualification_type",
+    "person_qualification", "person_qualification_history",
+    "roster_publication", "roster_acknowledgement", "scenario",
+    "operational_position", "position_endorsement", "position_requirement",
+    "break_plan", "achieved_duty", "fatigue_report",
+    "roster_rule_version", "mfa_credential",
+})
+
+
+class TenantRoutedSession(FlaskSqlAlchemySession):
+    """Route operational mappers to the authenticated airport database."""
+
+    def get_bind(self, mapper=None, clause=None, bind=None, **kwargs):
+        if bind is not None:
+            return bind
+        table_name = None
+        if mapper is not None:
+            try:
+                table_name = mapper.persist_selectable.name
+            except AttributeError:
+                try:
+                    table_name = mapper.__table__.name
+                except AttributeError:
+                    table_name = None
+        if table_name in OPERATIONAL_TABLE_NAMES:
+            try:
+                return operational_engine_for_authenticated_unit()
+            except RuntimeError:
+                # Local legacy databases remain available only outside
+                # production while they are imported as the first unit.
+                if DEPLOYMENT_ENV == "production":
+                    raise RuntimeError(
+                        "Operational database access requires an authenticated "
+                        "airport route."
+                    )
+        return super().get_bind(
+            mapper=mapper, clause=clause, bind=bind, **kwargs
+        )
+
+
 # Database & login
-db = SQLAlchemy(app, session_options={"expire_on_commit": False})
+db = SQLAlchemy(app, session_options={
+    "expire_on_commit": False,
+    "class_": TenantRoutedSession,
+})
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
-
-from tenancy import bind_authenticated_unit, reset_authenticated_unit
 
 
 @app.before_request
 def _bind_tenant_context():
+    clear_request_context()
     g.request_id = request.headers.get("X-Request-ID") or secrets.token_hex(12)
     g.tenant_context_token = None
+    g.platform_control_token = None
     if (
         current_user.is_authenticated
         and getattr(current_user, "role", "") == "superadmin"
     ):
+        g.platform_control_token = bind_platform_control()
         allowed_platform_endpoints = {
             "platform_admin", "logout", "password_change", "mfa_setup",
             "static", "favicon", "health_live", "health_ready",
@@ -317,11 +387,25 @@ def _bind_tenant_context():
             abort(403)
     if current_user.is_authenticated and getattr(current_user, "role", "") != "superadmin":
         unit_id = int(getattr(current_user, "unit_id", 0) or 0)
-        if unit_id:
-            g.tenant_context_token = bind_authenticated_unit(unit_id)
+        if unit_id and g.tenant_context_token is None:
+            routing = db.session.get(DatabaseRoutingMetadata, unit_id)
+            if DEPLOYMENT_ENV == "production" and not routing:
+                abort(503, "Operational database routing is unavailable.")
+            g.tenant_context_token = bind_authenticated_unit(
+                unit_id, routing.secret_name if routing else None
+            )
     if (
         current_user.is_authenticated
-        and DEPLOYMENT_ENV == "production"
+        and getattr(current_user, "role", "") != "superadmin"
+        and (
+            DEPLOYMENT_ENV == "production"
+            or UnitMembership.query.filter_by(
+                person_id=current_user.id,
+                unit_id=getattr(current_user, "unit_id", 0),
+                role="UnitAdmin",
+                status="active",
+            ).first() is not None
+        )
         and request.endpoint not in {
             "mfa_setup", "logout", "static", "favicon",
             "health_live", "health_ready",
@@ -368,8 +452,21 @@ def _security_headers(response):
 @app.teardown_request
 def _reset_tenant_context(_error=None):
     token = getattr(g, "tenant_context_token", None)
+    g.tenant_context_token = None
     if token is not None:
-        reset_authenticated_unit(token)
+        try:
+            reset_authenticated_unit(token)
+        except RuntimeError:
+            # Flask test/request contexts may invoke teardown more than once.
+            pass
+    platform_token = getattr(g, "platform_control_token", None)
+    g.platform_control_token = None
+    if platform_token is not None:
+        try:
+            reset_platform_control(platform_token)
+        except RuntimeError:
+            pass
+    clear_request_context()
 
 
 def _is_safe_local_redirect(target: str | None) -> bool:
@@ -750,6 +847,18 @@ class Watch(db.Model):
 class Staff(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
+    def get_id(self) -> str:
+        membership = UnitMembership.query.filter_by(
+            unit_id=self.unit_id,
+            person_id=self.id,
+            status="active",
+        ).order_by(UnitMembership.id).first()
+        if membership:
+            return f"membership:{membership.id}"
+        if self.role == "superadmin":
+            return f"platform:{self.id}"
+        return f"legacy:{self.unit_id}:{self.id}"
+
     def set_password(self, password: str) -> None:
         from werkzeug.security import generate_password_hash
         self.password_hash = generate_password_hash(password)
@@ -921,7 +1030,7 @@ class Assignment(db.Model):
     # Annotation code (managed via AnnotationType, optional suffix like A6M)
     annotation = db.Column(db.String(20), default="")
     __table_args__ = (db.UniqueConstraint(
-        "staff_id", "day", name="uniq_staff_day"),)
+        "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),)
 
 
 class ShiftRequest(db.Model):
@@ -939,8 +1048,10 @@ class ShiftRequest(db.Model):
     fulfilled_at = db.Column(db.DateTime)
     cancelled_at = db.Column(db.DateTime)
     resulting_assignment_id = db.Column(db.Integer, db.ForeignKey("assignment.id"))
-    __table_args__ = (db.UniqueConstraint("staff_id", "day",
-                      name="uniq_shift_request_staff_day"),)
+    __table_args__ = (db.UniqueConstraint(
+        "unit_id", "staff_id", "day",
+        name="uniq_shift_request_unit_staff_day",
+    ),)
     # >>> NEW admin response fields
     admin_response = db.Column(db.Text, default="")
     responded_by_id = db.Column(db.Integer)  # FK optional (kept simple)
@@ -1034,6 +1145,7 @@ AggregateUsageEvent = SaaS.AggregateUsageEvent
 SuperAdminAudit = SaaS.SuperAdminAudit
 QualificationType = SaaS.QualificationType
 PersonQualification = SaaS.PersonQualification
+PersonQualificationHistory = SaaS.PersonQualificationHistory
 RosterPublication = SaaS.RosterPublication
 RosterAcknowledgement = SaaS.RosterAcknowledgement
 Scenario = SaaS.Scenario
@@ -1056,7 +1168,8 @@ TENANT_OPERATIONAL_MODELS = (
     RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement, Leave, Sickness,
     Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
     AiRuleSet, ChangeLog, StaffWatchHistory, QualificationType,
-    PersonQualification, RosterPublication, RosterAcknowledgement, Scenario,
+    PersonQualification, PersonQualificationHistory,
+    RosterPublication, RosterAcknowledgement, Scenario,
     OperationalPosition, PositionEndorsement, PositionRequirement, BreakPlan,
     AchievedDuty, FatigueReport, RosterRuleVersion,
     MfaCredential,
@@ -1323,7 +1436,43 @@ def refresh_shift_cache():
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(Staff, int(user_id))
+    value = str(user_id or "")
+    if value.startswith("membership:"):
+        try:
+            membership_id = int(value.split(":", 1)[1])
+        except ValueError:
+            return None
+        membership = db.session.get(UnitMembership, membership_id)
+        if not membership or membership.status != "active":
+            return None
+        routing = db.session.get(
+            DatabaseRoutingMetadata, membership.unit_id
+        )
+        if DEPLOYMENT_ENV == "production" and not routing:
+            return None
+        token = bind_authenticated_unit(
+            membership.unit_id,
+            routing.secret_name if routing else None,
+        )
+        g.tenant_context_token = token
+        return db.session.get(Staff, membership.person_id)
+    if value.startswith("platform:"):
+        try:
+            return db.session.get(
+                Staff, int(value.split(":", 1)[1]),
+                bind_arguments={"bind": db.engine},
+            )
+        except ValueError:
+            return None
+    if value.startswith("legacy:") and DEPLOYMENT_ENV != "production":
+        try:
+            _, raw_unit_id, raw_person_id = value.split(":", 2)
+            token = bind_authenticated_unit(int(raw_unit_id))
+            g.tenant_context_token = token
+            return db.session.get(Staff, int(raw_person_id))
+        except ValueError:
+            return None
+    return None
 
 # --------- Fast month loader & cache (uses functions defined later but safe) ----------
 
@@ -1437,6 +1586,19 @@ def can_apply_annotations(u) -> bool:
     )
 
 
+def can_override_roster_conflicts(u) -> bool:
+    return is_admin_user(u) or has_unit_permission(
+        u, "override_roster_conflicts"
+    )
+
+
+def tenant_get(model, record_id: int):
+    """Fetch one operational record with an explicit mutation-safe boundary."""
+    return model.query.filter_by(
+        id=int(record_id), unit_id=_current_unit_id()
+    ).first()
+
+
 def roster_edit_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -1470,18 +1632,29 @@ def month_range(year: int, month: int):
     return start, [start + timedelta(d) for d in range(days)]
 
 
-@lru_cache(maxsize=4096)
 def watch_id_for_staff_on(staff_id: int, on_date: date) -> int | None:
+    return _watch_id_for_staff_on(
+        authenticated_unit_id(), staff_id, on_date
+    )
+
+
+@lru_cache(maxsize=4096)
+def _watch_id_for_staff_on(
+    unit_id: int, staff_id: int, on_date: date
+) -> int | None:
     """Return the watch_id that applies to this staff on a given date
     using StaffWatchHistory; fall back to Staff.watch_id if no history."""
     hist = (StaffWatchHistory.query
-            .filter(StaffWatchHistory.staff_id == staff_id,
+            .filter(StaffWatchHistory.unit_id == unit_id,
+                    StaffWatchHistory.staff_id == staff_id,
                     StaffWatchHistory.effective_date <= on_date)
             .order_by(StaffWatchHistory.effective_date.desc())
             .first())
     if hist:
         return hist.watch_id
-    s = db.session.get(Staff, staff_id)
+    s = Staff.query.filter_by(
+        id=staff_id, unit_id=unit_id
+    ).first()
     return s.watch_id if s else None
 
 
@@ -1712,6 +1885,7 @@ def generate_month_roster(year: int, month: int, who_user: "Staff"):
 
     # Candidate helper
     def eligible_staff(d: date, code: str):
+        candidate_shift = get_shift(code)
         for s in staff:
             if code == night_code:
                 if s.id in no_nights_ids:
@@ -1730,6 +1904,10 @@ def generate_month_roster(year: int, month: int, who_user: "Staff"):
             if _cell_is_protected(a):
                 continue
             if not _fatigue_ok(s, d, code):
+                continue
+            if candidate_shift and not _staff_has_shift_qualification(
+                s, candidate_shift, d
+            ):
                 continue
             yield s
 
@@ -3077,16 +3255,39 @@ def password_change():
         if new1 == cur:
             flash("Choose a password different from the current password.", "error")
             return redirect(url_for("password_change"))
-        u = db.session.get(Staff, current_user.id)
-        u.set_password(new1)
-        identity = PlatformIdentity.query.filter_by(
-            username=u.username
-        ).first()
-        if identity:
-            identity.password_hash = u.password_hash
-        db.session.commit()
+        if current_user.role == "superadmin":
+            new_hash = generate_password_hash(new1)
+            identity = PlatformIdentity.query.filter_by(
+                username=current_user.username
+            ).first_or_404()
+            identity.password_hash = new_hash
+            # Platform bootstrap compatibility row is central control data.
+            db.session.execute(
+                text(
+                    "UPDATE staff SET password_hash=:password_hash "
+                    "WHERE id=:person_id AND role='superadmin'"
+                ),
+                {"password_hash": new_hash, "person_id": current_user.id},
+                bind_arguments={"bind": db.engine},
+            )
+            db.session.commit()
+        else:
+            u = tenant_get(Staff, current_user.id)
+            if not u:
+                abort(404)
+            u.set_password(new1)
+            identity = PlatformIdentity.query.filter_by(
+                username=u.username
+            ).first()
+            if identity:
+                identity.password_hash = u.password_hash
+            db.session.commit()
         flash("Password updated.", "ok")
-        return redirect(url_for("staff_profile", sid=current_user.id))
+        return redirect(
+            url_for("platform_admin")
+            if current_user.role == "superadmin"
+            else url_for("staff_profile", sid=current_user.id)
+        )
     return render_template("password.html")
 
 # -------------------- Main / Roster --------------------
@@ -3147,7 +3348,7 @@ def _publication_preflight(year: int, month: int) -> dict:
             shift = get_shift(assignment.code)
             if (
                 shift and shift.is_working and shift.required_qualification
-                and not _staff_has_shift_qualification(person, shift)
+                and not _staff_has_shift_qualification(person, shift, day)
             ):
                 qualification_gaps.append({
                     "staff": person, "day": day, "shift": shift,
@@ -3656,7 +3857,7 @@ def roster_month(ym):
         fn = globals().get("watch_id_for_staff_on")
         if callable(fn):
             return fn(sid, on_date)
-        s = db.session.get(Staff, sid)
+        s = tenant_get(Staff, sid)
         return s.watch_id if s else None
 
     display_watch_by_staff = {s.id: _watch_for(s.id, start) for s in staff}
@@ -3955,25 +4156,6 @@ def assign_cell(staff_id, ym, day):
                 old_value=old, new_value=newv,
                 transaction_key=transaction_key or None,
             ))
-
-    # clear any pending request now that the roster cell is written
-    req = ShiftRequest.query.filter_by(
-        unit_id=unit_id, staff_id=staff_id, day=d
-    ).first()
-    if req and code == req.code and req.status in {"pending", "approved"}:
-        old_status = req.status
-        req.status = "fulfilled"
-        req.fulfilled_at = utcnow()
-        req.resulting_assignment_id = a.id
-        req.updated_at = utcnow()
-        if not req.responded_at:
-            req.responded_at = utcnow()
-        if not req.responded_by_id:
-            req.responded_by_id = getattr(current_user, "id", None)
-        db.session.flush()
-        _request_audit(req, current_user.id, "fulfilled", old_status, "fulfilled",
-                       "Roster cell updated to requested shift")
-        _notify_requester(req)
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))
@@ -4318,8 +4500,13 @@ def admin():
             is_requestable = bool(request.form.get("is_requestable"))
             required_qualification = (
                 request.form.get("required_qualification") or ""
-            ).strip().lower()
-            allowed_qualifications = {"", "medical", "tower", "radar", "met", "ojti", "assessor"}
+            ).strip().upper()
+            allowed_qualifications = {
+                row.code
+                for row in QualificationType.query.filter_by(
+                    unit_id=_current_unit_id(), is_active=True
+                ).all()
+            } | {""}
             if not code:
                 flash("Shift code is required.", "error")
             elif required_qualification not in allowed_qualifications:
@@ -4342,7 +4529,9 @@ def admin():
 
         if form == "shift_edit":
             sid = int(request.form.get("shift_id"))
-            sh = ShiftType.query.get_or_404(sid)
+            sh = ShiftType.query.filter_by(
+                id=sid, unit_id=_current_unit_id()
+            ).first_or_404()
             sh.name = request.form.get("name", "").strip() or sh.name
             sh.start_time = _parse_hhmm(request.form.get("start"))
             sh.end_time = _parse_hhmm(request.form.get("end"))
@@ -4352,8 +4541,13 @@ def admin():
             requested = bool(request.form.get("is_requestable"))
             required_qualification = (
                 request.form.get("required_qualification") or ""
-            ).strip().lower()
-            allowed_qualifications = {"", "medical", "tower", "radar", "met", "ojti", "assessor"}
+            ).strip().upper()
+            allowed_qualifications = {
+                row.code
+                for row in QualificationType.query.filter_by(
+                    unit_id=_current_unit_id(), is_active=True
+                ).all()
+            } | {""}
             if required_qualification not in allowed_qualifications:
                 flash("Unknown required qualification.", "error")
                 return redirect(url_for("admin"))
@@ -4371,7 +4565,9 @@ def admin():
 
         if form == "shift_delete":
             sid = int(request.form.get("shift_id"))
-            sh = ShiftType.query.get_or_404(sid)
+            sh = ShiftType.query.filter_by(
+                id=sid, unit_id=_current_unit_id()
+            ).first_or_404()
             db.session.delete(sh)
             db.session.commit()
             refresh_shift_cache()
@@ -4441,6 +4637,9 @@ def admin():
     # GET render
     watches = Watch.query.order_by(Watch.order_index).all()
     shifts = ShiftType.query.order_by(ShiftType.code).all()
+    qualification_types = QualificationType.query.filter_by(
+        unit_id=_current_unit_id(), is_active=True
+    ).order_by(QualificationType.code).all()
     staff = (Staff.query
              .outerjoin(Watch, Staff.watch_id == Watch.id)
              .order_by(Watch.order_index, Staff.name).all())
@@ -4451,7 +4650,8 @@ def admin():
     return render_template("admin.html",
                            shifts=shifts, staff=staff, watches=watches,
                            months=months, requirements_by_month=requirements_by_month,
-                           leaves=leaves)
+                           leaves=leaves,
+                           qualification_types=qualification_types)
 
 
 @app.route("/admin/reference", methods=["GET", "POST"])
@@ -4698,7 +4898,9 @@ def admin_staff_edit(sid):
     # remove: if not is_admin_user(current_user): ...
     ...
 
-    s = Staff.query.get_or_404(sid)
+    s = Staff.query.filter_by(
+        id=sid, unit_id=_current_unit_id()
+    ).first_or_404()
     if request.method == "POST":
         s.name = request.form.get("name", s.name).strip()
         s.staff_no = request.form.get("staff_no", s.staff_no).strip()
@@ -4776,7 +4978,9 @@ def admin_staff_edit(sid):
 def admin_watch_move(sid):
     if not is_admin_user(current_user):
         abort(403)
-    s = Staff.query.get_or_404(sid)
+    s = Staff.query.filter_by(
+        id=sid, unit_id=_current_unit_id()
+    ).first_or_404()
     watch_id_val = request.form.get("watch_id")
     eff = (request.form.get("effective_date") or "").strip()
 
@@ -4812,7 +5016,9 @@ def admin_watch_move_edit(hid):
     if not is_admin_user(current_user):
         abort(403)
 
-    hist = StaffWatchHistory.query.get_or_404(hid)
+    hist = StaffWatchHistory.query.filter_by(
+        id=hid, unit_id=_current_unit_id()
+    ).first_or_404()
     watch_id_val = request.form.get("watch_id")
     eff = (request.form.get("effective_date") or "").strip()
 
@@ -4856,7 +5062,9 @@ def admin_watch_move_delete(hid):
     if not is_admin_user(current_user):
         abort(403)
 
-    hist = StaffWatchHistory.query.get_or_404(hid)
+    hist = StaffWatchHistory.query.filter_by(
+        id=hid, unit_id=_current_unit_id()
+    ).first_or_404()
     sid = hist.staff_id
     old_watch_id = hist.watch_id
     old_eff = hist.effective_date
@@ -4988,11 +5196,14 @@ def leave():
 
             # NEW: allow TOU8 / TOUI in this form (write to roster, deduct TOIL)
             if lv_type in {"TOU8", "TOUI"}:
-                s = db.session.get(Staff, staff_id)
+                s = tenant_get(Staff, staff_id)
+                if not s:
+                    abort(404)
                 used_per_day_half = 2 if lv_type == "TOU8" else 1
                 cur = start_d
                 while cur <= end_d:
                     a = Assignment.query.filter_by(
+                        unit_id=_current_unit_id(),
                         staff_id=staff_id, day=cur).first()
                     if not a:
                         a = Assignment(staff=s, day=cur)
@@ -5016,7 +5227,9 @@ def leave():
                        start=start_d, end=end_d)
             db.session.add(lv)
             db.session.commit()
-            s = db.session.get(Staff, staff_id)
+            s = tenant_get(Staff, staff_id)
+            if not s:
+                abort(404)
             cur = start_d
             while cur <= end_d:
                 refresh_day_from_pattern_and_leave(s, cur)
@@ -5027,7 +5240,9 @@ def leave():
 
         if form == "leave_edit":
             lid = int(request.form["leave_id"])
-            lv = Leave.query.get_or_404(lid)
+            lv = Leave.query.filter_by(
+                id=lid, unit_id=_current_unit_id()
+            ).first_or_404()
             old_range = (lv.start, lv.end)
             lv.staff_id = int(request.form["staff_id"])
             lv.leave_type = request.form["leave_type"].upper()
@@ -5037,7 +5252,7 @@ def leave():
             lv.start = date.fromisoformat(request.form["start"])
             lv.end = date.fromisoformat(request.form["end"])
             db.session.commit()
-            s = db.session.get(Staff, lv.staff_id)
+            s = tenant_get(Staff, lv.staff_id)
             for rng in [old_range, (lv.start, lv.end)]:
                 cur = rng[0]
                 while cur <= rng[1]:
@@ -5049,8 +5264,10 @@ def leave():
 
         if form == "leave_delete":
             lid = int(request.form["leave_id"])
-            lv = Leave.query.get_or_404(lid)
-            s = db.session.get(Staff, lv.staff_id)
+            lv = Leave.query.filter_by(
+                id=lid, unit_id=_current_unit_id()
+            ).first_or_404()
+            s = tenant_get(Staff, lv.staff_id)
             start_d, end_d = lv.start, lv.end
             db.session.delete(lv)
             db.session.commit()
@@ -5070,10 +5287,13 @@ def leave():
                 return redirect(url_for("leave", ym=ym_param))
             start_d = date.fromisoformat(request.form["start"])
             end_d = date.fromisoformat(request.form["end"])
-            s = db.session.get(Staff, staff_id)
+            s = tenant_get(Staff, staff_id)
+            if not s:
+                abort(404)
             cur = start_d
             while cur <= end_d:
                 a = Assignment.query.filter_by(
+                    unit_id=_current_unit_id(),
                     staff_id=staff_id, day=cur).first()
                 if not a:
                     a = Assignment(staff=s, day=cur)
@@ -5095,6 +5315,7 @@ def leave():
             cur = start_d
             while cur <= end_d:
                 a = Assignment.query.filter_by(
+                    unit_id=_current_unit_id(),
                     staff_id=staff_id, day=cur).first()
                 if a and a.code in {"SC", "SSC"}:
                     a.code = new_code
@@ -5111,10 +5332,13 @@ def leave():
             staff_id = int(request.form["staff_id"])
             start_d = date.fromisoformat(request.form["start"])
             end_d = date.fromisoformat(request.form["end"])
-            s = db.session.get(Staff, staff_id)
+            s = tenant_get(Staff, staff_id)
+            if not s:
+                abort(404)
             cur = start_d
             while cur <= end_d:
                 a = Assignment.query.filter_by(
+                    unit_id=_current_unit_id(),
                     staff_id=staff_id, day=cur).first()
                 if a and a.code in {"SC", "SSC"}:
                     db.session.delete(a)
@@ -5135,8 +5359,13 @@ def leave():
                 flash("Invalid TOIL code.", "error")
                 return redirect(url_for("leave", ym=ym_param))
             day = date.fromisoformat(request.form["day"])
-            s = db.session.get(Staff, staff_id)
-            a = Assignment.query.filter_by(staff_id=staff_id, day=day).first()
+            s = tenant_get(Staff, staff_id)
+            if not s:
+                abort(404)
+            a = Assignment.query.filter_by(
+                unit_id=_current_unit_id(),
+                staff_id=staff_id, day=day,
+            ).first()
             if not a:
                 a = Assignment(staff=s, day=day)
             a.code, a.source, a.note, a.annotation = code, "manual", "toil use", ""
@@ -5173,7 +5402,9 @@ def leave():
 @app.route("/staff/<int:sid>")
 @login_required
 def staff_profile(sid):
-    s = Staff.query.get_or_404(sid)
+    s = Staff.query.filter_by(
+        id=sid, unit_id=_current_unit_id()
+    ).first_or_404()
     if s.id != current_user.id and not is_editor_user(current_user):
         abort(403)
     today = date.today()
@@ -5261,8 +5492,9 @@ def staff_profile(sid):
 def notifications_read():
     _validate_csrf()
     Notification.query.filter_by(
+        unit_id=_current_unit_id(),
         recipient_id=current_user.id, read_at=None
-    ).update({"read_at": utcnow()})
+    ).update({"read_at": utcnow()}, synchronize_session=False)
     db.session.commit()
     return redirect(url_for("staff_profile", sid=current_user.id))
 
@@ -5545,7 +5777,7 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
         if s.exclude_from_ot:
             continue
 
-        if not _staff_has_shift_qualification(s, sh):
+        if not _staff_has_shift_qualification(s, sh, chosen_date):
             continue
 
         a_today = Assignment.query.filter_by(
@@ -5709,7 +5941,9 @@ def _ical_escape(txt: str) -> str:
 
 @app.route("/calendar/<int:sid>/<token>.ics")
 def calendar_feed(sid, token):
-    s = Staff.query.get_or_404(sid)
+    s = Staff.query.filter_by(
+        id=sid, unit_id=_current_unit_id()
+    ).first_or_404()
     if not s.calendar_token or token != s.calendar_token:
         abort(403)
 
@@ -5872,7 +6106,7 @@ def _apply_toil_annotation_delta(staff: Staff, old_annot: str, new_annot: str):
         parse_annotation(new_annot))
     delta = new_half - old_half
     if delta:
-        s = db.session.get(Staff, staff.id)
+        s = tenant_get(Staff, staff.id)
         s.toil_half_days = int((s.toil_half_days or 0) + delta)
 
 
@@ -6043,19 +6277,47 @@ def _safe_request_admin_month(raw_value: str | None, fallback: date) -> str:
     return candidate
 
 
-def _staff_has_shift_qualification(staff: Staff, shift: ShiftType) -> bool:
-    required = (shift.required_qualification or "").strip().lower()
-    if not required:
+def staff_has_qualification(
+    staff: Staff, qualification_code: str, duty_date: date
+) -> bool:
+    """Evaluate authoritative, tenant-scoped competence on the duty date."""
+    code = (qualification_code or "").strip().upper()
+    if not code:
         return True
-    mapping = {
-        "medical": bool(staff.medical_expiry and staff.medical_expiry >= date.today()),
-        "tower": bool(staff.tower_ut),
-        "radar": bool(staff.radar_ut),
-        "met": bool(staff.met_ut),
-        "ojti": bool(staff.has_ojti),
-        "assessor": bool(staff.has_assessor),
-    }
-    return mapping.get(required, False)
+    unit_id = int(getattr(staff, "unit_id", 0) or 0)
+    try:
+        context_unit_id = authenticated_unit_id()
+    except RuntimeError:
+        return False
+    if not unit_id or unit_id != context_unit_id:
+        return False
+    qualification_type = QualificationType.query.filter_by(
+        unit_id=unit_id, code=code, is_active=True
+    ).first()
+    if not qualification_type:
+        return False
+    record = PersonQualification.query.filter_by(
+        unit_id=unit_id,
+        person_id=staff.id,
+        qualification_type_id=qualification_type.id,
+    ).first()
+    if not record or record.status != "valid":
+        return False
+    if record.valid_from and record.valid_from > duty_date:
+        return False
+    if qualification_type.expiry_required:
+        return bool(record.expires_on and record.expires_on >= duty_date)
+    return not record.expires_on or record.expires_on >= duty_date
+
+
+def _staff_has_shift_qualification(
+    staff: Staff, shift: ShiftType, duty_date: date | None = None
+) -> bool:
+    return staff_has_qualification(
+        staff,
+        shift.required_qualification,
+        duty_date or date.today(),
+    )
 
 
 @app.route("/requests", methods=["GET", "POST"])
@@ -6277,9 +6539,13 @@ def admin_request_respond(rid):
                 "version before applying this request.",
             )
         conflicts = list(would_create_new_fatigue_issues(r.staff, r.day, r.code).values())
-        if not _staff_has_shift_qualification(r.staff, shift):
+        if not _staff_has_shift_qualification(r.staff, shift, r.day):
             conflicts.append(["Required qualification is missing or expired."])
         override = request.form.get("confirm_override") == "yes"
+        if override and not can_override_roster_conflicts(current_user):
+            abort(403, "You do not have permission to override conflicts.")
+        if conflicts and override and len(response) < 10:
+            abort(400, "A reason of at least 10 characters is required.")
         if conflicts and not override:
             warning_text = "; ".join(
                 str(item)
@@ -6304,14 +6570,27 @@ def admin_request_respond(rid):
         db.session.flush()
         r.resulting_assignment_id = assignment.id
         r.fulfilled_at = utcnow()
+        requested_status = "fulfilled"
+    else:
+        if requested_status == "fulfilled":
+            abort(400, "Fulfilment is only available through Approve and apply.")
+        allowed = REQUEST_TRANSITIONS.get(r.status or "pending", frozenset())
+        if requested_status not in allowed:
+            abort(
+                409,
+                f"Transition from {r.status or 'pending'} to "
+                f"{requested_status} is not permitted.",
+            )
+        if r.status == "approved" and requested_status in {
+            "rejected", "cancelled"
+        } and len(response) < 10:
+            abort(400, "Changing an approved request requires an audited reason.")
 
     r.admin_response = response
     r.status = requested_status
     r.responded_by_id = getattr(current_user, "id", None)
     r.responded_at = utcnow()
     r.updated_at = utcnow()
-    if requested_status == "fulfilled" and r.fulfilled_at is None:
-        r.fulfilled_at = utcnow()
     if requested_status == "cancelled" and r.cancelled_at is None:
         r.cancelled_at = utcnow()
     _request_audit(r, current_user.id, action, old, {
@@ -6343,27 +6622,18 @@ def platform_admin():
             code = (request.form.get("code") or "").strip().upper()
             name = (request.form.get("name") or "").strip()
             plan = (request.form.get("plan") or "starter").strip()[:40]
-            admin_name = (request.form.get("admin_name") or "").strip()
-            admin_username = (request.form.get("admin_username") or "").strip().lower()
-            admin_password = request.form.get("admin_password") or ""
             try:
                 limit = int(request.form.get("active_user_limit") or 10)
             except ValueError:
                 limit = 0
             if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
                 flash("Airport code must be 2–12 letters or numbers.", "error")
-            elif not name or not admin_name or not admin_username:
-                flash("Airport and initial admin details are required.", "error")
-            elif len(admin_password) < 12:
-                flash("The initial admin password must be at least 12 characters.", "error")
+            elif not name:
+                flash("Airport name is required.", "error")
             elif not 1 <= limit <= 10000:
                 flash("Active-user limit must be between 1 and 10,000.", "error")
             elif Unit.query.filter_by(code=code).first():
                 flash("That airport code already exists.", "error")
-            elif db.session.query(Staff).execution_options(skip_tenant_scope=True).filter_by(
-                username=admin_username
-            ).first():
-                flash("That admin username already exists.", "error")
             else:
                 try:
                     unit = Unit(
@@ -6372,32 +6642,20 @@ def platform_admin():
                     )
                     db.session.add(unit)
                     db.session.flush()
-                    watch = Watch(
-                        unit_id=unit.id, name=f"{code} Initial Watch", order_index=1
+                    raw_token = secrets.token_urlsafe(32)
+                    invitation = SecureInvitation(
+                        unit_id=unit.id,
+                        token_digest=hashlib.sha256(
+                            raw_token.encode()
+                        ).hexdigest(),
+                        role="UnitAdmin",
+                        expires_at=utcnow() + timedelta(days=7),
                     )
-                    db.session.add(watch)
-                    db.session.flush()
-                    admin_user = Staff(
-                        unit_id=unit.id, username=admin_username,
-                        name=admin_name, staff_no=f"{code}-ADMIN",
-                        role="admin", watch_id=watch.id, is_operational=False,
-                    )
-                    admin_user.set_password(admin_password)
-                    db.session.add(admin_user)
-                    db.session.flush()
-                    identity = PlatformIdentity(
-                        public_id=f"unit-admin-{secrets.token_hex(12)}",
-                        username=admin_username,
-                        password_hash=admin_user.password_hash,
-                    )
-                    db.session.add(identity)
-                    db.session.flush()
-                    membership = UnitMembership(
-                        identity_id=identity.id, unit_id=unit.id,
-                        person_id=admin_user.id, role="UnitAdmin",
-                        status="active", activated_at=utcnow(),
-                    )
-                    db.session.add(membership)
+                    db.session.add(invitation)
+                    db.session.add(DatabaseRoutingMetadata(
+                        unit_id=unit.id,
+                        secret_name=f"ATCROSTER_UNIT_{unit.id}_DATABASE_URL",
+                    ))
                     db.session.add(PlanHistory(
                         unit_id=unit.id, plan=plan,
                         active_user_limit=limit,
@@ -6408,8 +6666,12 @@ def platform_admin():
                         safe_summary=f"Created airport {code} on {plan} plan with limit {limit}",
                     ))
                     db.session.commit()
+                    invite_url = url_for(
+                        "accept_invitation", token=raw_token, _external=True
+                    )
                     flash(
-                        f"{name} created. Give the initial Unit Admin their credentials securely.",
+                        f"{name} created. Transfer this one-time bootstrap "
+                        f"link through the approved secure channel: {invite_url}",
                         "ok",
                     )
                     return redirect(url_for("platform_admin"))
@@ -6502,6 +6764,7 @@ def platform_admin():
         else:
             abort(400)
     rows = []
+    now = utcnow()
     for unit in Unit.query.filter(
         Unit.status != "platform_control"
     ).order_by(Unit.code).all():
@@ -6516,6 +6779,23 @@ def platform_admin():
         activity = db.session.query(
             db.func.coalesce(db.func.sum(AggregateUsageEvent.count), 0)
         ).filter(AggregateUsageEvent.unit_id == unit.id).scalar()
+        bootstrap = SecureInvitation.query.filter_by(
+            unit_id=unit.id, role="UnitAdmin"
+        ).order_by(SecureInvitation.id.desc()).first()
+        if not bootstrap:
+            bootstrap_status = "not issued"
+        elif bootstrap.accepted_at:
+            bootstrap_status = "accepted"
+        elif bootstrap.disabled_at:
+            bootstrap_status = "revoked"
+        else:
+            comparison_now = (
+                now.replace(tzinfo=None)
+                if bootstrap.expires_at.tzinfo is None else now
+            )
+            bootstrap_status = (
+                "expired" if bootstrap.expires_at <= comparison_now else "unused"
+            )
         rows.append({
             "unit": unit,
             "active_accounts": active_accounts,
@@ -6524,6 +6804,7 @@ def platform_admin():
             "migration_version": routing.migration_version if routing else "",
             "storage_bytes": routing.storage_bytes if routing else 0,
             "activity_count": int(activity or 0),
+            "bootstrap_status": bootstrap_status,
         })
     return render_template(
         "platform_admin.html", rows=rows,
@@ -6630,7 +6911,10 @@ def unit_accounts():
             else:
                 membership.status = "suspended"
                 membership.suspended_at = utcnow()
-                linked = db.session.get(Staff, membership.person_id) if membership.person_id else None
+                linked = (
+                    tenant_get(Staff, membership.person_id)
+                    if membership.person_id else None
+                )
                 if linked:
                     linked.membership_status = "suspended"
                 db.session.commit()
@@ -6656,7 +6940,7 @@ def unit_accounts():
                     membership.activated_at or utcnow()
                 )
                 linked = (
-                    db.session.get(Staff, membership.person_id)
+                    tenant_get(Staff, membership.person_id)
                     if membership.person_id else None
                 )
                 if linked:
@@ -6724,6 +7008,15 @@ def accept_invitation(token):
         abort(409, "This airport account is not accepting invitations.")
     if request.method == "POST":
         _validate_csrf()
+        routing = db.session.get(
+            DatabaseRoutingMetadata, invitation.unit_id
+        )
+        if DEPLOYMENT_ENV == "production" and not routing:
+            abort(503, "Operational database routing is unavailable.")
+        g.tenant_context_token = bind_authenticated_unit(
+            invitation.unit_id,
+            routing.secret_name if routing else None,
+        )
         name = (request.form.get("name") or "").strip()
         username = (request.form.get("username") or "").strip().lower()
         password = request.form.get("password") or ""
@@ -6862,7 +7155,8 @@ def unit_onboarding():
             return redirect(url_for("unit_onboarding"))
         if action == "seed_qualifications":
             defaults = (
-                "MEDICAL", "ADI", "APP", "APS", "OJTI", "UCA", "ENGLISH"
+                "MEDICAL", "ADI", "APP", "APS", "OJTI", "UCA",
+                "ENGLISH_LANGUAGE",
             )
             for code in defaults:
                 if not QualificationType.query.filter_by(
@@ -6990,12 +7284,224 @@ def unit_onboarding():
     )
 
 
-@app.route("/compliance")
+def _qualification_snapshot(record: PersonQualification) -> dict:
+    return {
+        "person_id": record.person_id,
+        "qualification_type_id": record.qualification_type_id,
+        "issued_on": record.issued_on,
+        "valid_from": record.valid_from,
+        "expires_on": record.expires_on,
+        "status": record.status,
+    }
+
+
+def _record_qualification_history(
+    record: PersonQualification, action: str
+) -> None:
+    db.session.add(PersonQualificationHistory(
+        unit_id=record.unit_id,
+        person_qualification_id=record.id,
+        actor_id=current_user.id,
+        action=action,
+        snapshot_json=json.dumps(
+            _qualification_snapshot(record), default=str, sort_keys=True
+        ),
+    ))
+
+
+@app.route("/compliance", methods=["GET", "POST"])
 @login_required
 def qualification_compliance():
     if not is_editor_user(current_user):
         abort(403)
     unit_id = _current_unit_id()
+    import_preview = None
+    if request.method == "POST":
+        if not is_admin_user(current_user):
+            abort(403)
+        action = (request.form.get("action") or "").strip()
+        if action in {"create_type", "edit_type"}:
+            code = (request.form.get("code") or "").strip().upper()
+            label = (request.form.get("label") or "").strip()
+            warning_csv = (request.form.get("warning_days_csv") or "").strip()
+            if not re.fullmatch(r"[A-Z0-9_ -]{2,30}", code) or not label:
+                abort(400, "Enter a valid qualification code and label.")
+            try:
+                warnings = sorted(
+                    {
+                        int(value.strip())
+                        for value in warning_csv.split(",")
+                        if value.strip()
+                    },
+                    reverse=True,
+                )
+            except ValueError:
+                abort(400, "Warning periods must be comma-separated days.")
+            if not warnings or any(value < 0 or value > 3650 for value in warnings):
+                abort(400, "Configure at least one warning period from 0–3650 days.")
+            if action == "create_type":
+                if QualificationType.query.filter_by(
+                    unit_id=unit_id, code=code
+                ).first():
+                    abort(409, "That qualification code already exists.")
+                qtype = QualificationType(unit_id=unit_id, code=code)
+                db.session.add(qtype)
+            else:
+                qtype = QualificationType.query.filter_by(
+                    id=int(request.form.get("type_id") or 0),
+                    unit_id=unit_id,
+                ).first_or_404()
+                if qtype.code != code and PersonQualification.query.filter_by(
+                    unit_id=unit_id, qualification_type_id=qtype.id
+                ).first():
+                    abort(409, "A used qualification code cannot be changed.")
+                qtype.code = code
+            qtype.label = label[:100]
+            qtype.warning_days_csv = ",".join(str(value) for value in warnings)
+            qtype.expiry_required = (
+                request.form.get("expiry_required") == "yes"
+            )
+            qtype.is_active = request.form.get("is_active") == "yes"
+            db.session.commit()
+            flash("Qualification type saved.", "ok")
+            return redirect(url_for("qualification_compliance"))
+        if action == "save_person":
+            person = Staff.query.filter_by(
+                id=int(request.form.get("person_id") or 0),
+                unit_id=unit_id, is_operational=True,
+            ).first_or_404()
+            qtype = QualificationType.query.filter_by(
+                id=int(request.form.get("type_id") or 0),
+                unit_id=unit_id, is_active=True,
+            ).first_or_404()
+            status = (request.form.get("status") or "valid").strip()
+            if status not in {"valid", "suspended", "revoked", "inactive"}:
+                abort(400, "Invalid qualification status.")
+            def optional_date(name):
+                raw = (request.form.get(name) or "").strip()
+                return date.fromisoformat(raw) if raw else None
+            try:
+                issued_on = optional_date("issued_on")
+                valid_from = optional_date("valid_from")
+                expires_on = optional_date("expires_on")
+            except ValueError:
+                abort(400, "Qualification dates must be valid ISO dates.")
+            if qtype.expiry_required and status == "valid" and not expires_on:
+                abort(400, "This qualification requires an expiry date.")
+            record = PersonQualification.query.filter_by(
+                unit_id=unit_id, person_id=person.id,
+                qualification_type_id=qtype.id,
+            ).first()
+            action_name = "renewed" if record else "assigned"
+            if not record:
+                record = PersonQualification(
+                    unit_id=unit_id, person_id=person.id,
+                    qualification_type_id=qtype.id,
+                )
+                db.session.add(record)
+                db.session.flush()
+            record.issued_on = issued_on
+            record.valid_from = valid_from
+            record.expires_on = expires_on
+            record.status = status
+            record.updated_at = utcnow()
+            _record_qualification_history(record, action_name)
+            db.session.commit()
+            flash("Person qualification saved.", "ok")
+            return redirect(url_for("qualification_compliance"))
+        if action == "import_preview":
+            upload = request.files.get("csv_file")
+            if not upload:
+                abort(400, "Choose a qualification CSV file.")
+            try:
+                reader = csv.DictReader(io.StringIO(
+                    upload.read().decode("utf-8-sig")
+                ))
+            except UnicodeDecodeError:
+                abort(400, "CSV must use UTF-8 encoding.")
+            required = {"staff_no", "type_code", "status"}
+            if not reader.fieldnames or not required.issubset(reader.fieldnames):
+                abort(400, "CSV requires staff_no,type_code,status.")
+            rows, errors = [], []
+            for line, raw in enumerate(reader, start=2):
+                person = Staff.query.filter_by(
+                    unit_id=unit_id,
+                    staff_no=(raw.get("staff_no") or "").strip(),
+                    is_operational=True,
+                ).first()
+                qtype = QualificationType.query.filter_by(
+                    unit_id=unit_id,
+                    code=(raw.get("type_code") or "").strip().upper(),
+                    is_active=True,
+                ).first()
+                status = (raw.get("status") or "").strip()
+                try:
+                    parsed = {
+                        key: (
+                            date.fromisoformat((raw.get(key) or "").strip())
+                            if (raw.get(key) or "").strip() else None
+                        )
+                        for key in ("issued_on", "valid_from", "expires_on")
+                    }
+                except ValueError:
+                    errors.append(f"Line {line}: invalid date.")
+                    continue
+                if not person or not qtype or status not in {
+                    "valid", "suspended", "revoked", "inactive"
+                }:
+                    errors.append(f"Line {line}: unknown person/type/status.")
+                    continue
+                if qtype.expiry_required and status == "valid" and not parsed["expires_on"]:
+                    errors.append(f"Line {line}: expiry is required.")
+                    continue
+                rows.append({
+                    "person_id": person.id, "person": person.name,
+                    "type_id": qtype.id, "type": qtype.code,
+                    "status": status,
+                    **{key: value.isoformat() if value else "" for key, value in parsed.items()},
+                })
+            nonce = secrets.token_urlsafe(18)
+            if not errors:
+                session["_qualification_import_preview"] = {
+                    "unit_id": unit_id, "nonce": nonce, "rows": rows,
+                }
+            import_preview = {"rows": rows, "errors": errors, "nonce": nonce}
+        elif action == "import_apply":
+            saved = session.get("_qualification_import_preview") or {}
+            if (
+                saved.get("unit_id") != unit_id
+                or not secrets.compare_digest(
+                    request.form.get("nonce") or "",
+                    saved.get("nonce") or "",
+                )
+            ):
+                abort(409, "The qualification preview has expired.")
+            for row in saved.get("rows") or []:
+                record = PersonQualification.query.filter_by(
+                    unit_id=unit_id, person_id=row["person_id"],
+                    qualification_type_id=row["type_id"],
+                ).first()
+                if not record:
+                    record = PersonQualification(
+                        unit_id=unit_id, person_id=row["person_id"],
+                        qualification_type_id=row["type_id"],
+                    )
+                    db.session.add(record)
+                    db.session.flush()
+                for key in ("issued_on", "valid_from", "expires_on"):
+                    setattr(
+                        record, key,
+                        date.fromisoformat(row[key]) if row[key] else None,
+                    )
+                record.status = row["status"]
+                record.updated_at = utcnow()
+                _record_qualification_history(record, "imported")
+            db.session.commit()
+            session.pop("_qualification_import_preview", None)
+            flash("Qualification import applied.", "ok")
+            return redirect(url_for("qualification_compliance"))
+        else:
+            abort(400, "Unknown qualification action.")
     today = date.today()
     qualification_types = QualificationType.query.filter_by(
         unit_id=unit_id
@@ -7024,17 +7530,33 @@ def qualification_compliance():
                 )
             except (TypeError, ValueError):
                 warning_days = 180
-            state = "missing" if not expires_on else (
-                "expired" if days < 0
-                else "expiring" if days <= warning_days
-                else "valid"
-            )
+            if not qual:
+                state = "missing"
+            elif qual.status != "valid":
+                state = qual.status
+            elif qual.valid_from and qual.valid_from > today:
+                state = "not-yet-valid"
+            elif qtype.expiry_required and not expires_on:
+                state = "missing"
+            elif expires_on and days < 0:
+                state = "expired"
+            elif expires_on and days <= warning_days:
+                state = "expiring"
+            else:
+                state = "valid"
             rows.append({
                 "person": person, "type": qtype,
                 "qualification": qual, "expires_on": expires_on,
                 "days": days, "state": state,
             })
-    return render_template("qualification_compliance.html", rows=rows)
+    history = PersonQualificationHistory.query.filter_by(
+        unit_id=unit_id
+    ).order_by(PersonQualificationHistory.occurred_at.desc()).limit(100).all()
+    return render_template(
+        "qualification_compliance.html",
+        rows=rows, qualification_types=qualification_types, people=people,
+        history=history, import_preview=import_preview,
+    )
 
 
 def _valid_endorsement(person_id: int, position_id: int, on_day: date) -> bool:
@@ -7222,9 +7744,12 @@ def operations_assurance(ym):
                     raise ValueError(
                         "Approval requires a change reference and consultation summary."
                     )
-                RosterRuleVersion.query.filter_by(state="approved").update({
-                    "state": "superseded"
-                })
+                RosterRuleVersion.query.filter_by(
+                    unit_id=_current_unit_id(), state="approved"
+                ).update(
+                    {"state": "superseded"},
+                    synchronize_session=False,
+                )
                 rule.state = "approved"
                 rule.effective_from = date.fromisoformat(
                     request.form["effective_from"]
@@ -7321,13 +7846,30 @@ def coverage_heatmap(ym):
     start, days = month_range(year, month)
     end = days[-1]
     counts = defaultdict(Counter)
+    competence_exclusions = defaultdict(Counter)
     assignments = Assignment.query.filter(
         Assignment.unit_id == _current_unit_id(),
         Assignment.day >= start, Assignment.day <= end,
     ).all()
     for assignment in assignments:
-        counts[assignment.day][(assignment.code or "")[:1]] += 1
-    return render_template("coverage_heatmap.html", days=days, counts=counts, ym=ym)
+        shift = ShiftType.query.filter_by(
+            unit_id=_current_unit_id(), code=assignment.code
+        ).first()
+        prefix = (assignment.code or "")[:1]
+        if (
+            shift
+            and shift.required_qualification
+            and not _staff_has_shift_qualification(
+                assignment.staff, shift, assignment.day
+            )
+        ):
+            competence_exclusions[assignment.day][prefix] += 1
+            continue
+        counts[assignment.day][prefix] += 1
+    return render_template(
+        "coverage_heatmap.html", days=days, counts=counts, ym=ym,
+        competence_exclusions=competence_exclusions,
+    )
 
 
 @app.route("/planning/scenarios", methods=["GET", "POST"])
@@ -7345,10 +7887,41 @@ def scenarios_page():
                 raise ValueError
         except (ValueError, json.JSONDecodeError):
             abort(400, "Scenario changes must be a JSON list")
+        evaluated = []
+        for change in parsed:
+            if not isinstance(change, dict):
+                abort(400, "Each scenario change must be an object.")
+            item = dict(change)
+            reasons = []
+            try:
+                person_id = int(item.get("staff_id"))
+                duty_date = date.fromisoformat(str(item.get("day") or ""))
+            except (TypeError, ValueError):
+                abort(400, "Scenario staff and dates must be valid.")
+            person = Staff.query.filter_by(
+                id=person_id, unit_id=unit_id, is_operational=True
+            ).first()
+            shift = ShiftType.query.filter_by(
+                unit_id=unit_id,
+                code=str(item.get("code") or "").upper(),
+                is_active=True,
+            ).first()
+            if not person:
+                reasons.append("Person is unavailable in this airport.")
+            if not shift:
+                reasons.append("Shift is unavailable in this airport.")
+            if person and shift and not _staff_has_shift_qualification(
+                person, shift, duty_date
+            ):
+                reasons.append("Required qualification is not valid.")
+            item["eligibility"] = {
+                "eligible": not reasons, "reasons": reasons,
+            }
+            evaluated.append(item)
         scenario = Scenario(
             unit_id=unit_id,
             name=(request.form.get("name") or "Untitled scenario")[:120],
-            changes_json=json.dumps(parsed),
+            changes_json=json.dumps(evaluated),
             created_by_id=current_user.id,
         )
         db.session.add(scenario)
@@ -7372,7 +7945,9 @@ def admin_toil_new():
         amount = float(request.form.get("amount", "0") or 0)
         unit = request.form.get("unit", "days").lower()
         note = (request.form.get("note") or "").strip()
-        s = Staff.query.get_or_404(sid)
+        s = Staff.query.filter_by(
+            id=sid, unit_id=_current_unit_id()
+        ).first_or_404()
         # Convert to half-days
         if unit.startswith("day"):
             half = int(round(amount * 2))
@@ -7485,11 +8060,28 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                     identity_id=identity.id, status="active"
                 ).first()
                 if membership and membership.person_id:
+                    routing = db.session.get(
+                        DatabaseRoutingMetadata, membership.unit_id
+                    )
+                    if DEPLOYMENT_ENV == "production" and not routing:
+                        _security_event(
+                            "operational_route_missing",
+                            unit_id=membership.unit_id,
+                        )
+                        abort(503, "Operational database routing is unavailable.")
+                    g.tenant_context_token = bind_authenticated_unit(
+                        membership.unit_id,
+                        routing.secret_name if routing else None,
+                    )
                     user = db.session.get(Staff, membership.person_id)
                 else:
-                    platform_user = Staff.query.filter_by(
-                        username=username, role="superadmin"
-                    ).first()
+                    platform_user = db.session.execute(
+                        db.select(Staff).where(
+                            Staff.username == username,
+                            Staff.role == "superadmin",
+                        ),
+                        bind_arguments={"bind": db.engine},
+                    ).scalar_one_or_none()
                     user = platform_user
         else:
             user = Staff.query.filter_by(username=username).first()
@@ -7512,12 +8104,16 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 )
                 flash("This airport account is not active.", "error")
                 return render_template("login.html"), 403
-            credential = MfaCredential.query.filter_by(
-                person_id=user.id, enabled=True
-            ).first()
+            credential = (
+                None if user.role == "superadmin"
+                else MfaCredential.query.filter_by(
+                    person_id=user.id, enabled=True
+                ).first()
+            )
             session.clear()
             if credential:
                 session["_mfa_user_id"] = user.id
+                session["_mfa_unit_id"] = user.unit_id
                 session["_mfa_rate_key"] = rate_key
                 session["_mfa_next"] = (
                     request.args.get("next")
@@ -7567,9 +8163,19 @@ def _matching_totp_step(secret: str, code: str) -> int | None:
 @app.route("/login/mfa", methods=["GET", "POST"])
 def mfa_challenge():
     user_id = int(session.get("_mfa_user_id") or 0)
-    if not user_id:
+    unit_id = int(session.get("_mfa_unit_id") or 0)
+    if not user_id or not unit_id:
         return redirect(url_for("login"))
-    user = db.session.get(Staff, user_id)
+    routing = db.session.get(DatabaseRoutingMetadata, unit_id)
+    if DEPLOYMENT_ENV == "production" and not routing:
+        session.clear()
+        abort(503, "Operational database routing is unavailable.")
+    g.tenant_context_token = bind_authenticated_unit(
+        unit_id, routing.secret_name if routing else None
+    )
+    user = Staff.query.filter_by(
+        id=user_id, unit_id=unit_id
+    ).first()
     credential = MfaCredential.query.filter_by(
         person_id=user_id, enabled=True
     ).first()
@@ -7598,6 +8204,7 @@ def mfa_challenge():
         if accepted:
             next_url = session.pop("_mfa_next", "")
             session.pop("_mfa_user_id", None)
+            session.pop("_mfa_unit_id", None)
             login_user(user)
             session.permanent = True
             session["_session_started_at"] = utcnow().isoformat()
@@ -7621,6 +8228,12 @@ def mfa_challenge():
 @app.route("/security/mfa", methods=["GET", "POST"])
 @login_required
 def mfa_setup():
+    if getattr(current_user, "role", "") == "superadmin":
+        abort(
+            403,
+            "Platform administrator MFA is managed by the deployment identity "
+            "control and cannot open an airport credential store.",
+        )
     credential = MfaCredential.query.filter_by(
         person_id=current_user.id
     ).first()
@@ -7687,17 +8300,25 @@ def bootstrap_platform(username, password):
         )
         db.session.add(control)
         db.session.flush()
-    user = Staff(
-        unit_id=control.id, username=username, name="Platform Super Admin",
-        staff_no=f"PLATFORM-{secrets.token_hex(3).upper()}",
-        role="superadmin", membership_status="active", is_operational=False,
+    password_hash = generate_password_hash(password)
+    db.session.execute(
+        text(
+            "INSERT INTO staff "
+            "(unit_id,username,password_hash,role,membership_status,"
+            "permissions_json,name,staff_no,is_operational) VALUES "
+            "(:unit_id,:username,:password_hash,'superadmin','active','{}',"
+            "'Platform Super Admin',:staff_no,false)"
+        ),
+        {
+            "unit_id": control.id, "username": username,
+            "password_hash": password_hash,
+            "staff_no": f"PLATFORM-{secrets.token_hex(3).upper()}",
+        },
+        bind_arguments={"bind": db.engine},
     )
-    user.set_password(password)
-    db.session.add(user)
-    db.session.flush()
     db.session.add(PlatformIdentity(
         public_id=f"platform-{secrets.token_hex(12)}",
-        username=username, password_hash=user.password_hash,
+        username=username, password_hash=password_hash,
     ))
     db.session.commit()
     click.echo(f"Platform Super Admin {username} created.")
