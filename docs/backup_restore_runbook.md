@@ -10,6 +10,14 @@
 4. Alert on failure or missed recovery-point objective.
 5. Retain and securely erase backups according to the approved retention plan.
 
+Before launch, the accountable operator must approve numeric targets. Template:
+
+- RPO: no more than ___ minutes of committed control or airport data loss.
+- RTO: control access restored within ___ hours; each airport restored within
+  ___ hours in the documented priority order.
+- Backup frequency: control every ___; each airport every ___.
+- Restore rehearsal owner and frequency: ___ (at least quarterly).
+
 Example:
 
 ```bash
@@ -22,7 +30,8 @@ sha256sum atcroster.dump > atcroster.dump.sha256
 1. Authorise an isolated PostgreSQL target and restrict network access.
 2. Verify the backup checksum.
 3. Restore with `pg_restore --clean --if-exists`.
-4. Run `alembic upgrade head` using the matching release image.
+4. Set the restored control and airport secret references, then run
+   `python scripts/migrate_all_databases.py` using the matching release image.
 5. Check health endpoints and compare control totals.
 6. Run tenant-isolation, authentication, roster, publication and audit-history
    acceptance checks.
@@ -32,4 +41,3 @@ sha256sum atcroster.dump > atcroster.dump.sha256
 Restore tests must occur at least quarterly and before a migration with
 material tenant or publication impact. A successful backup job is not evidence
 of recoverability until this rehearsal passes.
-
