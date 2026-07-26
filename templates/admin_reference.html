@@ -96,7 +96,7 @@
                   <input type="hidden" name="annotation_id" value="{{ ann.id }}">
                   <button class="btn" type="submit">Save</button>
                 </form>
-                <form method="post" class="inline-form" onsubmit="return confirm('Remove annotation {{ ann.code }}?');">
+                <form method="post" class="inline-form" data-confirm="Remove annotation {{ ann.code }}?">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="form" value="annotation_delete">
                   <input type="hidden" name="annotation_id" value="{{ ann.id }}">

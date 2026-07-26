@@ -74,8 +74,31 @@ class OperationalDatabaseRouter:
         if not database_url:
             raise RuntimeError(f"Deployment secret {route.secret_name!r} is unavailable")
         if unit_id not in self._engines:
+            options = {
+                "pool_pre_ping": True,
+                "pool_recycle": 280,
+                "pool_size": int(os.environ.get("ATCROSTER_OPERATIONAL_POOL_SIZE", "5")),
+                "max_overflow": int(
+                    os.environ.get("ATCROSTER_OPERATIONAL_MAX_OVERFLOW", "5")
+                ),
+                "pool_timeout": int(
+                    os.environ.get("ATCROSTER_DB_POOL_TIMEOUT_SECONDS", "10")
+                ),
+            }
+            if database_url.startswith("postgresql"):
+                options["connect_args"] = {
+                    "connect_timeout": int(
+                        os.environ.get("ATCROSTER_DB_CONNECT_TIMEOUT_SECONDS", "5")
+                    ),
+                    "options": (
+                        "-c statement_timeout="
+                        + str(int(os.environ.get(
+                            "ATCROSTER_DB_STATEMENT_TIMEOUT_MS", "15000"
+                        )))
+                    ),
+                }
             self._engines[unit_id] = create_engine(
-                database_url, pool_pre_ping=True, pool_recycle=280
+                database_url, **options
             )
         return self._engines[unit_id]
 

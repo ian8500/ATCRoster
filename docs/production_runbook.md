@@ -79,7 +79,11 @@ receive the same encrypted variables:
 - `ATCROSTER_ENVIRONMENT=production`
 - `ATCROSTER_SECURE_COOKIES=true`
 - `FLASK_SECRET_KEY` with at least 32 random characters
-- `ATCROSTER_FIELD_ENCRYPTION_KEY` generated with Fernet
+- `ATCROSTER_FIELD_ENCRYPTION_KEYS` as an ordered versioned key ring, for
+  example `v2:<new-fernet-key>,v1:<old-fernet-key>`
+- `ATCROSTER_TOKEN_ENCRYPTION_KEYS` as a separate ordered key ring for
+  temporary bootstrap-token envelopes
+- `ATCROSTER_BOOTSTRAP_TOKEN_TTL_SECONDS` (default 900)
 - `DATABASE_URL` using the PostgreSQL service's private connection variables
 - `CONTROL_DATABASE_URL` using the control PostgreSQL service
 - `ATCROSTER_UNIT_<id>_DATABASE_URL` for every airport database
@@ -87,6 +91,12 @@ receive the same encrypted variables:
 - `ATCROSTER_SESSION_IDLE_MINUTES` and
   `ATCROSTER_SESSION_ABSOLUTE_MINUTES`
 - `ATCROSTER_TRUSTED_PROXY_HOPS` matching the verified proxy topology
+- `ATCROSTER_TRUSTED_HOSTS` as a comma-separated allowlist
+- `ATCROSTER_PROVISIONING_LEASE_SECONDS` (minimum 30; default 120)
+- `ATCROSTER_DB_CONNECT_TIMEOUT_SECONDS`,
+  `ATCROSTER_DB_STATEMENT_TIMEOUT_MS`, `ATCROSTER_DB_POOL_TIMEOUT_SECONDS`,
+  `ATCROSTER_OPERATIONAL_POOL_SIZE` and
+  `ATCROSTER_OPERATIONAL_MAX_OVERFLOW`
 
 The web service uses the repository `railway.toml`. Configure the worker
 service start command as `python scripts/run_provisioning_worker.py` and no
@@ -94,6 +104,17 @@ public endpoint. The pre-deploy command upgrades control first and then all
 configured operational databases. After the first healthy deployment, run
 `flask --app app bootstrap-platform` once with a unique administrator
 password. Do not upload acceptance data or local environment files.
+
+For field-key rotation, prepend the new version, retain previous decrypt keys,
+take verified backups, and run:
+
+```bash
+flask --app app rotate-field-encryption \
+  --confirm ROTATE-FIELD-ENCRYPTION
+```
+
+Retire old field keys only after verification. Token-envelope key versions
+must overlap for at least the configured bootstrap-token TTL.
 
 ## Reverse proxy
 

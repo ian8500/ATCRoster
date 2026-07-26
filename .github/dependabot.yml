@@ -4,14 +4,48 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 6
+    groups:
+      production-runtime:
+        patterns:
+          - Flask*
+          - SQLAlchemy
+          - alembic
+          - psycopg*
+          - Werkzeug
+          - cryptography
+          - redis
+          - waitress
+      development-tools:
+        patterns:
+          - pytest
+          - ruff
+          - mypy
+          - bandit
+          - pip-audit
+      desktop-packaging:
+        patterns:
+          - pywebview
+          - pyinstaller
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    groups:
+      codeql:
+        patterns:
+          - github/codeql-action/*
+      docker-build-actions:
+        patterns:
+          - docker/setup-buildx-action
+          - docker/build-push-action

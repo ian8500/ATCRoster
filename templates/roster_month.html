@@ -74,18 +74,18 @@
 
   <a class="btn" href="{{ url_for('roster_export_csv', ym=ym) }}" style="margin-left:1rem">Export CSV</a>
   {% if can_edit %}<a class="btn ghost" href="{{ url_for('bulk_annotations') }}">Bulk annotations</a>{% endif %}
-  <button class="btn" onclick="printRoster()">Print</button>
+  <button class="btn" data-command="print-roster">Print</button>
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
     <span class="roster-zoom-label">Zoom</span>
     <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.75"
-            onclick="setRosterZoomPreset('0.75')">75%</button>
+            >75%</button>
     <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.90"
-            onclick="setRosterZoomPreset('0.90')">90%</button>
+            >90%</button>
     <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="1"
-            onclick="setRosterZoomPreset('1')">100%</button>
+            >100%</button>
     <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="fit"
-            onclick="setRosterZoomPreset('fit')">Fit width</button>
+            >Fit width</button>
   </div>
 
 </div>
@@ -158,7 +158,7 @@
               <select
                 name="code"
                 class="code-input code-len-{{ code|length }} {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
-                onchange="this.form.submit()"
+                data-auto-submit="true"
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 {% if f %}title="{{ ', '.join(f) }}"{% endif %}
                 aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
@@ -203,7 +203,7 @@
               <select
                 name="annotation"
                 class="annot-select {% if ann %}has-annotation{% endif %}"
-                onchange="this.form.submit()"
+                data-auto-submit="true"
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 title="Annotate"
                 aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"
@@ -255,7 +255,7 @@
 </table>
 </div> <!-- /#roster -->
 
-<script>
+<script nonce="{{ csp_nonce() }}">
   function printRoster(){ window.print(); }
 </script>
 {% endblock %}

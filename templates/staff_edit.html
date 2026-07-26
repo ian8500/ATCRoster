@@ -174,14 +174,14 @@
         </form>
         <form method="post" action="{{ url_for('admin_watch_move_delete', hid=h.id) }}" class="d-inline">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm btn-danger" onclick="return confirm('Delete this watch move?')">Delete</button>
+          <button class="btn btn-sm btn-danger" data-confirm="Delete this watch move?">Delete</button>
         </form>
       </article>
     {% endfor %}
   </div></div></section>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 (() => {
   const toggle = document.querySelector('[data-personal-pattern-toggle]');
   const personal = document.querySelector('[data-personal-pattern]');

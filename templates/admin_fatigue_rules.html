@@ -101,7 +101,7 @@
           <label class="checkbox"><input type="checkbox" name="enabled" {% if rule.enabled %}checked{% endif %}> Active</label>
           <div class="form-actions"><button class="btn btn-primary" type="submit">Save rule</button></div>
         </form>
-        <form method="post" class="admin-danger-action" onsubmit="return confirm('Remove {{ rule.name }}?');">
+        <form method="post" class="admin-danger-action" data-confirm="Remove {{ rule.name }}?">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="delete_custom">
           <input type="hidden" name="code" value="{{ rule.code }}">
@@ -115,7 +115,7 @@
   </div>
 </section>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 (() => {
   const select = document.querySelector('[data-fatigue-rule-type]');
   const form = select?.closest('form');

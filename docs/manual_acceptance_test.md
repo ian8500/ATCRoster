@@ -27,7 +27,7 @@ These commands create a dedicated SQLite acceptance database. The command
 refuses to overwrite an existing database unless `--reset` is present.
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 python scripts/seed_acceptance_data.py --reset
 export DATABASE_URL="sqlite:///instance/acceptance.db"
 export FLASK_SECRET_KEY="local-acceptance-secret"

@@ -541,7 +541,7 @@ testing is complete.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 export FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 export DATABASE_URL="sqlite:///instance/roster.db"
 flask --app app.py run
@@ -549,6 +549,22 @@ flask --app app.py run
 
 The development server defaults to `127.0.0.1`. Never use the checked-in
 fallback secret in production.
+
+### Supported Python versions
+
+Python 3.12 is the production and CI runtime. A newer Python major version
+must not be adopted through an automated dependency update: it requires a
+dedicated compatibility pull request that builds the production image and
+passes the complete web, PostgreSQL, Redis, worker and desktop test matrix.
+
+Dependency surfaces are deliberately separate:
+
+- `requirements-prod.txt` — production web, database, security and worker;
+- `requirements-dev.txt` — production dependencies plus test/security tools;
+- `requirements-desktop.txt` — production dependencies plus desktop packaging;
+- `requirements.txt` — compatibility entry point containing all surfaces.
+
+Production containers install only `requirements-prod.txt`.
 
 ### PostgreSQL production
 
@@ -790,7 +806,7 @@ Before release also run:
 ```bash
 python -m compileall -q app.py tenancy.py saas_models.py account_limits.py scripts
 python scripts/scale_assurance.py
-pip-audit -r requirements.txt
+pip-audit -r requirements-prod.txt
 ```
 
 For production, add integration tests against PostgreSQL and the deployment’s
@@ -854,5 +870,5 @@ database.
 Activate the intended virtual environment and reinstall:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 ```

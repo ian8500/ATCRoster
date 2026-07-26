@@ -150,7 +150,7 @@
           <label>Pattern day 1 starts on<input type="date" name="pattern_anchor" value="{{ watch.pattern_anchor.isoformat() if watch.pattern_anchor else '' }}"><small>Required only when this watch has its own pattern.</small></label>
           <button class="btn btn-primary" type="submit">Save {{ watch.name }}</button>
         </form>
-        <form method="post" class="admin-danger-action" onsubmit="return confirm('Delete {{ watch.name }}?');">
+        <form method="post" class="admin-danger-action" data-confirm="Delete {{ watch.name }}?">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="form" value="watch_delete">
           <input type="hidden" name="watch_id" value="{{ watch.id }}">
@@ -285,7 +285,7 @@
             </div>
             <div class="form-actions"><button class="btn btn-primary" type="submit">Save {{ sh.code }}</button></div>
           </form>
-          <form method="post" class="admin-danger-action" onsubmit="return confirm('Delete shift {{ sh.code }}?');">
+          <form method="post" class="admin-danger-action" data-confirm="Delete shift {{ sh.code }}?">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="form" value="shift_delete"><input type="hidden" name="shift_id" value="{{ sh.id }}">
             <button class="btn" type="submit">Delete shift</button>
@@ -351,7 +351,7 @@
   </section>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 (() => {
   const tabs = [...document.querySelectorAll('[data-admin-section]')];
   const panels = [...document.querySelectorAll('[data-admin-panel]')];
