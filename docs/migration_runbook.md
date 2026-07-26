@@ -1,5 +1,27 @@
 # Database migration runbook
 
+The current head is `20260726_09`. Production migration must use
+`scripts/migrate_all_databases.py`, which applies the `control` schema role to
+the control database and the `operational` role separately to every configured
+airport database. It is safe to rerun and does not create control-plane tables
+or a `unit` table in an operational database.
+
+Back up the control database and every airport database as one labelled
+recovery set. A failed airport migration stops with its unit ID and a
+non-sensitive error; correct the secret/database configuration and rerun.
+Never include database URLs in tickets or logs.
+
+Interrupted invitation acceptance is handled with:
+
+```bash
+flask --app app reconcile-signups
+flask --app app reconcile-signups --apply
+```
+
+Rollback is backup restoration, not Alembic downgrade. Restore control and
+every airport database from the same recovery point before starting the prior
+application image.
+
 ## Before deployment
 
 1. Freeze schema-changing releases and identify the exact application commit.

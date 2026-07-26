@@ -32,12 +32,14 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import HTTPException
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
     bind_platform_control,
     clear_request_context,
     operational_engine_for_authenticated_unit,
+    operational_unit_context,
     reset_authenticated_unit,
     reset_platform_control,
 )
@@ -377,8 +379,12 @@ def _bind_tenant_context():
         and getattr(current_user, "role", "") == "superadmin"
     ):
         g.platform_control_token = bind_platform_control()
+        if not session.get("_platform_mfa_verified"):
+            logout_user()
+            session.clear()
+            return redirect(url_for("login"))
         allowed_platform_endpoints = {
-            "platform_admin", "logout", "password_change", "mfa_setup",
+            "platform_admin", "logout", "password_change",
             "static", "favicon", "health_live", "health_ready",
         }
         if request.endpoint == "index":
@@ -855,8 +861,6 @@ class Staff(UserMixin, db.Model):
         ).order_by(UnitMembership.id).first()
         if membership:
             return f"membership:{membership.id}"
-        if self.role == "superadmin":
-            return f"platform:{self.id}"
         return f"legacy:{self.unit_id}:{self.id}"
 
     def set_password(self, password: str) -> None:
@@ -1136,13 +1140,16 @@ class StaffWatchHistory(db.Model):
 from saas_models import register_saas_models
 SaaS = register_saas_models(db, utcnow)
 PlatformIdentity = SaaS.PlatformIdentity
+PlatformMfaCredential = SaaS.PlatformMfaCredential
 UnitMembership = SaaS.UnitMembership
 SecureInvitation = SaaS.SecureInvitation
+SignupWorkflow = SaaS.SignupWorkflow
 DatabaseRoutingMetadata = SaaS.DatabaseRoutingMetadata
 FeatureFlag = SaaS.FeatureFlag
 PlanHistory = SaaS.PlanHistory
 AggregateUsageEvent = SaaS.AggregateUsageEvent
 SuperAdminAudit = SaaS.SuperAdminAudit
+CentralSecurityAudit = SaaS.CentralSecurityAudit
 QualificationType = SaaS.QualificationType
 PersonQualification = SaaS.PersonQualification
 PersonQualificationHistory = SaaS.PersonQualificationHistory
@@ -1456,11 +1463,10 @@ def load_user(user_id):
         )
         g.tenant_context_token = token
         return db.session.get(Staff, membership.person_id)
-    if value.startswith("platform:"):
+    if value.startswith("platform-identity:"):
         try:
             return db.session.get(
-                Staff, int(value.split(":", 1)[1]),
-                bind_arguments={"bind": db.engine},
+                PlatformIdentity, int(value.split(":", 1)[1])
             )
         except ValueError:
             return None
@@ -3261,15 +3267,6 @@ def password_change():
                 username=current_user.username
             ).first_or_404()
             identity.password_hash = new_hash
-            # Platform bootstrap compatibility row is central control data.
-            db.session.execute(
-                text(
-                    "UPDATE staff SET password_hash=:password_hash "
-                    "WHERE id=:person_id AND role='superadmin'"
-                ),
-                {"password_hash": new_hash, "person_id": current_user.id},
-                bind_arguments={"bind": db.engine},
-            )
             db.session.commit()
         else:
             u = tenant_get(Staff, current_user.id)
@@ -6638,23 +6635,15 @@ def platform_admin():
                 try:
                     unit = Unit(
                         code=code, name=name, plan=plan,
-                        active_user_limit=limit, onboarding_step=1,
+                        active_user_limit=limit, onboarding_step=0,
+                        status="provisioning",
                     )
                     db.session.add(unit)
                     db.session.flush()
-                    raw_token = secrets.token_urlsafe(32)
-                    invitation = SecureInvitation(
-                        unit_id=unit.id,
-                        token_digest=hashlib.sha256(
-                            raw_token.encode()
-                        ).hexdigest(),
-                        role="UnitAdmin",
-                        expires_at=utcnow() + timedelta(days=7),
-                    )
-                    db.session.add(invitation)
                     db.session.add(DatabaseRoutingMetadata(
                         unit_id=unit.id,
                         secret_name=f"ATCROSTER_UNIT_{unit.id}_DATABASE_URL",
+                        provisioning_state="pending",
                     ))
                     db.session.add(PlanHistory(
                         unit_id=unit.id, plan=plan,
@@ -6666,18 +6655,132 @@ def platform_admin():
                         safe_summary=f"Created airport {code} on {plan} plan with limit {limit}",
                     ))
                     db.session.commit()
-                    invite_url = url_for(
-                        "accept_invitation", token=raw_token, _external=True
-                    )
                     flash(
-                        f"{name} created. Transfer this one-time bootstrap "
-                        f"link through the approved secure channel: {invite_url}",
+                        f"{name} metadata created. Configure its database "
+                        "secret, then run provisioning.",
                         "ok",
                     )
                     return redirect(url_for("platform_admin"))
                 except Exception:
                     db.session.rollback()
                     raise
+        elif action == "provision_unit":
+            unit_id = int(request.form.get("unit_id") or 0)
+            unit = db.session.get(Unit, unit_id)
+            routing = db.session.get(DatabaseRoutingMetadata, unit_id)
+            if not unit or unit.status == "platform_control" or not routing:
+                abort(404)
+            routing.attempt_count = int(routing.attempt_count or 0) + 1
+            routing.last_attempt_at = utcnow()
+            routing.last_error_code = ""
+            db.session.commit()
+            try:
+                if not re.fullmatch(
+                    r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL",
+                    routing.secret_name or "",
+                ):
+                    raise RuntimeError("invalid_secret_reference")
+                operational_url = os.environ.get(routing.secret_name)
+                if not operational_url:
+                    raise RuntimeError("database_secret_unavailable")
+                control_url = (
+                    os.environ.get("CONTROL_DATABASE_URL")
+                    or app.config["SQLALCHEMY_DATABASE_URI"]
+                )
+                if operational_url == control_url:
+                    raise RuntimeError("database_not_isolated")
+                routing.provisioning_state = "database_configured"
+                db.session.commit()
+                from scripts.migrate_all_databases import upgrade_database
+                routing.migration_version = upgrade_database(
+                    operational_url, "operational"
+                )
+                routing.provisioning_state = "migrations_complete"
+                from sqlalchemy import create_engine, inspect
+                health_engine = create_engine(
+                    operational_url, pool_pre_ping=True
+                )
+                try:
+                    with health_engine.connect() as connection:
+                        connection.execute(text("SELECT 1"))
+                    required = {
+                        "staff", "assignment", "shift_request",
+                        "qualification_type",
+                    }
+                    if not required.issubset(
+                        set(inspect(health_engine).get_table_names())
+                    ):
+                        raise RuntimeError("schema_health_check_failed")
+                finally:
+                    health_engine.dispose()
+                invitation = SecureInvitation.query.filter_by(
+                    unit_id=unit.id, role="UnitAdmin",
+                    accepted_at=None, disabled_at=None,
+                ).first()
+                raw_token = None
+                if not invitation:
+                    raw_token = secrets.token_urlsafe(32)
+                    invitation = SecureInvitation(
+                        unit_id=unit.id,
+                        token_digest=hashlib.sha256(
+                            raw_token.encode()
+                        ).hexdigest(),
+                        role="UnitAdmin",
+                        expires_at=utcnow() + timedelta(days=7),
+                    )
+                    db.session.add(invitation)
+                routing.provisioning_state = "invitation_issued"
+                routing.health = "healthy"
+                routing.ready_at = utcnow()
+                db.session.add(SuperAdminAudit(
+                    actor_identity_id=platform_actor.id,
+                    unit_id=unit.id,
+                    action="airport_provisioned",
+                    safe_summary=(
+                        f"Operational schema ready for {unit.code}; "
+                        "bootstrap invitation issued."
+                    ),
+                ))
+                db.session.commit()
+                if raw_token:
+                    flash(
+                        "Provisioning completed. Transfer this one-time "
+                        f"bootstrap link securely: {url_for('accept_invitation', token=raw_token, _external=True)}",
+                        "ok",
+                    )
+                else:
+                    flash(
+                        "Provisioning is already complete; the existing "
+                        "invitation remains valid.", "ok",
+                    )
+            except Exception as exc:
+                db.session.rollback()
+                routing = db.session.get(DatabaseRoutingMetadata, unit_id)
+                allowed = {
+                    "invalid_secret_reference",
+                    "database_secret_unavailable",
+                    "database_not_isolated",
+                    "schema_health_check_failed",
+                }
+                code = (
+                    str(exc) if str(exc) in allowed
+                    else "database_provisioning_failed"
+                )
+                routing.provisioning_state = "failed"
+                routing.last_error_code = code
+                routing.health = "failed"
+                db.session.add(SuperAdminAudit(
+                    actor_identity_id=platform_actor.id,
+                    unit_id=unit_id,
+                    action="airport_provisioning_failed",
+                    safe_summary=f"Provisioning failed with code {code}.",
+                ))
+                db.session.commit()
+                flash(
+                    f"Provisioning did not complete ({code}). Correct the "
+                    "configuration and retry.", "error",
+                )
+            return redirect(url_for("platform_admin"))
         elif action == "update_limit":
             try:
                 unit_id = int(request.form.get("unit_id") or 0)
@@ -6801,6 +6904,12 @@ def platform_admin():
             "active_accounts": active_accounts,
             "flags": flags,
             "database_health": routing.health if routing else "unknown",
+            "provisioning_state": (
+                routing.provisioning_state if routing else "pending"
+            ),
+            "provisioning_error": (
+                routing.last_error_code if routing else ""
+            ),
             "migration_version": routing.migration_version if routing else "",
             "storage_bytes": routing.storage_bytes if routing else 0,
             "activity_count": int(activity or 0),
@@ -6861,31 +6970,41 @@ def unit_accounts():
             return redirect(url_for("unit_accounts"))
         if action == "create_account":
             name = (request.form.get("name") or "").strip()
-            username = (request.form.get("username") or "").strip().lower()
+            username = _normalized_login(
+                request.form.get("username") or ""
+            )
             password = request.form.get("password") or ""
             if not name or not username or len(password) < 12:
                 flash("Name, username, and a 12-character password are required.", "error")
                 return redirect(url_for("unit_accounts"))
-            if db.session.query(Staff).execution_options(skip_tenant_scope=True).filter_by(
-                username=username
-            ).first():
-                flash("That username already exists.", "error")
+            central_duplicate = PlatformIdentity.query.filter(
+                db.func.lower(PlatformIdentity.username) == username
+            ).first()
+            local_duplicate = Staff.query.filter(
+                db.func.lower(Staff.username) == username
+            ).first()
+            if central_duplicate or local_duplicate:
+                flash("That login identifier is unavailable.", "error")
                 return redirect(url_for("unit_accounts"))
+            identity = None
+            staff = None
             try:
+                password_hash = generate_password_hash(password)
+                identity = PlatformIdentity(
+                    public_id=f"member-{secrets.token_hex(12)}",
+                    username=username, password_hash=password_hash,
+                )
+                db.session.add(identity)
+                db.session.commit()
                 staff = Staff(
                     unit_id=unit_id, username=username, name=name,
                     staff_no=f"{unit.code}-LOGIN-{secrets.token_hex(3).upper()}",
                     role="user", is_operational=False,
+                    membership_status="pending",
                 )
-                staff.set_password(password)
+                staff.password_hash = password_hash
                 db.session.add(staff)
-                db.session.flush()
-                identity = PlatformIdentity(
-                    public_id=f"member-{secrets.token_hex(12)}",
-                    username=username, password_hash=staff.password_hash,
-                )
-                db.session.add(identity)
-                db.session.flush()
+                db.session.commit()
                 membership = UnitMembership(
                     identity_id=identity.id, unit_id=unit_id,
                     person_id=staff.id, role="StaffUser", status="invited",
@@ -6895,11 +7014,29 @@ def unit_accounts():
                 from account_limits import activate_membership
                 activate_membership(db, Unit, UnitMembership, membership.id)
                 membership.activated_at = utcnow()
+                staff.membership_status = "active"
                 db.session.commit()
                 flash("Account activated.", "ok")
-            except ValueError as exc:
+            except (ValueError, IntegrityError) as exc:
                 db.session.rollback()
-                flash(str(exc), "error")
+                if staff and staff.id:
+                    pending_staff = db.session.get(Staff, staff.id)
+                    if pending_staff and pending_staff.membership_status != "active":
+                        db.session.delete(pending_staff)
+                        db.session.commit()
+                if identity and identity.id:
+                    orphan = db.session.get(PlatformIdentity, identity.id)
+                    has_membership = UnitMembership.query.filter_by(
+                        identity_id=identity.id
+                    ).first()
+                    if orphan and not has_membership:
+                        db.session.delete(orphan)
+                        db.session.commit()
+                message = (
+                    str(exc) if isinstance(exc, ValueError)
+                    else "That login identifier is unavailable."
+                )
+                flash(message, "error")
             return redirect(url_for("unit_accounts"))
         if action == "deactivate":
             membership_id = int(request.form.get("membership_id") or 0)
@@ -6985,6 +7122,198 @@ def unit_accounts():
     )
 
 
+class SignupWorkflowError(RuntimeError):
+    pass
+
+
+def _normalized_login(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _run_invitation_signup(
+    invitation, unit, name, username, password, fail_after=None,
+):
+    """Resume an invitation saga without claiming cross-DB atomicity."""
+    normalized = _normalized_login(username)
+    workflow = SignupWorkflow.query.filter_by(
+        invitation_id=invitation.id
+    ).first()
+    if not workflow:
+        workflow = SignupWorkflow(
+            invitation_id=invitation.id,
+            idempotency_key=hashlib.sha256(
+                f"signup:{invitation.id}:{invitation.token_digest}".encode()
+            ).hexdigest(),
+            normalized_username=normalized,
+            state="pending",
+        )
+        db.session.add(workflow)
+        try:
+            db.session.commit()
+        except IntegrityError as exc:
+            db.session.rollback()
+            workflow = SignupWorkflow.query.filter_by(
+                invitation_id=invitation.id
+            ).first()
+            if not workflow:
+                raise SignupWorkflowError(
+                    "Account setup could not be started safely."
+                ) from exc
+    if workflow.normalized_username != normalized:
+        raise SignupWorkflowError(
+            "This invitation already has an incomplete setup attempt."
+        )
+    if workflow.state == "completed":
+        return workflow
+    if workflow.state == "failed" and workflow.compensation_state:
+        workflow.state = workflow.compensation_state
+    workflow.attempt_count = int(workflow.attempt_count or 0) + 1
+    workflow.last_error_code = ""
+    workflow.updated_at = utcnow()
+    db.session.commit()
+    try:
+        if workflow.state == "pending":
+            duplicate = PlatformIdentity.query.filter(
+                db.func.lower(PlatformIdentity.username) == normalized
+            ).first()
+            if duplicate:
+                raise SignupWorkflowError(
+                    "That login identifier is unavailable."
+                )
+            identity = PlatformIdentity(
+                public_id=f"member-{secrets.token_hex(12)}",
+                username=normalized,
+                password_hash=generate_password_hash(password),
+            )
+            db.session.add(identity)
+            try:
+                db.session.commit()
+            except IntegrityError as exc:
+                db.session.rollback()
+                raise SignupWorkflowError(
+                    "That login identifier is unavailable."
+                ) from exc
+            workflow = db.session.get(SignupWorkflow, workflow.id)
+            workflow.identity_id = identity.id
+            workflow.state = "identity_created"
+            workflow.updated_at = utcnow()
+            db.session.commit()
+            if fail_after == "identity_created":
+                raise RuntimeError("injected_identity_created")
+        if workflow.state == "identity_created":
+            marker = f"{unit.code}-SIGNUP-{workflow.id}"
+            staff = Staff.query.filter_by(staff_no=marker).first()
+            if not staff:
+                if Staff.query.filter(
+                    db.func.lower(Staff.username) == normalized
+                ).first():
+                    raise SignupWorkflowError(
+                        "That login identifier is unavailable."
+                    )
+                role_map = {
+                    "UnitAdmin": "admin", "RosterEditor": "editor",
+                    "WatchManager": "user", "StaffUser": "user",
+                    "ReadOnlyAuditor": "auditor",
+                }
+                staff = Staff(
+                    unit_id=unit.id, username=normalized, name=name[:80],
+                    staff_no=marker, role=role_map[invitation.role],
+                    is_wm=invitation.role == "WatchManager",
+                    is_operational=False, membership_status="pending",
+                )
+                staff.set_password(password)
+                db.session.add(staff)
+                try:
+                    db.session.commit()
+                except IntegrityError as exc:
+                    db.session.rollback()
+                    raise SignupWorkflowError(
+                        "That login identifier is unavailable."
+                    ) from exc
+            workflow = db.session.get(SignupWorkflow, workflow.id)
+            workflow.operational_person_id = staff.id
+            workflow.state = "operational_account_created"
+            workflow.updated_at = utcnow()
+            db.session.commit()
+            if fail_after == "operational_account_created":
+                raise RuntimeError("injected_operational_account_created")
+        if workflow.state == "operational_account_created":
+            membership = UnitMembership.query.filter_by(
+                identity_id=workflow.identity_id, unit_id=unit.id
+            ).first()
+            if not membership:
+                membership = UnitMembership(
+                    identity_id=workflow.identity_id, unit_id=unit.id,
+                    person_id=workflow.operational_person_id,
+                    role=invitation.role, status="invited",
+                )
+                db.session.add(membership)
+                db.session.flush()
+                from account_limits import activate_membership
+                activate_membership(
+                    db, Unit, UnitMembership, membership.id
+                )
+                membership.activated_at = utcnow()
+                db.session.commit()
+            workflow = db.session.get(SignupWorkflow, workflow.id)
+            workflow.membership_id = membership.id
+            workflow.state = "membership_created"
+            workflow.updated_at = utcnow()
+            db.session.commit()
+            if fail_after == "membership_created":
+                raise RuntimeError("injected_membership_created")
+        if workflow.state == "membership_created":
+            staff = db.session.get(
+                Staff, workflow.operational_person_id
+            )
+            if not staff:
+                raise SignupWorkflowError(
+                    "Operational account requires reconciliation."
+                )
+            staff.membership_status = "active"
+            db.session.commit()
+            workflow = db.session.get(SignupWorkflow, workflow.id)
+            invitation = db.session.get(
+                SecureInvitation, workflow.invitation_id
+            )
+            invitation.accepted_at = utcnow()
+            if invitation.role == "UnitAdmin":
+                unit.status = "active"
+                routing = db.session.get(
+                    DatabaseRoutingMetadata, unit.id
+                )
+                routing.provisioning_state = "active"
+            workflow.state = "completed"
+            workflow.compensation_state = ""
+            workflow.updated_at = utcnow()
+            db.session.commit()
+        return workflow
+    except SignupWorkflowError:
+        db.session.rollback()
+        workflow = db.session.get(SignupWorkflow, workflow.id)
+        workflow.compensation_state = workflow.state
+        workflow.state = "failed"
+        workflow.last_error_code = "validation_failed"
+        workflow.updated_at = utcnow()
+        db.session.commit()
+        raise
+    except Exception as exc:
+        db.session.rollback()
+        workflow = db.session.get(SignupWorkflow, workflow.id)
+        workflow.compensation_state = workflow.state
+        workflow.state = "failed"
+        workflow.last_error_code = (
+            str(exc) if str(exc).startswith("injected_")
+            else "stage_interrupted"
+        )
+        workflow.updated_at = utcnow()
+        db.session.commit()
+        raise SignupWorkflowError(
+            "Account setup was interrupted safely. Retry this invitation "
+            "or ask an administrator to reconcile it."
+        ) from exc
+
+
 @app.route("/invite/<token>", methods=["GET", "POST"])
 def accept_invitation(token):
     """Accept a one-time, expiring invitation without trusting tenant input."""
@@ -7004,13 +7333,24 @@ def accept_invitation(token):
     ):
         abort(410, "This invitation has expired or has already been used.")
     unit = db.session.get(Unit, invitation.unit_id)
-    if not unit or unit.status != "active":
+    routing = (
+        db.session.get(DatabaseRoutingMetadata, invitation.unit_id)
+        if unit else None
+    )
+    if (
+        not unit
+        or unit.status not in {"active", "provisioning"}
+        or (
+            unit.status == "provisioning"
+            and (
+                not routing
+                or routing.provisioning_state != "invitation_issued"
+            )
+        )
+    ):
         abort(409, "This airport account is not accepting invitations.")
     if request.method == "POST":
         _validate_csrf()
-        routing = db.session.get(
-            DatabaseRoutingMetadata, invitation.unit_id
-        )
         if DEPLOYMENT_ENV == "production" and not routing:
             abort(503, "Operational database routing is unavailable.")
         g.tenant_context_token = bind_authenticated_unit(
@@ -7030,61 +7370,11 @@ def accept_invitation(token):
             return render_template(
                 "invitation_accept.html", invitation=invitation, unit=unit
             ), 400
-        if PlatformIdentity.query.filter_by(username=username).first() or (
-            db.session.query(Staff)
-            .execution_options(skip_tenant_scope=True)
-            .filter_by(username=username)
-            .first()
-        ):
-            flash("That username is unavailable.", "error")
-            return render_template(
-                "invitation_accept.html", invitation=invitation, unit=unit
-            ), 409
-        role_map = {
-            "UnitAdmin": "admin",
-            "RosterEditor": "editor",
-            "WatchManager": "user",
-            "StaffUser": "user",
-            "ReadOnlyAuditor": "auditor",
-        }
         try:
-            staff = Staff(
-                unit_id=unit.id,
-                username=username,
-                name=name[:80],
-                staff_no=f"{unit.code}-LOGIN-{secrets.token_hex(3).upper()}",
-                role=role_map[invitation.role],
-                is_wm=invitation.role == "WatchManager",
-                is_operational=False,
+            _run_invitation_signup(
+                invitation, unit, name, username, password
             )
-            staff.set_password(password)
-            db.session.add(staff)
-            db.session.flush()
-            identity = PlatformIdentity(
-                public_id=f"member-{secrets.token_hex(12)}",
-                username=username,
-                password_hash=staff.password_hash,
-            )
-            db.session.add(identity)
-            db.session.flush()
-            membership = UnitMembership(
-                identity_id=identity.id,
-                unit_id=unit.id,
-                person_id=staff.id,
-                role=invitation.role,
-                status="invited",
-            )
-            db.session.add(membership)
-            db.session.flush()
-            from account_limits import activate_membership
-            activate_membership(
-                db, Unit, UnitMembership, membership.id
-            )
-            membership.activated_at = utcnow()
-            invitation.accepted_at = utcnow()
-            db.session.commit()
-        except ValueError as exc:
-            db.session.rollback()
+        except (SignupWorkflowError, ValueError) as exc:
             flash(str(exc), "error")
             return render_template(
                 "invitation_accept.html", invitation=invitation, unit=unit
@@ -8018,6 +8308,17 @@ def _security_event(event: str, **safe_fields) -> None:
     ))
 
 
+def _central_security_event(
+    event_type: str, outcome: str, identity_id: int | None = None,
+    principal: str = "", detail: str = "",
+) -> None:
+    db.session.add(CentralSecurityAudit(
+        identity_id=identity_id, event_type=event_type[:80],
+        outcome=outcome[:20], principal_digest=principal[:32],
+        safe_detail=detail[:200],
+    ))
+
+
 def _record_successful_login(user: Staff) -> None:
     now = utcnow()
     identity = PlatformIdentity.query.filter_by(
@@ -8038,7 +8339,9 @@ def _record_successful_login(user: Staff) -> None:
 @app.route("/login", methods=["GET", "POST"], endpoint="login")
 def signin_form():   # function name can be anything; endpoint is 'login'
     if request.method == "POST":
-        username = (request.form.get("username") or "").strip()
+        username = _normalized_login(
+            request.form.get("username") or ""
+        )
         password = (request.form.get("password") or "").strip()
         rate_key = _login_rate_key(username)
         attempts = _login_attempts[rate_key]
@@ -8050,6 +8353,7 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             abort(429, "Too many login attempts. Try again later.")
         identity = PlatformIdentity.query.filter_by(username=username).first()
         user = None
+        platform_login = False
         credentials_valid = False
         if identity:
             credentials_valid = check_password_hash(
@@ -8075,14 +8379,10 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                     )
                     user = db.session.get(Staff, membership.person_id)
                 else:
-                    platform_user = db.session.execute(
-                        db.select(Staff).where(
-                            Staff.username == username,
-                            Staff.role == "superadmin",
-                        ),
-                        bind_arguments={"bind": db.engine},
-                    ).scalar_one_or_none()
-                    user = platform_user
+                    user = identity
+                    platform_login = identity.public_id.startswith(
+                        "platform-"
+                    )
         else:
             user = Staff.query.filter_by(username=username).first()
             credentials_valid = bool(
@@ -8104,13 +8404,31 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 )
                 flash("This airport account is not active.", "error")
                 return render_template("login.html"), 403
-            credential = (
-                None if user.role == "superadmin"
-                else MfaCredential.query.filter_by(
-                    person_id=user.id, enabled=True
-                ).first()
-            )
             session.clear()
+            if platform_login:
+                credential = PlatformMfaCredential.query.filter_by(
+                    identity_id=identity.id, enabled=True,
+                    reset_required=False,
+                ).first()
+                session["_platform_mfa_identity_id"] = identity.id
+                session["_platform_mfa_user_id"] = user.id
+                session["_platform_mfa_rate_key"] = rate_key
+                session["_platform_mfa_next"] = (
+                    request.args.get("next")
+                    if _is_safe_local_redirect(request.args.get("next")) else ""
+                )
+                _central_security_event(
+                    "platform_password_verified", "challenge",
+                    identity.id, rate_key[-16:],
+                )
+                db.session.commit()
+                return redirect(url_for(
+                    "platform_mfa_challenge"
+                    if credential else "platform_mfa_setup"
+                ))
+            credential = MfaCredential.query.filter_by(
+                person_id=user.id, enabled=True
+            ).first()
             if credential:
                 session["_mfa_user_id"] = user.id
                 session["_mfa_unit_id"] = user.unit_id
@@ -8135,6 +8453,12 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             nxt = request.args.get("next")
             return redirect(nxt if _is_safe_local_redirect(nxt) else url_for("index"))
         attempts.append(utcnow())
+        if identity:
+            _central_security_event(
+                "platform_login_failed", "denied", identity.id,
+                rate_key[-16:],
+            )
+            db.session.commit()
         _security_event("login_failed", principal=rate_key[-16:])
         flash("Invalid username or password.", "error")
     return render_template("login.html")
@@ -8158,6 +8482,165 @@ def _matching_totp_step(secret: str, code: str) -> int | None:
         if secrets.compare_digest(candidate, code):
             return int(candidate_time.timestamp() // 30)
     return None
+
+
+_platform_mfa_attempts: dict[int, deque[datetime]] = defaultdict(deque)
+
+
+def _pending_platform_login():
+    identity_id = int(session.get("_platform_mfa_identity_id") or 0)
+    user_id = int(session.get("_platform_mfa_user_id") or 0)
+    if not identity_id or user_id != identity_id:
+        return None, None
+    identity = db.session.get(PlatformIdentity, identity_id)
+    if not identity or identity.role != "superadmin":
+        return None, None
+    return identity, identity
+
+
+def _complete_platform_login(identity, user, recovery_used=False):
+    next_url = session.get("_platform_mfa_next", "")
+    rate_key = session.get("_platform_mfa_rate_key", "")
+    session.clear()
+    login_user(user)
+    session.permanent = True
+    session["_session_started_at"] = utcnow().isoformat()
+    session["_platform_mfa_verified"] = True
+    identity.last_active_at = utcnow()
+    _central_security_event(
+        "platform_recovery_code_used" if recovery_used
+        else "platform_mfa_verified",
+        "success", identity.id,
+        hashlib.sha256(identity.username.lower().encode()).hexdigest()[:16],
+    )
+    db.session.commit()
+    if rate_key:
+        _login_attempts.pop(rate_key, None)
+    _platform_mfa_attempts.pop(identity.id, None)
+    return redirect(next_url or url_for("platform_admin"))
+
+
+@app.route("/login/platform-mfa/setup", methods=["GET", "POST"])
+def platform_mfa_setup():
+    identity, user = _pending_platform_login()
+    if not identity or not user:
+        session.clear()
+        return redirect(url_for("login"))
+    existing = PlatformMfaCredential.query.filter_by(
+        identity_id=identity.id, enabled=True, reset_required=False,
+    ).first()
+    if existing:
+        return redirect(url_for("platform_mfa_challenge"))
+    pending = session.get("_pending_platform_mfa_secret")
+    if not pending:
+        pending = pyotp.random_base32()
+        session["_pending_platform_mfa_secret"] = pending
+    provisioning_uri = pyotp.TOTP(pending).provisioning_uri(
+        name=identity.username, issuer_name="ATCRoster Platform"
+    )
+    if request.method == "POST":
+        _validate_csrf()
+        code = re.sub(r"\s", "", request.form.get("code") or "")
+        if not pyotp.TOTP(pending).verify(code, valid_window=1):
+            _central_security_event(
+                "platform_mfa_enrolment", "denied", identity.id
+            )
+            db.session.commit()
+            flash("The verification code is not valid.", "error")
+            return redirect(url_for("platform_mfa_setup"))
+        recovery_codes = [secrets.token_hex(5).upper() for _ in range(10)]
+        credential = PlatformMfaCredential.query.filter_by(
+            identity_id=identity.id
+        ).first()
+        if not credential:
+            credential = PlatformMfaCredential(
+                identity_id=identity.id, encrypted_secret=""
+            )
+            db.session.add(credential)
+        credential.encrypted_secret = _field_cipher().encrypt(
+            pending.encode()
+        ).decode()
+        credential.enabled = True
+        credential.reset_required = False
+        credential.enrolled_at = utcnow()
+        credential.recovery_codes_digest = json.dumps([
+            hashlib.sha256(value.encode()).hexdigest()
+            for value in recovery_codes
+        ])
+        _central_security_event(
+            "platform_mfa_enrolment", "success", identity.id
+        )
+        db.session.commit()
+        session.pop("_pending_platform_mfa_secret", None)
+        return render_template(
+            "mfa_setup.html", enabled=True,
+            recovery_codes=recovery_codes, platform_enrolment=True,
+        )
+    return render_template(
+        "mfa_setup.html", enabled=False, secret=pending,
+        provisioning_uri=provisioning_uri, platform_enrolment=True,
+    )
+
+
+@app.route("/login/platform-mfa", methods=["GET", "POST"])
+def platform_mfa_challenge():
+    identity, user = _pending_platform_login()
+    if not identity or not user:
+        session.clear()
+        return redirect(url_for("login"))
+    credential = PlatformMfaCredential.query.filter_by(
+        identity_id=identity.id, enabled=True, reset_required=False,
+    ).first()
+    if not credential:
+        return redirect(url_for("platform_mfa_setup"))
+    attempts = _platform_mfa_attempts[identity.id]
+    cutoff = utcnow() - LOGIN_RATE_WINDOW
+    while attempts and attempts[0] < cutoff:
+        attempts.popleft()
+    if len(attempts) >= LOGIN_RATE_LIMIT:
+        _central_security_event(
+            "platform_mfa_rate_limited", "denied", identity.id
+        )
+        db.session.commit()
+        abort(429, "Too many verification attempts. Try again later.")
+    if request.method == "POST":
+        _validate_csrf()
+        code = re.sub(
+            r"[\s-]", "", request.form.get("code") or ""
+        ).upper()
+        accepted = False
+        recovery_used = False
+        if re.fullmatch(r"\d{6}", code):
+            step = _matching_totp_step(
+                _decrypt_mfa_secret(credential), code
+            )
+            if step is not None and (
+                credential.last_used_step is None
+                or step > credential.last_used_step
+            ):
+                credential.last_used_step = step
+                accepted = True
+        elif re.fullmatch(r"[A-Z0-9]{10}", code):
+            digests = json.loads(
+                credential.recovery_codes_digest or "[]"
+            )
+            digest = hashlib.sha256(code.encode()).hexdigest()
+            if digest in digests:
+                digests.remove(digest)
+                credential.recovery_codes_digest = json.dumps(digests)
+                accepted = True
+                recovery_used = True
+        if accepted:
+            return _complete_platform_login(
+                identity, user, recovery_used=recovery_used
+            )
+        attempts.append(utcnow())
+        _central_security_event(
+            "platform_mfa_verification", "denied", identity.id
+        )
+        db.session.commit()
+        flash("Invalid, expired or already-used verification code.", "error")
+    return render_template("mfa_challenge.html", platform_challenge=True)
 
 
 @app.route("/login/mfa", methods=["GET", "POST"])
@@ -8301,27 +8784,109 @@ def bootstrap_platform(username, password):
         db.session.add(control)
         db.session.flush()
     password_hash = generate_password_hash(password)
-    db.session.execute(
-        text(
-            "INSERT INTO staff "
-            "(unit_id,username,password_hash,role,membership_status,"
-            "permissions_json,name,staff_no,is_operational) VALUES "
-            "(:unit_id,:username,:password_hash,'superadmin','active','{}',"
-            "'Platform Super Admin',:staff_no,false)"
-        ),
-        {
-            "unit_id": control.id, "username": username,
-            "password_hash": password_hash,
-            "staff_no": f"PLATFORM-{secrets.token_hex(3).upper()}",
-        },
-        bind_arguments={"bind": db.engine},
-    )
     db.session.add(PlatformIdentity(
         public_id=f"platform-{secrets.token_hex(12)}",
         username=username, password_hash=password_hash,
     ))
     db.session.commit()
     click.echo(f"Platform Super Admin {username} created.")
+
+
+@app.cli.command("reset-platform-mfa")
+@click.option("--username", prompt=True)
+def reset_platform_mfa(username):
+    """Invalidate platform MFA and require trusted re-enrolment."""
+    normalized = username.strip().lower()
+    identity = PlatformIdentity.query.filter(
+        db.func.lower(PlatformIdentity.username) == normalized
+    ).first()
+    if not identity:
+        raise click.ClickException("Platform identity was not found.")
+    credential = PlatformMfaCredential.query.filter_by(
+        identity_id=identity.id
+    ).first()
+    if credential:
+        credential.enabled = False
+        credential.reset_required = True
+        credential.encrypted_secret = ""
+        credential.recovery_codes_digest = "[]"
+        credential.last_used_step = None
+    _central_security_event(
+        "platform_mfa_reset", "success", identity.id,
+        hashlib.sha256(normalized.encode()).hexdigest()[:16],
+        "Re-enrolment required by trusted operator.",
+    )
+    db.session.commit()
+    click.echo("Platform MFA reset; re-enrolment is required at next login.")
+
+
+@app.cli.command("reconcile-signups")
+@click.option("--apply", "apply_changes", is_flag=True)
+def reconcile_signups(apply_changes):
+    """Report or safely reconcile interrupted cross-database signups."""
+    rows = SignupWorkflow.query.filter(
+        SignupWorkflow.state != "completed"
+    ).order_by(SignupWorkflow.id).all()
+    for row in rows:
+        invitation = db.session.get(SecureInvitation, row.invitation_id)
+        routing = (
+            db.session.get(
+                DatabaseRoutingMetadata, invitation.unit_id
+            )
+            if invitation else None
+        )
+        click.echo(
+            f"workflow={row.id} state={row.state} "
+            f"error={row.last_error_code or 'none'}"
+        )
+        if not apply_changes or not invitation or not routing:
+            continue
+        if row.membership_id and row.operational_person_id:
+            with operational_unit_context(
+                invitation.unit_id, routing.secret_name
+            ):
+                staff = db.session.get(
+                    Staff, row.operational_person_id
+                )
+                if staff:
+                    staff.membership_status = "active"
+                    db.session.commit()
+            invitation.accepted_at = invitation.accepted_at or utcnow()
+            row.state = "completed"
+            row.compensation_state = ""
+            row.last_error_code = ""
+            if invitation.role == "UnitAdmin":
+                unit = db.session.get(Unit, invitation.unit_id)
+                unit.status = "active"
+                routing.provisioning_state = "active"
+            db.session.commit()
+        else:
+            if row.operational_person_id:
+                with operational_unit_context(
+                    invitation.unit_id, routing.secret_name
+                ):
+                    staff = db.session.get(
+                        Staff, row.operational_person_id
+                    )
+                    if staff and staff.membership_status != "active":
+                        db.session.delete(staff)
+                        db.session.commit()
+                row.operational_person_id = None
+            if row.identity_id:
+                identity = db.session.get(
+                    PlatformIdentity, row.identity_id
+                )
+                membership = UnitMembership.query.filter_by(
+                    identity_id=row.identity_id
+                ).first()
+                if identity and not membership:
+                    db.session.delete(identity)
+                    row.identity_id = None
+            row.state = "compensation_required"
+            row.compensation_state = "pending"
+            row.last_error_code = "compensated_retry_required"
+            db.session.commit()
+    click.echo(f"{len(rows)} incomplete signup workflow(s) inspected.")
 
 
 # -------------------- DB init (single, safe block) --------------------

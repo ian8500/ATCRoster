@@ -455,6 +455,11 @@ fallback secret in production.
 
 ### PostgreSQL production
 
+Production uses one control-plane PostgreSQL database and one physically
+separate operational PostgreSQL database per airport. See
+[Control-plane and operational database design](docs/control_operational_database_design.md)
+for platform MFA, provisioning, signup recovery, migration and rollback.
+
 Use a central control database for identities, memberships, plans, feature
 flags, database routing metadata, and aggregate usage. Provision a separate
 operational PostgreSQL database for each airport.

@@ -7,7 +7,7 @@
       <h2>Save your recovery codes</h2>
       <p>These codes are displayed once. Store them in an approved password manager. Each code works only once.</p>
       <div class="recovery-code-grid">{% for code in recovery_codes %}<code>{{ code }}</code>{% endfor %}</div>
-      <a class="btn btn-primary mt-3" href="{{ url_for('index') }}">I have stored the codes</a>
+      <a class="btn btn-primary mt-3" href="{{ url_for('platform_mfa_challenge') if platform_enrolment else url_for('index') }}">I have stored the codes</a>
     {% elif enabled %}
       <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> Multi-factor authentication is enabled.</p>
       <p>Contact an authorised administrator through the approved support process if access must be recovered.</p>

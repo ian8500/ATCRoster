@@ -16,7 +16,7 @@
       <div class="col-md-3"><label>Active-user limit<input class="form-control" type="number" name="active_user_limit" min="1" max="10000" value="10" required></label></div>
       <div class="col-12">
         <p class="form-text">The platform creates an opaque, one-time bootstrap invitation. The airport administrator enters their own identity and password and must configure MFA before accessing operational data.</p>
-        <button class="btn btn-primary" type="submit">Create airport and bootstrap invitation</button>
+        <button class="btn btn-primary" type="submit">Create airport metadata</button>
       </div>
     </form>
   </section>
@@ -35,7 +35,18 @@
             Renewal {{ row.unit.renews_at.strftime('%d %b %Y') if row.unit.renews_at else '—' }}<br>
             Last active {{ row.unit.last_active_at.strftime('%d %b %Y %H:%M') if row.unit.last_active_at else '—' }}
           </td>
-          <td>{{ row.bootstrap_status }}</td>
+          <td>
+            {{ row.bootstrap_status }}<br>
+            <small>{{ row.provisioning_state }}{% if row.provisioning_error %} · {{ row.provisioning_error }}{% endif %}</small>
+            {% if row.provisioning_state != "active" %}
+            <form method="post" class="mt-2">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="provision_unit">
+              <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
+              <button class="btn btn-sm" type="submit">Provision / retry</button>
+            </form>
+            {% endif %}
+          </td>
           <td>{{ row.active_accounts }} / {{ row.unit.active_user_limit }}</td>
           <td>
             {% for key in feature_keys %}

@@ -1,6 +1,58 @@
 """Explicit fresh-install schema used by the first Alembic revision."""
+import os
+
 import sqlalchemy as sa
-from alembic import op
+from alembic import op as _alembic_op
+
+CONTROL_TABLES = frozenset({
+    "unit", "platform_identity", "unit_membership", "secure_invitation",
+    "database_routing_metadata", "feature_flag", "plan_history",
+    "aggregate_usage_event", "super_admin_audit",
+    "platform_mfa_credential", "signup_workflow", "central_security_audit",
+})
+
+
+class _RoleFilteredOperations:
+    """Filter explicit schema operations for the configured database role."""
+
+    def _allowed(self, table_name):
+        role = os.environ.get(
+            "ATCROSTER_SCHEMA_ROLE", "combined"
+        ).lower()
+        if role == "control":
+            return table_name in CONTROL_TABLES
+        if role == "operational":
+            return table_name not in CONTROL_TABLES
+        return True
+
+    def create_table(self, table_name, *elements, **kwargs):
+        if not self._allowed(table_name):
+            return None
+        filtered = []
+        for element in elements:
+            if isinstance(element, sa.Column) and any(
+                foreign_key.target_fullname.split(".", 1)[0]
+                in CONTROL_TABLES
+                for foreign_key in element.foreign_keys
+            ):
+                element = sa.Column(
+                    element.name, element.type,
+                    primary_key=element.primary_key,
+                    nullable=element.nullable,
+                    server_default=element.server_default,
+                )
+            filtered.append(element)
+        return _alembic_op.create_table(table_name, *filtered, **kwargs)
+
+    def create_index(self, name, table_name, *args, **kwargs):
+        if not self._allowed(table_name):
+            return None
+        return _alembic_op.create_index(
+            name, table_name, *args, **kwargs
+        )
+
+
+op = _RoleFilteredOperations()
 
 
 def create_fresh_schema():

@@ -4,6 +4,17 @@ This runbook covers a self-hosted production deployment. Formal aviation
 acceptance, data-protection approval and security certification remain the
 operator's responsibility.
 
+Airport creation is intentionally two-phase. Create non-personal metadata,
+configure the named database secret, then use **Provision / retry**. The
+platform connects, runs operational migrations, checks schema health and only
+then displays the one-time bootstrap invitation. Do not send an invitation
+while provisioning is `pending` or `failed`.
+
+Platform SuperAdmins must enrol application-verified MFA. Their encrypted
+credential and one-time recovery-code hashes live only in control. Use
+`flask --app app reset-platform-mfa` through the trusted operator shell for
+recovery; never disable the MFA requirement.
+
 ## Required services
 
 - PostgreSQL 16 or a supported managed PostgreSQL service

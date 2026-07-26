@@ -19,6 +19,60 @@ def register_saas_models(db, utcnow):
         created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
         last_active_at = db.Column(db.DateTime)
 
+        unit_id = 0
+        name = "Platform Administrator"
+
+        @property
+        def role(self):
+            return (
+                "superadmin"
+                if self.public_id.startswith("platform-") else "inactive"
+            )
+
+        @property
+        def membership_status(self):
+            return (
+                "active"
+                if self.public_id.startswith("platform-") else "pending"
+            )
+
+        @property
+        def is_authenticated(self):
+            return True
+
+        @property
+        def is_active(self):
+            return True
+
+        @property
+        def is_anonymous(self):
+            return False
+
+        def get_id(self):
+            return f"platform-identity:{self.id}"
+
+        def check_password(self, password):
+            from werkzeug.security import check_password_hash
+            return check_password_hash(self.password_hash, password)
+
+        def set_password(self, password):
+            from werkzeug.security import generate_password_hash
+            self.password_hash = generate_password_hash(password)
+
+    class PlatformMfaCredential(db.Model):
+        __tablename__ = "platform_mfa_credential"
+        id = db.Column(db.Integer, primary_key=True)
+        identity_id = db.Column(
+            db.Integer, db.ForeignKey("platform_identity.id"),
+            nullable=False, unique=True,
+        )
+        encrypted_secret = db.Column(db.Text, nullable=False)
+        enabled = db.Column(db.Boolean, nullable=False, default=False)
+        enrolled_at = db.Column(db.DateTime)
+        last_used_step = db.Column(db.BigInteger)
+        recovery_codes_digest = db.Column(db.Text, nullable=False, default="[]")
+        reset_required = db.Column(db.Boolean, nullable=False, default=False)
+
     class UnitMembership(db.Model):
         __tablename__ = "unit_membership"
         id = db.Column(db.Integer, primary_key=True)
@@ -46,6 +100,26 @@ def register_saas_models(db, utcnow):
         expires_at = db.Column(db.DateTime, nullable=False)
         accepted_at = db.Column(db.DateTime)
         disabled_at = db.Column(db.DateTime)
+        issued_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    class SignupWorkflow(db.Model):
+        __tablename__ = "signup_workflow"
+        id = db.Column(db.Integer, primary_key=True)
+        invitation_id = db.Column(
+            db.Integer, db.ForeignKey("secure_invitation.id"),
+            nullable=False, unique=True,
+        )
+        idempotency_key = db.Column(db.String(64), nullable=False, unique=True)
+        state = db.Column(db.String(40), nullable=False, default="pending")
+        normalized_username = db.Column(db.String(120), nullable=False)
+        identity_id = db.Column(db.Integer, db.ForeignKey("platform_identity.id"))
+        operational_person_id = db.Column(db.Integer)
+        membership_id = db.Column(db.Integer, db.ForeignKey("unit_membership.id"))
+        attempt_count = db.Column(db.Integer, nullable=False, default=0)
+        last_error_code = db.Column(db.String(80), nullable=False, default="")
+        compensation_state = db.Column(db.String(40), nullable=False, default="")
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
     class DatabaseRoutingMetadata(db.Model):
         __tablename__ = "database_routing_metadata"
@@ -54,6 +128,13 @@ def register_saas_models(db, utcnow):
         health = db.Column(db.String(20), nullable=False, default="unknown")
         migration_version = db.Column(db.String(64), nullable=False, default="")
         storage_bytes = db.Column(db.BigInteger, nullable=False, default=0)
+        provisioning_state = db.Column(
+            db.String(40), nullable=False, default="pending"
+        )
+        last_error_code = db.Column(db.String(80), nullable=False, default="")
+        attempt_count = db.Column(db.Integer, nullable=False, default=0)
+        last_attempt_at = db.Column(db.DateTime)
+        ready_at = db.Column(db.DateTime)
 
     class FeatureFlag(db.Model):
         __tablename__ = "feature_flag"
@@ -84,9 +165,19 @@ def register_saas_models(db, utcnow):
         __tablename__ = "super_admin_audit"
         id = db.Column(db.Integer, primary_key=True)
         actor_identity_id = db.Column(db.Integer, db.ForeignKey("platform_identity.id"), nullable=False)
-        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"))
         action = db.Column(db.String(80), nullable=False)
         safe_summary = db.Column(db.String(500), nullable=False)
+        occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    class CentralSecurityAudit(db.Model):
+        __tablename__ = "central_security_audit"
+        id = db.Column(db.Integer, primary_key=True)
+        identity_id = db.Column(db.Integer, db.ForeignKey("platform_identity.id"))
+        event_type = db.Column(db.String(80), nullable=False)
+        principal_digest = db.Column(db.String(32), nullable=False, default="")
+        outcome = db.Column(db.String(20), nullable=False)
+        safe_detail = db.Column(db.String(200), nullable=False, default="")
         occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
     class QualificationType(db.Model):

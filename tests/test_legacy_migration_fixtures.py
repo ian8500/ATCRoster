@@ -1,13 +1,13 @@
 import os
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-ALEMBIC = Path("/tmp/atcroster-py312/bin/alembic")
 
 
 FIXTURES = {
@@ -110,7 +110,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(
         "ATCROSTER_SKIP_RUNTIME_SCHEMA": "1",
     })
     result = subprocess.run(
-        [str(ALEMBIC), "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=REPOSITORY, env=environment,
         capture_output=True, text=True, check=False,
     )
@@ -119,7 +119,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(
         inspector = inspect(connection)
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == "20260725_08"
+        ).scalar_one() == "20260726_09"
         for table, count in before.items():
             assert connection.execute(
                 text(f'SELECT COUNT(*) FROM "{table}"')

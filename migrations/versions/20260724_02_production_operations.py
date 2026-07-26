@@ -3,6 +3,8 @@
 Revision ID: 20260724_02
 Revises: 20260724_01
 """
+import os
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -20,6 +22,8 @@ def _tenant_columns():
 
 
 def upgrade():
+    if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "control":
+        return
     existing = set(sa.inspect(op.get_bind()).get_table_names())
     if "operational_position" in existing:
         if "mfa_credential" not in existing:
