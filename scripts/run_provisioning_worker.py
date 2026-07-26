@@ -25,9 +25,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, _stop)
     worker = ProvisioningWorker(app)
     worker.recover_stale_jobs()
+    worker.heartbeat("idle")
     while not stopping:
         if not worker.run_once():
+            worker.heartbeat("idle")
             time.sleep(2)
+    worker.heartbeat("stopping")
 
 
 if __name__ == "__main__":

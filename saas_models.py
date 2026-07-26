@@ -165,6 +165,8 @@ def register_saas_models(db, utcnow):
         next_attempt_at = db.Column(db.DateTime, nullable=False, default=utcnow)
         locked_at = db.Column(db.DateTime)
         worker_id = db.Column(db.String(64), nullable=False, default="")
+        lease_owner = db.Column(db.String(64), nullable=False, default="")
+        lease_expires_at = db.Column(db.DateTime, index=True)
         cancel_requested = db.Column(db.Boolean, nullable=False, default=False)
         last_error_code = db.Column(db.String(80), nullable=False, default="")
         created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
@@ -174,6 +176,14 @@ def register_saas_models(db, utcnow):
                 "unit_id", "active_key", name="uq_active_provisioning_job"
             ),
         )
+
+    class WorkerHeartbeat(db.Model):
+        __tablename__ = "worker_heartbeat"
+        worker_id = db.Column(db.String(64), primary_key=True)
+        process_type = db.Column(db.String(30), nullable=False, default="provisioning")
+        state = db.Column(db.String(30), nullable=False, default="starting")
+        last_seen_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        started_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
 
     class FeatureFlag(db.Model):

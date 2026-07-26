@@ -1,5 +1,7 @@
 """PostgreSQL-only proof of the physical control/airport boundary."""
 import os
+import hashlib
+import threading
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
@@ -22,11 +24,14 @@ import app  # noqa: E402
 from app import (  # noqa: E402
     DatabaseRoutingMetadata,
     PlatformIdentity,
+    ProvisioningJob,
     Unit,
     UnitMembership,
     db,
 )
 from scripts.migrate_all_databases import upgrade_database  # noqa: E402
+import platform_provisioning  # noqa: E402
+from platform_provisioning import ProvisioningWorker  # noqa: E402
 from tenancy import dispose_operational_engines  # noqa: E402
 from tests.test_physical_database_isolation import (  # noqa: E402
     _seed_operational_unit,
@@ -49,9 +54,9 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     dispose_operational_engines()
     for url in (CONTROL_URL, AIRPORT_A_URL, AIRPORT_B_URL):
         _reset_postgres(url)
-    assert upgrade_database(CONTROL_URL, "control") == "20260726_12"
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260726_12"
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260726_12"
+    assert upgrade_database(CONTROL_URL, "control") == "20260726_13"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260726_13"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260726_13"
     secret_a = "ATCROSTER_UNIT_1_DATABASE_URL"
     secret_b = "ATCROSTER_UNIT_2_DATABASE_URL"
     monkeypatch.setenv(secret_a, AIRPORT_A_URL)
@@ -125,4 +130,44 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     assert "staff" in airport_a_tables and "staff" in airport_b_tables
     assert "platform_identity" not in airport_a_tables
     assert "unit" not in airport_a_tables
+
+    # Two independent workers use separate PostgreSQL sessions. The second
+    # cannot claim or migrate the airport while the first owns its lease.
+    with app.app.app_context():
+        job = ProvisioningJob(
+            unit_id=1,
+            idempotency_key=hashlib.sha256(b"postgres-concurrency").hexdigest(),
+            state="queued", active_key="active", next_attempt_at=app.utcnow(),
+        )
+        db.session.add(job)
+        db.session.commit()
+    migration_started = threading.Event()
+    release_migration = threading.Event()
+    calls = []
+    real_upgrade = platform_provisioning.upgrade_database
+
+    def slow_upgrade(url, role):
+        calls.append((url, role))
+        migration_started.set()
+        assert release_migration.wait(10)
+        return real_upgrade(url, role)
+
+    monkeypatch.setattr(platform_provisioning, "upgrade_database", slow_upgrade)
+    first = ProvisioningWorker(app.app)
+    second = ProvisioningWorker(app.app)
+    thread = threading.Thread(target=first.run_once)
+    thread.start()
+    assert migration_started.wait(10)
+    assert second.run_once() is False
+    release_migration.set()
+    thread.join(timeout=20)
+    assert not thread.is_alive()
+    assert len(calls) == 1
+    with app.app.app_context():
+        completed = ProvisioningJob.query.filter_by(
+            idempotency_key=hashlib.sha256(
+                b"postgres-concurrency"
+            ).hexdigest()
+        ).one()
+        assert completed.state == "completed"
     dispose_operational_engines()
