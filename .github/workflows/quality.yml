@@ -17,22 +17,27 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: pip install ruff==0.12.5 mypy==1.17.0 pip-audit==2.9.0 bandit==1.8.6
+      - run: pip install -r requirements-dev.txt
       - name: Formatting, lint and static analysis
         run: |
           ruff format --check rate_limiting.py platform_provisioning.py signup_locking.py scripts/migrate_all_databases.py scripts/run_provisioning_worker.py
           ruff check rate_limiting.py platform_provisioning.py signup_locking.py scripts/migrate_all_databases.py scripts/run_provisioning_worker.py
           mypy --ignore-missing-imports rate_limiting.py signup_locking.py
-      - run: pip-audit -r requirements.txt
+      - run: pip-audit -r requirements-prod.txt
       - run: bandit -q -r rate_limiting.py platform_provisioning.py signup_locking.py
       - run: python -m compileall -q app.py saas_models.py tenancy.py account_limits.py scripts
       - run: python -m pytest -q
+      - name: Verify fresh split migrations
+        run: |
+          control_db="$(mktemp -u).db"
+          operational_db="$(mktemp -u).db"
+          ATCROSTER_SCHEMA_ROLE=control DATABASE_URL="sqlite:///$control_db" alembic upgrade head
+          ATCROSTER_SCHEMA_ROLE=operational DATABASE_URL="sqlite:///$operational_db" alembic upgrade head
 
   container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -85,7 +90,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
       - name: Create isolated integration databases
         run: |
           python - <<'PY'
@@ -102,7 +107,7 @@ jobs:
               connection.execute(f'CREATE DATABASE "{name}"')
           connection.close()
           PY
-      - run: python -m pytest -q tests/test_postgresql_multidatabase.py
+      - run: python -m pytest -q tests/test_postgresql_multidatabase.py tests/test_redis_integration.py
 
   secret-scan:
     runs-on: ubuntu-latest
