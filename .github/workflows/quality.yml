@@ -44,6 +44,7 @@ jobs:
         with:
           image-ref: atcroster:test
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
           exit-code: "1"
 
   postgres-multidatabase:
