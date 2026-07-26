@@ -91,13 +91,17 @@
             <a href="{{ url_for('requests_page') }}" class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}"><i class="fa-solid fa-inbox" aria-hidden="true"></i> Requests</a>
             <a href="{{ url_for('publication_index') }}" class="nav-link {% if request.endpoint in ('publication_index','publication_centre') %}active{% endif %}"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Published</a>
             <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}"><i class="fa-solid fa-id-badge" aria-hidden="true"></i> Profile</a>
-            <a href="{{ url_for('fatigue_self_report') }}" class="nav-link {% if request.endpoint == 'fatigue_self_report' %}active{% endif %}"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Fatigue</a>
             {% if is_admin or is_editor %}
               <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}"><i class="fa-solid fa-satellite-dish" aria-hidden="true"></i> Overtime Finder</a>
               <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}"><i class="fa-solid fa-user-clock" aria-hidden="true"></i> Leave / Sickness</a>
               <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Reports</a>
               <a href="{{ url_for('compliance_centre') }}" class="nav-link {% if request.endpoint in ('compliance_centre','compliance_centre_export') %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Compliance</a>
-              {% if is_admin %}<a href="{{ url_for('operations_assurance', ym=now().strftime('%Y-%m')) }}" class="nav-link {% if request.endpoint == 'operations_assurance' %}active{% endif %}"><i class="fa-solid fa-tower-observation" aria-hidden="true"></i> Operations</a>{% endif %}
+            {% endif %}
+            {% if (current_user.is_wm or current_user.is_dwm) and not (is_admin or is_editor) %}
+              <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}"><i class="fa-solid fa-satellite-dish" aria-hidden="true"></i> Overtime Finder</a>
+            {% endif %}
+            {% if is_admin or current_user.is_wm or current_user.is_dwm %}
+              <a href="{{ url_for('unit_messages') }}" class="nav-link {% if request.endpoint == 'unit_messages' %}active{% endif %}"><i class="fa-solid fa-message" aria-hidden="true"></i> Messages</a>
             {% endif %}
             {% if is_admin %}
               <a href="{{ url_for('unit_accounts') }}" class="nav-link {% if request.endpoint == 'unit_accounts' %}active{% endif %}"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> Accounts</a>

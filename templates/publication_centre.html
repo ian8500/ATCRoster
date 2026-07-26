@@ -34,14 +34,14 @@
     <div class="release-checks">
       <article class="{{ 'danger' if preflight.unassigned else 'success' }}"><strong>{{ preflight.unassigned|length }}</strong><span>Unassigned cells</span></article>
       <article class="{{ 'danger' if preflight.qualification_gaps else 'success' }}"><strong>{{ preflight.qualification_gaps|length }}</strong><span>Competence failures</span></article>
-      <article class="{{ 'danger' if preflight.configuration_blocks else 'success' }}"><strong>{{ preflight.configuration_blocks|length }}</strong><span>Setup blockers</span></article>
+      <article class="{{ 'warning' if preflight.configuration_blocks else 'success' }}"><strong>{{ preflight.configuration_blocks|length }}</strong><span>Setup advisories</span></article>
       <article class="{{ 'warning' if preflight.exceptions else 'success' }}"><strong>{{ preflight.exceptions }}</strong><span>Manager exceptions</span></article>
     </div>
     {% if not preflight.ready or preflight.exceptions %}
     <details class="release-evidence" {% if preflight.hard_blocks %}open{% endif %}>
       <summary>See what needs attention</summary>
       <div class="release-evidence__grid">
-        {% if preflight.configuration_blocks %}<section><h4>Setup</h4>{% for message in preflight.configuration_blocks %}<p>{{ message }}</p>{% endfor %}</section>{% endif %}
+        {% if preflight.configuration_blocks %}<section><h4>Optional assurance setup</h4>{% for message in preflight.configuration_blocks %}<p>{{ message }}</p>{% endfor %}</section>{% endif %}
         {% if preflight.unassigned %}<section><h4>Unassigned roster cells</h4><p>{{ preflight.unassigned|length }} cells need a shift assignment.</p></section>{% endif %}
         {% if preflight.qualification_gaps %}<section><h4>Competence</h4>{% for gap in preflight.qualification_gaps[:12] %}<p>{{ gap.day.strftime('%d %b') }} · {{ gap.staff.name }} · {{ gap.shift.code }} requires {{ gap.qualification }}</p>{% endfor %}</section>{% endif %}
         {% if preflight.position_shortfalls %}<section><h4>Positions</h4>{% for row in preflight.position_shortfalls[:12] %}<p>{{ row.requirement.day.strftime('%d %b') }} · {{ row.requirement.shift_code }} · {{ row.position.code }}: {{ row.eligible }}/{{ row.target }}</p>{% endfor %}</section>{% endif %}
@@ -52,7 +52,7 @@
     {% endif %}
     <div class="release-next-action">
       {% if preflight.hard_blocks %}
-        <a class="btn btn-primary" href="{{ url_for('compliance_centre', ym=ym) }}">Resolve in Compliance Centre</a>
+        <a class="btn btn-primary" href="{{ url_for('roster_month', ym=ym) }}">Fix roster issues</a>
       {% elif preflight.exceptions %}
         <span>Mandatory checks passed. Record the manager rationale in step 3.</span>
       {% else %}

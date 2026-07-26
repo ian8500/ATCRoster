@@ -1234,6 +1234,18 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
 .admin-form-grid input,
 .admin-form-grid select{width:100%;}
 
+.input-with-unit{
+  display:grid;
+  grid-template-columns:minmax(90px, 1fr) auto;
+  align-items:center;
+  overflow:hidden;
+  border:1px solid rgba(108,129,168,.32);
+  border-radius:var(--radius-sm);
+  background:rgba(8,17,30,.7);
+}
+.input-with-unit input{border:0; border-radius:0; background:transparent;}
+.input-with-unit > span{padding:0 .7rem; color:var(--text-muted); font-size:.8rem;}
+
 .admin-check-row{
   grid-column:1 / -1;
   display:flex;

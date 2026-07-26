@@ -10,6 +10,7 @@
   <div class="compliance-actions">
     <a class="btn" href="{{ url_for('compliance_centre', ym=prev_ym) }}">← {{ prev_ym }}</a>
     <a class="btn" href="{{ url_for('compliance_centre', ym=next_ym) }}">{{ next_ym }} →</a>
+    <a class="btn" href="{{ url_for('admin_fatigue_rules') }}"><i class="fa-solid fa-sliders"></i> Manage rules</a>
     <a class="btn btn-primary" href="{{ url_for('compliance_centre_export', ym=ym) }}"><i class="fa-solid fa-file-arrow-down"></i> Evidence CSV</a>
   </div>
 </section>
@@ -54,23 +55,5 @@
     </div>
   </section>
 
-  <aside class="card">
-    <div class="card-hd">Most frequent rules</div>
-    <div class="card-bd">
-      {% for rule, count in rule_counts %}
-        <div class="compliance-rule"><span>{{ rule }}</span><strong>{{ count }}</strong></div>
-      {% else %}
-        <p class="compliance-clear">No findings to group.</p>
-      {% endfor %}
-      <hr>
-      <h3>Review workflow</h3>
-      <ol class="compliance-workflow">
-        <li>Confirm the shift and source data.</li>
-        <li>Review the cited rule and operational context.</li>
-        <li>Correct the roster or record an authorised decision in the change log.</li>
-        <li>Export evidence after the roster is final.</li>
-      </ol>
-    </div>
-  </aside>
 </div>
 {% endblock %}
