@@ -94,6 +94,7 @@ def test_superadmin_requires_central_mfa_before_platform_access():
 
 
 def test_provisioning_failure_is_safe_and_retryable(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATCROSTER_DISABLE_LOCAL_AUTO_PROVISION", "1")
     _reset()
     with app.app.app_context():
         _user, identity = _platform_account()

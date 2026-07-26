@@ -9,12 +9,18 @@
   </div>
 
   <section class="card card-body mb-4">
-    <h3>Create secure invitation</h3>
-    <p class="muted">The recipient chooses their own credentials. Invitations expire after seven days and can be used once.</p>
+    <h3>Give a roster person account access</h3>
+    <p class="muted">Configure the person fully in Admin → Staff first. The invitation then lets that person choose credentials without changing their roster setup.</p>
     <form method="post" class="row g-3">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="create_invitation">
-      <div class="col-md-6"><label>Role
+      <div class="col-md-6"><label>Roster person
+        <select class="form-select" name="person_id" required>
+          <option value="">Select a configured person</option>
+          {% for person in eligible_people %}<option value="{{ person.id }}">{{ person.name }} · {{ person.staff_no }}{% if person.watch %} · {{ person.watch.name }}{% endif %}</option>{% endfor %}
+        </select>
+      </label></div>
+      <div class="col-md-6"><label>Account access
         <select class="form-select" name="role">
           <option value="StaffUser">Staff user</option>
           <option value="WatchManager">Watch manager</option>
@@ -23,7 +29,10 @@
           <option value="UnitAdmin">Unit admin</option>
         </select>
       </label></div>
-      <div class="col-12"><button class="btn btn-primary" type="submit">Create one-time invitation link</button></div>
+      <div class="col-12">
+        <button class="btn btn-primary" type="submit" {% if not eligible_people %}disabled{% endif %}>Create one-time invitation link</button>
+        {% if not eligible_people %}<small class="d-block mt-2">Every configured person already has access or a pending invitation. Add another person in Admin → Staff first.</small>{% endif %}
+      </div>
     </form>
   </section>
 
@@ -35,7 +44,8 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="disable_invitation">
         <input type="hidden" name="invitation_id" value="{{ invitation.id }}">
-        <span>#{{ invitation.id }} · {{ invitation.role }} · expires {{ invitation.expires_at.strftime('%d %b %Y %H:%M') }}</span>
+        {% set invited_person = staff_by_id.get(invitation.target_person_id) %}
+        <span>{{ invited_person.name if invited_person else 'Initial administrator' }} · {{ invitation.role }} · expires {{ invitation.expires_at.strftime('%d %b %Y %H:%M') }}</span>
         <button class="btn btn-sm" type="submit">Disable</button>
       </form>
     {% else %}
@@ -48,7 +58,8 @@
     <tbody>
     {% for membership in memberships %}
       <tr>
-        <td>#{{ membership.id }}</td>
+        {% set account_person = staff_by_id.get(membership.person_id) %}
+        <td>{{ account_person.name if account_person else '#' ~ membership.id }}{% if account_person %}<small class="d-block">{{ account_person.staff_no }}</small>{% endif %}</td>
         <td>{{ membership.role }}</td>
         <td>{{ membership.status }}</td>
         <td>

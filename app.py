@@ -20,6 +20,8 @@ import logging
 import click
 import hashlib
 import pyotp
+import qrcode
+import qrcode.image.svg
 from cryptography.fernet import Fernet, InvalidToken
 
 from flask_sqlalchemy import SQLAlchemy
@@ -847,6 +849,8 @@ class Watch(db.Model):
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
     name = db.Column(db.String(32), nullable=False)
     order_index = db.Column(db.Integer, nullable=False, default=0)
+    pattern_csv = db.Column(db.String(500), nullable=False, default="")
+    pattern_anchor = db.Column(db.Date)
     __table_args__ = (db.UniqueConstraint("unit_id", "name", name="uq_watch_unit_name"),)
 
 
@@ -930,6 +934,7 @@ class Staff(UserMixin, db.Model):
 
     pattern_csv = db.Column(db.String, default="M,M,A,A,N,N,OFF,OFF,OFF,OFF")
     pattern_anchor = db.Column(db.Date, nullable=True)
+    pattern_override = db.Column(db.Boolean, nullable=False, default=False)
 
     # TOIL: store in HALF-DAYS (1 day = 2 half-days)
     toil_half_days = db.Column(db.Integer, default=0)
@@ -1274,6 +1279,40 @@ def get_non_working_codes() -> set[str]:
     return _load_codes_setting("non_working_codes", DEFAULT_NON_WORKING_CODES)
 
 
+def get_shift_counter_map(unit_id: int | None = None) -> dict[str, str]:
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    raw = _roster_settings_snapshot(resolved_unit_id).get(
+        "shift_counter_map", "{}"
+    )
+    try:
+        values = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        values = {}
+    if not isinstance(values, dict):
+        return {}
+    return {
+        str(code).upper(): str(group).upper()
+        for code, group in values.items()
+        if str(group).upper() in {"", "M", "D", "A", "N"}
+    }
+
+
+def shift_counter_group(
+    code: str | None, unit_id: int | None = None
+) -> str:
+    value = (code or "").strip().upper()
+    if not value:
+        return ""
+    mapping = get_shift_counter_map(unit_id)
+    if value in mapping:
+        return mapping[value]
+    if value == "EM":
+        return "M"
+    if value == "LA":
+        return "A"
+    return value if value in {"M", "D", "A", "N"} else ""
+
+
 @lru_cache(maxsize=128)
 def _annotation_snapshot(unit_id: int) -> dict[str, object]:
     rows = (AnnotationType.query
@@ -1372,6 +1411,17 @@ def _save_codes_setting(key: str, values: list[str]) -> None:
     else:
         row.value = payload
     db.session.commit()
+    refresh_roster_settings_cache()
+
+
+def _save_roster_setting(key: str, value: str) -> None:
+    unit_id = int(_current_unit_id() or 1)
+    row = RosterSetting.query.filter_by(unit_id=unit_id, key=key).first()
+    if not row:
+        row = RosterSetting(unit_id=unit_id, key=key, value=value)
+        db.session.add(row)
+    else:
+        row.value = value
     refresh_roster_settings_cache()
 
 
@@ -1692,12 +1742,14 @@ def _shift_groups_snapshot(unit_id: int):
     return working, training, nonwork
 
 
-def pattern_for(staff: Staff):
-    """
-    CSV like 'M,M,A,A,N,N,OFF,OFF' plus multipliers: '6xM,14xOFF' or 'M*6,OFF*14'.
-    """
+PATTERN_CODES = ("M", "A", "D", "N", "OFF")
+DEFAULT_BASE_PATTERN = "M,M,A,A,N,N,OFF,OFF,OFF,OFF"
+
+
+def _expand_pattern(raw_value: str | None) -> list[str]:
+    """Expand a stored CSV pattern, retaining legacy multiplier support."""
     raw = [p.strip()
-           for p in (staff.pattern_csv or "").split(",") if p.strip()]
+           for p in (raw_value or "").split(",") if p.strip()]
     out = []
     for tok in raw:
         tok_u = tok.upper()
@@ -1714,6 +1766,74 @@ def pattern_for(staff: Staff):
     return out
 
 
+def _validated_pattern(raw_value: str | None) -> list[str]:
+    values = _expand_pattern(raw_value)
+    if not values or any(value not in PATTERN_CODES for value in values):
+        return []
+    return values
+
+
+def _effective_watch(staff: Staff, on_date: date) -> Watch | None:
+    move = (
+        StaffWatchHistory.query.filter(
+            StaffWatchHistory.unit_id == staff.unit_id,
+            StaffWatchHistory.staff_id == staff.id,
+            StaffWatchHistory.effective_date <= on_date,
+        )
+        .order_by(
+            StaffWatchHistory.effective_date.desc(),
+            StaffWatchHistory.id.desc(),
+        )
+        .first()
+    )
+    return move.watch if move else staff.watch
+
+
+def _unit_pattern_context(unit_id: int) -> tuple[list[str], date]:
+    settings = _roster_settings_snapshot(unit_id)
+    pattern = _validated_pattern(
+        settings.get("base_pattern_csv") or DEFAULT_BASE_PATTERN
+    )
+    try:
+        anchor = date.fromisoformat(
+            settings.get("base_pattern_anchor") or "2025-01-01"
+        )
+    except ValueError:
+        anchor = date(2025, 1, 1)
+    return pattern or _validated_pattern(DEFAULT_BASE_PATTERN), anchor
+
+
+def _pattern_context(staff: Staff, on_date: date) -> tuple[list[str], date]:
+    if staff.pattern_override:
+        personal = _validated_pattern(staff.pattern_csv)
+        if personal:
+            return personal, staff.pattern_anchor or on_date
+    watch = _effective_watch(staff, on_date)
+    if watch:
+        watch_pattern = _validated_pattern(watch.pattern_csv)
+        if watch_pattern:
+            return watch_pattern, watch.pattern_anchor or on_date
+    return _unit_pattern_context(staff.unit_id)
+
+
+def pattern_for(staff: Staff, on_date: date | None = None):
+    return _pattern_context(staff, on_date or date.today())[0]
+
+
+def _night_active_on(unit_id: int, on_date: date) -> bool:
+    raw = _roster_settings_snapshot(unit_id).get(
+        "night_active_weekdays", "0,1,2,3,4,5,6"
+    )
+    try:
+        active_days = {
+            int(value) for value in raw.split(",")
+            if value.strip() != ""
+        }
+    except ValueError:
+        active_days = set(range(7))
+    return on_date.weekday() in active_days
+
+
 def day_leave_for(staff: Staff, d: date):
     for lv in staff.leaves:
         if lv.start <= d <= lv.end:
@@ -1722,20 +1842,19 @@ def day_leave_for(staff: Staff, d: date):
 
 
 def code_from_pattern(staff: Staff, d: date):
-    pat = pattern_for(staff)
+    pat, anchor = _pattern_context(staff, d)
     if not pat:
         return "OFF"
-    anchor = staff.pattern_anchor or date(d.year, d.month, 1)
     idx = (d - anchor).days % len(pat)
-    return pat[idx]
+    code = pat[idx]
+    return "OFF" if code == "N" and not _night_active_on(staff.unit_id, d) else code
 
 
 def _cycle_day_for(staff: Staff, d: date) -> int | None:
     """Return the 1-indexed pattern cycle day for `staff` on date `d`."""
-    pat = pattern_for(staff)
+    pat, anchor = _pattern_context(staff, d)
     if not pat:
         return None
-    anchor = staff.pattern_anchor or date(d.year, d.month, 1)
     return ((d - anchor).days % len(pat)) + 1
 
 
@@ -2735,6 +2854,65 @@ def migrate_add_phone_number():
     db.session.commit()
 
 
+def migrate_add_watch_pattern_configuration():
+    """Add inherited roster-pattern fields to legacy SQLite databases."""
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    watch_columns = {
+        column["name"] for column in inspector.get_columns("watch")
+    }
+    staff_columns = {
+        column["name"] for column in inspector.get_columns("staff")
+    }
+    statements = []
+    if "pattern_csv" not in watch_columns:
+        statements.append(
+            "ALTER TABLE watch ADD COLUMN pattern_csv VARCHAR(500) "
+            "NOT NULL DEFAULT ''"
+        )
+    if "pattern_anchor" not in watch_columns:
+        statements.append(
+            "ALTER TABLE watch ADD COLUMN pattern_anchor DATE"
+        )
+    if "pattern_override" not in staff_columns:
+        statements.append(
+            "ALTER TABLE staff ADD COLUMN pattern_override BOOLEAN "
+            "NOT NULL DEFAULT 0"
+        )
+    for statement in statements:
+        db.session.execute(text(statement))
+    if "pattern_override" not in staff_columns:
+        # Preserve existing explicitly configured staff patterns.
+        db.session.execute(text(
+            "UPDATE staff SET pattern_override=1 "
+            "WHERE COALESCE(pattern_csv, '') <> ''"
+        ))
+    db.session.commit()
+
+
+def migrate_add_invitation_target():
+    """Add targeted roster-person invitations to legacy local databases."""
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    if "secure_invitation" not in inspector.get_table_names():
+        return
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("secure_invitation")
+    }
+    if "target_person_id" not in columns:
+        db.session.execute(text(
+            "ALTER TABLE secure_invitation "
+            "ADD COLUMN target_person_id INTEGER"
+        ))
+        db.session.execute(text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_secure_invitation_target_person_id "
+            "ON secure_invitation(target_person_id)"
+        ))
+        db.session.commit()
+
+
 def migrate_add_toil_half_days_and_convert():
     """Add toil_half_days; add leave-year columns; convert legacy toil_minutes -> half-days if present."""
     from sqlalchemy import text
@@ -2794,6 +2972,11 @@ def ensure_watch(name: str, order_index: int):
 
 
 def seed_once():
+    # A deliberately bootstrapped platform starts without operational units.
+    # Do not populate the platform-control tenant with legacy desktop demo data;
+    # the Super Admin will create the first airport through the normal workflow.
+    if Unit.query.filter_by(status="platform_control").first():
+        return
     if Watch.query.count() > 0:
         # make sure TOU* & OSS exist if DB already seeded
         ensure_shift("TOUI", "TOIL (UI)", is_working=False)
@@ -3293,6 +3476,10 @@ def password_change():
 @app.route("/")
 @login_required
 def index():
+    if is_admin_user(current_user):
+        unit = db.session.get(Unit, _current_unit_id())
+        if unit and int(unit.onboarding_step or 0) < 100:
+            return redirect(url_for("unit_onboarding"))
     t = date.today()
     return redirect(url_for("roster_month", ym=f"{t.year}-{t.month:02d}"))
 
@@ -3355,8 +3542,10 @@ def _publication_preflight(year: int, month: int) -> dict:
                 shift and shift.is_working and not shift.is_training
                 and assignment.code not in get_exclude_from_counters()
             ):
-                group = assignment.code[:1].upper()
-                if group in ("M", "D", "A", "N"):
+                group = shift_counter_group(
+                    assignment.code, _current_unit_id()
+                )
+                if group:
                     counts[day][group] += 1
 
     coverage_gaps = []
@@ -3891,15 +4080,8 @@ def roster_month(ym):
             # Explicit exclusions
             if c in ("AL", "NOPS"):
                 continue
-            # Map EM to Morning counter
-            if c == "EM":
-                counters[d]["M"] += 1
-                continue
-            if c == "LA":
-                counters[d]["A"] += 1
-                continue
-            grp = c[:1]
-            if grp in ("M", "D", "A", "N"):
+            grp = shift_counter_group(c, unit_id)
+            if grp:
                 counters[d][grp] += 1
     rag = {}
     for d in days:
@@ -4355,8 +4537,8 @@ def roster_export_csv(ym):
             sh = get_shift(c) if c else None
             if not c or not sh or sh.is_training:
                 continue
-            grp = (c or "")[:1].upper()
-            if grp in ("M", "D", "A", "N"):
+            grp = shift_counter_group(c, _current_unit_id())
+            if grp:
                 counters[d][grp] += 1
 
     # Replicate the RAG calculation used in the HTML view so the CSV footer
@@ -4426,6 +4608,124 @@ def admin():
     if request.method == "POST":
         form = request.form.get("form", "")
 
+        if form == "unit_roster_setup":
+            pattern = _validated_pattern(request.form.get("base_pattern_csv"))
+            anchor = _parse_date(request.form.get("base_pattern_anchor"))
+            if not pattern or not anchor:
+                flash(
+                    "Choose at least one valid base-pattern duty and a start date.",
+                    "error",
+                )
+            else:
+                active_nights = [
+                    str(day) for day in range(7)
+                    if request.form.get(f"night_day_{day}")
+                ]
+                _save_roster_setting("base_pattern_csv", ",".join(pattern))
+                _save_roster_setting(
+                    "base_pattern_anchor", anchor.isoformat()
+                )
+                _save_roster_setting(
+                    "night_active_weekdays", ",".join(active_nights)
+                )
+                db.session.commit()
+                flash("Unit roster setup saved.", "ok")
+            return redirect(url_for("admin") + "#roster-setup")
+
+        if form == "watch_new":
+            name = (request.form.get("name") or "").strip()
+            pattern = _validated_pattern(request.form.get("pattern_csv"))
+            anchor = _parse_date(request.form.get("pattern_anchor"))
+            if not name:
+                flash("Enter a watch name.", "error")
+            elif Watch.query.filter_by(
+                unit_id=_current_unit_id(), name=name
+            ).first():
+                flash("That watch name already exists.", "error")
+            else:
+                max_order = db.session.query(
+                    db.func.max(Watch.order_index)
+                ).filter(Watch.unit_id == _current_unit_id()).scalar() or 0
+                db.session.add(Watch(
+                    unit_id=_current_unit_id(),
+                    name=name[:32],
+                    order_index=max_order + 1,
+                    pattern_csv=",".join(pattern),
+                    pattern_anchor=anchor,
+                ))
+                db.session.commit()
+                flash(f"{name} created.", "ok")
+            return redirect(url_for("admin") + "#roster-setup")
+
+        if form == "watch_edit":
+            watch = Watch.query.filter_by(
+                id=int(request.form.get("watch_id") or 0),
+                unit_id=_current_unit_id(),
+            ).first_or_404()
+            name = (request.form.get("name") or "").strip()
+            pattern = _validated_pattern(request.form.get("pattern_csv"))
+            anchor = _parse_date(request.form.get("pattern_anchor"))
+            duplicate = Watch.query.filter(
+                Watch.unit_id == _current_unit_id(),
+                Watch.name == name,
+                Watch.id != watch.id,
+            ).first()
+            if not name:
+                flash("Enter a watch name.", "error")
+            elif duplicate:
+                flash("That watch name already exists.", "error")
+            else:
+                watch.name = name[:32]
+                watch.pattern_csv = ",".join(pattern)
+                watch.pattern_anchor = anchor
+                db.session.commit()
+                flash(f"{watch.name} updated.", "ok")
+            return redirect(url_for("admin") + "#roster-setup")
+
+        if form == "watch_delete":
+            watch = Watch.query.filter_by(
+                id=int(request.form.get("watch_id") or 0),
+                unit_id=_current_unit_id(),
+            ).first_or_404()
+            in_use = (
+                Staff.query.filter_by(
+                    unit_id=_current_unit_id(), watch_id=watch.id
+                ).first()
+                or StaffWatchHistory.query.filter_by(
+                    unit_id=_current_unit_id(), watch_id=watch.id
+                ).first()
+            )
+            if in_use:
+                flash(
+                    "Move staff and remove scheduled moves before deleting this watch.",
+                    "error",
+                )
+            else:
+                name = watch.name
+                db.session.delete(watch)
+                db.session.commit()
+                flash(f"{name} deleted.", "ok")
+            return redirect(url_for("admin") + "#roster-setup")
+
+        if form == "counter_mapping":
+            mapping = {}
+            for shift in ShiftType.query.filter_by(
+                unit_id=_current_unit_id()
+            ).all():
+                group = (
+                    request.form.get(f"counter_group_{shift.id}") or ""
+                ).strip().upper()
+                if group not in {"", "M", "D", "A", "N"}:
+                    abort(400, "Invalid roster counter group.")
+                mapping[shift.code.upper()] = group
+            _save_roster_setting(
+                "shift_counter_map",
+                json.dumps(mapping, sort_keys=True),
+            )
+            db.session.commit()
+            flash("Shift counter mapping saved.", "ok")
+            return redirect(url_for("admin") + "#shifts")
+
         # Create staff
         if form == "staff_new":
             name = request.form.get("name", "").strip()
@@ -4457,11 +4757,21 @@ def admin():
             leave_carryover_days = int(
                 request.form.get("leave_carryover_days", 0) or 0)
 
-            if not all([name, staff_no, username, watch_id]):
-                flash("All fields required to create staff.", "error")
-            elif Staff.query.filter((Staff.username == username) | (Staff.staff_no == staff_no)).first():
+            if not all([name, staff_no, watch_id]):
+                flash("Name, staff number and watch are required.", "error")
+            elif Staff.query.filter_by(
+                unit_id=_current_unit_id(), staff_no=staff_no
+            ).first() or (
+                username and Staff.query.filter(
+                    Staff.unit_id == _current_unit_id(),
+                    db.func.lower(Staff.username) == username.lower(),
+                ).first()
+            ):
                 flash("Username or Staff # already exists.", "error")
             else:
+                username = username or (
+                    f"person-{_current_unit_id()}-{secrets.token_hex(8)}"
+                )
                 s = Staff(
                     name=name,
                     staff_no=staff_no,
@@ -4482,8 +4792,12 @@ def admin():
                     s.calendar_token = secrets.token_hex(16)
                 db.session.add(s)
                 db.session.commit()
-                flash("ATCO created.", "ok")
-                return redirect(url_for("admin"))
+                flash(
+                    "Roster profile created. Complete the profile, then "
+                    "issue account access when ready.",
+                    "ok",
+                )
+                return redirect(url_for("admin_staff_edit", sid=s.id))
 
         # Create / edit / delete shifts
         if form == "shift_new":
@@ -4640,15 +4954,106 @@ def admin():
     staff = (Staff.query
              .outerjoin(Watch, Staff.watch_id == Watch.id)
              .order_by(Watch.order_index, Staff.name).all())
-    months = [(y, m) for y in (2025, 2026) for m in range(1, 13)]
+    # Keep the staffing screen focused on a useful planning horizon instead of
+    # making administrators scan fixed calendar years (and eventually stale
+    # historic months). Show the current month plus the next 23 months.
+    planning_start = date.today().replace(day=1)
+    months = []
+    cursor = planning_start
+    for _ in range(24):
+        months.append((cursor.year, cursor.month))
+        cursor = (
+            cursor.replace(year=cursor.year + 1, month=1)
+            if cursor.month == 12 else cursor.replace(month=cursor.month + 1)
+        )
     requirements_by_month = {
         (r.year, r.month): r for r in Requirement.query.all()}
     leaves = Leave.query.order_by(Leave.start.desc()).all()
+    roster_settings = _roster_settings_snapshot(_current_unit_id())
+    base_pattern = ",".join(_validated_pattern(
+        roster_settings.get("base_pattern_csv") or DEFAULT_BASE_PATTERN
+    ))
+    base_anchor = (
+        roster_settings.get("base_pattern_anchor") or "2025-01-01"
+    )
+    night_active_days = {
+        int(value)
+        for value in roster_settings.get(
+            "night_active_weekdays", "0,1,2,3,4,5,6"
+        ).split(",")
+        if value.strip().isdigit()
+    }
+    shift_counter_mapping = {
+        shift.code: shift_counter_group(shift.code, _current_unit_id())
+        for shift in shifts
+    }
+    working_shifts = [shift for shift in shifts if shift.is_working and shift.is_active]
+    mapped_working_shifts = [
+        shift for shift in working_shifts if shift_counter_mapping.get(shift.code)
+    ]
+    configured_requirements = sum(
+        1 for key in months if key in requirements_by_month
+    )
+    setup_checks = [
+        {
+            "label": "Roster cycle",
+            "complete": bool(base_pattern and base_anchor),
+            "section": "roster-setup",
+            "action": "Review cycle",
+        },
+        {
+            "label": "Watches",
+            "complete": bool(watches),
+            "section": "roster-setup",
+            "action": "Add watches",
+        },
+        {
+            "label": "Operational shifts",
+            "complete": bool(working_shifts),
+            "section": "shifts",
+            "action": "Add shifts",
+        },
+        {
+            "label": "Shift totals",
+            "complete": bool(working_shifts) and (
+                len(mapped_working_shifts) == len(working_shifts)
+            ),
+            "section": "shifts",
+            "action": "Check totals",
+        },
+        {
+            "label": "People",
+            "complete": bool(staff),
+            "section": "staff",
+            "action": "Add people",
+        },
+        {
+            "label": "Staffing levels",
+            "complete": configured_requirements > 0,
+            "section": "requirements",
+            "action": "Set levels",
+        },
+    ]
+    setup_complete_count = sum(
+        1 for check in setup_checks if check["complete"]
+    )
+    current_unit = db.session.get(Unit, _current_unit_id())
     return render_template("admin.html",
                            shifts=shifts, staff=staff, watches=watches,
                            months=months, requirements_by_month=requirements_by_month,
                            leaves=leaves,
-                           qualification_types=qualification_types)
+                           qualification_types=qualification_types,
+                           base_pattern=base_pattern,
+                           base_anchor=base_anchor,
+                           night_active_days=night_active_days,
+                           pattern_codes=PATTERN_CODES,
+                           shift_counter_mapping=shift_counter_mapping,
+                           setup_checks=setup_checks,
+                           setup_complete_count=setup_complete_count,
+                           configured_requirements=configured_requirements,
+                           mapped_working_shift_count=len(mapped_working_shifts),
+                           working_shift_count=len(working_shifts),
+                           current_unit=current_unit)
 
 
 @app.route("/admin/reference", methods=["GET", "POST"])
@@ -4926,7 +5331,17 @@ def admin_staff_edit(sid):
         # update role
         s.role = request.form.get("role", s.role)
 
-        s.pattern_csv = request.form.get("pattern_csv", s.pattern_csv)
+        s.pattern_override = bool(request.form.get("pattern_override"))
+        requested_pattern = _validated_pattern(
+            request.form.get("pattern_csv")
+        )
+        if s.pattern_override and not requested_pattern:
+            flash(
+                "A personal pattern must contain M, A, D, N or OFF.",
+                "error",
+            )
+            return redirect(url_for("admin_staff_edit", sid=s.id))
+        s.pattern_csv = ",".join(requested_pattern)
         s.pattern_anchor = _parse_date(request.form.get("pattern_anchor"))
 
         s.medical_expiry = _parse_date(request.form.get("medical_expiry"))
@@ -4964,9 +5379,19 @@ def admin_staff_edit(sid):
         return redirect(url_for("admin"))
 
     watches = Watch.query.order_by(Watch.order_index).all()
+    account_membership = UnitMembership.query.filter_by(
+        unit_id=_current_unit_id(), person_id=s.id
+    ).order_by(UnitMembership.id.desc()).first()
+    pending_access_invitation = SecureInvitation.query.filter_by(
+        unit_id=_current_unit_id(), target_person_id=s.id,
+        accepted_at=None, disabled_at=None,
+    ).order_by(SecureInvitation.id.desc()).first()
     return render_template(
         "staff_edit.html", s=s, watches=watches,
         permissions=user_permissions(s),
+        pattern_codes=PATTERN_CODES,
+        account_membership=account_membership,
+        pending_access_invitation=pending_access_invitation,
     )
 
 
@@ -4997,13 +5422,36 @@ def admin_watch_move(sid):
         flash("Invalid effective date.", "error")
         return redirect(url_for("admin_staff_edit", sid=s.id))
 
-    db.session.add(StaffWatchHistory(
-        staff_id=s.id, watch_id=new_watch_id, effective_date=eff_d))
+    new_watch = Watch.query.filter_by(
+        id=new_watch_id, unit_id=_current_unit_id()
+    ).first()
+    if not new_watch:
+        flash("Invalid watch selection.", "error")
+        return redirect(url_for("admin_staff_edit", sid=s.id))
+    existing = StaffWatchHistory.query.filter_by(
+        unit_id=_current_unit_id(),
+        staff_id=s.id,
+        effective_date=eff_d,
+    ).first()
+    if existing:
+        existing.watch_id = new_watch_id
+    else:
+        db.session.add(StaffWatchHistory(
+            unit_id=_current_unit_id(), staff_id=s.id,
+            watch_id=new_watch_id, effective_date=eff_d,
+        ))
+    old_watch_id = s.watch_id
+    if eff_d <= date.today():
+        s.watch_id = new_watch_id
     db.session.commit()
 
-    log_change("Staff", s.id, "watch_id", s.watch_id,
+    log_change("Staff", s.id, "watch_id", old_watch_id,
                new_watch_id, note=f"effective {eff_d.isoformat()}")
-    flash("Watch move recorded (effective date).", "ok")
+    flash(
+        f"Watch move recorded. {s.name} follows {new_watch.name}'s "
+        f"pattern from {eff_d.strftime('%d %b %Y')}.",
+        "ok",
+    )
     return redirect(url_for("admin_staff_edit", sid=s.id))
 
 
@@ -5033,6 +5481,11 @@ def admin_watch_move_edit(hid):
         eff_d = date.fromisoformat(eff)
     except ValueError:
         flash("Invalid effective date.", "error")
+        return redirect(url_for("admin_staff_edit", sid=hist.staff_id))
+    if not Watch.query.filter_by(
+        id=new_watch_id, unit_id=_current_unit_id()
+    ).first():
+        flash("Invalid watch selection.", "error")
         return redirect(url_for("admin_staff_edit", sid=hist.staff_id))
 
     old_watch_id = hist.watch_id
@@ -6681,6 +7134,25 @@ def platform_admin():
                 ):
                     raise RuntimeError("invalid_secret_reference")
                 operational_url = os.environ.get(routing.secret_name)
+                if (
+                    not operational_url
+                    and DEPLOYMENT_ENV != "production"
+                    and not app.config.get("TESTING")
+                    and os.environ.get(
+                        "ATCROSTER_DISABLE_LOCAL_AUTO_PROVISION"
+                    ) != "1"
+                    and db.engine.dialect.name == "sqlite"
+                ):
+                    # Local development still keeps every airport in its own
+                    # database, but does not require the operator to configure
+                    # a managed secret before testing the onboarding workflow.
+                    operational_url = (
+                        "sqlite:///"
+                        + os.path.join(
+                            INSTANCE_DIR, f"unit-{unit.id}-{unit.code.lower()}.db"
+                        )
+                    )
+                    os.environ[routing.secret_name] = operational_url
                 if not operational_url:
                     raise RuntimeError("database_secret_unavailable")
                 control_url = (
@@ -6942,6 +7414,40 @@ def unit_accounts():
             if role not in allowed_roles:
                 abort(400, "Invalid invitation role.")
             try:
+                person_id = int(request.form.get("person_id") or 0)
+            except ValueError:
+                abort(400, "Invalid roster person.")
+            person = Staff.query.filter_by(
+                id=person_id, unit_id=unit_id
+            ).first()
+            if not person:
+                flash(
+                    "Select an existing roster person before issuing access.",
+                    "error",
+                )
+                return redirect(url_for("unit_accounts"))
+            if UnitMembership.query.filter_by(
+                unit_id=unit_id, person_id=person.id
+            ).filter(
+                UnitMembership.status.in_(("active", "invited"))
+            ).first():
+                flash(
+                    "That roster person already has account access or a pending membership.",
+                    "error",
+                )
+                return redirect(url_for("unit_accounts"))
+            existing_invitation = SecureInvitation.query.filter_by(
+                unit_id=unit_id, target_person_id=person.id,
+                accepted_at=None, disabled_at=None,
+            ).first()
+            if existing_invitation:
+                flash(
+                    "That roster person already has a pending invitation. "
+                    "Disable it before issuing another.",
+                    "error",
+                )
+                return redirect(url_for("unit_accounts"))
+            try:
                 from account_limits import lock_unit_capacity
                 lock_unit_capacity(db, Unit, UnitMembership, unit_id)
                 raw_token = secrets.token_urlsafe(32)
@@ -6950,7 +7456,7 @@ def unit_accounts():
                     token_digest=hashlib.sha256(
                         raw_token.encode()
                     ).hexdigest(),
-                    role=role,
+                    role=role, target_person_id=person.id,
                     expires_at=utcnow() + timedelta(days=7),
                 )
                 db.session.add(invitation)
@@ -6963,7 +7469,7 @@ def unit_accounts():
                 "accept_invitation", token=raw_token, _external=True
             )
             flash(
-                "Invitation created. Copy this link now; it is shown only "
+                f"Invitation for {person.name} created. Copy this link now; it is shown only "
                 f"once: {invite_url}",
                 "ok",
             )
@@ -7115,10 +7621,26 @@ def unit_accounts():
         SecureInvitation.disabled_at.is_(None),
         SecureInvitation.expires_at > current_time,
     ).order_by(SecureInvitation.expires_at).all()
+    unavailable_person_ids = {
+        row.person_id for row in memberships
+        if row.person_id and row.status in {"active", "invited"}
+    } | {
+        row.target_person_id for row in pending_invitations
+        if row.target_person_id
+    }
+    roster_people = Staff.query.filter_by(
+        unit_id=unit_id
+    ).order_by(Staff.name).all()
+    eligible_people = [
+        person for person in roster_people
+        if person.id not in unavailable_person_ids
+    ]
     return render_template(
         "unit_accounts.html", unit=unit, memberships=memberships,
         active_count=active_count,
         pending_invitations=pending_invitations,
+        eligible_people=eligible_people,
+        staff_by_id={person.id: person for person in roster_people},
     )
 
 
@@ -7201,8 +7723,37 @@ def _run_invitation_signup(
             if fail_after == "identity_created":
                 raise RuntimeError("injected_identity_created")
         if workflow.state == "identity_created":
-            marker = f"{unit.code}-SIGNUP-{workflow.id}"
-            staff = Staff.query.filter_by(staff_no=marker).first()
+            role_map = {
+                "UnitAdmin": "admin", "RosterEditor": "editor",
+                "WatchManager": "user", "StaffUser": "user",
+                "ReadOnlyAuditor": "auditor",
+            }
+            if invitation.target_person_id:
+                staff = Staff.query.filter_by(
+                    id=invitation.target_person_id, unit_id=unit.id
+                ).first()
+                if not staff:
+                    raise SignupWorkflowError(
+                        "The linked roster person is no longer available."
+                    )
+                duplicate_staff = Staff.query.filter(
+                    Staff.unit_id == unit.id,
+                    db.func.lower(Staff.username) == normalized,
+                    Staff.id != staff.id,
+                ).first()
+                if duplicate_staff:
+                    raise SignupWorkflowError(
+                        "That login identifier is unavailable."
+                    )
+                staff.username = normalized
+                staff.role = role_map[invitation.role]
+                staff.is_wm = invitation.role == "WatchManager"
+                staff.set_password(password)
+                staff.membership_status = "pending"
+                db.session.commit()
+            else:
+                marker = f"{unit.code}-SIGNUP-{workflow.id}"
+                staff = Staff.query.filter_by(staff_no=marker).first()
             if not staff:
                 if Staff.query.filter(
                     db.func.lower(Staff.username) == normalized
@@ -7210,11 +7761,6 @@ def _run_invitation_signup(
                     raise SignupWorkflowError(
                         "That login identifier is unavailable."
                     )
-                role_map = {
-                    "UnitAdmin": "admin", "RosterEditor": "editor",
-                    "WatchManager": "user", "StaffUser": "user",
-                    "ReadOnlyAuditor": "auditor",
-                }
                 staff = Staff(
                     unit_id=unit.id, username=normalized, name=name[:80],
                     staff_no=marker, role=role_map[invitation.role],
@@ -7349,26 +7895,43 @@ def accept_invitation(token):
         )
     ):
         abort(409, "This airport account is not accepting invitations.")
+    if DEPLOYMENT_ENV == "production" and not routing:
+        abort(503, "Operational database routing is unavailable.")
+    # A targeted invitation refers to a person in the airport's operational
+    # database. Establish that trusted route before resolving or displaying
+    # the roster profile, including on the initial anonymous GET.
+    g.tenant_context_token = bind_authenticated_unit(
+        invitation.unit_id,
+        routing.secret_name if routing else None,
+    )
+    target_person = None
+    if invitation.target_person_id:
+        target_person = Staff.query.filter_by(
+            id=invitation.target_person_id,
+            unit_id=invitation.unit_id,
+        ).first()
+        if not target_person:
+            abort(410, "The linked roster person is no longer available.")
     if request.method == "POST":
         _validate_csrf()
-        if DEPLOYMENT_ENV == "production" and not routing:
-            abort(503, "Operational database routing is unavailable.")
-        g.tenant_context_token = bind_authenticated_unit(
-            invitation.unit_id,
-            routing.secret_name if routing else None,
+        name = (
+            target_person.name
+            if target_person
+            else (request.form.get("name") or "").strip()
         )
-        name = (request.form.get("name") or "").strip()
         username = (request.form.get("username") or "").strip().lower()
         password = request.form.get("password") or ""
         if not name or not re.fullmatch(r"[a-z0-9._-]{3,120}", username):
             flash("Enter a name and a valid username.", "error")
             return render_template(
-                "invitation_accept.html", invitation=invitation, unit=unit
+                "invitation_accept.html", invitation=invitation, unit=unit,
+                target_person=target_person,
             ), 400
         if len(password) < 12:
             flash("Use a password of at least 12 characters.", "error")
             return render_template(
-                "invitation_accept.html", invitation=invitation, unit=unit
+                "invitation_accept.html", invitation=invitation, unit=unit,
+                target_person=target_person,
             ), 400
         try:
             _run_invitation_signup(
@@ -7377,12 +7940,14 @@ def accept_invitation(token):
         except (SignupWorkflowError, ValueError) as exc:
             flash(str(exc), "error")
             return render_template(
-                "invitation_accept.html", invitation=invitation, unit=unit
+                "invitation_accept.html", invitation=invitation, unit=unit,
+                target_person=target_person,
             ), 409
         flash("Account created. Sign in and configure MFA.", "ok")
         return redirect(url_for("login"))
     return render_template(
-        "invitation_accept.html", invitation=invitation, unit=unit
+        "invitation_accept.html", invitation=invitation, unit=unit,
+        target_person=target_person,
     )
 
 
@@ -7398,6 +7963,20 @@ def unit_onboarding():
     if request.method == "POST":
         _validate_csrf()
         action = (request.form.get("action") or "identity").strip()
+        if action == "complete_setup":
+            if request.form.get("confirm_complete") != "yes":
+                flash(
+                    "Confirm that you are ready to leave guided setup.",
+                    "error",
+                )
+                return redirect(url_for("unit_onboarding"))
+            unit.onboarding_step = 100
+            db.session.commit()
+            flash(
+                "Airport setup marked complete. Welcome to your operational dashboard.",
+                "ok",
+            )
+            return redirect(url_for("index"))
         if action == "identity":
             unit.name = (request.form.get("name") or unit.name).strip()[:120]
             code = (request.form.get("code") or unit.code).strip().upper()
@@ -8145,7 +8724,11 @@ def coverage_heatmap(ym):
         shift = ShiftType.query.filter_by(
             unit_id=_current_unit_id(), code=assignment.code
         ).first()
-        prefix = (assignment.code or "")[:1]
+        group = shift_counter_group(
+            assignment.code, _current_unit_id()
+        )
+        if not group:
+            continue
         if (
             shift
             and shift.required_qualification
@@ -8153,9 +8736,9 @@ def coverage_heatmap(ym):
                 assignment.staff, shift, assignment.day
             )
         ):
-            competence_exclusions[assignment.day][prefix] += 1
+            competence_exclusions[assignment.day][group] += 1
             continue
-        counts[assignment.day][prefix] += 1
+        counts[assignment.day][group] += 1
     return render_template(
         "coverage_heatmap.html", days=days, counts=counts, ym=ym,
         competence_exclusions=competence_exclusions,
@@ -8170,7 +8753,13 @@ def scenarios_page():
     unit_id = _current_unit_id()
     if request.method == "POST":
         _validate_csrf()
-        changes = request.form.get("changes_json") or "[]"
+        changes = (request.form.get("changes_json") or "").strip()
+        if not changes:
+            changes = json.dumps([{
+                "staff_id": request.form.get("staff_id"),
+                "day": request.form.get("day"),
+                "code": request.form.get("code"),
+            }])
         try:
             parsed = json.loads(changes)
             if not isinstance(parsed, list):
@@ -8218,34 +8807,57 @@ def scenarios_page():
         db.session.commit()
         flash("Scenario saved without changing the live roster.", "ok")
         return redirect(url_for("scenarios_page"))
-    rows = Scenario.query.filter_by(unit_id=unit_id).order_by(Scenario.id.desc()).all()
-    return render_template("scenarios.html", scenarios=rows)
+    rows = Scenario.query.filter_by(unit_id=unit_id).order_by(
+        Scenario.id.desc()
+    ).all()
+    people = Staff.query.filter_by(
+        unit_id=unit_id, is_operational=True
+    ).order_by(Staff.name).all()
+    shifts = ShiftType.query.filter_by(
+        unit_id=unit_id, is_active=True
+    ).order_by(ShiftType.code).all()
+    return render_template(
+        "scenarios.html", scenarios=rows, people=people, shifts=shifts
+    )
 
 # -------------------- Manual TOIL entry page (no bulk seed in UI) --------------------
 
 
-@app.route("/admin/toil/new")
+@app.route("/admin/toil/new", methods=["GET", "POST"])
 @login_required
 @admin_required
 def admin_toil_new():
     atcos = Staff.query.filter_by(
         is_operational=True).order_by(Staff.name.asc()).all()
     if request.method == "POST":
-        sid = int(request.form["staff_id"])
-        amount = float(request.form.get("amount", "0") or 0)
+        _validate_csrf()
+        try:
+            sid = int(request.form["staff_id"])
+            amount = float(request.form.get("amount", "0") or 0)
+        except (KeyError, TypeError, ValueError):
+            flash("Choose an ATCO and enter a valid adjustment.", "error")
+            return redirect(url_for("admin_toil_new"))
         unit = request.form.get("unit", "days").lower()
         note = (request.form.get("note") or "").strip()
         s = Staff.query.filter_by(
             id=sid, unit_id=_current_unit_id()
         ).first_or_404()
         # Convert to half-days
+        direction = -1 if request.form.get("direction") == "subtract" else 1
         if unit.startswith("day"):
             half = int(round(amount * 2))
         else:  # hours
             half = int(round((amount / 8.0) * 2))
-        s.toil_half_days = int((s.toil_half_days or 0) + half)
+        if amount <= 0 or half <= 0:
+            flash("Enter an adjustment greater than zero.", "error")
+            return redirect(url_for("admin_toil_new"))
+        s.toil_half_days = int((s.toil_half_days or 0) + direction * half)
         db.session.commit()
-        flash("TOIL balance updated.", "ok")
+        verb = "added to" if direction > 0 else "deducted from"
+        flash(
+            f"{amount:g} {unit} {verb} {s.name}'s TOIL balance.",
+            "ok",
+        )
         return redirect(url_for("admin_toil_new"))
     return render_template("admin_toil_new.html", atcos=atcos)
 
@@ -8520,6 +9132,21 @@ def _complete_platform_login(identity, user, recovery_used=False):
     return redirect(next_url or url_for("platform_admin"))
 
 
+def _totp_qr_data_uri(provisioning_uri: str) -> str:
+    """Render a TOTP URI locally so MFA secrets never leave the application."""
+    qr_buffer = io.BytesIO()
+    qrcode.make(
+        provisioning_uri,
+        image_factory=qrcode.image.svg.SvgPathImage,
+        box_size=8,
+        border=4,
+    ).save(qr_buffer)
+    return (
+        "data:image/svg+xml;base64,"
+        + base64.b64encode(qr_buffer.getvalue()).decode("ascii")
+    )
+
+
 @app.route("/login/platform-mfa/setup", methods=["GET", "POST"])
 def platform_mfa_setup():
     identity, user = _pending_platform_login()
@@ -8538,6 +9165,7 @@ def platform_mfa_setup():
     provisioning_uri = pyotp.TOTP(pending).provisioning_uri(
         name=identity.username, issuer_name="ATCRoster Platform"
     )
+    qr_data_uri = _totp_qr_data_uri(provisioning_uri)
     if request.method == "POST":
         _validate_csrf()
         code = re.sub(r"\s", "", request.form.get("code") or "")
@@ -8578,7 +9206,8 @@ def platform_mfa_setup():
         )
     return render_template(
         "mfa_setup.html", enabled=False, secret=pending,
-        provisioning_uri=provisioning_uri, platform_enrolment=True,
+        provisioning_uri=provisioning_uri, qr_data_uri=qr_data_uri,
+        platform_enrolment=True,
     )
 
 
@@ -8730,6 +9359,7 @@ def mfa_setup():
     provisioning_uri = pyotp.TOTP(pending).provisioning_uri(
         name=current_user.username, issuer_name=issuer
     )
+    qr_data_uri = _totp_qr_data_uri(provisioning_uri)
     if request.method == "POST":
         _validate_csrf()
         code = re.sub(r"\s", "", request.form.get("code") or "")
@@ -8761,7 +9391,7 @@ def mfa_setup():
         )
     return render_template(
         "mfa_setup.html", enabled=False, secret=pending,
-        provisioning_uri=provisioning_uri,
+        provisioning_uri=provisioning_uri, qr_data_uri=qr_data_uri,
     )
 
 
@@ -8868,7 +9498,10 @@ def reconcile_signups(apply_changes):
                     staff = db.session.get(
                         Staff, row.operational_person_id
                     )
-                    if staff and staff.membership_status != "active":
+                    if staff and invitation.target_person_id:
+                        staff.membership_status = "active"
+                        db.session.commit()
+                    elif staff and staff.membership_status != "active":
                         db.session.delete(staff)
                         db.session.commit()
                 row.operational_person_id = None
@@ -8911,6 +9544,8 @@ with app.app_context():
             migrate_add_is_training()
             migrate_add_wm_dwm_exclude()
             migrate_add_phone_number()
+            migrate_add_watch_pattern_configuration()
+            migrate_add_invitation_target()
             migrate_add_role_and_calendar_token()
 
             cols = [row[1] for row in db.session.execute(
@@ -8930,6 +9565,23 @@ with app.app_context():
             _add_col("status", "status VARCHAR(20) DEFAULT 'pending'")
 
         seed_once()
+        # Reconstruct deterministic local-only database routes after a restart.
+        # Production routes continue to come exclusively from managed secrets.
+        if is_sqlite:
+            for routing in DatabaseRoutingMetadata.query.all():
+                unit = db.session.get(Unit, routing.unit_id)
+                if (
+                    unit
+                    and unit.status != "platform_control"
+                    and not os.environ.get(routing.secret_name)
+                ):
+                    os.environ[routing.secret_name] = (
+                        "sqlite:///"
+                        + os.path.join(
+                            INSTANCE_DIR,
+                            f"unit-{unit.id}-{unit.code.lower()}.db",
+                        )
+                    )
         refresh_shift_cache()
 
 # Expose helpers & models needed by Jinja templates that refer to them directly

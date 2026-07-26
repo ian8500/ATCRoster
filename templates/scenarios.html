@@ -1,14 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Roster Scenarios{% endblock %}
 {% block content %}
-<div class="container my-4"><h2>Roster scenarios</h2>
-<p>Scenarios are isolated from the live roster and require human approval before any future apply action.</p>
-<form method="post" class="card card-body">
-<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-<label>Name <input class="form-control" name="name" required></label>
-<label>Proposed changes (JSON preview) <textarea class="form-control" name="changes_json" rows="5">[]</textarea></label>
-<button class="btn btn-primary mt-2" type="submit">Save scenario</button>
+<div class="container my-4">
+<section class="compliance-hero">
+  <div><span class="admin-step">Safe planning</span><h2>Try a roster change</h2>
+  <p>Check a proposed assignment without changing the live roster. The system records whether the person is eligible for the selected duty.</p></div>
+  <a class="btn" href="{{ url_for('index') }}">Back to roster</a>
+</section>
+<form method="post" class="card card-body admin-form-grid">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <label>Scenario name<input class="form-control" name="name" required placeholder="e.g. Cover late sickness"></label>
+  <label>Person<select class="form-select" name="staff_id" required><option value="">Select person</option>{% for person in people %}<option value="{{ person.id }}">{{ person.name }} · {{ person.watch.name if person.watch else 'No watch' }}</option>{% endfor %}</select></label>
+  <label>Date<input class="form-control" type="date" name="day" required></label>
+  <label>Proposed shift<select class="form-select" name="code" required><option value="">Select shift</option>{% for shift in shifts %}<option value="{{ shift.code }}">{{ shift.name }} ({{ shift.code }})</option>{% endfor %}</select></label>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Check and save scenario</button></div>
 </form>
-<ul>{% for scenario in scenarios %}<li>{{ scenario.name }} · unapplied{% else %}<li>No scenarios yet.</li>{% endfor %}</ul>
+<section class="card mt-3"><div class="card-hd">Saved scenarios</div><div class="card-bd">
+<ul>{% for scenario in scenarios %}<li><strong>{{ scenario.name }}</strong> · saved for review · live roster unchanged</li>{% else %}<li>No scenarios saved yet.</li>{% endfor %}</ul>
+</div></section>
 </div>
 {% endblock %}

@@ -5,8 +5,8 @@
 <div class="admin-intro">
   <div>
     <span class="admin-eyebrow">Unit administration</span>
-    <h2 class="page-title">Administration</h2>
-    <p class="intro-lead">Choose a section and focus on one task at a time. Your last section stays open when you return.</p>
+    <h2 class="page-title">Manage this airport</h2>
+    <p class="intro-lead">Set up the roster, people and staffing rules. Changes only affect {{ current_unit.name if current_unit else 'this airport' }}.</p>
   </div>
   <a class="btn" href="{{ url_for('unit_accounts') }}"><i class="fa-solid fa-users"></i> Manage accounts</a>
 </div>
@@ -15,64 +15,188 @@
   <button type="button" class="admin-section-tab active" data-admin-section="overview" aria-controls="admin-overview" aria-selected="true">
     <i class="fa-solid fa-table-cells-large"></i><span>Overview</span>
   </button>
+  <button type="button" class="admin-section-tab" data-admin-section="roster-setup" aria-controls="admin-roster-setup" aria-selected="false">
+    <i class="fa-solid fa-people-group"></i><span>Cycle & watches</span>
+  </button>
   <button type="button" class="admin-section-tab" data-admin-section="requirements" aria-controls="admin-requirements" aria-selected="false">
-    <i class="fa-solid fa-chart-column"></i><span>Requirements</span>
+    <i class="fa-solid fa-chart-column"></i><span>Staffing levels</span>
   </button>
   <button type="button" class="admin-section-tab" data-admin-section="shifts" aria-controls="admin-shifts" aria-selected="false">
-    <i class="fa-solid fa-clock"></i><span>Shifts</span>
+    <i class="fa-solid fa-clock"></i><span>Shift types</span>
   </button>
   <button type="button" class="admin-section-tab" data-admin-section="staff" aria-controls="admin-staff" aria-selected="false">
-    <i class="fa-solid fa-user-group"></i><span>Staff</span>
+    <i class="fa-solid fa-user-group"></i><span>People</span>
   </button>
   <button type="button" class="admin-section-tab" data-admin-section="tools" aria-controls="admin-tools" aria-selected="false">
-    <i class="fa-solid fa-screwdriver-wrench"></i><span>Tools</span>
+    <i class="fa-solid fa-screwdriver-wrench"></i><span>Other settings</span>
   </button>
 </nav>
 
 <div class="admin-workspace">
   <section id="admin-overview" class="admin-panel active" data-admin-panel="overview">
     <header class="admin-panel-heading">
-      <div><span class="admin-step">Overview</span><h3>What would you like to manage?</h3></div>
+      <div><span class="admin-step">At a glance</span><h3>Airport setup</h3><p>Work through any item marked “Needs attention”. You can return and change these settings at any time.</p></div>
     </header>
+    <div class="admin-readiness" aria-label="Airport setup progress">
+      <div class="admin-readiness__summary">
+        <strong>{{ setup_complete_count }} of {{ setup_checks|length }} areas ready</strong>
+        <span>{{ 'Core setup is complete' if setup_complete_count == setup_checks|length else 'Complete the remaining areas before publishing a roster' }}</span>
+      </div>
+      <div class="admin-readiness__bar" aria-hidden="true"><span style="width:{{ (setup_complete_count / setup_checks|length * 100)|round|int }}%"></span></div>
+      <div class="admin-readiness__checks">
+        {% for check in setup_checks %}
+        <button type="button" data-open-admin-section="{{ check.section }}" class="{{ 'is-ready' if check.complete else 'needs-attention' }}">
+          <i class="fa-solid {{ 'fa-circle-check' if check.complete else 'fa-circle-exclamation' }}" aria-hidden="true"></i>
+          <span><strong>{{ check.label }}</strong><small>{{ 'Ready' if check.complete else 'Needs attention' }}</small></span>
+          <span class="admin-check-action">{{ 'Review' if check.complete else check.action }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
     <div class="admin-overview-grid">
+      <button type="button" class="admin-overview-card" data-open-admin-section="roster-setup">
+        <span class="admin-overview-icon"><i class="fa-solid fa-people-group"></i></span>
+        <span><strong>Roster cycle and watches</strong><small>{{ watches|length }} watches · repeating duties and night opening</small></span>
+        <i class="fa-solid fa-arrow-right"></i>
+      </button>
       <button type="button" class="admin-overview-card" data-open-admin-section="requirements">
         <span class="admin-overview-icon"><i class="fa-solid fa-chart-column"></i></span>
-        <span><strong>Staffing requirements</strong><small>{{ months|length }} configured month slots</small></span>
+        <span><strong>Minimum staffing levels</strong><small>{{ configured_requirements }} of {{ months|length }} planning months set</small></span>
         <i class="fa-solid fa-arrow-right"></i>
       </button>
       <button type="button" class="admin-overview-card" data-open-admin-section="shifts">
         <span class="admin-overview-icon"><i class="fa-solid fa-clock"></i></span>
-        <span><strong>Shift definitions</strong><small>{{ shifts|length }} shift codes</small></span>
+        <span><strong>Shift types and daily totals</strong><small>{{ shifts|length }} shift types · {{ mapped_working_shift_count }}/{{ working_shift_count }} working shifts counted</small></span>
         <i class="fa-solid fa-arrow-right"></i>
       </button>
       <button type="button" class="admin-overview-card" data-open-admin-section="staff">
         <span class="admin-overview-icon"><i class="fa-solid fa-user-group"></i></span>
-        <span><strong>People and roles</strong><small>{{ staff|length }} staff records</small></span>
+        <span><strong>People and roster access</strong><small>{{ staff|length }} people on this airport roster</small></span>
         <i class="fa-solid fa-arrow-right"></i>
       </button>
       <button type="button" class="admin-overview-card" data-open-admin-section="tools">
         <span class="admin-overview-icon"><i class="fa-solid fa-screwdriver-wrench"></i></span>
-        <span><strong>Reference and audit tools</strong><small>Codes, AI rules, TOIL and change history</small></span>
+        <span><strong>Other settings and audit</strong><small>Codes, automation, TOIL and change history</small></span>
         <i class="fa-solid fa-arrow-right"></i>
       </button>
     </div>
   </section>
 
+  <section id="admin-roster-setup" class="admin-panel" data-admin-panel="roster-setup" hidden>
+    <header class="admin-panel-heading">
+      <div><span class="admin-step">Roster cycle and watches</span><h3>How duties repeat</h3><p>Set the normal repeating cycle once. Watches and individual people inherit it unless you deliberately give them a different cycle.</p></div>
+    </header>
+
+    <div class="setup-walkthrough">
+      <article><span>1</span><div><strong>Choose the unit pattern</strong><small>New ATCOs inherit this unless their watch or profile has an override.</small></div></article>
+      <article><span>2</span><div><strong>Set night availability</strong><small>A pattern night becomes OFF when the unit is closed overnight.</small></div></article>
+      <article><span>3</span><div><strong>Create and phase watches</strong><small>Each watch can inherit the unit pattern or use its own pattern and start date.</small></div></article>
+    </div>
+
+    <form method="post" class="card card-body roster-setup-card">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="form" value="unit_roster_setup">
+      <div>
+        <h4>1 · Normal roster cycle</h4>
+        <p class="text-muted">Select duties in the order they occur, starting at day 1. Example: M, M, A, A, N, N, OFF, OFF, OFF, OFF.</p>
+      </div>
+      <div class="pattern-builder" data-pattern-builder>
+        <input type="hidden" name="base_pattern_csv" value="{{ base_pattern }}" data-pattern-value>
+        <div class="pattern-sequence" data-pattern-sequence aria-live="polite"></div>
+        <div class="pattern-palette">
+          {% for code in pattern_codes %}<button type="button" class="pattern-duty pattern-duty--{{ code|lower }}" data-add-pattern="{{ code }}">{{ code }}</button>{% endfor %}
+          <button type="button" class="btn btn-sm" data-undo-pattern>Undo</button>
+          <button type="button" class="btn btn-sm" data-clear-pattern>Clear</button>
+        </div>
+      </div>
+      <label class="setup-date-field">Which date is day 1 of this cycle?
+        <input type="date" name="base_pattern_anchor" value="{{ base_anchor }}" required>
+        <small>Use a known date when the first duty above occurs. This keeps every future roster aligned.</small>
+      </label>
+
+      <div>
+        <h4>2 · Nights when the airport is open</h4>
+        <p class="text-muted">Tick each weekday that can have a night shift. If unticked, a scheduled N displays as OFF for that day.</p>
+      </div>
+      <div class="night-day-grid">
+        {% for day, label in [(0,'Monday'),(1,'Tuesday'),(2,'Wednesday'),(3,'Thursday'),(4,'Friday'),(5,'Saturday'),(6,'Sunday')] %}
+          <label class="night-day-toggle"><input type="checkbox" name="night_day_{{ day }}" {% if day in night_active_days %}checked{% endif %}><span>{{ label }}</span></label>
+        {% endfor %}
+      </div>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Save roster cycle and night opening</button></div>
+    </form>
+
+    <div class="watch-setup-heading">
+      <div><h4>3 · Watches</h4><p class="text-muted">The number of watch cards below is the number of watches configured for the unit.</p></div>
+    </div>
+    <div class="watch-setup-grid">
+      {% for watch in watches %}
+      <article class="card card-body watch-setup-card">
+        <form method="post">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="form" value="watch_edit">
+          <input type="hidden" name="watch_id" value="{{ watch.id }}">
+          <label>Watch name<input name="name" maxlength="32" value="{{ watch.name }}" required></label>
+          <div class="pattern-builder pattern-builder--compact" data-pattern-builder>
+            <input type="hidden" name="pattern_csv" value="{{ watch.pattern_csv or '' }}" data-pattern-value>
+            <span class="field-label">Watch pattern <small>Leave empty to inherit the unit pattern</small></span>
+            <div class="pattern-sequence" data-pattern-sequence></div>
+            <div class="pattern-palette">
+              {% for code in pattern_codes %}<button type="button" class="pattern-duty pattern-duty--{{ code|lower }}" data-add-pattern="{{ code }}">{{ code }}</button>{% endfor %}
+              <button type="button" class="btn btn-sm" data-undo-pattern>Undo</button>
+              <button type="button" class="btn btn-sm" data-clear-pattern>Use unit pattern</button>
+            </div>
+          </div>
+          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor" value="{{ watch.pattern_anchor.isoformat() if watch.pattern_anchor else '' }}"><small>Required only when this watch has its own pattern.</small></label>
+          <button class="btn btn-primary" type="submit">Save {{ watch.name }}</button>
+        </form>
+        <form method="post" class="admin-danger-action" onsubmit="return confirm('Delete {{ watch.name }}?');">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="form" value="watch_delete">
+          <input type="hidden" name="watch_id" value="{{ watch.id }}">
+          <button class="btn btn-sm" type="submit">Delete watch</button>
+        </form>
+      </article>
+      {% endfor %}
+
+      <article class="card card-body watch-setup-card watch-setup-card--new">
+        <h4>Add another watch</h4>
+        <form method="post">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="form" value="watch_new">
+          <label>Watch name<input name="name" maxlength="32" placeholder="e.g. Swanwick A" required></label>
+          <div class="pattern-builder pattern-builder--compact" data-pattern-builder>
+            <input type="hidden" name="pattern_csv" value="" data-pattern-value>
+            <span class="field-label">Optional watch-specific pattern</span>
+            <div class="pattern-sequence" data-pattern-sequence></div>
+            <div class="pattern-palette">
+              {% for code in pattern_codes %}<button type="button" class="pattern-duty pattern-duty--{{ code|lower }}" data-add-pattern="{{ code }}">{{ code }}</button>{% endfor %}
+              <button type="button" class="btn btn-sm" data-undo-pattern>Undo</button>
+              <button type="button" class="btn btn-sm" data-clear-pattern>Clear</button>
+            </div>
+          </div>
+          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor"></label>
+          <button class="btn btn-primary" type="submit">Add watch</button>
+        </form>
+      </article>
+    </div>
+  </section>
+
   <section id="admin-requirements" class="admin-panel" data-admin-panel="requirements" hidden>
     <header class="admin-panel-heading">
-      <div><span class="admin-step">Planning</span><h3>Monthly staffing requirements</h3><p>Set the minimum staffing for each duty group.</p></div>
+      <div><span class="admin-step">Staffing levels</span><h3>Minimum people needed on duty</h3><p>Enter the minimum number of operational ATCOs needed on each duty. These figures drive the red, amber and green coverage indicators.</p></div>
     </header>
     <form method="post" class="section-body">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="req">
       <div class="table-scroll admin-requirements-table">
         <table class="mini admin-table">
-          <thead><tr><th>Month</th><th>Morning</th><th>Day</th><th>Afternoon</th><th>Night</th></tr></thead>
+          <thead><tr><th>Month</th><th>Morning (M)</th><th>Day (D)</th><th>Afternoon (A)</th><th>Night (N)</th></tr></thead>
           <tbody>
           {% for y,m in months %}
             {% set r = requirements_by_month.get((y,m)) %}
             <tr>
-              <td class="table-label"><input type="hidden" name="ym" value="{{ '%04d-%02d'|format(y,m) }}">{{ '%04d-%02d'|format(y,m) }}</td>
+              <td class="table-label"><input type="hidden" name="ym" value="{{ '%04d-%02d'|format(y,m) }}">{{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }} {{ y }}</td>
               <td><input type="number" min="0" name="req_m" value="{{ r.req_m if r else 0 }}" class="table-input" aria-label="Morning requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
               <td><input type="number" min="0" name="req_d" value="{{ r.req_d if r else 0 }}" class="table-input" aria-label="Day requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
               <td><input type="number" min="0" name="req_a" value="{{ r.req_a if r else 0 }}" class="table-input" aria-label="Afternoon requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
@@ -88,29 +212,52 @@
 
   <section id="admin-shifts" class="admin-panel" data-admin-panel="shifts" hidden>
     <header class="admin-panel-heading">
-      <div><span class="admin-step">Roster setup</span><h3>Shift definitions</h3><p>Create shifts and expand a row only when you need to edit it.</p></div>
-      <button type="button" class="btn btn-primary" data-toggle-create-shift><i class="fa-solid fa-plus"></i> Add shift</button>
+      <div><span class="admin-step">Shift types</span><h3>Duties people can be assigned</h3><p>Create each duty once, then tell the system whether it contributes to Morning, Day, Afternoon or Night staffing.</p></div>
+      <button type="button" class="btn btn-primary" data-toggle-create-shift aria-expanded="false"><i class="fa-solid fa-plus"></i> Add a shift type</button>
     </header>
 
     <div class="admin-create-drawer" data-create-shift hidden>
-      <h4>New shift</h4>
+      <h4>Add a shift type</h4>
       <form method="post" class="admin-form-grid">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="shift_new">
-        <label>Code<input name="code" required maxlength="10"></label>
-        <label>Name<input name="name" required></label>
-        <label>Start<input type="time" name="start"></label>
-        <label>End<input type="time" name="end"></label>
+        <label>Short roster code<input name="code" required maxlength="10" placeholder="e.g. M"><small>What appears in each roster cell.</small></label>
+        <label>Plain-English name<input name="name" required placeholder="e.g. Morning duty"></label>
+        <label>Starts at<input type="time" name="start"></label>
+        <label>Finishes at<input type="time" name="end"></label>
         <label>Required qualification<select name="required_qualification"><option value="">None</option>{% for qtype in qualification_types %}<option value="{{ qtype.code }}">{{ qtype.label }} ({{ qtype.code }})</option>{% endfor %}</select></label>
         <div class="admin-check-row">
-          <label class="checkbox"><input type="checkbox" name="is_working"> Working</label>
-          <label class="checkbox"><input type="checkbox" name="is_training"> Training</label>
-          <label class="checkbox"><input type="checkbox" name="is_active" checked> Active</label>
-          <label class="checkbox"><input type="checkbox" name="is_requestable"> Requestable</label>
+          <label class="checkbox"><input type="checkbox" name="is_working"> Counts as working time</label>
+          <label class="checkbox"><input type="checkbox" name="is_training"> Training duty</label>
+          <label class="checkbox"><input type="checkbox" name="is_active" checked> Available to roster</label>
+          <label class="checkbox"><input type="checkbox" name="is_requestable"> Staff may request it</label>
         </div>
         <div class="form-actions"><button class="btn btn-primary" type="submit">Create shift</button></div>
       </form>
     </div>
+
+    <details class="card card-body counter-mapping-card">
+      <summary><span><strong>Which shifts count toward staffing?</strong><small>Required for accurate daily totals and coverage warnings</small></span></summary>
+      <form method="post" class="advanced-panel__content">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form" value="counter_mapping">
+        <p class="text-muted">For each working shift, choose the staffing total it should increase. Choose “Does not count” for leave, training, standby, office and support duties.</p>
+        <div class="counter-mapping-grid">
+          {% for shift in shifts %}
+          <label>
+            <span><strong>{{ shift.code }}</strong><small>{{ shift.name }}</small></span>
+            <select name="counter_group_{{ shift.id }}">
+              <option value="" {% if not shift_counter_mapping.get(shift.code) %}selected{% endif %}>Does not count</option>
+              {% for group, label in [('M','Morning'),('D','Day'),('A','Afternoon'),('N','Night')] %}
+                <option value="{{ group }}" {% if shift_counter_mapping.get(shift.code) == group %}selected{% endif %}>{{ label }} ({{ group }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Save staffing totals</button></div>
+      </form>
+    </details>
 
     <div class="admin-shift-list">
       {% for sh in shifts %}
@@ -151,23 +298,28 @@
 
   <section id="admin-staff" class="admin-panel" data-admin-panel="staff" hidden>
     <header class="admin-panel-heading">
-      <div><span class="admin-step">People</span><h3>Staff and roles</h3><p>Add a controller or find an existing profile.</p></div>
-      <button type="button" class="btn btn-primary" data-toggle-create-staff><i class="fa-solid fa-user-plus"></i> Add ATCO</button>
+      <div><span class="admin-step">People</span><h3>People on the roster</h3><p>Create and fully configure a roster profile first. You can send their account invitation when the profile is ready.</p></div>
+      <button type="button" class="btn btn-primary" data-toggle-create-staff aria-expanded="false"><i class="fa-solid fa-user-plus"></i> Add a person</button>
     </header>
     <div class="admin-create-drawer" data-create-staff hidden>
-      <h4>New ATCO</h4>
+      <h4>Add a person to the roster</h4>
       <form method="post" class="admin-form-grid">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="staff_new">
-        <label>Name<input name="name" required></label><label>Staff number<input name="staff_no" required></label><label>Username<input name="username" required></label>
+        <label>Name<input name="name" required></label><label>Staff number<input name="staff_no" required></label><label>Preferred username <input name="username" placeholder="Optional — user can choose during invitation"><small>Leave blank if account access will be added later.</small></label>
         <label>Watch<select name="watch_id" required><option value="">Select watch</option>{% for w in watches %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></label>
-        <label>Role<select name="role"><option value="user">Staff user</option><option value="editor">Roster editor</option><option value="admin">Unit admin</option></select></label>
-        <label>Leave year start<input type="number" name="leave_year_start_month" min="1" max="12" value="4"></label>
-        <label>Entitlement days<input type="number" name="leave_entitlement_days" min="0" value="25"></label>
-        <label>Public holidays<input type="number" name="leave_public_holidays" min="0" value="8"></label>
-        <label>Carryover days<input type="number" name="leave_carryover_days" min="0" value="0"></label>
-        <div class="admin-check-row"><label class="checkbox"><input type="checkbox" name="is_wm"> Watch Manager</label><label class="checkbox"><input type="checkbox" name="is_dwm"> Deputy WM</label><label class="checkbox"><input type="checkbox" name="permission_edit_roster"> May edit roster</label><label class="checkbox"><input type="checkbox" name="permission_apply_annotations"> May apply annotations</label><label class="checkbox"><input type="checkbox" name="exclude_from_ot"> Exclude from OT</label></div>
-        <div class="form-actions"><button class="btn btn-primary" type="submit">Create ATCO</button></div>
+        <label>Roster role<select name="role"><option value="user">ATCO / staff member</option><option value="editor">Roster editor</option><option value="admin">Unit administrator</option></select><small>This controls roster permissions, not whether they can log in.</small></label>
+        <details class="admin-optional-fields">
+          <summary>Leave allowance and additional permissions <small>Optional — sensible defaults are already entered</small></summary>
+          <div class="admin-form-grid">
+            <label>Leave year starts in<select name="leave_year_start_month">{% for month_name in ['January','February','March','April','May','June','July','August','September','October','November','December'] %}<option value="{{ loop.index }}" {% if loop.index == 4 %}selected{% endif %}>{{ month_name }}</option>{% endfor %}</select></label>
+            <label>Annual leave days<input type="number" name="leave_entitlement_days" min="0" value="25"></label>
+            <label>Public holiday days<input type="number" name="leave_public_holidays" min="0" value="8"></label>
+            <label>Carry-over days<input type="number" name="leave_carryover_days" min="0" value="0"></label>
+            <div class="admin-check-row"><label class="checkbox"><input type="checkbox" name="is_wm"> Watch Manager</label><label class="checkbox"><input type="checkbox" name="is_dwm"> Deputy Watch Manager</label><label class="checkbox"><input type="checkbox" name="permission_edit_roster"> Can edit the roster</label><label class="checkbox"><input type="checkbox" name="permission_apply_annotations"> Can apply annotations</label><label class="checkbox"><input type="checkbox" name="exclude_from_ot"> Do not offer overtime</label></div>
+          </div>
+        </details>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Create profile and continue setup</button></div>
       </form>
     </div>
     <label class="admin-search">Find staff member<input type="search" placeholder="Search by name, watch or role…" data-staff-search></label>
@@ -185,9 +337,9 @@
   </section>
 
   <section id="admin-tools" class="admin-panel" data-admin-panel="tools" hidden>
-    <header class="admin-panel-heading"><div><span class="admin-step">Configuration</span><h3>Tools and reference data</h3><p>Open specialist settings without crowding the main workspace.</p></div></header>
+    <header class="admin-panel-heading"><div><span class="admin-step">Other settings</span><h3>Specialist administration</h3><p>These settings are used less often. Leave them unchanged unless you know the operational requirement.</p></div></header>
     <div class="admin-tool-grid">
-      <a href="{{ url_for('admin_reference') }}"><i class="fa-solid fa-tags"></i><span><strong>Reference data</strong><small>Annotations and roster code lists</small></span></a>
+      <a href="{{ url_for('admin_reference') }}"><i class="fa-solid fa-tags"></i><span><strong>Roster codes and annotations</strong><small>Guided setup for labels used on the roster</small></span></a>
       <a href="{{ url_for('bulk_annotations') }}"><i class="fa-solid fa-table-cells"></i><span><strong>Bulk annotations</strong><small>Preview and apply annotations across a date range</small></span></a>
       <a href="{{ url_for('admin_ai_rules') }}"><i class="fa-solid fa-wand-magic-sparkles"></i><span><strong>AI rules</strong><small>Automated roster constraints</small></span></a>
       <a href="{{ url_for('admin_toil_new') }}"><i class="fa-solid fa-clock-rotate-left"></i><span><strong>Manual TOIL</strong><small>Record a balance adjustment</small></span></a>
@@ -229,6 +381,7 @@
     const drawer = document.querySelector(drawerSelector);
     button?.addEventListener('click', () => {
       drawer.hidden = !drawer.hidden;
+      button.setAttribute('aria-expanded', String(!drawer.hidden));
       if (!drawer.hidden) drawer.querySelector('input:not([type=hidden])')?.focus();
     });
   };
@@ -246,6 +399,49 @@
       if (matches) visible++;
     });
     if (empty) empty.hidden = visible !== 0;
+  });
+  document.querySelectorAll('[data-pattern-builder]').forEach(builder => {
+    const input = builder.querySelector('[data-pattern-value]');
+    const sequence = builder.querySelector('[data-pattern-sequence]');
+    let values = (input.value || '').split(',').map(value => value.trim()).filter(Boolean);
+    const render = () => {
+      input.value = values.join(',');
+      sequence.innerHTML = '';
+      if (!values.length) {
+        const empty = document.createElement('span');
+        empty.className = 'pattern-empty';
+        empty.textContent = 'Using unit base pattern';
+        sequence.append(empty);
+        return;
+      }
+      values.forEach((value, index) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = `pattern-chip pattern-chip--${value.toLowerCase()}`;
+        chip.textContent = `${index + 1} · ${value}`;
+        chip.title = 'Remove this duty';
+        chip.addEventListener('click', () => {
+          values.splice(index, 1);
+          render();
+        });
+        sequence.append(chip);
+      });
+    };
+    builder.querySelectorAll('[data-add-pattern]').forEach(button => {
+      button.addEventListener('click', () => {
+        values.push(button.dataset.addPattern);
+        render();
+      });
+    });
+    builder.querySelector('[data-undo-pattern]')?.addEventListener('click', () => {
+      values.pop();
+      render();
+    });
+    builder.querySelector('[data-clear-pattern]')?.addEventListener('click', () => {
+      values = [];
+      render();
+    });
+    render();
   });
 })();
 </script>

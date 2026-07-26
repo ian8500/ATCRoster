@@ -3,11 +3,13 @@ import re
 import pyotp
 
 import app
+from tenancy import operational_unit_context
 from app import (
     PlatformIdentity,
     Staff,
     Unit,
     UnitMembership,
+    Watch,
     db,
 )
 
@@ -146,6 +148,8 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
     _login(unit_client, "tst.admin", "UnitAdmin-Test-2026!")
     setup = unit_client.get("/security/mfa")
     assert setup.status_code == 200
+    assert b"data:image/svg+xml;base64," in setup.data
+    assert b"Scan QR code" in setup.data
     with unit_client.session_transaction() as session:
         secret = session["_pending_mfa_secret"]
         mfa_csrf = session["_csrf_token"]
@@ -217,7 +221,23 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
         ).count() == 2
 
         unit.active_user_limit = 3
-        db.session.commit()
+        with operational_unit_context(unit.id, secret_name):
+            watch = Watch.query.filter_by(unit_id=unit.id).first()
+            roster_person = Staff(
+                unit_id=unit.id,
+                username="person-before-access",
+                name="Airport Auditor",
+                staff_no="AUD-001",
+                role="user",
+                watch_id=watch.id if watch else None,
+                is_operational=True,
+                pattern_override=True,
+                pattern_csv="D,OFF",
+            )
+            roster_person.set_password("No-Login-Placeholder-2026!")
+            db.session.add(roster_person)
+            db.session.commit()
+            roster_person_id = roster_person.id
 
     invitation = unit_client.post(
         "/unit/accounts",
@@ -225,12 +245,13 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
             "_csrf_token": unit_token,
             "action": "create_invitation",
             "role": "ReadOnlyAuditor",
+            "person_id": str(roster_person_id),
         },
         follow_redirects=True,
     )
     assert invitation.status_code == 200
     match = re.search(rb"/invite/([A-Za-z0-9_-]+)", invitation.data)
-    assert match
+    assert match, invitation.get_data(as_text=True)
     invitation_path = match.group(0).decode()
     invited_client = app.app.test_client()
     invite_token = _csrf(invited_client, invitation_path)
@@ -238,7 +259,6 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
         invitation_path,
         data={
             "_csrf_token": invite_token,
-            "name": "Airport Auditor",
             "username": "tst.auditor",
             "password": "Auditor-Test-2026!",
         },
@@ -249,10 +269,17 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
     _login(invited_client, "tst.auditor", "Auditor-Test-2026!")
     with app.app.app_context():
         unit = Unit.query.filter_by(code="TST").one()
-        assert UnitMembership.query.filter_by(
+        membership = UnitMembership.query.filter_by(
             unit_id=unit.id, status="active",
             role="ReadOnlyAuditor",
-        ).count() == 1
+            person_id=roster_person_id,
+        ).one()
+        assert membership.person_id == roster_person_id
+        with operational_unit_context(unit.id, secret_name):
+            preserved = db.session.get(Staff, roster_person_id)
+            assert preserved.staff_no == "AUD-001"
+            assert preserved.pattern_csv == "D,OFF"
+            assert preserved.is_operational
 
 
 def test_platform_admin_onboarding_contains_no_personal_identity_fields():

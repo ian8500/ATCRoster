@@ -4,43 +4,55 @@
 {% block content %}
 <div class="admin-intro">
   <h2 class="page-title">Reference Data</h2>
-  <p class="intro-lead">Configure annotation codes and roster code lists so the roster matches your unit's terminology.</p>
+  <p class="intro-lead">Create the short labels staff see on roster cells. Start with the name and colour; advanced behaviour is optional.</p>
 </div>
 
 <section class="admin-section">
   <header class="section-header">
     <div>
-      <h3>Annotation Codes</h3>
-      <p class="section-subtitle">Add, rename, or hide annotation options and define how they behave.</p>
+      <h3>Annotation setup</h3>
+      <p class="section-subtitle">Follow the three steps below. Most units only need the first two.</p>
     </div>
   </header>
   <div class="section-body stack">
-    <details class="collapsible-card" open>
-      <summary class="collapsible-title">Add Annotation</summary>
-      <form method="post" class="row inline-form">
+    <div class="setup-walkthrough">
+      <article><span>1</span><div><strong>Name it</strong><small>Choose a short roster code and a clear staff-facing label.</small></div></article>
+      <article><span>2</span><div><strong>Make it recognisable</strong><small>Pick a colour, category and short explanation.</small></div></article>
+      <article><span>3</span><div><strong>Add behaviour only if needed</strong><small>Use advanced options for TOIL, suffixes, restricted use or mandatory notes.</small></div></article>
+    </div>
+    <section class="collapsible-card annotation-create-card">
+      <h4>Create an annotation</h4>
+      <form method="post" class="annotation-guided-form">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="annotation_new">
-        <label>Code <input name="code" required class="input-sm" placeholder="e.g. A2"></label>
-        <label>Label <input name="label" class="input-xl" placeholder="Display name"></label>
-        <label>Category <input name="category" class="input-lg" placeholder="Dropdown group"></label>
-        <label>Colour <input name="colour" type="color" value="#6c757d"></label>
-        <label>Description <input name="description" class="input-xl" placeholder="Help text shown in the cell editor"></label>
-        <label>Tags <input name="tags" class="input-xl" placeholder="Comma-separated e.g. ot,aava"></label>
-        <label>Allow suffix <input type="checkbox" name="allow_suffix"></label>
-        <label>Suffixes <input name="suffixes" class="input-sm" placeholder="MDAN"></label>
-        <label>TOIL half-days <input type="number" name="toil_half_days" class="input-sm" min="0" value="0"></label>
-        <label>Sort order <input type="number" name="sort_order" class="input-sm" value="0"></label>
-        <label>Active <input type="checkbox" name="is_active" checked></label>
-        <label>Note required <input type="checkbox" name="note_required"></label>
-        <label>Unit Admin only <input type="checkbox" name="admin_only"></label>
+        <div class="annotation-basics">
+          <label>Short code<input name="code" required maxlength="10" placeholder="e.g. OT"></label>
+          <label>Staff-facing name<input name="label" required placeholder="e.g. Overtime"></label>
+          <label>Group<select name="category"><option>General</option><option>Overtime</option><option>Training</option><option>Leave</option><option>Operational</option></select></label>
+          <label>Colour<input name="colour" type="color" value="#6c757d"></label>
+          <label class="annotation-description">What does it mean?<input name="description" placeholder="A short explanation shown to roster users"></label>
+        </div>
+        <input type="hidden" name="is_active" value="on">
+        <details class="advanced-panel">
+          <summary><span><strong>Advanced behaviour</strong><small>Optional suffix, TOIL and permission controls</small></span></summary>
+          <div class="advanced-panel__content annotation-advanced-grid">
+            <label>System tags<input name="tags" placeholder="e.g. ot,aava"></label>
+            <label>Allowed suffixes<input name="suffixes" placeholder="e.g. MDAN"></label>
+            <label>TOIL half-days<input type="number" name="toil_half_days" min="-200" max="200" value="0"></label>
+            <label>Sort order<input type="number" name="sort_order" value="100"></label>
+            <label class="checkbox"><input type="checkbox" name="allow_suffix"> Allow a suffix</label>
+            <label class="checkbox"><input type="checkbox" name="note_required"> Require a note</label>
+            <label class="checkbox"><input type="checkbox" name="admin_only"> Unit Admin only</label>
+          </div>
+        </details>
         <div class="form-actions">
-          <button class="btn btn-primary" type="submit">Add Annotation</button>
+          <button class="btn btn-primary" type="submit">Create annotation</button>
         </div>
       </form>
-    </details>
+    </section>
 
-    <details class="collapsible-card" open>
-      <summary class="collapsible-title">Existing Annotations</summary>
+    <details class="collapsible-card">
+      <summary class="collapsible-title">Review or edit existing annotations <span class="status-pill">{{ annotations|length }}</span></summary>
       <div class="table-scroll">
         <table class="mini admin-table">
           <thead>

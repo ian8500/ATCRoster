@@ -27,6 +27,7 @@
     <div class="card-hd"><i class="fa-solid fa-robot"></i> Simple editor</div>
     <div class="card-bd">
       <form method="post" class="stack">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="mode" value="form">
 
         <div class="row g-3">
@@ -104,6 +105,7 @@
     <div class="card-hd"><i class="fa-solid fa-code"></i> Advanced JSON</div>
     <div class="card-bd">
       <form method="post" class="stack">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="mode" value="json">
         <label class="form-label" for="rules_json">Rules JSON</label>
         <textarea class="form-control font-monospace" id="rules_json" name="rules_json" rows="12">{{ rules_json }}</textarea>

@@ -97,6 +97,9 @@ def register_saas_models(db, utcnow):
         unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
         token_digest = db.Column(db.String(128), unique=True, nullable=False)
         role = db.Column(db.String(30), nullable=False)
+        # Opaque id of an already configured roster person. The operational
+        # row may live in the airport database, so no cross-database FK.
+        target_person_id = db.Column(db.Integer, index=True)
         expires_at = db.Column(db.DateTime, nullable=False)
         accepted_at = db.Column(db.DateTime)
         disabled_at = db.Column(db.DateTime)

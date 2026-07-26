@@ -31,7 +31,7 @@
           <input id="request-day" type="date" name="day" class="form-control" required>
         </div>
         <div class="col-md-3">
-          <label class="form-label" for="request-code">Code</label>
+          <label class="form-label" for="request-code">Requested shift or status</label>
           <select id="request-code" name="code" class="form-select" required>
             {% for code in codes %}
               <option value="{{ code }}">{{ code }}</option>
