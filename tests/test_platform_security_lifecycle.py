@@ -113,6 +113,7 @@ def test_provisioning_failure_is_safe_and_retryable(tmp_path, monkeypatch):
         db.session.commit()
         identity_id = identity.id
         unit_id, secret_name = unit.id, route.secret_name
+    monkeypatch.delenv(secret_name, raising=False)
     client = app.app.test_client()
     with client.session_transaction() as session:
         session["_user_id"] = f"platform-identity:{identity_id}"
@@ -124,17 +125,23 @@ def test_provisioning_failure_is_safe_and_retryable(tmp_path, monkeypatch):
         "action": "provision_unit", "unit_id": str(unit_id),
     })
     assert failed.status_code == 302
+    from platform_provisioning import ProvisioningWorker
+    worker = ProvisioningWorker(app.app)
+    assert worker.run_once()
     with app.app.app_context():
         route = db.session.get(DatabaseRoutingMetadata, unit_id)
-        assert route.provisioning_state == "failed"
+        assert route.provisioning_state == "retry_wait"
         assert route.last_error_code == "database_secret_unavailable"
         assert SecureInvitation.query.filter_by(unit_id=unit_id).count() == 0
+        job = app.ProvisioningJob.query.filter_by(unit_id=unit_id).one()
+        job.next_attempt_at = app.utcnow()
+        db.session.commit()
     operational_url = f"sqlite:///{tmp_path / 'provisioned.db'}"
     monkeypatch.setenv(secret_name, operational_url)
-    from scripts import migrate_all_databases
-    real_upgrade = migrate_all_databases.upgrade_database
+    import platform_provisioning
+    real_upgrade = platform_provisioning.upgrade_database
     monkeypatch.setattr(
-        migrate_all_databases, "upgrade_database",
+        platform_provisioning, "upgrade_database",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("synthetic migration failure")
         ),
@@ -145,13 +152,17 @@ def test_provisioning_failure_is_safe_and_retryable(tmp_path, monkeypatch):
         "action": "provision_unit", "unit_id": str(unit_id),
     })
     assert migration_failed.status_code == 302
+    assert worker.run_once()
     with app.app.app_context():
         route = db.session.get(DatabaseRoutingMetadata, unit_id)
-        assert route.provisioning_state == "failed"
+        assert route.provisioning_state == "retry_wait"
         assert route.last_error_code == "database_provisioning_failed"
         assert SecureInvitation.query.filter_by(unit_id=unit_id).count() == 0
+        job = app.ProvisioningJob.query.filter_by(unit_id=unit_id).one()
+        job.next_attempt_at = app.utcnow()
+        db.session.commit()
     monkeypatch.setattr(
-        migrate_all_databases, "upgrade_database", real_upgrade
+        platform_provisioning, "upgrade_database", real_upgrade
     )
     client.get("/platform/admin")
     retried = client.post("/platform/admin", data={
@@ -159,6 +170,7 @@ def test_provisioning_failure_is_safe_and_retryable(tmp_path, monkeypatch):
         "action": "provision_unit", "unit_id": str(unit_id),
     })
     assert retried.status_code == 302
+    assert worker.run_once()
     with app.app.app_context():
         route = db.session.get(DatabaseRoutingMetadata, unit_id)
         assert route.provisioning_state == "invitation_issued"

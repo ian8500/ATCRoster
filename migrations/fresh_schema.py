@@ -9,6 +9,7 @@ CONTROL_TABLES = frozenset({
     "database_routing_metadata", "feature_flag", "plan_history",
     "aggregate_usage_event", "super_admin_audit",
     "platform_mfa_credential", "signup_workflow", "central_security_audit",
+    "provisioning_job",
 })
 
 

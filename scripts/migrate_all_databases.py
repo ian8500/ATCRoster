@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Upgrade the control database, then every secret-routed airport database."""
+
 from __future__ import annotations
 
 import os
@@ -15,9 +16,7 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
 
 
-def upgrade_database(
-    database_url: str, schema_role: str
-) -> str:
+def upgrade_database(database_url: str, schema_role: str) -> str:
     if schema_role not in {"control", "operational", "combined"}:
         raise ValueError("schema_role must be control, operational, or combined")
     if (
@@ -36,9 +35,9 @@ def upgrade_database(
         engine = create_engine(database_url, pool_pre_ping=True)
         try:
             with engine.connect() as connection:
-                return MigrationContext.configure(
-                    connection
-                ).get_current_revision() or ""
+                return (
+                    MigrationContext.configure(connection).get_current_revision() or ""
+                )
         finally:
             engine.dispose()
     finally:
@@ -63,32 +62,47 @@ def main() -> None:
     control_engine = create_engine(control_url, pool_pre_ping=True)
     try:
         with control_engine.connect() as connection:
-            routes = connection.execute(text(
-                "SELECT r.unit_id, r.secret_name "
-                "FROM database_routing_metadata r "
-                "ORDER BY r.unit_id"
-            )).all()
+            routes = connection.execute(
+                text(
+                    "SELECT r.unit_id, r.secret_name "
+                    "FROM database_routing_metadata r "
+                    "ORDER BY r.unit_id"
+                )
+            ).all()
     finally:
         control_engine.dispose()
-    for unit_id, secret_name in routes:
-        if not SECRET_NAME_PATTERN.fullmatch(secret_name or ""):
-            raise SystemExit(
-                f"Unit {unit_id} has an invalid deployment-secret name."
+    configured_routes = {secret_name: unit_id for unit_id, secret_name in routes}
+    # Deployment manifests may provide an airport database before its control
+    # metadata is created. Migrate every strictly named secret as well as every
+    # registered route; values are never printed.
+    for secret_name in os.environ:
+        if SECRET_NAME_PATTERN.fullmatch(secret_name):
+            configured_routes.setdefault(
+                secret_name,
+                int(
+                    secret_name.removeprefix("ATCROSTER_UNIT_").removesuffix(
+                        "_DATABASE_URL"
+                    )
+                ),
             )
+    for secret_name, unit_id in sorted(
+        configured_routes.items(), key=lambda item: item[1]
+    ):
+        if not SECRET_NAME_PATTERN.fullmatch(secret_name or ""):
+            raise SystemExit(f"Unit {unit_id} has an invalid deployment-secret name.")
         operational_url = os.environ.get(secret_name)
         if not operational_url:
             raise SystemExit(
                 f"Required deployment secret {secret_name} is unavailable."
             )
-        if _canonical_database_url(operational_url) == _canonical_database_url(control_url):
+        if _canonical_database_url(operational_url) == _canonical_database_url(
+            control_url
+        ):
             raise SystemExit(
                 f"Unit {unit_id} operational database must differ from control."
             )
         version = upgrade_database(operational_url, "operational")
-        print(
-            f"Operational database for unit {unit_id} upgraded to "
-            f"{version}."
-        )
+        print(f"Operational database for unit {unit_id} upgraded to {version}.")
 
 
 def _canonical_database_url(value: str) -> str:

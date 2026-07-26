@@ -29,6 +29,18 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - atcroster_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   migrate:
     build: .
     environment: &app_environment
@@ -36,6 +48,7 @@ services:
       ATCROSTER_SECURE_COOKIES: "true"
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY}
       ATCROSTER_FIELD_ENCRYPTION_KEY: ${ATCROSTER_FIELD_ENCRYPTION_KEY:?set ATCROSTER_FIELD_ENCRYPTION_KEY}
+      REDIS_URL: redis://redis:6379/0
       CONTROL_DATABASE_URL: postgresql+psycopg://atcroster:${CONTROL_POSTGRES_PASSWORD}@control-database:5432/atcroster_control
       DATABASE_URL: postgresql+psycopg://atcroster:${CONTROL_POSTGRES_PASSWORD}@control-database:5432/atcroster_control
       ATCROSTER_UNIT_1_DATABASE_URL: postgresql+psycopg://atcroster:${AIRPORT_1_POSTGRES_PASSWORD}@airport-1-database:5432/atcroster_airport_1
@@ -44,6 +57,8 @@ services:
       control-database:
         condition: service_healthy
       airport-1-database:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: "no"
 
@@ -63,6 +78,26 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  worker:
+    build: .
+    restart: unless-stopped
+    environment: *app_environment
+    command: ["python", "scripts/run_provisioning_worker.py"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /srv/atcroster/instance
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   atcroster_control_db:
   atcroster_airport_1_db:
+  atcroster_redis:

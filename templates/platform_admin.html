@@ -38,6 +38,30 @@
           <td>
             {{ row.bootstrap_status }}<br>
             <small>{{ row.provisioning_state }}{% if row.provisioning_error %} · {{ row.provisioning_error }}{% endif %}</small>
+            {% if row.provisioning_job %}
+              <br><small>Job #{{ row.provisioning_job.id }} · {{ row.provisioning_job.state }}</small>
+              {% if row.provisioning_job.state in ("queued", "running", "retry_wait") %}
+              <form method="post" class="mt-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="cancel_provisioning">
+                <input type="hidden" name="job_id" value="{{ row.provisioning_job.id }}">
+                <button class="btn btn-sm" type="submit">Cancel job</button>
+              </form>
+              {% elif row.provisioning_job.state == "completed" and row.bootstrap_status == "unused" %}
+              <form method="post" class="mt-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="reveal_bootstrap">
+                <input type="hidden" name="job_id" value="{{ row.provisioning_job.id }}">
+                <button class="btn btn-sm" type="submit">Show one-time link</button>
+              </form>
+              <form method="post" class="mt-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="replace_bootstrap">
+                <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
+                <button class="btn btn-sm" type="submit">Revoke and replace</button>
+              </form>
+              {% endif %}
+            {% endif %}
             {% if row.provisioning_state != "active" %}
             <form method="post" class="mt-2">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
