@@ -26,7 +26,32 @@ def _login(client, username, password):
     assert response.status_code == 302
 
 
-def test_super_admin_provisions_airport_and_account_limit_is_transactional():
+def _login_platform_with_mfa(client, username, password):
+    _login(client, username, password)
+    setup = client.get("/login/platform-mfa/setup")
+    assert setup.status_code == 200
+    with client.session_transaction() as session:
+        secret = session["_pending_platform_mfa_secret"]
+        token = session["_csrf_token"]
+    enrolled = client.post(
+        "/login/platform-mfa/setup",
+        data={"_csrf_token": token, "code": pyotp.TOTP(secret).now()},
+    )
+    assert enrolled.status_code == 200
+    challenge = client.get("/login/platform-mfa")
+    assert challenge.status_code == 200
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    verified = client.post(
+        "/login/platform-mfa",
+        data={"_csrf_token": token, "code": pyotp.TOTP(secret).now()},
+    )
+    assert verified.status_code == 302
+
+
+def test_super_admin_provisions_airport_and_account_limit_is_transactional(
+    tmp_path, monkeypatch
+):
     with app.app.app_context():
         db.drop_all()
         db.create_all()
@@ -54,7 +79,9 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional():
         assert db.session.get(Staff, platform_user.id).role == "superadmin"
 
     super_client = app.app.test_client()
-    _login(super_client, "platform.admin", "Platform-Test-2026!")
+    _login_platform_with_mfa(
+        super_client, "platform.admin", "Platform-Test-2026!"
+    )
     token = _csrf(super_client, "/platform/admin")
     created = super_client.post(
         "/platform/admin",
@@ -72,10 +99,29 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional():
         follow_redirects=True,
     )
     assert created.status_code == 200
-    assert b"Test Airport created" in created.data
+    assert b"Test Airport metadata created" in created.data
     # The control-plane listing does not display personnel details.
     assert b"tst.admin" not in created.data
-    bootstrap_match = re.search(rb"/invite/([A-Za-z0-9_-]+)", created.data)
+    with app.app.app_context():
+        unit = Unit.query.filter_by(code="TST").one()
+        secret_name = f"ATCROSTER_UNIT_{unit.id}_DATABASE_URL"
+    monkeypatch.setenv(
+        secret_name, f"sqlite:///{tmp_path / 'tst-operational.db'}"
+    )
+    provision_token = _csrf(super_client, "/platform/admin")
+    provisioned = super_client.post(
+        "/platform/admin",
+        data={
+            "_csrf_token": provision_token,
+            "action": "provision_unit",
+            "unit_id": str(unit.id),
+        },
+        follow_redirects=True,
+    )
+    assert provisioned.status_code == 200
+    bootstrap_match = re.search(
+        rb"/invite/([A-Za-z0-9_-]+)", provisioned.data
+    )
     assert bootstrap_match
     bootstrap_path = bootstrap_match.group(0).decode()
 
@@ -112,6 +158,29 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional():
     )
     assert enrolled.status_code == 200
     unit_token = _csrf(unit_client, "/unit/accounts")
+    with app.app.app_context():
+        db.session.add(PlatformIdentity(
+            public_id="other-airport-duplicate",
+            username="tst.duplicate",
+            password_hash="not-a-login-secret",
+        ))
+        db.session.commit()
+    duplicate = unit_client.post(
+        "/unit/accounts",
+        data={
+            "_csrf_token": unit_token,
+            "action": "create_account",
+            "name": "Must Not Be Created",
+            "username": "TST.DUPLICATE",
+            "password": "Duplicate-Test-2026!",
+        },
+        follow_redirects=True,
+    )
+    assert b"login identifier is unavailable" in duplicate.data
+    with app.app.app_context():
+        assert UnitMembership.query.join(PlatformIdentity).filter(
+            PlatformIdentity.username == "tst.duplicate"
+        ).count() == 0
     second = unit_client.post(
         "/unit/accounts",
         data={
@@ -211,7 +280,9 @@ def test_platform_admin_onboarding_contains_no_personal_identity_fields():
         ))
         db.session.commit()
     client = app.app.test_client()
-    _login(client, "privacy.platform", "Platform-Privacy-2026!")
+    _login_platform_with_mfa(
+        client, "privacy.platform", "Platform-Privacy-2026!"
+    )
     page = client.get("/platform/admin")
     assert page.status_code == 200
     prohibited = (

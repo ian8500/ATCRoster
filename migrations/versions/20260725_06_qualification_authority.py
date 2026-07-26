@@ -3,6 +3,8 @@
 Revision ID: 20260725_06
 Revises: 20260725_05
 """
+import os
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -19,6 +21,8 @@ def _columns(inspector, table):
 
 
 def upgrade():
+    if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "control":
+        return
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     tables = set(inspector.get_table_names())
@@ -128,10 +132,13 @@ def upgrade():
         ("UCA", "Unit Competence Assessor", False),
         ("ENGLISH_LANGUAGE", "English Language", True),
     )
+    unit_source = (
+        "SELECT DISTINCT unit_id FROM staff ORDER BY unit_id"
+        if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "operational"
+        else "SELECT id FROM unit ORDER BY id"
+    )
     unit_ids = [
-        row[0] for row in bind.execute(
-            sa.text("SELECT id FROM unit ORDER BY id")
-        )
+        row[0] for row in bind.execute(sa.text(unit_source))
     ]
     for unit_id in unit_ids:
         for code, label, expiry_required in defaults:

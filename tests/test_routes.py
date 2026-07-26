@@ -399,6 +399,33 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             data={"username": username, "password": "password123"},
         )
         assert response.status_code == 302
+        if role == "superadmin":
+            protected = role_client.get("/platform/admin")
+            assert protected.status_code == 302
+            assert "/login" in protected.headers["Location"]
+            setup = role_client.get("/login/platform-mfa/setup")
+            assert setup.status_code == 200
+            with role_client.session_transaction() as session:
+                secret = session["_pending_platform_mfa_secret"]
+                token = session["_csrf_token"]
+            role_client.post(
+                "/login/platform-mfa/setup",
+                data={
+                    "_csrf_token": token,
+                    "code": pyotp.TOTP(secret).now(),
+                },
+            )
+            role_client.get("/login/platform-mfa")
+            with role_client.session_transaction() as session:
+                token = session["_csrf_token"]
+            verified = role_client.post(
+                "/login/platform-mfa",
+                data={
+                    "_csrf_token": token,
+                    "code": pyotp.TOTP(secret).now(),
+                },
+            )
+            assert verified.status_code == 302
         clients[role] = role_client
         for capability, path in common.items():
             actual = role_client.get(path).status_code

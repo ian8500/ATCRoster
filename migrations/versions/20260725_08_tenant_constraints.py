@@ -3,6 +3,8 @@
 Revision ID: 20260725_08
 Revises: 20260725_07
 """
+import os
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -72,9 +74,14 @@ SCOPED_UNIQUES = {
 
 
 def upgrade():
+    if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "control":
+        return
     bind = op.get_bind()
     tables = set(sa.inspect(bind).get_table_names())
-    for table in TENANT_TABLES:
+    schema_role = os.environ.get(
+        "ATCROSTER_SCHEMA_ROLE", "combined"
+    ).lower()
+    for table in (() if schema_role == "operational" else TENANT_TABLES):
         if table not in tables:
             continue
         inspector = sa.inspect(bind)

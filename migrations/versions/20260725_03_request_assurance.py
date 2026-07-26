@@ -3,6 +3,8 @@
 Revision ID: 20260725_03
 Revises: 20260724_02
 """
+import os
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -18,6 +20,8 @@ def _column_names(inspector, table):
 
 
 def upgrade():
+    if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "control":
+        return
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     tables = set(inspector.get_table_names())

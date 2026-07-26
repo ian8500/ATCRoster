@@ -32,11 +32,16 @@ def _operational_tables():
     ]
 
 
-def _seed_operational_unit(unit_id, secret_name, username, marker):
+def _seed_operational_unit(
+    unit_id, secret_name, username, marker, create_schema=True
+):
     token = bind_authenticated_unit(unit_id, secret_name)
     try:
         engine = operational_engine_for_authenticated_unit()
-        db.metadata.create_all(bind=engine, tables=_operational_tables())
+        if create_schema:
+            db.metadata.create_all(
+                bind=engine, tables=_operational_tables()
+            )
         watch = Watch(unit_id=unit_id, name=f"Watch {marker}")
         db.session.add(watch)
         db.session.flush()
