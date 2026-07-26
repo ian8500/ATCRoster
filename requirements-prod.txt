@@ -12,7 +12,7 @@ psycopg[binary]==3.3.4
 # Security and MFA
 Werkzeug==3.1.8
 cryptography==48.0.1
-pyotp==2.9.0
+pyotp==2.10.0
 qrcode==8.2
 itsdangerous==2.2.0
 
