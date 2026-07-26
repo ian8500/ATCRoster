@@ -31,3 +31,50 @@ jobs:
           context: .
           push: false
           tags: atcroster:test
+
+  postgres-multidatabase:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: atcroster
+          POSTGRES_PASSWORD: integration-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atcroster"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FLASK_SECRET_KEY: integration-only-secret-with-at-least-32-characters
+      ATCROSTER_SKIP_RUNTIME_SCHEMA: "1"
+      ATCROSTER_TEST_CONTROL_DATABASE_URL: postgresql+psycopg://atcroster:integration-only@127.0.0.1:5432/atcroster_control
+      ATCROSTER_TEST_A_DATABASE_URL: postgresql+psycopg://atcroster:integration-only@127.0.0.1:5432/atcroster_airport_a
+      ATCROSTER_TEST_B_DATABASE_URL: postgresql+psycopg://atcroster:integration-only@127.0.0.1:5432/atcroster_airport_b
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Create isolated integration databases
+        run: |
+          python - <<'PY'
+          import psycopg
+          connection = psycopg.connect(
+              "postgresql://atcroster:integration-only@127.0.0.1:5432/postgres",
+              autocommit=True,
+          )
+          for name in (
+              "atcroster_control",
+              "atcroster_airport_a",
+              "atcroster_airport_b",
+          ):
+              connection.execute(f'CREATE DATABASE "{name}"')
+          connection.close()
+          PY
+      - run: python -m pytest -q tests/test_postgresql_multidatabase.py

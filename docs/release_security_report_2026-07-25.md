@@ -40,7 +40,11 @@ foreign key.
 
 ## Verification evidence
 
-- Full automated suite: 67 passed on Python 3.12 without warnings.
+- Full automated suite: 73 passed and one PostgreSQL-only test skipped when
+  its three integration database URLs are not supplied.
+- PostgreSQL 16 three-database integration: 1 passed, covering independent
+  control/operational migrations, disjoint schemas and authenticated airport
+  read isolation.
 - PostgreSQL 16: control plus two physically separate airport databases
   migrated and passed authenticated cross-database isolation.
 - Production container image built successfully and its production

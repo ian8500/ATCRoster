@@ -2,6 +2,13 @@
 
 Updated 24 July 2026. The filename is retained to preserve existing links.
 
+The July 2026 security hardening separates the control-plane schema from every
+airport operational schema. Control owns global identities, memberships,
+platform MFA, provisioning and signup workflow state; airport databases own
+all personnel and roster information. Role-filtered Alembic migrations and a
+three-database PostgreSQL 16 CI job verify the physical boundary. See
+[control_operational_database_design.md](control_operational_database_design.md).
+
 ## Current platform
 
 ATCRoster is a Flask/SQLAlchemy application with server-rendered responsive
