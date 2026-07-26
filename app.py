@@ -224,22 +224,29 @@ def health_live():
 @app.get("/health/ready")
 def health_ready():
     try:
-        db.session.execute(text("SELECT 1"))
-        required_tables = {
-            "unit", "staff", "assignment", "roster_publication",
-            "operational_position", "fatigue_report", "roster_rule_version",
-        }
+        connection = db.session.connection()
+        connection.execute(text("SELECT 1"))
         from sqlalchemy import inspect
-        present = set(inspect(db.engine).get_table_names())
-        missing = sorted(required_tables - present)
-        if missing:
-            return jsonify({
-                "status": "not_ready", "missing_tables": missing,
-            }), 503
-        return jsonify({"status": "ready", "database": "ok"})
+        from alembic.runtime.migration import MigrationContext
+        from migrations.fresh_schema import CONTROL_TABLES
+
+        present = set(inspect(connection).get_table_names())
+        revision = MigrationContext.configure(connection).get_current_revision()
+        if (
+            not CONTROL_TABLES.issubset(present)
+            or (
+                DEPLOYMENT_ENV == "production"
+                and revision != "20260726_11"
+            )
+        ):
+            return jsonify({"status": "not_ready"}), 503
+        return jsonify({"status": "ready"})
     except Exception:
-        app.logger.exception("readiness_check_failed")
-        return jsonify({"status": "not_ready", "database": "unavailable"}), 503
+        app.logger.error(
+            "readiness_check_failed request_id=%s",
+            getattr(g, "request_id", ""),
+        )
+        return jsonify({"status": "not_ready"}), 503
 
 
 @app.errorhandler(500)
@@ -9324,11 +9331,20 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                     platform_login = identity.public_id.startswith(
                         "platform-"
                     )
-        else:
+        elif DEPLOYMENT_ENV != "production":
             user = Staff.query.filter_by(username=username).first()
             credentials_valid = bool(
                 user and user.check_password(password)
             )
+        else:
+            # Production authentication always begins in the control plane.
+            # Do not query operational databases for unknown principals.
+            credentials_valid = False
+        if (
+            identity and credentials_valid and not user
+            and not identity.public_id.startswith("platform-")
+        ):
+            credentials_valid = False
         if user and credentials_valid:
             if user.membership_status != "active":
                 flash("This account is not active.", "error")

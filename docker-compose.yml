@@ -1,15 +1,30 @@
 services:
-  database:
+  control-database:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: atcroster
+      POSTGRES_DB: atcroster_control
       POSTGRES_USER: atcroster
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${CONTROL_POSTGRES_PASSWORD:?set CONTROL_POSTGRES_PASSWORD}
     volumes:
-      - atcroster_db:/var/lib/postgresql/data
+      - atcroster_control_db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U atcroster -d atcroster"]
+      test: ["CMD-SHELL", "pg_isready -U atcroster -d atcroster_control"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  airport-1-database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: atcroster_airport_1
+      POSTGRES_USER: atcroster
+      POSTGRES_PASSWORD: ${AIRPORT_1_POSTGRES_PASSWORD:?set AIRPORT_1_POSTGRES_PASSWORD}
+    volumes:
+      - atcroster_airport_1_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atcroster -d atcroster_airport_1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -21,10 +36,14 @@ services:
       ATCROSTER_SECURE_COOKIES: "true"
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY}
       ATCROSTER_FIELD_ENCRYPTION_KEY: ${ATCROSTER_FIELD_ENCRYPTION_KEY:?set ATCROSTER_FIELD_ENCRYPTION_KEY}
-      DATABASE_URL: postgresql+psycopg://atcroster:${POSTGRES_PASSWORD}@database:5432/atcroster
-    command: ["alembic", "upgrade", "head"]
+      CONTROL_DATABASE_URL: postgresql+psycopg://atcroster:${CONTROL_POSTGRES_PASSWORD}@control-database:5432/atcroster_control
+      DATABASE_URL: postgresql+psycopg://atcroster:${CONTROL_POSTGRES_PASSWORD}@control-database:5432/atcroster_control
+      ATCROSTER_UNIT_1_DATABASE_URL: postgresql+psycopg://atcroster:${AIRPORT_1_POSTGRES_PASSWORD}@airport-1-database:5432/atcroster_airport_1
+    command: ["python", "scripts/migrate_all_databases.py"]
     depends_on:
-      database:
+      control-database:
+        condition: service_healthy
+      airport-1-database:
         condition: service_healthy
     restart: "no"
 
@@ -35,8 +54,6 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
-      database:
-        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     read_only: true
@@ -47,4 +64,5 @@ services:
       - no-new-privileges:true
 
 volumes:
-  atcroster_db:
+  atcroster_control_db:
+  atcroster_airport_1_db:

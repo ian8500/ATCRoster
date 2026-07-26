@@ -16,8 +16,15 @@ SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
 
 
 def upgrade_database(
-    database_url: str, schema_role: str = "combined"
+    database_url: str, schema_role: str
 ) -> str:
+    if schema_role not in {"control", "operational", "combined"}:
+        raise ValueError("schema_role must be control, operational, or combined")
+    if (
+        os.environ.get("ATCROSTER_ENVIRONMENT") == "production"
+        and schema_role == "combined"
+    ):
+        raise RuntimeError("Combined schema migrations are forbidden in production.")
     previous = os.environ.get("DATABASE_URL")
     previous_role = os.environ.get("ATCROSTER_SCHEMA_ROLE")
     os.environ["DATABASE_URL"] = database_url
@@ -73,7 +80,7 @@ def main() -> None:
             raise SystemExit(
                 f"Required deployment secret {secret_name} is unavailable."
             )
-        if operational_url == control_url:
+        if _canonical_database_url(operational_url) == _canonical_database_url(control_url):
             raise SystemExit(
                 f"Unit {unit_id} operational database must differ from control."
             )
@@ -82,6 +89,14 @@ def main() -> None:
             f"Operational database for unit {unit_id} upgraded to "
             f"{version}."
         )
+
+
+def _canonical_database_url(value: str) -> str:
+    """Compare endpoints without ever logging or returning their credentials."""
+    from sqlalchemy.engine import make_url
+
+    parsed = make_url(value)
+    return str(parsed.set(password=None))
 
 
 if __name__ == "__main__":

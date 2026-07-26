@@ -8,6 +8,16 @@ config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
 config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url")))
+schema_role = os.environ.get("ATCROSTER_SCHEMA_ROLE", "combined")
+if schema_role not in {"control", "operational", "combined"}:
+    raise RuntimeError("ATCROSTER_SCHEMA_ROLE must be control, operational, or combined")
+if (
+    os.environ.get("ATCROSTER_ENVIRONMENT") == "production"
+    and schema_role == "combined"
+):
+    raise RuntimeError(
+        "ATCROSTER_SCHEMA_ROLE is mandatory and cannot be combined in production"
+    )
 # Production upgrades use explicit revision operations and never import Flask.
 target_metadata = None
 

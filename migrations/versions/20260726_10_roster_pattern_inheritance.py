@@ -43,9 +43,15 @@ def upgrade():
                 nullable=False, server_default=sa.false(),
             ))
         if "pattern_csv" in staff_columns:
+            staff = sa.table(
+                "staff",
+                sa.column("pattern_override", sa.Boolean()),
+                sa.column("pattern_csv", sa.String()),
+            )
             op.execute(
-                "UPDATE staff SET pattern_override=1 "
-                "WHERE COALESCE(pattern_csv, '') <> ''"
+                staff.update()
+                .where(sa.func.coalesce(staff.c.pattern_csv, "") != "")
+                .values(pattern_override=sa.true())
             )
 
 
