@@ -142,7 +142,7 @@
         <small>Published {{ publication.published_at.strftime('%d %b %Y %H:%M') if publication.published_at else 'Not published' }}{% if publication.superseded_at %} · superseded {{ publication.superseded_at.strftime('%d %b %Y %H:%M') }}{% endif %}</small>
         <small>{% if publication_diffs.get(publication.id) is not none %}{{ publication_diffs.get(publication.id) }} difference(s) from the active version{% else %}Comparison unavailable{% endif %}</small>
         {% if is_admin and publication.state == 'superseded' %}
-          <form method="post" onsubmit="return confirm('Restore version {{ publication.version }} as a new controlled release?');">
+          <form method="post" data-confirm="Restore version {{ publication.version }} as a new controlled release?">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="rollback">
             <input type="hidden" name="publication_id" value="{{ publication.id }}">

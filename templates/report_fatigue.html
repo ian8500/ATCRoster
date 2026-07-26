@@ -37,7 +37,7 @@
     thead th { background:#fff; }
   }
 </style>
-<script>
+<script nonce="{{ csp_nonce() }}">
   function doPrint(){ window.print(); }
 
   function toggleNoIssueRows(cbId, tableId){
@@ -86,12 +86,12 @@
 
   <div class="actions">
     <a href="{{ url_for('roster_month', ym=ym) }}">← Back to roster</a>
-    <button type="button" onclick="doPrint()">🖨 Print</button>
+    <button type="button" data-command="print-fatigue">🖨 Print</button>
   </div>
 
   <div class="controls">
-    <label><input type="checkbox" id="hideNoIssues" onchange="toggleNoIssueRows('hideNoIssues','fatigueTable')"> Hide people with no findings</label>
-    <label><input type="checkbox" id="onlyDays" onchange="showOnlyDaysWithFindings('onlyDays','fatigueTable')"> Show only days with any findings</label>
+    <label><input type="checkbox" id="hideNoIssues" data-command="fatigue-hide-clear"> Hide people with no findings</label>
+    <label><input type="checkbox" id="onlyDays" data-command="fatigue-only-days"> Show only days with any findings</label>
     <div class="legend">
       <span class="chip ok">0</span>
       <span class="chip warn">1–2</span>

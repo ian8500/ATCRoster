@@ -29,6 +29,21 @@ services:
       timeout: 5s
       retries: 10
 
+  airport-2-database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: atcroster_airport_2
+      POSTGRES_USER: atcroster
+      POSTGRES_PASSWORD: ${AIRPORT_2_POSTGRES_PASSWORD:?set AIRPORT_2_POSTGRES_PASSWORD}
+    volumes:
+      - atcroster_airport_2_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atcroster -d atcroster_airport_2"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -47,16 +62,22 @@ services:
       ATCROSTER_ENVIRONMENT: production
       ATCROSTER_SECURE_COOKIES: "true"
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY}
-      ATCROSTER_FIELD_ENCRYPTION_KEY: ${ATCROSTER_FIELD_ENCRYPTION_KEY:?set ATCROSTER_FIELD_ENCRYPTION_KEY}
+      ATCROSTER_FIELD_ENCRYPTION_KEYS: ${ATCROSTER_FIELD_ENCRYPTION_KEYS:?set ATCROSTER_FIELD_ENCRYPTION_KEYS}
+      ATCROSTER_TOKEN_ENCRYPTION_KEYS: ${ATCROSTER_TOKEN_ENCRYPTION_KEYS:?set ATCROSTER_TOKEN_ENCRYPTION_KEYS}
+      ATCROSTER_TRUSTED_HOSTS: ${ATCROSTER_TRUSTED_HOSTS:-localhost,127.0.0.1}
+      ATCROSTER_TRUSTED_PROXY_HOPS: ${ATCROSTER_TRUSTED_PROXY_HOPS:-0}
       REDIS_URL: redis://redis:6379/0
       CONTROL_DATABASE_URL: postgresql+psycopg://atcroster:${CONTROL_POSTGRES_PASSWORD}@control-database:5432/atcroster_control
       DATABASE_URL: postgresql+psycopg://atcroster:${CONTROL_POSTGRES_PASSWORD}@control-database:5432/atcroster_control
       ATCROSTER_UNIT_1_DATABASE_URL: postgresql+psycopg://atcroster:${AIRPORT_1_POSTGRES_PASSWORD}@airport-1-database:5432/atcroster_airport_1
+      ATCROSTER_UNIT_2_DATABASE_URL: postgresql+psycopg://atcroster:${AIRPORT_2_POSTGRES_PASSWORD}@airport-2-database:5432/atcroster_airport_2
     command: ["python", "scripts/migrate_all_databases.py"]
     depends_on:
       control-database:
         condition: service_healthy
       airport-1-database:
+        condition: service_healthy
+      airport-2-database:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -100,4 +121,5 @@ services:
 volumes:
   atcroster_control_db:
   atcroster_airport_1_db:
+  atcroster_airport_2_db:
   atcroster_redis:

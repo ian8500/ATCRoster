@@ -320,6 +320,9 @@ def test_security_headers_are_present(client):
     assert response.headers["Content-Security-Policy"].startswith(
         "default-src 'self'"
     )
+    policy = response.headers["Content-Security-Policy"]
+    assert "script-src 'self' 'nonce-" in policy
+    assert "script-src 'self' 'unsafe-inline'" not in policy
 
 
 def test_role_permission_matrix_and_cross_airport_isolation():
@@ -1247,7 +1250,7 @@ def test_mfa_challenge_completes_login(client):
         db.session.add(app.MfaCredential(
             unit_id=admin.unit_id,
             person_id=admin.id,
-            encrypted_secret=app._field_cipher().encrypt(secret.encode()).decode(),
+            encrypted_secret=app._encrypt_field(secret),
             enabled=True,
             enrolled_at=app.utcnow(),
         ))
@@ -1268,6 +1271,43 @@ def test_mfa_challenge_completes_login(client):
     )
     assert verified.status_code == 302
     assert "/roster/" in client.get("/", follow_redirects=False).headers["Location"]
+
+
+def test_continuous_activity_cannot_extend_absolute_session(client):
+    login(client)
+    with client.session_transaction() as session:
+        session["_last_seen_epoch"] = int(app.utcnow().timestamp())
+        session["_session_started_at"] = (
+            app.utcnow() - app.timedelta(minutes=721)
+        ).isoformat()
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+    with client.session_transaction() as session:
+        assert "_user_id" not in session
+
+
+def test_privilege_change_forces_existing_session_invalidation(client):
+    login(client)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        admin.role = "user"
+        db.session.commit()
+    try:
+        response = client.get("/", follow_redirects=False)
+        assert response.status_code == 302
+        assert "/login" in response.headers["Location"]
+        with client.session_transaction() as session:
+            assert "_user_id" not in session
+    finally:
+        with app.app.app_context():
+            admin = Staff.query.filter_by(
+                username=ADMIN_CREDENTIALS["username"]
+            ).one()
+            admin.role = "admin"
+            db.session.commit()
 
 
 def test_airport_absence_catalogue_and_calendar_token(client):

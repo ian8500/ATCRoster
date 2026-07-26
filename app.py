@@ -75,7 +75,20 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_recycle": 280,
     "pool_size": 5,
     "max_overflow": 5,
+    "pool_timeout": int(os.environ.get("ATCROSTER_DB_POOL_TIMEOUT_SECONDS", "10")),
 }
+if str(app.config["SQLALCHEMY_DATABASE_URI"]).startswith("postgresql"):
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"]["connect_args"] = {
+        "connect_timeout": int(
+            os.environ.get("ATCROSTER_DB_CONNECT_TIMEOUT_SECONDS", "5")
+        ),
+        "options": (
+            "-c statement_timeout="
+            + str(int(os.environ.get(
+                "ATCROSTER_DB_STATEMENT_TIMEOUT_MS", "15000"
+            )))
+        ),
+    }
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = int(
     os.environ.get("ATCROSTER_MAX_REQUEST_BYTES", 2 * 1024 * 1024)
@@ -98,6 +111,8 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
 # Make external URLs prefer https behind PA’s proxy
 app.config["PREFERRED_URL_SCHEME"] = "https"
 _trusted_proxy_hops = int(os.environ.get("ATCROSTER_TRUSTED_PROXY_HOPS", "0"))
+if not 0 <= _trusted_proxy_hops <= 3:
+    raise RuntimeError("ATCROSTER_TRUSTED_PROXY_HOPS must be between 0 and 3.")
 if _trusted_proxy_hops:
     app.wsgi_app = ProxyFix(
         app.wsgi_app, x_for=_trusted_proxy_hops,
@@ -106,7 +121,20 @@ if _trusted_proxy_hops:
 
 DEPLOYMENT_ENV = os.environ.get("ATCROSTER_ENVIRONMENT", "development").lower()
 FIELD_ENCRYPTION_KEY = os.environ.get("ATCROSTER_FIELD_ENCRYPTION_KEY", "")
+FIELD_ENCRYPTION_KEYS = os.environ.get("ATCROSTER_FIELD_ENCRYPTION_KEYS", "")
 if DEPLOYMENT_ENV == "production":
+    trusted_hosts = [
+        host.strip()
+        for host in os.environ.get("ATCROSTER_TRUSTED_HOSTS", "").split(",")
+        if host.strip()
+    ]
+    if not trusted_hosts:
+        raise RuntimeError("Production requires ATCROSTER_TRUSTED_HOSTS.")
+    app.config["TRUSTED_HOSTS"] = trusted_hosts
+    if "ATCROSTER_TRUSTED_PROXY_HOPS" not in os.environ:
+        raise RuntimeError(
+            "Production requires an explicit ATCROSTER_TRUSTED_PROXY_HOPS value."
+        )
     if app.config["SECRET_KEY"] == "fallback-change-me" or len(
         app.config["SECRET_KEY"]
     ) < 32:
@@ -119,25 +147,25 @@ if DEPLOYMENT_ENV == "production":
         raise RuntimeError(
             "Production requires ATCROSTER_SECURE_COOKIES=true."
         )
-    if not FIELD_ENCRYPTION_KEY:
+    if not FIELD_ENCRYPTION_KEY and not FIELD_ENCRYPTION_KEYS:
         raise RuntimeError(
-            "Production requires ATCROSTER_FIELD_ENCRYPTION_KEY."
+            "Production requires ATCROSTER_FIELD_ENCRYPTION_KEYS."
         )
-    try:
-        Fernet(FIELD_ENCRYPTION_KEY.encode())
-    except (ValueError, TypeError) as exc:
-        raise RuntimeError(
-            "ATCROSTER_FIELD_ENCRYPTION_KEY must be a valid Fernet key."
-        ) from exc
+    if not FIELD_ENCRYPTION_KEYS:
+        FIELD_ENCRYPTION_KEYS = f"legacy:{FIELD_ENCRYPTION_KEY}"
     if not os.environ.get("REDIS_URL"):
         raise RuntimeError("Production requires REDIS_URL.")
 else:
     FIELD_ENCRYPTION_KEY = base64.urlsafe_b64encode(
         hashlib.sha256(str(app.config["SECRET_KEY"]).encode()).digest()
     ).decode()
+    FIELD_ENCRYPTION_KEYS = f"dev:{FIELD_ENCRYPTION_KEY}"
 
 if DEPLOYMENT_ENV == "production":
     import redis
+    from platform_provisioning import validate_token_encryption_config
+
+    validate_token_encryption_config()
     _rate_limiter = RedisRateLimiter(redis.from_url(
         os.environ["REDIS_URL"], socket_connect_timeout=2,
         socket_timeout=2, decode_responses=True,
@@ -146,8 +174,46 @@ else:
     _rate_limiter = MemoryRateLimiter()
 
 
-def _field_cipher() -> Fernet:
-    return Fernet(FIELD_ENCRYPTION_KEY.encode())
+def _field_ciphers() -> list[tuple[str, Fernet]]:
+    result = []
+    for item in FIELD_ENCRYPTION_KEYS.split(","):
+        version, separator, key = item.strip().partition(":")
+        if not separator or not re.fullmatch(r"[A-Za-z0-9_-]{1,20}", version):
+            raise RuntimeError("Invalid field-encryption key version.")
+        try:
+            result.append((version, Fernet(key.encode())))
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("Invalid field-encryption key material.") from exc
+    if not result:
+        raise RuntimeError("At least one field-encryption key is required.")
+    return result
+
+
+def _encrypt_field(value: str) -> str:
+    version, cipher = _field_ciphers()[0]
+    return f"{version}.{cipher.encrypt(value.encode()).decode()}"
+
+
+def _decrypt_field(value: str) -> str:
+    version, separator, ciphertext = value.partition(".")
+    if separator:
+        candidates = [
+            cipher for candidate, cipher in _field_ciphers()
+            if candidate == version
+        ]
+    else:
+        ciphertext = value
+        candidates = [cipher for _version, cipher in _field_ciphers()]
+    for cipher in candidates:
+        try:
+            return cipher.decrypt(ciphertext.encode()).decode()
+        except InvalidToken:
+            continue
+    raise ValueError("Encrypted field cannot be decrypted with configured keys.")
+
+
+# Validate configured material during startup rather than at first MFA use.
+_field_ciphers()
 
 # Jinja helper
 app.jinja_env.globals['now'] = lambda: datetime.now()
@@ -217,6 +283,13 @@ def _validate_csrf() -> None:
 app.jinja_env.globals["csrf_token"] = csrf_token
 
 
+def csp_nonce() -> str:
+    return getattr(g, "csp_nonce", "")
+
+
+app.jinja_env.globals["csp_nonce"] = csp_nonce
+
+
 @app.before_request
 def _start_request_tenant_boundary():
     clear_request_context()
@@ -263,7 +336,7 @@ def health_ready():
             not CONTROL_TABLES.issubset(present)
             or (
                 DEPLOYMENT_ENV == "production"
-                and revision != "20260726_12"
+                and revision != "20260726_13"
             )
         ):
             return jsonify({"status": "not_ready"}), 503
@@ -408,6 +481,7 @@ login_manager.login_view = "login"
 def _bind_tenant_context():
     clear_request_context()
     g.request_id = request.headers.get("X-Request-ID") or secrets.token_hex(12)
+    g.csp_nonce = secrets.token_urlsafe(18)
     g.tenant_context_token = None
     g.platform_control_token = None
     if current_user.is_authenticated:
@@ -416,11 +490,52 @@ def _bind_tenant_context():
             os.environ.get("ATCROSTER_SESSION_IDLE_MINUTES", "30")
         ) * 60
         last_seen = int(session.get("_last_seen_epoch") or now_epoch)
-        if now_epoch - last_seen > idle_limit:
+        absolute_limit = int(
+            os.environ.get("ATCROSTER_SESSION_ABSOLUTE_MINUTES", "720")
+        ) * 60
+        started_raw = session.get("_session_started_at")
+        try:
+            started_epoch = int(
+                datetime.fromisoformat(str(started_raw)).timestamp()
+            )
+        except (TypeError, ValueError):
+            started_epoch = now_epoch
+            session["_session_started_at"] = utcnow().isoformat()
+        expiry_reason = (
+            "absolute" if now_epoch - started_epoch > absolute_limit
+            else "idle" if now_epoch - last_seen > idle_limit
+            else ""
+        )
+        if expiry_reason:
+            _security_event(
+                "session_expired", reason=expiry_reason,
+                principal=hashlib.sha256(
+                    str(current_user.get_id()).encode()
+                ).hexdigest()[:16],
+            )
             logout_user()
             session.clear()
-            flash("Your session expired due to inactivity.", "error")
+            flash("Your secure session has expired. Sign in again.", "error")
             return redirect(url_for("login"))
+        expected_stamp = session.get("_auth_stamp")
+        current_stamp = _current_auth_stamp(current_user)
+        if expected_stamp and not secrets.compare_digest(
+            str(expected_stamp), current_stamp
+        ):
+            _security_event(
+                "session_forced_invalidation",
+                principal=hashlib.sha256(
+                    str(current_user.get_id()).encode()
+                ).hexdigest()[:16],
+            )
+            logout_user()
+            session.clear()
+            flash(
+                "Your account security or permissions changed. Sign in again.",
+                "error",
+            )
+            return redirect(url_for("login"))
+        session["_auth_stamp"] = current_stamp
         session["_last_seen_epoch"] = now_epoch
     if (
         current_user.is_authenticated
@@ -433,6 +548,7 @@ def _bind_tenant_context():
             return redirect(url_for("login"))
         allowed_platform_endpoints = {
             "platform_admin", "logout", "password_change",
+            "platform_worker_health",
             "static", "favicon", "health_live", "health_ready",
         }
         if request.endpoint == "index":
@@ -492,7 +608,8 @@ def _security_headers(response):
         "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com "
         "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        f"script-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
+        "https://cdn.jsdelivr.net",
     )
     if request.is_secure or DEPLOYMENT_ENV == "production":
         response.headers.setdefault(
@@ -1210,6 +1327,7 @@ SecureInvitation = SaaS.SecureInvitation
 SignupWorkflow = SaaS.SignupWorkflow
 DatabaseRoutingMetadata = SaaS.DatabaseRoutingMetadata
 ProvisioningJob = SaaS.ProvisioningJob
+WorkerHeartbeat = SaaS.WorkerHeartbeat
 FeatureFlag = SaaS.FeatureFlag
 PlanHistory = SaaS.PlanHistory
 AggregateUsageEvent = SaaS.AggregateUsageEvent
@@ -7609,7 +7727,7 @@ def platform_admin():
             ).first_or_404()
             from platform_provisioning import pop_one_time_token
 
-            raw_token = pop_one_time_token(job.id)
+            raw_token = pop_one_time_token(job.id, job.unit_id)
             if raw_token:
                 invite_url = url_for(
                     "accept_invitation", token=raw_token, _external=True
@@ -7797,6 +7915,31 @@ def platform_admin():
         "platform_admin.html", rows=rows,
         feature_keys=sorted(PLATFORM_FEATURE_FLAGS),
     )
+
+
+@app.get("/platform/worker-health")
+@login_required
+def platform_worker_health():
+    if getattr(current_user, "role", "") != "superadmin":
+        abort(403)
+    cutoff = utcnow() - timedelta(
+        seconds=max(
+            60,
+            int(os.environ.get("ATCROSTER_PROVISIONING_LEASE_SECONDS", "120"))
+            * 2,
+        )
+    )
+    active = WorkerHeartbeat.query.filter(
+        WorkerHeartbeat.last_seen_at >= cutoff
+    ).count()
+    stale = WorkerHeartbeat.query.filter(
+        WorkerHeartbeat.last_seen_at < cutoff
+    ).count()
+    return jsonify({
+        "status": "ready" if active else "unavailable",
+        "active_workers": active,
+        "stale_workers": stale,
+    }), 200 if active else 503
 
 
 @app.route("/unit/accounts", methods=["GET", "POST"])
@@ -9338,6 +9481,41 @@ def _security_event(event: str, **safe_fields) -> None:
     ))
 
 
+def _current_auth_stamp(user) -> str:
+    """Bind a session to mutable authentication and authorisation state."""
+    parts = [
+        str(getattr(user, "password_hash", "")),
+        str(getattr(user, "role", "")),
+        str(getattr(user, "membership_status", "")),
+    ]
+    if getattr(user, "role", "") == "superadmin":
+        credential = PlatformMfaCredential.query.filter_by(
+            identity_id=user.id
+        ).first()
+    else:
+        # Airport MFA lives in the operational database and is deliberately
+        # excluded from this control-plane stamp. Its reset workflow revokes
+        # the affected login directly; querying it here would make the stamp
+        # dependent on request routing state.
+        credential = None
+    parts.extend([
+        str(bool(credential and credential.enabled)),
+        str(bool(getattr(credential, "reset_required", False))),
+    ])
+    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
+
+
+def _initialize_authenticated_session(user, *, platform_mfa=False) -> None:
+    """Regenerate authenticated session state after the final auth factor."""
+    session.permanent = True
+    session["_session_nonce"] = secrets.token_urlsafe(24)
+    session["_session_started_at"] = utcnow().isoformat()
+    session["_last_seen_epoch"] = int(utcnow().timestamp())
+    session["_auth_stamp"] = _current_auth_stamp(user)
+    if platform_mfa:
+        session["_platform_mfa_verified"] = True
+
+
 def _central_security_event(
     event_type: str, outcome: str, identity_id: int | None = None,
     principal: str = "", detail: str = "",
@@ -9475,8 +9653,7 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 )
                 return redirect(url_for("mfa_challenge"))
             login_user(user)
-            session.permanent = True
-            session["_session_started_at"] = utcnow().isoformat()
+            _initialize_authenticated_session(user)
             _security_event(
                 "login_succeeded",
                 principal=rate_key[-16:],
@@ -9500,10 +9677,8 @@ def signin_form():   # function name can be anything; endpoint is 'login'
 
 def _decrypt_mfa_secret(credential) -> str:
     try:
-        return _field_cipher().decrypt(
-            credential.encrypted_secret.encode()
-        ).decode()
-    except (InvalidToken, ValueError) as exc:
+        return _decrypt_field(credential.encrypted_secret)
+    except ValueError as exc:
         raise RuntimeError("MFA credential cannot be decrypted.") from exc
 
 
@@ -9533,9 +9708,7 @@ def _complete_platform_login(identity, user, recovery_used=False):
     next_url = session.get("_platform_mfa_next", "")
     session.clear()
     login_user(user)
-    session.permanent = True
-    session["_session_started_at"] = utcnow().isoformat()
-    session["_platform_mfa_verified"] = True
+    _initialize_authenticated_session(user, platform_mfa=True)
     identity.last_active_at = utcnow()
     _central_security_event(
         "platform_recovery_code_used" if recovery_used
@@ -9605,9 +9778,7 @@ def platform_mfa_setup():
                 identity_id=identity.id, encrypted_secret=""
             )
             db.session.add(credential)
-        credential.encrypted_secret = _field_cipher().encrypt(
-            pending.encode()
-        ).decode()
+        credential.encrypted_secret = _encrypt_field(pending)
         credential.enabled = True
         credential.reset_required = False
         credential.enrolled_at = utcnow()
@@ -9731,13 +9902,10 @@ def mfa_challenge():
                 credential.recovery_codes_digest = json.dumps(digests)
                 accepted = True
         if accepted:
-            next_url = session.pop("_mfa_next", "")
-            session.pop("_mfa_user_id", None)
-            session.pop("_mfa_unit_id", None)
+            next_url = session.get("_mfa_next", "")
+            session.clear()
             login_user(user)
-            session.permanent = True
-            session["_session_started_at"] = utcnow().isoformat()
-            session.pop("_mfa_rate_key", "")
+            _initialize_authenticated_session(user)
             _security_event(
                 "mfa_login_succeeded",
                 principal=hashlib.sha256(
@@ -9796,9 +9964,7 @@ def mfa_setup():
                 encrypted_secret="",
             )
             db.session.add(credential)
-        credential.encrypted_secret = _field_cipher().encrypt(
-            pending.encode()
-        ).decode()
+        credential.encrypted_secret = _encrypt_field(pending)
         credential.enabled = True
         credential.enrolled_at = utcnow()
         credential.recovery_codes_digest = json.dumps([
@@ -9807,6 +9973,7 @@ def mfa_setup():
         ])
         db.session.commit()
         session.pop("_pending_mfa_secret", None)
+        session["_auth_stamp"] = _current_auth_stamp(current_user)
         return render_template(
             "mfa_setup.html", enabled=True, recovery_codes=recovery_codes
         )
@@ -9949,6 +10116,41 @@ def reconcile_signups(apply_changes, confirm):
             row.last_error_code = "compensated_retry_required"
             db.session.commit()
     click.echo(f"{len(rows)} incomplete signup workflow(s) inspected.")
+
+
+@app.cli.command("rotate-field-encryption")
+@click.option(
+    "--confirm", default="",
+    help="Required: enter ROTATE-FIELD-ENCRYPTION",
+)
+def rotate_field_encryption(confirm):
+    """Re-encrypt MFA secrets with the first configured versioned key."""
+    if confirm != "ROTATE-FIELD-ENCRYPTION":
+        raise click.UsageError(
+            "--confirm ROTATE-FIELD-ENCRYPTION is required"
+        )
+    rotated = 0
+    for credential in PlatformMfaCredential.query.filter(
+        PlatformMfaCredential.encrypted_secret != ""
+    ).all():
+        credential.encrypted_secret = _encrypt_field(
+            _decrypt_field(credential.encrypted_secret)
+        )
+        rotated += 1
+    db.session.commit()
+    for routing in DatabaseRoutingMetadata.query.order_by(
+        DatabaseRoutingMetadata.unit_id
+    ).all():
+        with operational_unit_context(routing.unit_id, routing.secret_name):
+            for credential in MfaCredential.query.filter(
+                MfaCredential.encrypted_secret != ""
+            ).all():
+                credential.encrypted_secret = _encrypt_field(
+                    _decrypt_field(credential.encrypted_secret)
+                )
+                rotated += 1
+            db.session.commit()
+    click.echo(f"Rotated {rotated} encrypted credential(s).")
 
 
 # -------------------- DB init (single, safe block) --------------------

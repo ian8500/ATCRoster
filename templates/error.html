@@ -9,7 +9,7 @@
     <p>{{ error_message or 'The event has been recorded. Do not repeat safety-critical changes until you have confirmed whether the first attempt succeeded.' }}</p>
     {% if request_id %}<p>Reference: <code>{{ request_id }}</code></p>{% endif %}
     <div class="action-buttons">
-      <button class="btn ghost" type="button" onclick="history.back()">Go back</button>
+      <button class="btn ghost" type="button" data-command="history-back">Go back</button>
       <a class="btn btn-primary" href="{{ home_url or url_for('index') }}">{{ home_label or 'Return to roster' }}</a>
     </div>
   </div></section>
