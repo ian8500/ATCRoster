@@ -10,7 +10,7 @@ production release.
 - [x] Super Admin privacy tests pass.
 - [x] Account-limit, request, annotation and publication tests pass.
 - [x] Clean SQLite fixtures and PostgreSQL 16 reach Alembic `20260725_08`.
-- [x] `pip-audit -r requirements.txt` reports no known vulnerabilities.
+- [x] `pip-audit -r requirements-prod.txt` reports no known vulnerabilities.
 - [x] Changed-file and correctness/security lint checks pass; remaining legacy
   style debt is recorded as non-blocking.
 - [x] 30-airport/108,000-assignment smoke test passes locally.
