@@ -6,18 +6,20 @@
 
 <div class="table-scroll">
   <table class="table">
-    <thead><tr><th>ATCO</th><th>Watch</th><th>Total days</th><th>Groups</th></tr></thead>
+    <thead><tr><th>ATCO</th><th>Watch</th>{% for item in sickness_types %}<th>{{ item.label }} ({{ item.code }})</th>{% endfor %}<th>Total days</th><th>Periods</th></tr></thead>
     <tbody>
       {% for r in rows %}
         {% if r.total > 0 %}
         <tr>
           <td>{{ r.staff.name }}</td>
           <td>{{ r.watch }}</td>
+          {% for item in sickness_types %}<td class="ta-right">{{ r.counts.get(item.code, 0) }}</td>{% endfor %}
           <td class="ta-right">{{ r.total }}</td>
           <td class="ta-right">{{ r.groups }}</td>
         </tr>
         {% endif %}
       {% endfor %}
+      <tr class="totals"><td colspan="2"><strong>Totals</strong></td>{% for item in sickness_types %}<td class="ta-right"><strong>{{ totals.get(item.code, 0) }}</strong></td>{% endfor %}<td class="ta-right"><strong>{{ totals.values()|sum }}</strong></td><td></td></tr>
     </tbody>
   </table>
 </div>

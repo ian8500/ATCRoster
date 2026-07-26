@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Unit Messages{% endblock %}
+{% block content %}
+<section class="compliance-hero">
+  <div><span class="admin-step">Operational communications</span><h2>Send unit messages</h2><p>Send an SMS to one person, a watch, or every active member of this airport.</p></div>
+</section>
+
+{% if not sms_ready %}
+<div class="alert alert-warning">SMS is unavailable until the Twilio account settings are configured.</div>
+{% endif %}
+
+<section class="card">
+  <div class="card-hd">Compose message</div>
+  <div class="card-bd">
+    <form method="post" class="publication-release-form" onsubmit="return confirm('Send this SMS message now?');">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Recipients
+        <select name="scope" id="message-scope">
+          <option value="individual" {% if selected_scope == 'individual' %}selected{% endif %}>One person</option>
+          <option value="watch" {% if selected_scope == 'watch' %}selected{% endif %}>A watch</option>
+          <option value="all" {% if selected_scope == 'all' %}selected{% endif %}>Everyone at this airport</option>
+        </select>
+      </label>
+      <label>Person
+        <select name="recipient_id">
+          <option value="">Choose a person</option>
+          {% for person in people %}<option value="{{ person.id }}" {% if selected_recipient == person.id|string %}selected{% endif %}>{{ person.name }}{% if not person.phone_number %} · no mobile{% endif %}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Watch
+        <select name="watch_id">
+          <option value="">Choose a watch</option>
+          {% for watch in watches %}<option value="{{ watch.id }}" {% if selected_watch == watch.id|string %}selected{% endif %}>{{ watch.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Message
+        <select name="template" id="message-template">
+          <option value="custom" {% if template == 'custom' %}selected{% endif %}>Custom message</option>
+          <option value="today_shift" {% if template == 'today_shift' %}selected{% endif %}>Today’s shift reminder</option>
+        </select>
+      </label>
+      <label>Custom message
+        <textarea name="message" rows="4" maxlength="480" placeholder="Write the message staff will receive…">{{ message }}</textarea>
+        <small>The shift reminder is personalised automatically. Custom messages are limited to 480 characters.</small>
+      </label>
+      <button class="btn btn-primary" type="submit" {% if not sms_ready %}disabled{% endif %}><i class="fa-solid fa-paper-plane"></i> Send SMS</button>
+    </form>
+  </div>
+</section>
+
+{% if preview %}
+<section class="card mt-3"><div class="card-hd">Messages prepared</div><div class="card-bd">{% for person, body in preview %}<p><strong>{{ person.name }}</strong><br>{{ body }}</p>{% endfor %}</div></section>
+{% endif %}
+{% endblock %}

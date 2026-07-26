@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Fatigue Monitoring Rules{% endblock %}
+{% block content %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Compliance configuration</span>
+    <h2>Fatigue monitoring rules</h2>
+    <p>Control which warnings appear on the roster for <strong>{{ current_unit.name }}</strong> ({{ current_unit.code }}). Every change on this page is isolated to this airport.</p>
+  </div>
+  <div class="compliance-actions">
+    <a class="btn" href="{{ url_for('compliance_centre') }}">View findings</a>
+    <a class="btn" href="{{ url_for('admin') }}#tools">Back to settings</a>
+  </div>
+</section>
+
+<div class="compliance-summary" aria-label="Fatigue rule summary">
+  <article><span>System rules</span><strong>{{ system_rules|length }}</strong></article>
+  <article><span>System rules active</span><strong>{{ system_rules|selectattr('enabled')|list|length }}</strong></article>
+  <article><span>Custom rules</span><strong>{{ custom_rules|length }}</strong></article>
+  <article><span>Custom rules active</span><strong>{{ custom_rules|selectattr('enabled')|list|length }}</strong></article>
+</div>
+
+<section class="card mt-3">
+  <div class="card-hd">Established system rules</div>
+  <div class="card-bd">
+    <p class="muted">Change the name, warning level, operational thresholds or whether a rule creates warnings. These values apply only to {{ current_unit.code }}.</p>
+    <div class="admin-shift-list">
+      {% for rule in system_rules %}
+      <details class="admin-shift-row">
+        <summary>
+          <span class="shift-code">{{ rule.code }}</span>
+          <span class="shift-summary-name"><strong>{{ rule.name }}</strong><small>Protected system calculation</small></span>
+          <span class="status-pill {{ 'status-pill--on' if rule.enabled else 'status-pill--off' }}">{{ 'Active' if rule.enabled else 'Paused' }}</span>
+          <span class="status-pill {{ 'danger' if rule.severity == 'critical' else 'warning' }}">{{ rule.severity }}</span>
+          <span class="shift-expand"><i class="fa-solid fa-chevron-down"></i></span>
+        </summary>
+        <form method="post" class="admin-shift-editor admin-form-grid">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="update_system">
+          <input type="hidden" name="code" value="{{ rule.code }}">
+          <label>Rule name<input name="name" value="{{ rule.name }}" required maxlength="120"></label>
+          <label>Warning level<select name="severity"><option value="warning" {% if rule.severity == 'warning' %}selected{% endif %}>Warning</option><option value="critical" {% if rule.severity == 'critical' %}selected{% endif %}>Critical</option></select></label>
+          {% for key, parameter in rule.parameters.items() %}
+          <label>{{ parameter.label }}
+            <span class="input-with-unit"><input type="number" name="parameter_{{ key }}" min="0.25" max="10000" step="0.25" value="{{ parameter.value }}" required><span>{{ parameter.unit }}</span></span>
+          </label>
+          {% endfor %}
+          <label class="checkbox"><input type="checkbox" name="enabled" {% if rule.enabled %}checked{% endif %}> Create roster warnings</label>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Save {{ rule.code }}</button></div>
+        </form>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="card mt-3">
+  <div class="card-hd">Add a local rule</div>
+  <div class="card-bd">
+    <p class="muted">Choose what the system should measure and enter the operational limit. The new rule is evaluated for every operational ATCO and appears on roster cells and in Compliance.</p>
+    <form method="post" class="admin-form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="add_custom">
+      <label>Rule name<input name="name" required maxlength="120" placeholder="e.g. Local maximum duty"></label>
+      <label>What should be checked?
+        <select name="rule_type" required data-fatigue-rule-type>
+          {% for value, meta in rule_types.items() %}<option value="{{ value }}" data-uses-window="{{ 'yes' if meta.uses_window else 'no' }}" data-default="{{ meta.default }}" data-window="{{ meta.default_window or 1 }}">{{ meta.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Limit<input type="number" name="threshold" min="0.25" step="0.25" value="10" required><small>The unit is explained by the selected check.</small></label>
+      <label>Review period (days)<input type="number" name="window_days" min="1" max="365" value="1"><small>Used only for checks measured over a period.</small></label>
+      <label>Warning level<select name="severity"><option value="warning">Warning</option><option value="critical">Critical</option></select></label>
+      <label class="checkbox"><input type="checkbox" name="enabled" checked> Start monitoring immediately</label>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Add fatigue rule</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="card mt-3">
+  <div class="card-hd">Local rules</div>
+  <div class="card-bd">
+    {% for rule in custom_rules %}
+    {% set meta = rule_types.get(rule.rule_type, {}) %}
+    <details class="admin-shift-row">
+      <summary>
+        <span class="shift-code">{{ rule.code }}</span>
+        <span class="shift-summary-name"><strong>{{ rule.name }}</strong><small>{{ meta.label }} · limit {{ rule.threshold }}{% if meta.uses_window %} in {{ rule.window_days }} days{% endif %}</small></span>
+        <span class="status-pill {{ 'status-pill--on' if rule.enabled else 'status-pill--off' }}">{{ 'Active' if rule.enabled else 'Paused' }}</span>
+        <span class="shift-expand"><i class="fa-solid fa-chevron-down"></i></span>
+      </summary>
+      <div class="admin-shift-editor">
+        <form method="post" class="admin-form-grid">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="update_custom">
+          <input type="hidden" name="code" value="{{ rule.code }}">
+          <label>Rule name<input name="name" value="{{ rule.name }}" required></label>
+          <label>Check<select name="rule_type">{% for value, option in rule_types.items() %}<option value="{{ value }}" {% if rule.rule_type == value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select></label>
+          <label>Limit<input type="number" name="threshold" min="0.25" step="0.25" value="{{ rule.threshold }}" required></label>
+          <label>Review period (days)<input type="number" name="window_days" min="1" max="365" value="{{ rule.window_days or 1 }}"></label>
+          <label>Warning level<select name="severity"><option value="warning" {% if rule.severity == 'warning' %}selected{% endif %}>Warning</option><option value="critical" {% if rule.severity == 'critical' %}selected{% endif %}>Critical</option></select></label>
+          <label class="checkbox"><input type="checkbox" name="enabled" {% if rule.enabled %}checked{% endif %}> Active</label>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Save rule</button></div>
+        </form>
+        <form method="post" class="admin-danger-action" onsubmit="return confirm('Remove {{ rule.name }}?');">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="delete_custom">
+          <input type="hidden" name="code" value="{{ rule.code }}">
+          <button class="btn" type="submit">Remove rule</button>
+        </form>
+      </div>
+    </details>
+    {% else %}
+    <p class="compliance-clear">No local fatigue rules have been added.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+(() => {
+  const select = document.querySelector('[data-fatigue-rule-type]');
+  const form = select?.closest('form');
+  const threshold = form?.querySelector('[name="threshold"]');
+  const windowDays = form?.querySelector('[name="window_days"]');
+  const updateDefaults = () => {
+    const option = select?.selectedOptions[0];
+    if (!option) return;
+    threshold.value = option.dataset.default || threshold.value;
+    windowDays.value = option.dataset.window || '1';
+    windowDays.disabled = option.dataset.usesWindow !== 'yes';
+  };
+  select?.addEventListener('change', updateDefaults);
+  updateDefaults();
+})();
+</script>
+{% endblock %}

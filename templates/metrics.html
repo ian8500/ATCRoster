@@ -1,13 +1,14 @@
 {% extends "base.html" %}
-{% block title %}OT/Swap/EXT Totals{% endblock %}
+{% block title %}Annotation Totals{% endblock %}
 
 {% block content %}
 <div class="container">
-  <h1 class="page-title">OT/Swap/EXT Totals</h1>
+  <h1 class="page-title">Annotation Totals</h1>
 
   <p class="muted" style="margin-top:-.5rem">
-    Counts are based on the <strong>annotation definitions</strong> configured in Admin → Reference Data.
-    “AAVA Total” adds all overtime annotations tagged with <code>aava</code>; “OT Total” includes every annotation tagged with <code>ot</code>.
+    Each column follows the annotations configured in
+    <strong>Admin → Roster codes and annotations</strong>. An annotation
+    retired during the selected period remains visible as historical data.
   </p>
 
   <form method="get" class="bar">
@@ -26,15 +27,12 @@
           <tr>
             <th>ATCO</th>
             <th>Watch</th>
-            <th>Ext L</th>
-            <th>Ext S</th>
-            <th>Ext Total</th>
-            <th>Swaps</th>
-            {% for col in ot_columns %}
-              <th>{{ col.label }}</th>
+            {% for col in annotation_columns %}
+              <th title="{{ col.code }}{% if not col.active %} · historical{% endif %}">
+                {{ col.label }}
+                <small class="d-block">{{ col.code }}{% if not col.active %} · historical{% endif %}</small>
+              </th>
             {% endfor %}
-            <th>AAVA Total</th>
-            <th>OT Total</th>
           </tr>
         </thead>
         <tbody>
@@ -42,15 +40,9 @@
           <tr>
             <td>{{ r.staff.name }}</td>
             <td>{{ r.staff.watch.name.replace('Watch ','') if r.staff.watch else '-' }}</td>
-            <td>{{ r.ext_long }}</td>
-            <td>{{ r.ext_short }}</td>
-            <td>{{ r.ext_total }}</td>
-            <td>{{ r.swaps }}</td>
-            {% for col in ot_columns %}
-              <td>{{ r.ot[col.code] }}</td>
+            {% for col in annotation_columns %}
+              <td>{{ r.annotations[col.code] }}</td>
             {% endfor %}
-            <td>{{ r.aava_total }}</td>
-            <td>{{ r.ot_total }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -58,15 +50,9 @@
           <tr class="strong">
             <td>All ATCOs</td>
             <td></td>
-            <td>{{ totals.ext_long }}</td>
-            <td>{{ totals.ext_short }}</td>
-            <td>{{ totals.ext_total }}</td>
-            <td>{{ totals.swaps }}</td>
-            {% for col in ot_columns %}
-              <td>{{ totals.ot[col.code] }}</td>
+            {% for col in annotation_columns %}
+              <td>{{ totals.annotations[col.code] }}</td>
             {% endfor %}
-            <td>{{ totals.aava_total }}</td>
-            <td>{{ totals.ot_total }}</td>
           </tr>
         </tfoot>
       </table>

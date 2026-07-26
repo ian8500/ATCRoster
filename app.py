@@ -649,6 +649,21 @@ def _default_overtime_sms_body(chosen_date: date | None, shift_code: str | None)
             "Please reply if interested.")
 
 
+def _flash_sms_result(
+    sent: int, failures: list[tuple[Optional["Staff"], str]]
+) -> None:
+    if sent:
+        flash(f"SMS sent to {sent} recipient{'s' if sent != 1 else ''}.", "ok")
+    if failures:
+        details = "; ".join(
+            f"{staff.name if staff else 'System'}: {reason}"
+            for staff, reason in failures[:8]
+        )
+        if len(failures) > 8:
+            details += f"; and {len(failures) - 8} more"
+        flash(f"Some messages were not sent. {details}", "error")
+
+
 MIN_MONTH = date(2025, 4, 1)   # Start app from April 2025
 
 # Reference defaults (used if DB rows missing)
@@ -780,6 +795,14 @@ DEFAULT_ROSTER_SETTINGS = {
     "exclude_from_counters": DEFAULT_EXCLUDE_FROM_COUNTERS,
     "non_working_codes": DEFAULT_NON_WORKING_CODES,
 }
+
+DEFAULT_ABSENCE_TYPES = [
+    {"code": "AL", "label": "Annual leave", "category": "leave", "active": True},
+    {"code": "PL", "label": "Parental leave", "category": "leave", "active": True},
+    {"code": "SPL", "label": "Special leave", "category": "leave", "active": True},
+    {"code": "SC", "label": "Sickness", "category": "sickness", "active": True},
+    {"code": "SSC", "label": "Self-certified sickness", "category": "sickness", "active": True},
+]
 
 # -------------------- Models --------------------
 
@@ -1104,16 +1127,6 @@ class AnnotationAudit(db.Model):
     transaction_key = db.Column(db.String(64), unique=True)
 
 
-class AiRuleSet(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
-    year = db.Column(db.Integer, nullable=False)
-    month = db.Column(db.Integer, nullable=False)
-    rules_json = db.Column(db.Text, nullable=False, default="{}")
-    __table_args__ = (db.UniqueConstraint(
-        "unit_id", "year", "month", name="uniq_ai_ruleset_unit_month"),)
-
-
 class ChangeLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
@@ -1179,7 +1192,7 @@ from tenancy import authenticated_unit_id
 TENANT_OPERATIONAL_MODELS = (
     RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement, Leave, Sickness,
     Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
-    AiRuleSet, ChangeLog, StaffWatchHistory, QualificationType,
+    ChangeLog, StaffWatchHistory, QualificationType,
     PersonQualification, PersonQualificationHistory,
     RosterPublication, RosterAcknowledgement, Scenario,
     OperationalPosition, PositionEndorsement, PositionRequirement, BreakPlan,
@@ -1264,7 +1277,58 @@ def get_working_codes() -> set[str]:
 
 
 def get_leave_codes() -> set[str]:
-    return _load_codes_setting("leave_codes", DEFAULT_LEAVE_CODES)
+    return {
+        item["code"] for item in get_absence_types("leave", active_only=True)
+    }
+
+
+def get_absence_types(
+    category: str | None = None,
+    active_only: bool = True,
+    unit_id: int | None = None,
+) -> list[dict[str, object]]:
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    raw = _roster_settings_snapshot(resolved_unit_id).get("absence_types")
+    try:
+        parsed = json.loads(raw) if raw else DEFAULT_ABSENCE_TYPES
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = DEFAULT_ABSENCE_TYPES
+    if not isinstance(parsed, list):
+        parsed = DEFAULT_ABSENCE_TYPES
+    result = []
+    seen = set()
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "").strip().upper()
+        item_category = str(item.get("category") or "").strip().lower()
+        if (
+            not re.fullmatch(r"[A-Z0-9]{1,10}", code)
+            or item_category not in {"leave", "sickness"}
+            or code in seen
+        ):
+            continue
+        seen.add(code)
+        normalised = {
+            "code": code,
+            "label": str(item.get("label") or code).strip()[:80] or code,
+            "category": item_category,
+            "active": bool(item.get("active", True)),
+        }
+        if category and item_category != category:
+            continue
+        if active_only and not normalised["active"]:
+            continue
+        result.append(normalised)
+    return result
+
+
+def _save_absence_types(items: list[dict[str, object]]) -> None:
+    _save_roster_setting(
+        "absence_types", json.dumps(items, separators=(",", ":"))
+    )
+    db.session.commit()
+    refresh_roster_settings_cache()
 
 
 def get_banned_roster_codes() -> set[str]:
@@ -1642,6 +1706,14 @@ def can_apply_annotations(u) -> bool:
     )
 
 
+def can_send_unit_messages(u) -> bool:
+    return bool(
+        is_admin_user(u)
+        or getattr(u, "is_wm", False)
+        or getattr(u, "is_dwm", False)
+    )
+
+
 def can_override_roster_conflicts(u) -> bool:
     return is_admin_user(u) or has_unit_permission(
         u, "override_roster_conflicts"
@@ -1719,10 +1791,10 @@ def parse_ym(ym: str):
     return int(y), int(m)
 
 
-def get_shift(code: str):
+def get_shift(code: str, unit_id: int | None = None):
     # hot path → use cached lookup
     return _shift_by_code(
-        int(_current_unit_id() or 1), (code or "").upper()
+        int(unit_id or _current_unit_id() or 1), (code or "").upper()
     )
 
 
@@ -1896,8 +1968,13 @@ def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
     if existing and (existing.code or "").strip() and existing.source in ("manual", "ai"):
         return
 
-    # Keep explicit sickness & TOIL-use exactly as entered
-    if existing and existing.code in {"SC", "SSC", "TOU8", "TOUI"}:
+    # Keep explicit sickness & TOIL-use exactly as entered.
+    sickness_codes = {
+        item["code"] for item in get_absence_types(
+            "sickness", active_only=False, unit_id=staff.unit_id
+        )
+    }
+    if existing and existing.code in sickness_codes | {"TOU8", "TOUI"}:
         return existing
 
     pat_code = code_from_pattern(staff, d)
@@ -1916,7 +1993,7 @@ def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
             a.annotation = ""
         return a
 
-    if lv in {"PL", "SPL"}:
+    if lv:
         a = overwrite_assignment(staff, d, lv, note="leave")
         a.annotation = ""
         return a
@@ -1964,156 +2041,6 @@ def generate_month(year: int, month: int, *args, **kwargs):
     db.session.commit()
 
 
-NIGHT_ELIGIBLE_CYCLE_DAYS: set[int] = {5, 6}
-
-
-def generate_month_roster(year: int, month: int, who_user: "Staff"):
-    # Guard: lock
-    if is_month_locked(year, month):
-        raise RuntimeError(
-            f"Month {year:04d}-{month:02d} is locked (lock date {lock_date_for_month(year, month).isoformat()})."
-        )
-
-    rules = _load_ai_rules(year, month)
-    night_code = rules["night_code"]
-    day_code_mon_sat = rules["day_code_mon_sat"]
-    day_code_sun = rules["day_code_sun"]
-    no_nights_ids = rules["no_nights_ids"]
-
-    # Month range
-    start, days = month_range(year, month)
-    month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
-
-    # Staff in display/fairness order
-    staff = (
-        Staff.query
-        .outerjoin(Watch, Staff.watch_id == Watch.id)
-        .filter(Staff.is_operational == True)
-        .order_by(Watch.order_index, Staff.name)
-        .all()
-    )
-
-    req = Requirement.query.filter_by(year=year, month=month).first()
-    if not req:
-        return {"nights": 0, "days": 0}
-
-    # Existing assignments → quick lookup + night counts
-    night_count = defaultdict(int)
-    by_staff_day = defaultdict(dict)
-    existing_assignments = Assignment.query.filter(
-        Assignment.day >= start, Assignment.day < month_end
-    ).all()
-    for a in existing_assignments:
-        by_staff_day[a.staff_id][a.day] = a
-        if a.code and a.code.upper().startswith("N"):
-            night_count[a.staff_id] += 1
-
-    # Candidate helper
-    def eligible_staff(d: date, code: str):
-        candidate_shift = get_shift(code)
-        for s in staff:
-            if code == night_code:
-                if s.id in no_nights_ids:
-                    continue
-
-                cycle_day = _cycle_day_for(s, d)
-                if cycle_day not in NIGHT_ELIGIBLE_CYCLE_DAYS:
-                    continue
-
-                pattern_code = code_from_pattern(s, d)
-                if not _is_working_n_code(pattern_code):
-                    continue
-            if _has_leave_or_sick(s.id, d):
-                continue
-            a = by_staff_day[s.id].get(d) or Assignment(staff_id=s.id, day=d)
-            if _cell_is_protected(a):
-                continue
-            if not _fatigue_ok(s, d, code):
-                continue
-            if candidate_shift and not _staff_has_shift_qualification(
-                s, candidate_shift, d
-            ):
-                continue
-            yield s
-
-    changes_n = 0
-    changes_d = 0
-
-    for d in days:
-        dow = d.weekday()  # 0=Mon .. 6=Sun
-        day_code = day_code_mon_sat if dow < 6 else day_code_sun
-
-        # --- Nights ---
-        current_nights = Assignment.query.filter_by(
-            day=d, code=night_code).count()
-        needed_nights = max(0, req.req_n - current_nights)
-        while needed_nights > 0:
-            candidates = sorted(eligible_staff(d, night_code),
-                                key=lambda s: night_count[s.id])
-            if not candidates:
-                break
-            s = candidates[0]
-            a = by_staff_day[s.id].get(d)
-            if not a:
-                a = Assignment(staff_id=s.id, day=d)
-                db.session.add(a)
-                by_staff_day[s.id][d] = a
-            a.code = night_code
-            a.source = "ai"      # mark as AI, not manual
-            night_count[s.id] += 1
-            changes_n += 1
-            needed_nights -= 1
-
-        # --- Days ---
-        # count all working D* already on this day (any D-prefix working code)
-        rows_today = Assignment.query.filter_by(day=d).all()
-        haveD = sum(
-            1 for a in rows_today if _is_working_day_code((a.code or "")))
-        needD = getattr(req, "req_d", 0)
-        short = max(0, needD - haveD)
-        if short > 0:
-            # candidates: empty/OFF cells only, fatigue OK
-            candidates = []
-            for s in staff:
-                if _has_leave_or_sick(s.id, d):
-                    continue
-                a = by_staff_day[s.id].get(d)
-                current_code = a.code if a else ""
-                # only fill if truly empty-like ("" / "-" / "—") OR explicitly OFF
-                if not (_is_empty_like(current_code) or _normalize_code(current_code) == "OFF"):
-                    continue
-
-                if a and _cell_is_protected(a):
-                    continue
-                if not _fatigue_ok(s, d, day_code):
-                    continue
-                candidates.append(s)
-
-            # simple fairness: fewest assigned D today so far, then name
-            day_count = defaultdict(int)
-            candidates.sort(key=lambda s: (day_count[s.id], s.name.lower()))
-
-            for s in candidates[:short]:
-                a = by_staff_day[s.id].get(d)
-                if not a:
-                    a = Assignment(staff_id=s.id, day=d)
-                    db.session.add(a)
-                    by_staff_day[s.id][d] = a
-
-                # safety double-check
-                ex = (a.code or "").strip().upper() if a.code else ""
-                if ex and ex not in ("", "OFF"):
-                    continue
-
-                a.code = day_code
-                a.source = "ai"
-                changes_d += 1
-                day_count[s.id] += 1
-
-    db.session.commit()
-    return {"nights": changes_n, "days": changes_d}
-
-
 def _is_working_day_code(code: str) -> bool:
     """
     True for working 'Day' shifts (codes that start with 'D'),
@@ -2145,6 +2072,227 @@ def _is_working_day_code(code: str) -> bool:
 
 
 # -------------------- Fatigue helpers (SRATCOH D18–D43; On-Call ignored) --------------------
+
+SYSTEM_FATIGUE_RULES = [
+    {"code": "D21", "name": "Duty duration and rolling hours", "severity": "critical", "parameters": {
+        "max_duty_hours": {"label": "Maximum single duty", "value": 10, "unit": "hours"},
+        "max_rolling_hours": {"label": "Maximum rolling duty", "value": 200, "unit": "hours"},
+        "rolling_days": {"label": "Rolling period", "value": 30, "unit": "days"},
+    }},
+    {"code": "D22", "name": "Minimum rest between duties", "severity": "critical", "parameters": {
+        "normal_rest_hours": {"label": "Normal minimum rest", "value": 12, "unit": "hours"},
+        "absolute_min_rest_hours": {"label": "Absolute minimum rest", "value": 11, "unit": "hours"},
+        "reduced_rest_window_days": {"label": "Reduced-rest review period", "value": 30, "unit": "days"},
+    }},
+    {"code": "D23", "name": "Recovery after consecutive duties", "severity": "warning", "parameters": {
+        "max_consecutive_duties": {"label": "Consecutive-duty trigger", "value": 6, "unit": "duties"},
+        "max_consecutive_hours": {"label": "Consecutive-hours trigger", "value": 50, "unit": "hours"},
+        "recovery_hours": {"label": "Required recovery", "value": 60, "unit": "hours"},
+        "hard_recovery_hours": {"label": "Warning threshold", "value": 54, "unit": "hours"},
+    }},
+    {"code": "D24", "name": "Qualifying rest in rolling period", "severity": "warning", "parameters": {
+        "qualifying_rest_hours": {"label": "Rest needed to qualify", "value": 54, "unit": "hours"},
+        "required_rest_hours": {"label": "Total qualifying rest required", "value": 180, "unit": "hours"},
+        "rest_window_days": {"label": "Review period", "value": 30, "unit": "days"},
+    }},
+    {"code": "D30", "name": "Night-duty limits", "severity": "critical", "parameters": {
+        "max_night_hours": {"label": "Maximum night duty", "value": 9.5, "unit": "hours"},
+        "max_consecutive_nights": {"label": "Maximum consecutive nights", "value": 2, "unit": "nights"},
+    }},
+    {"code": "D31", "name": "Recovery after night duties", "severity": "warning", "parameters": {
+        "single_night_recovery_hours": {"label": "Recovery after one night", "value": 48, "unit": "hours"},
+        "night_block_recovery_hours": {"label": "Recovery after two nights", "value": 54, "unit": "hours"},
+    }},
+    {"code": "D39", "name": "Early-start frequency", "severity": "warning", "parameters": {
+        "max_early_starts": {"label": "Maximum early starts", "value": 2, "unit": "starts"},
+        "early_window_hours": {"label": "Review period", "value": 144, "unit": "hours"},
+    }},
+    {"code": "D40", "name": "Early-start duty length", "severity": "warning", "parameters": {
+        "max_early_duty_hours": {"label": "Maximum early-start duty", "value": 8, "unit": "hours"},
+    }},
+    {"code": "D43", "name": "Morning-duty limits", "severity": "warning", "parameters": {
+        "max_morning_points": {"label": "Maximum consecutive morning points", "value": 5, "unit": "points"},
+        "max_morning_duty_hours": {"label": "Maximum morning duty", "value": 8.5, "unit": "hours"},
+    }},
+]
+
+CUSTOM_FATIGUE_RULE_TYPES = {
+    "max_duty_hours": {
+        "label": "Maximum single duty length",
+        "unit": "hours", "default": 10, "uses_window": False,
+    },
+    "min_rest_hours": {
+        "label": "Minimum rest between duties",
+        "unit": "hours", "default": 11, "uses_window": False,
+    },
+    "max_consecutive_duties": {
+        "label": "Maximum consecutive duties",
+        "unit": "duties", "default": 6, "uses_window": False,
+    },
+    "max_consecutive_nights": {
+        "label": "Maximum consecutive night duties",
+        "unit": "nights", "default": 2, "uses_window": False,
+    },
+    "max_early_starts_in_window": {
+        "label": "Maximum early starts in a period",
+        "unit": "starts", "default": 2, "uses_window": True,
+        "default_window": 6,
+    },
+    "max_hours_in_window": {
+        "label": "Maximum duty hours in a period",
+        "unit": "hours", "default": 200, "uses_window": True,
+        "default_window": 30,
+    },
+}
+
+
+def _fatigue_rule_config(unit_id: int | None = None) -> dict:
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    system = {
+        item["code"]: {
+            **item,
+            "parameters": {
+                key: dict(parameter)
+                for key, parameter in item["parameters"].items()
+            },
+            "enabled": True,
+        }
+        for item in SYSTEM_FATIGUE_RULES
+    }
+    custom = []
+    row = RosterSetting.query.filter_by(
+        unit_id=resolved_unit_id, key="fatigue_rule_config"
+    ).first()
+    if row and row.value:
+        try:
+            saved = json.loads(row.value)
+            for code, overrides in (saved.get("system") or {}).items():
+                if code in system and isinstance(overrides, dict):
+                    system[code].update({
+                        "name": str(overrides.get("name") or system[code]["name"])[:120],
+                        "severity": (
+                            overrides.get("severity")
+                            if overrides.get("severity") in {"warning", "critical"}
+                            else system[code]["severity"]
+                        ),
+                        "enabled": bool(overrides.get("enabled", True)),
+                    })
+                    saved_parameters = overrides.get("parameters") or {}
+                    for key, parameter in system[code]["parameters"].items():
+                        try:
+                            value = float(saved_parameters.get(
+                                key, parameter["value"]
+                            ))
+                            if value > 0:
+                                parameter["value"] = value
+                        except (TypeError, ValueError):
+                            pass
+            for rule in saved.get("custom") or []:
+                if (
+                    isinstance(rule, dict)
+                    and rule.get("rule_type") in CUSTOM_FATIGUE_RULE_TYPES
+                ):
+                    custom.append(rule)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return {"system": system, "custom": custom}
+
+
+def _save_fatigue_rule_config(config: dict) -> None:
+    unit_id = _current_unit_id()
+    row = RosterSetting.query.filter_by(
+        unit_id=unit_id, key="fatigue_rule_config"
+    ).first()
+    if not row:
+        row = RosterSetting(
+            unit_id=unit_id, key="fatigue_rule_config"
+        )
+        db.session.add(row)
+    row.value = json.dumps({
+        "system": {
+            code: {
+                "name": item["name"],
+                "severity": item["severity"],
+                "enabled": item["enabled"],
+                "parameters": {
+                    key: parameter["value"]
+                    for key, parameter in item["parameters"].items()
+                },
+            }
+            for code, item in config["system"].items()
+        },
+        "custom": config["custom"],
+    }, sort_keys=True)
+    db.session.commit()
+
+
+def _custom_fatigue_flags(segs: list, rules: list) -> dict:
+    flags: dict[date, list[str]] = {}
+    ordered = sorted(segs, key=lambda item: item["start"])
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        rule_type = rule.get("rule_type")
+        code = str(rule.get("code") or "CUSTOM")
+        name = str(rule.get("name") or "Custom fatigue rule")
+        try:
+            threshold = float(rule.get("threshold"))
+            window_days = max(1, int(rule.get("window_days") or 1))
+        except (TypeError, ValueError):
+            continue
+        if rule_type == "max_duty_hours":
+            for seg in ordered:
+                hours = seg["mins"] / 60
+                if hours > threshold:
+                    flags.setdefault(seg["day"], []).append(
+                        f"{code}: {name} — {hours:g}h exceeds {threshold:g}h"
+                    )
+        elif rule_type == "min_rest_hours":
+            for previous, current in zip(ordered, ordered[1:]):
+                rest = (current["start"] - previous["end"]).total_seconds() / 3600
+                if rest < threshold:
+                    flags.setdefault(current["day"], []).append(
+                        f"{code}: {name} — {rest:g}h is below {threshold:g}h"
+                    )
+        elif rule_type in {"max_consecutive_duties", "max_consecutive_nights"}:
+            streak = 0
+            previous_day = None
+            for seg in ordered:
+                qualifies = (
+                    True if rule_type == "max_consecutive_duties"
+                    else bool(seg["night"])
+                )
+                consecutive = (
+                    previous_day is not None
+                    and (seg["day"] - previous_day).days == 1
+                )
+                streak = streak + 1 if qualifies and consecutive else (1 if qualifies else 0)
+                if streak > threshold:
+                    flags.setdefault(seg["day"], []).append(
+                        f"{code}: {name} — {streak} exceeds {threshold:g}"
+                    )
+                previous_day = seg["day"] if qualifies else None
+        elif rule_type in {"max_hours_in_window", "max_early_starts_in_window"}:
+            window = deque()
+            running = 0.0
+            for seg in ordered:
+                value = (
+                    seg["mins"] / 60
+                    if rule_type == "max_hours_in_window"
+                    else (1.0 if seg["early"] else 0.0)
+                )
+                window.append((seg["start"], value))
+                running += value
+                while window and (
+                    seg["start"] - window[0][0]
+                ) > timedelta(days=window_days):
+                    running -= window.popleft()[1]
+                if running > threshold:
+                    flags.setdefault(seg["day"], []).append(
+                        f"{code}: {name} — {running:g} exceeds "
+                        f"{threshold:g} in {window_days} days"
+                    )
+    return flags
 
 
 def _span(d: date, sh: ShiftType):
@@ -2230,14 +2378,22 @@ def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
     return segs
 
 
-def _analyze_segments(segs):
+def _analyze_segments(segs, rule_config=None):
     segs = sorted(segs, key=lambda x: x["start"])
     flags = {}
     if not segs:
         return flags
 
-    thirty_days = timedelta(hours=720)
-    six_days_hours = timedelta(hours=144)
+    config = rule_config or _fatigue_rule_config()
+    system = config["system"]
+
+    def parameter(code, name):
+        return float(system[code]["parameters"][name]["value"])
+
+    d21_window = timedelta(days=parameter("D21", "rolling_days"))
+    d22_window = timedelta(days=parameter("D22", "reduced_rest_window_days"))
+    d24_window = timedelta(days=parameter("D24", "rest_window_days"))
+    early_window_span = timedelta(hours=parameter("D39", "early_window_hours"))
 
     win30 = deque()
     duty_30 = 0
@@ -2247,7 +2403,7 @@ def _analyze_segments(segs):
     night_block_count = 0
     last_night_end = None
 
-    consec_queue = deque(maxlen=6)
+    consec_queue = deque()
 
     morning_streak_points = 0
     early_window = deque()
@@ -2269,7 +2425,11 @@ def _analyze_segments(segs):
 
         if night_block_count > 0 and not night and last_night_end is not None:
             gap = start - last_night_end
-            req_hours = 48 if night_block_count == 1 else 54
+            req_hours = (
+                parameter("D31", "single_night_recovery_hours")
+                if night_block_count == 1
+                else parameter("D31", "night_block_recovery_hours")
+            )
             if gap < timedelta(hours=req_hours):
                 flags.setdefault(the_day, []).append(
                     f"<{req_hours}h after {'single' if night_block_count == 1 else 'two consecutive'} night(s) (D31: {int(gap.total_seconds()//3600)}h)"
@@ -2279,61 +2439,92 @@ def _analyze_segments(segs):
 
         if prev_end is not None:
             gap = start - prev_end
-            while reduced_intervals_30 and (start - reduced_intervals_30[0]) > thirty_days:
+            while reduced_intervals_30 and (
+                start - reduced_intervals_30[0]
+            ) > d22_window:
                 reduced_intervals_30.popleft()
-            if gap < timedelta(hours=12):
-                if gap >= timedelta(hours=11):
+            normal_rest = parameter("D22", "normal_rest_hours")
+            absolute_rest = parameter("D22", "absolute_min_rest_hours")
+            if gap < timedelta(hours=normal_rest):
+                if gap >= timedelta(hours=absolute_rest):
                     if len(reduced_intervals_30) == 0:
                         reduced_intervals_30.append(start)
                     else:
                         flags.setdefault(the_day, []).append(
-                            f"<12h between duties (D22) and 11–12h allowance already used within last 30 days"
+                            f"<{normal_rest:g}h between duties (D22) and "
+                            f"{absolute_rest:g}–{normal_rest:g}h allowance "
+                            f"already used within last "
+                            f"{parameter('D22', 'reduced_rest_window_days'):g} days"
                         )
                 else:
                     flags.setdefault(the_day, []).append(
-                        f"<11h between duties (D22: {int(gap.total_seconds()//3600)}h)"
+                        f"<{absolute_rest:g}h between duties "
+                        f"(D22: {int(gap.total_seconds()//3600)}h)"
                     )
 
             rest_gaps_30.append((start, gap))
-            while rest_gaps_30 and (end - rest_gaps_30[0][0]) > thirty_days:
+            while rest_gaps_30 and (
+                end - rest_gaps_30[0][0]
+            ) > d24_window:
                 rest_gaps_30.popleft()
 
-        # D24 — sum only qualifying rests (≥54h) in the last 30 days; need ≥180h total
+        qualifying_rest = parameter("D24", "qualifying_rest_hours")
+        required_rest = parameter("D24", "required_rest_hours")
         qual_hours = 0.0
         for _, g in rest_gaps_30:
-            if g >= timedelta(hours=54):
+            if g >= timedelta(hours=qualifying_rest):
                 qual_hours += g.total_seconds() / 3600.0
-        if qual_hours < 180.0:
+        if qual_hours < required_rest:
             flags.setdefault(the_day, []).append(
-                f"D24: qualifying rest {int(round(qual_hours))}h (<180h) in last 30d"
+                f"D24: qualifying rest {int(round(qual_hours))}h "
+                f"(<{required_rest:g}h) in last "
+                f"{parameter('D24', 'rest_window_days'):g}d"
             )
 
         prior_consec_count = len(consec_queue)
         prior_consec_minutes = sum(m for (_, _, m) in consec_queue)
-        if (prior_consec_count >= 6) or (prior_consec_minutes >= 50 * 60):
+        max_consecutive = parameter("D23", "max_consecutive_duties")
+        max_consecutive_hours = parameter("D23", "max_consecutive_hours")
+        if (
+            prior_consec_count >= max_consecutive
+            or prior_consec_minutes >= max_consecutive_hours * 60
+        ):
             if prev_end is not None:
                 gap = start - prev_end
-                if gap < timedelta(hours=60):
-                    if gap < timedelta(hours=54):
+                recovery = parameter("D23", "recovery_hours")
+                hard_recovery = parameter("D23", "hard_recovery_hours")
+                if gap < timedelta(hours=recovery):
+                    if gap < timedelta(hours=hard_recovery):
                         flags.setdefault(the_day, []).append(
-                            f"<60h after 6 consecutive duties or ≥50h across consecutive duties (D23: {int(gap.total_seconds()//3600)}h)"
+                            f"<{recovery:g}h after {max_consecutive:g} "
+                            f"consecutive duties or ≥{max_consecutive_hours:g}h "
+                            f"across consecutive duties "
+                            f"(D23: {int(gap.total_seconds()//3600)}h)"
                         )
 
-        if mins > 10 * 60:
-            flags.setdefault(the_day, []).append("Duty > 10h (D21)")
+        max_duty_hours = parameter("D21", "max_duty_hours")
+        if mins > max_duty_hours * 60:
+            flags.setdefault(the_day, []).append(
+                f"Duty > {max_duty_hours:g}h (D21)"
+            )
 
-        while win30 and (end - win30[0][1]) > thirty_days:
+        while win30 and (end - win30[0][1]) > d21_window:
             _, _, mo = win30.popleft()
             duty_30 -= mo
         win30.append((start, end, mins))
         duty_30 += mins
-        if duty_30 > 200 * 60:
+        max_rolling_hours = parameter("D21", "max_rolling_hours")
+        if duty_30 > max_rolling_hours * 60:
             flags.setdefault(the_day, []).append(
-                ">200h duty in last 30 days (D21)")
+                f">{max_rolling_hours:g}h duty in last "
+                f"{parameter('D21', 'rolling_days'):g} days (D21)")
 
         if night:
-            if mins > int(9.5 * 60):
-                flags.setdefault(the_day, []).append("Night duty > 9.5h (D30)")
+            max_night_hours = parameter("D30", "max_night_hours")
+            if mins > max_night_hours * 60:
+                flags.setdefault(the_day, []).append(
+                    f"Night duty > {max_night_hours:g}h (D30)"
+                )
             if end.time() > time(7, 30):
                 flags.setdefault(the_day, []).append(
                     "Night duty ends after 07:30 (D30)")
@@ -2343,26 +2534,35 @@ def _analyze_segments(segs):
             else:
                 night_block_count = 1
 
-            if night_block_count > 2:
+            max_nights = parameter("D30", "max_consecutive_nights")
+            if night_block_count > max_nights:
                 flags.setdefault(the_day, []).append(
-                    "3rd consecutive night duty (D30)")
+                    f"More than {max_nights:g} consecutive night duties (D30)"
+                )
 
             last_night_end = end
 
         if early:
             early_window.append(start)
-            while early_window and (start - early_window[0]) > six_days_hours:
+            while early_window and (
+                start - early_window[0]
+            ) > early_window_span:
                 early_window.popleft()
-            if len(early_window) > 2:
+            max_early_starts = parameter("D39", "max_early_starts")
+            if len(early_window) > max_early_starts:
                 flags.setdefault(the_day, []).append(
-                    "More than 2 early starts in 144h (D39)")
+                    f"More than {max_early_starts:g} early starts in "
+                    f"{parameter('D39', 'early_window_hours'):g}h (D39)"
+                )
             if early_pre0600 and last_was_early_pre0600 and last_duty_day and (the_day - last_duty_day).days == 1:
                 flags.setdefault(the_day, []).append(
                     "Consecutive early starts both before 06:00 not permitted (D39)"
                 )
-            if mins > 8 * 60:
+            max_early_hours = parameter("D40", "max_early_duty_hours")
+            if mins > max_early_hours * 60:
                 flags.setdefault(the_day, []).append(
-                    "Early start duty > 8h (D40)")
+                    f"Early start duty > {max_early_hours:g}h (D40)"
+                )
 
         if early or morning:
             points_today = 2 if early_pre0600 else 1
@@ -2370,14 +2570,20 @@ def _analyze_segments(segs):
                 morning_streak_points += points_today
             else:
                 morning_streak_points = points_today
-            if morning_streak_points > 5:
+            max_morning_points = parameter("D43", "max_morning_points")
+            if morning_streak_points > max_morning_points:
                 flags.setdefault(the_day, []).append(
-                    "More than 5 consecutive morning-duty periods (D43)")
+                    f"More than {max_morning_points:g} consecutive "
+                    f"morning-duty points (D43)"
+                )
         else:
             morning_streak_points = 0
 
-        if morning and mins > int(8.5 * 60):
-            flags.setdefault(the_day, []).append("Morning duty > 8.5h (D43)")
+        max_morning_hours = parameter("D43", "max_morning_duty_hours")
+        if morning and mins > max_morning_hours * 60:
+            flags.setdefault(the_day, []).append(
+                f"Morning duty > {max_morning_hours:g}h (D43)"
+            )
 
         if (last_duty_day is None) or ((the_day - last_duty_day).days >= 2):
             consec_queue.clear()
@@ -2398,9 +2604,30 @@ def fatigue_flags_for_range(staff: Staff, day_list, lookback_days=30):
     start_lb = day_list[0] - timedelta(days=lookback_days)
     end_day = day_list[-1]
     segs = _segments_for_staff(staff, start_lb, end_day)
-    all_flags = _analyze_segments(segs)
+    config = _fatigue_rule_config(staff.unit_id)
+    all_flags = _analyze_segments(segs, config)
+    enabled_system = {
+        code for code, rule in config["system"].items()
+        if rule["enabled"]
+    }
+    all_flags = {
+        finding_day: [
+            message for message in messages
+            if not (
+                match := re.search(r"\b(D\d{2})\b", message)
+            ) or match.group(1) in enabled_system
+        ]
+        for finding_day, messages in all_flags.items()
+    }
+    for finding_day, messages in _custom_fatigue_flags(
+        segs, config["custom"]
+    ).items():
+        all_flags.setdefault(finding_day, []).extend(messages)
     target_set = set(day_list)
-    return {d: f for d, f in all_flags.items() if d in target_set}
+    return {
+        d: findings for d, findings in all_flags.items()
+        if d in target_set and findings
+    }
 
 
 def would_trigger_fatigue(staff: Staff, day: date, code: str):
@@ -2514,6 +2741,14 @@ def _compliance_findings(year: int, month: int) -> dict:
     )
     rows = []
     rule_counts: Counter[str] = Counter()
+    rule_config = _fatigue_rule_config()
+    rule_metadata = {
+        code: item for code, item in rule_config["system"].items()
+    }
+    rule_metadata.update({
+        str(item.get("code")): item
+        for item in rule_config["custom"]
+    })
     for person in people:
         flags = fatigue_flags_for_range(person, days)
         issues = []
@@ -2522,16 +2757,25 @@ def _compliance_findings(year: int, month: int) -> dict:
                 staff_id=person.id, day=finding_day
             ).first()
             for message in messages:
-                rule = message.split(":", 1)[0].split("(", 1)[0].strip()
-                severity = "critical" if any(
-                    token in message
-                    for token in ("<11h", "3rd consecutive", ">200h", "> 10h")
-                ) else "warning"
-                rule_counts[rule] += 1
+                code_match = re.search(r"\b(D\d{2}|USR-[A-F0-9]+)\b", message)
+                code = code_match.group(1) if code_match else ""
+                metadata = rule_metadata.get(code, {})
+                rule = str(
+                    metadata.get("name")
+                    or message.split(":", 1)[0].split("(", 1)[0].strip()
+                )
+                severity = metadata.get("severity")
+                if severity not in {"warning", "critical"}:
+                    severity = "critical" if any(
+                        token in message
+                        for token in ("<11h", "3rd consecutive", ">200h", "> 10h")
+                    ) else "warning"
+                rule_counts[f"{code} · {rule}" if code else rule] += 1
                 issues.append({
                     "day": finding_day,
                     "message": message,
                     "rule": rule,
+                    "rule_code": code,
                     "severity": severity,
                     "assignment": assignment,
                 })
@@ -2566,6 +2810,109 @@ def compliance_centre():
         prev_ym=f"{py:04d}-{pm:02d}",
         next_ym=f"{ny:04d}-{nm:02d}",
         **findings,
+    )
+
+
+@app.route("/admin/fatigue-rules", methods=["GET", "POST"])
+@login_required
+def admin_fatigue_rules():
+    if not is_admin_user(current_user):
+        abort(403)
+    config = _fatigue_rule_config()
+    if request.method == "POST":
+        _validate_csrf()
+        action = request.form.get("action") or ""
+        try:
+            if action == "update_system":
+                code = (request.form.get("code") or "").upper()
+                if code not in config["system"]:
+                    abort(404)
+                item = config["system"][code]
+                item["name"] = (
+                    request.form.get("name") or item["name"]
+                ).strip()[:120]
+                item["severity"] = (
+                    request.form.get("severity")
+                    if request.form.get("severity") in {"warning", "critical"}
+                    else item["severity"]
+                )
+                item["enabled"] = request.form.get("enabled") == "on"
+                for key, parameter_item in item["parameters"].items():
+                    value = float(request.form.get(
+                        f"parameter_{key}", parameter_item["value"]
+                    ))
+                    if not 0 < value <= 10000:
+                        raise ValueError(
+                            f"{parameter_item['label']} must be greater "
+                            "than zero."
+                        )
+                    parameter_item["value"] = value
+                _save_fatigue_rule_config(config)
+                flash(f"{code} fatigue rule updated.", "ok")
+            elif action in {"add_custom", "update_custom"}:
+                rule_type = request.form.get("rule_type") or ""
+                if rule_type not in CUSTOM_FATIGUE_RULE_TYPES:
+                    raise ValueError("Choose a supported rule check.")
+                name = (request.form.get("name") or "").strip()
+                if len(name) < 3:
+                    raise ValueError("Give the rule a clear name.")
+                threshold = float(request.form.get("threshold") or 0)
+                if threshold <= 0:
+                    raise ValueError("The limit must be greater than zero.")
+                type_meta = CUSTOM_FATIGUE_RULE_TYPES[rule_type]
+                window_days = int(
+                    request.form.get("window_days")
+                    or type_meta.get("default_window", 1)
+                )
+                if not 1 <= window_days <= 365:
+                    raise ValueError("The review period must be 1–365 days.")
+                severity = request.form.get("severity")
+                if severity not in {"warning", "critical"}:
+                    severity = "warning"
+                code = (request.form.get("code") or "").upper()
+                existing = next((
+                    item for item in config["custom"]
+                    if item.get("code") == code
+                ), None)
+                if action == "update_custom" and not existing:
+                    abort(404)
+                if not existing:
+                    existing = {
+                        "code": f"USR-{secrets.token_hex(3).upper()}"
+                    }
+                    config["custom"].append(existing)
+                existing.update({
+                    "name": name[:120],
+                    "rule_type": rule_type,
+                    "threshold": threshold,
+                    "window_days": window_days,
+                    "severity": severity,
+                    "enabled": request.form.get("enabled") == "on",
+                })
+                _save_fatigue_rule_config(config)
+                flash(f"{existing['code']} fatigue rule saved.", "ok")
+            elif action == "delete_custom":
+                code = (request.form.get("code") or "").upper()
+                before = len(config["custom"])
+                config["custom"] = [
+                    item for item in config["custom"]
+                    if item.get("code") != code
+                ]
+                if len(config["custom"]) == before:
+                    abort(404)
+                _save_fatigue_rule_config(config)
+                flash(f"{code} custom fatigue rule removed.", "ok")
+            else:
+                abort(400)
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("admin_fatigue_rules"))
+    return render_template(
+        "admin_fatigue_rules.html",
+        system_rules=list(config["system"].values()),
+        custom_rules=config["custom"],
+        rule_types=CUSTOM_FATIGUE_RULE_TYPES,
+        current_unit=db.session.get(Unit, _current_unit_id()),
     )
 
 
@@ -3227,33 +3574,6 @@ def is_month_locked(y: int, m: int, today: Optional[date] = None) -> bool:
 # Source protection: we never overwrite these
 LOCKED_SOURCES = {"manual", "leave", "sickness"}
 
-# Fall back defaults if AiRuleSet doesn’t specify
-AI_DEFAULTS = {
-    "no_nights_ids": [],          # [staff_id, ...]
-    "night_code": "N",            # your night code
-    "day_code_mon_sat": "D10",    # fallback day code Mon–Sat
-    "day_code_sun": "D12",        # fallback day code Sun
-    "enable_nops": False,         # requests logic comes in Part 3
-}
-
-
-def _load_ai_rules(y: int, m: int) -> dict:
-    ars = AiRuleSet.query.filter_by(year=y, month=m).first()
-    if not ars:
-        ars = AiRuleSet.query.order_by(AiRuleSet.id.desc()).first()
-    if not ars or not getattr(ars, "rules_json", None):
-        return dict(AI_DEFAULTS)
-    try:
-        rules = json.loads(ars.rules_json or "{}")
-    except Exception:
-        rules = {}
-    merged = dict(AI_DEFAULTS)
-    merged.update(rules or {})
-    # normalise set types
-    merged["no_nights_ids"] = set(merged.get("no_nights_ids", []))
-    return merged
-
-
 def _assignment(staff_id: int, d: date) -> "Assignment":
     a = Assignment.query.filter_by(staff_id=staff_id, day=d).first()
     if not a:
@@ -3366,47 +3686,6 @@ def _is_working_m_code(code: str) -> bool:
 
 def _is_working_n_code(code: str) -> bool:
     return _is_working_code_prefix(code, "N")
-
-# Rules persistence used by admin UI
-
-
-def _load_rules_for(y: int, m: int) -> dict:
-    rs = AiRuleSet.query.filter_by(year=y, month=m).first()
-    if rs and rs.rules_json:
-        try:
-            return json.loads(rs.rules_json)
-        except Exception:
-            return _default_ai_rules()
-    return _default_ai_rules()
-
-
-def _save_rules_for(y: int, m: int, rules: dict):
-    rs = AiRuleSet.query.filter_by(year=y, month=m).first()
-    payload = json.dumps(rules, separators=(",", ":"))
-    if not rs:
-        rs = AiRuleSet(year=y, month=m, rules_json=payload)
-        db.session.add(rs)
-    else:
-        rs.rules_json = payload
-    db.session.commit()
-    log_change("AiRuleSet", rs.id, "rules_json", None,
-               payload, context_day=date(y, m, 1))
-    return rs
-
-
-def _default_ai_rules():
-    return {
-        "respect_user_requests": True,
-        "equalize_nights": True,
-        "nights_in_pairs": True,
-        "night_pool_watches": ["A", "B", "C", "D", "E"],
-        "avoid_night_before_AL": True,
-        "fill_short_with_D": True,
-        "day_shift_codes": {"weekday": "D10", "sunday": "D12"},
-        "no_nights_list": [],
-        "nops_policy": {"integrate_required": True, "only_if_needed": True},
-    }
-
 
 def is_admin_user(u) -> bool:
     return bool(getattr(u, "is_admin", False) or getattr(u, "role", "") == "admin")
@@ -3590,11 +3869,10 @@ def _publication_preflight(year: int, month: int) -> dict:
         BreakPlan.day >= days[0], BreakPlan.day <= days[-1]
     ).first():
         configuration_blocks.append("No operational break plan is recorded for the month.")
-    hard_blocks = (
-        len(qualification_gaps) + len(unassigned)
-        + len(position_shortfalls) + len(critical_reports)
-        + len(configuration_blocks)
-    )
+    # Only incomplete roster cells and known competence failures prevent a
+    # release. Other findings stay visible and require a manager rationale,
+    # but do not trap a unit in optional setup workflows.
+    hard_blocks = len(qualification_gaps) + len(unassigned)
     return {
         "fatigue_total": fatigue["total"],
         "fatigue_critical": fatigue["critical"],
@@ -3607,7 +3885,11 @@ def _publication_preflight(year: int, month: int) -> dict:
         "configuration_blocks": configuration_blocks,
         "approved_rule": approved_rule,
         "hard_blocks": hard_blocks,
-        "exceptions": fatigue["total"] + len(coverage_gaps),
+        "exceptions": (
+            fatigue["total"] + len(coverage_gaps)
+            + len(position_shortfalls) + len(critical_reports)
+            + len(configuration_blocks)
+        ),
         "ready": hard_blocks == 0,
     }
 
@@ -3638,8 +3920,8 @@ def publication_centre(ym):
             ).strip()
             if preflight["hard_blocks"]:
                 flash(
-                    "Publication blocked: resolve all configuration, competence, "
-                    "position-coverage and critical fatigue-report failures first.",
+                    "Publication blocked: assign every roster cell and resolve "
+                    "known competence failures first.",
                     "error",
                 )
                 return redirect(url_for("publication_centre", ym=ym))
@@ -4205,44 +4487,6 @@ def __can():
         "is_dwm": bool(getattr(current_user, "is_dwm", False)),
         "final_can_edit": can_edit,
     }
-
-
-@app.route("/admin/ai/generate/<ym>", methods=["POST"], endpoint="admin_ai_generate")
-@login_required
-def admin_ai_generate(ym):
-    if not is_admin_user(current_user):
-        abort(403)
-    _validate_csrf()
-    y, m = parse_ym(ym)
-    try:
-        res = generate_month_roster(y, m, current_user) or {}
-        n_changed = int(res.get("nights", 0))
-        d_changed = int(res.get("days", 0))
-        total = n_changed + d_changed
-        if total == 0:
-            # Give a useful hint if nothing changed
-            req = Requirement.query.filter_by(year=y, month=m).first()
-            hints = []
-            if not req:
-                hints.append("no Requirement row")
-            else:
-                if getattr(req, "req_n", 0) <= 0:
-                    hints.append("req_n=0")
-                if getattr(req, "req_d", 0) <= 0:
-                    hints.append("req_d=0")
-            msg = "AI ran but made 0 changes"
-            if hints:
-                msg += f" ({', '.join(hints)})"
-            flash(msg + ".", "info")
-        else:
-            flash(
-                f"AI updated {n_changed} night cells and {d_changed} day cells.", "ok")
-    except RuntimeError as e:
-        flash(str(e), "error")
-    except Exception as e:
-        db.session.rollback()
-        flash(f"AI run failed: {e}", "error")
-    return redirect(url_for("roster_month", ym=ym))
 
 
 @app.route("/assign/<int:staff_id>/<ym>/<day>", methods=["POST"])
@@ -5528,64 +5772,6 @@ def admin_watch_move_delete(hid):
     return redirect(url_for("admin_staff_edit", sid=sid))
 
 
-@app.route("/admin/ai/rules", methods=["GET", "POST"])
-@login_required
-@admin_required
-def admin_ai_rules():
-    ...
-
-    today = date.today()
-    ym = request.args.get("ym") or f"{today.year:04d}-{today.month:02d}"
-    y, m = parse_ym(ym)
-
-    if request.method == "POST":
-        mode = request.form.get("mode", "form")
-        if mode == "json":
-            txt = request.form.get("rules_json", "").strip()
-            try:
-                rules = _json.loads(txt) if txt else _default_ai_rules()
-            except Exception as e:
-                flash(f"Invalid JSON: {e}", "error")
-                return redirect(url_for("admin_ai_rules", ym=ym))
-        else:
-            rules = _default_ai_rules()
-            rules["respect_user_requests"] = bool(
-                request.form.get("respect_user_requests"))
-            rules["equalize_nights"] = bool(
-                request.form.get("equalize_nights"))
-            rules["nights_in_pairs"] = bool(
-                request.form.get("nights_in_pairs"))
-            rules["avoid_night_before_AL"] = bool(
-                request.form.get("avoid_night_before_AL"))
-            rules["fill_short_with_D"] = bool(
-                request.form.get("fill_short_with_D"))
-            pool = request.form.get(
-                "night_pool_watches", "A,B,C,D,E").replace(" ", "").split(",")
-            rules["night_pool_watches"] = [p for p in pool if p]
-            rules["day_shift_codes"] = {
-                "weekday": (request.form.get("day_weekday", "D10") or "D10").upper(),
-                "sunday": (request.form.get("day_sunday", "D12") or "D12").upper(),
-            }
-            non = request.form.get("no_nights_list", "").strip()
-            rules["no_nights_list"] = [int(x) for x in re.findall(r"\d+", non)]
-            rules["nops_policy"] = {
-                "integrate_required": bool(request.form.get("nops_integrate_required")),
-                "only_if_needed": bool(request.form.get("nops_only_if_needed")),
-            }
-
-        _save_rules_for(y, m, rules)
-        flash("AI rules saved.", "ok")
-        return redirect(url_for("admin_ai_rules", ym=ym))
-
-    rules = _load_rules_for(y, m)
-    staff_map = [(p.name, p.id)
-                 for p in Staff.query.order_by(Staff.name.asc()).all()]
-    return render_template("ai_rules.html",
-                           ym=f"{y:04d}-{m:02d}",
-                           rules_json=_json.dumps(rules, indent=2),
-                           rules=rules, staff_map=staff_map)
-
-
 @app.route("/admin/change-log")
 @login_required
 @admin_required
@@ -5638,6 +5824,45 @@ def leave():
 
         form = request.form.get("form", "")
 
+        if form in {"absence_type_add", "absence_type_delete"}:
+            if not is_admin_user(current_user):
+                abort(403)
+            types = get_absence_types(active_only=False)
+            if form == "absence_type_add":
+                code = (request.form.get("code") or "").strip().upper()
+                label = (request.form.get("label") or "").strip()
+                category = (request.form.get("category") or "").strip().lower()
+                if (
+                    not re.fullmatch(r"[A-Z0-9]{1,10}", code)
+                    or category not in {"leave", "sickness"}
+                    or not label
+                ):
+                    flash("Enter a name, category and a 1–10 character code.", "error")
+                    return redirect(url_for("leave", ym=ym_param))
+                existing = next((item for item in types if item["code"] == code), None)
+                if existing:
+                    existing.update(label=label[:80], category=category, active=True)
+                else:
+                    types.append({
+                        "code": code, "label": label[:80],
+                        "category": category, "active": True,
+                    })
+                _save_absence_types(types)
+                flash(f"{label} is now available for this airport.", "ok")
+            else:
+                code = (request.form.get("code") or "").strip().upper()
+                item = next((item for item in types if item["code"] == code), None)
+                if not item:
+                    abort(404)
+                item["active"] = False
+                _save_absence_types(types)
+                flash(
+                    f"{item['label']} was removed from new records and reports. "
+                    "Historical records were retained.",
+                    "ok",
+                )
+            return redirect(url_for("leave", ym=ym_param))
+
         if form == "leave_add":
             staff_id = int(request.form["staff_id"])
             lv_type = request.form["leave_type"].upper().strip()
@@ -5669,8 +5894,11 @@ def leave():
                 return redirect(url_for("leave", ym=ym_param))
 
             # Original behaviour: AL/PL/SPL create Leave rows
-            if lv_type not in {"AL", "PL", "SPL"}:
-                flash("Only AL / PL / SPL / TOU8 / TOUI supported here.", "error")
+            active_leave_codes = {
+                item["code"] for item in get_absence_types("leave")
+            }
+            if lv_type not in active_leave_codes:
+                flash("Select an active leave type for this airport.", "error")
                 return redirect(url_for("leave", ym=ym_param))
 
             lv = Leave(staff_id=staff_id, leave_type=lv_type,
@@ -5696,8 +5924,10 @@ def leave():
             old_range = (lv.start, lv.end)
             lv.staff_id = int(request.form["staff_id"])
             lv.leave_type = request.form["leave_type"].upper()
-            if lv.leave_type not in {"AL", "PL", "SPL"}:
-                flash("Only AL / PL / SPL supported.", "error")
+            if lv.leave_type not in {
+                item["code"] for item in get_absence_types("leave")
+            }:
+                flash("Select an active leave type for this airport.", "error")
                 return redirect(url_for("leave", ym=ym_param))
             lv.start = date.fromisoformat(request.form["start"])
             lv.end = date.fromisoformat(request.form["end"])
@@ -5732,7 +5962,10 @@ def leave():
         if form == "sick_add":
             staff_id = int(request.form["staff_id"])
             code = request.form["sick_code"].upper()
-            if code not in {"SC", "SSC"}:
+            sickness_codes = {
+                item["code"] for item in get_absence_types("sickness")
+            }
+            if code not in sickness_codes:
                 flash("Invalid sickness code.", "error")
                 return redirect(url_for("leave", ym=ym_param))
             start_d = date.fromisoformat(request.form["start"])
@@ -5759,7 +5992,10 @@ def leave():
             start_d = date.fromisoformat(request.form["start"])
             end_d = date.fromisoformat(request.form["end"])
             new_code = request.form["sick_code"].upper()
-            if new_code not in {"SC", "SSC"}:
+            sickness_codes = {
+                item["code"] for item in get_absence_types("sickness")
+            }
+            if new_code not in sickness_codes:
                 flash("Invalid sickness code.", "error")
                 return redirect(url_for("leave", ym=ym_param))
             cur = start_d
@@ -5767,7 +6003,11 @@ def leave():
                 a = Assignment.query.filter_by(
                     unit_id=_current_unit_id(),
                     staff_id=staff_id, day=cur).first()
-                if a and a.code in {"SC", "SSC"}:
+                if a and a.code in {
+                    item["code"] for item in get_absence_types(
+                        "sickness", active_only=False
+                    )
+                }:
                     a.code = new_code
                     a.annotation = ""
                     a.source = "manual"
@@ -5790,7 +6030,11 @@ def leave():
                 a = Assignment.query.filter_by(
                     unit_id=_current_unit_id(),
                     staff_id=staff_id, day=cur).first()
-                if a and a.code in {"SC", "SSC"}:
+                if a and a.code in {
+                    item["code"] for item in get_absence_types(
+                        "sickness", active_only=False
+                    )
+                }:
                     db.session.delete(a)
                 cur += timedelta(days=1)
             db.session.commit()
@@ -5831,8 +6075,13 @@ def leave():
               .filter(Leave.end >= start_of_month, Leave.start <= end_of_month)
               .order_by(Leave.start.asc())
               .all())
+    all_sickness_codes = [
+        item["code"] for item in get_absence_types(
+            "sickness", active_only=False
+        )
+    ]
     sickness = (Assignment.query
-                .filter(Assignment.code.in_(("SC", "SSC")),
+                .filter(Assignment.code.in_(all_sickness_codes),
                         Assignment.day >= start_of_month,
                         Assignment.day <= end_of_month)
                 .order_by(Assignment.day.asc())
@@ -5842,6 +6091,9 @@ def leave():
                            staff=staff,
                            leaves=leaves,
                            sickness=sickness,
+                           leave_types=get_absence_types("leave"),
+                           sickness_types=get_absence_types("sickness"),
+                           absence_types=get_absence_types(active_only=False),
                            ym=f"{year:04d}-{month:02d}",
                            month_title=month_title,
                            prev_ym=prev_ym, next_ym=next_ym)
@@ -5867,12 +6119,17 @@ def staff_profile(sid):
     al_days = sum((lv.end - lv.start).days + 1 for lv in s.leaves
                   if lv.leave_type == "AL" and lv.end >= yr_ago and lv.start <= today)
 
-    # Sickness = SC/SSC only, counted via Assignments
+    # Sickness categories configured for this airport, counted via assignments.
+    sickness_codes = {
+        item["code"] for item in get_absence_types(
+            "sickness", active_only=False
+        )
+    }
     q = (Assignment.query
          .filter(Assignment.staff_id == s.id,
                  Assignment.day >= yr_ago,
                  Assignment.day <= today))
-    sick_days = sum(1 for a in q.all() if a.code in ("SC", "SSC"))
+    sick_days = sum(1 for a in q.all() if a.code in sickness_codes)
 
     month_start, days = month_range(today.year, today.month)
     month_end = days[-1]
@@ -5937,6 +6194,21 @@ def staff_profile(sid):
     )
 
 
+@app.route("/staff/<int:sid>/calendar-token", methods=["POST"])
+@login_required
+def calendar_token_create(sid):
+    _validate_csrf()
+    staff = Staff.query.filter_by(
+        id=sid, unit_id=_current_unit_id()
+    ).first_or_404()
+    if staff.id != current_user.id and not is_admin_user(current_user):
+        abort(403)
+    staff.calendar_token = secrets.token_hex(24)
+    db.session.commit()
+    flash("A new private calendar subscription link was generated.", "ok")
+    return redirect(url_for("staff_profile", sid=staff.id))
+
+
 @app.post("/notifications/read")
 @login_required
 def notifications_read():
@@ -5960,16 +6232,21 @@ def _compute_metrics_range(start_day: date, end_day: date):
     annotation_snapshot = _annotation_snapshot(
         int(_current_unit_id() or 1)
     )["items"]
-    tag_map = {item["code"]: {t for t in item["tags"]} for item in annotation_snapshot}
     label_map = {item["code"]: item["label"] for item in annotation_snapshot}
 
-    ot_columns = [
-        {"code": item["code"], "label": label_map[item["code"]]}
+    annotation_columns = [
+        {
+            "code": item["code"],
+            "label": item["label"] or item["code"],
+            "active": bool(item["is_active"]),
+        }
         for item in annotation_snapshot
-        if item["is_active"] and "ot" in tag_map.get(item["code"], set())
+        if item["is_active"]
     ]
-    ot_order = [col["code"] for col in ot_columns]
-    ot_known = set(ot_order)
+    annotation_order = [
+        column["code"] for column in annotation_columns
+    ]
+    annotation_known = set(annotation_order)
 
     staff_by_id = {s.id: s for s in Staff.query.all()}
     metrics_map: dict[int, dict[str, object]] = {}
@@ -5981,38 +6258,25 @@ def _compute_metrics_range(start_day: date, end_day: date):
         if s.id not in metrics_map:
             metrics_map[s.id] = {
                 "staff": s,
-                "ext_long": 0,
-                "ext_short": 0,
-                "ext_total": 0,
-                "swaps": 0,
-                "ot": {code: 0 for code in ot_order},
-                "ot_total": 0,
-                "aava_total": 0,
+                "annotations": {
+                    code: 0 for code in annotation_order
+                },
             }
         parsed = parse_annotation(a.annotation)
         if not parsed:
             continue
-        t = parsed["type"]
-        tags = tag_map.get(t, set())
-        if "ext_long" in tags:
-            metrics_map[s.id]["ext_long"] += 1
-            metrics_map[s.id]["ext_total"] += 1
-        elif "ext_short" in tags:
-            metrics_map[s.id]["ext_short"] += 1
-            metrics_map[s.id]["ext_total"] += 1
-        elif "swap" in tags:
-            metrics_map[s.id]["swaps"] += 1
-
-        if "ot" in tags:
-            if t not in ot_known:
-                ot_known.add(t)
-                ot_order.append(t)
-                ot_columns.append({"code": t, "label": label_map.get(t, t)})
-            metrics_map[s.id]["ot"].setdefault(t, 0)
-            metrics_map[s.id]["ot"][t] += 1
-            metrics_map[s.id]["ot_total"] += 1
-            if "aava" in tags:
-                metrics_map[s.id]["aava_total"] += 1
+        code = parsed["type"]
+        # Preserve historical totals when a definition was retired after use.
+        if code not in annotation_known:
+            annotation_known.add(code)
+            annotation_order.append(code)
+            annotation_columns.append({
+                "code": code,
+                "label": label_map.get(code, code),
+                "active": False,
+            })
+        metrics_map[s.id]["annotations"].setdefault(code, 0)
+        metrics_map[s.id]["annotations"][code] += 1
 
     staff_order = (Staff.query
                    .outerjoin(Watch, Staff.watch_id == Watch.id)
@@ -6022,29 +6286,27 @@ def _compute_metrics_range(start_day: date, end_day: date):
     for s in staff_order:
         base = {
             "staff": s,
-            "ext_long": 0,
-            "ext_short": 0,
-            "ext_total": 0,
-            "swaps": 0,
-            "ot": {code: 0 for code in ot_order},
-            "ot_total": 0,
-            "aava_total": 0,
+            "annotations": {
+                code: 0 for code in annotation_order
+            },
         }
         row = metrics_map.get(s.id, base)
-        # ensure OT keys match ot_order
-        row["ot"] = {code: row["ot"].get(code, 0) for code in ot_order}
+        row["annotations"] = {
+            code: row["annotations"].get(code, 0)
+            for code in annotation_order
+        }
         staff_metrics.append(row)
 
     totals = {
-        "ext_long": sum(r["ext_long"] for r in staff_metrics),
-        "ext_short": sum(r["ext_short"] for r in staff_metrics),
-        "ext_total": sum(r["ext_total"] for r in staff_metrics),
-        "swaps": sum(r["swaps"] for r in staff_metrics),
-        "ot": {code: sum(r["ot"].get(code, 0) for r in staff_metrics) for code in ot_order},
-        "ot_total": sum(r["ot_total"] for r in staff_metrics),
-        "aava_total": sum(r["aava_total"] for r in staff_metrics),
+        "annotations": {
+            code: sum(
+                row["annotations"].get(code, 0)
+                for row in staff_metrics
+            )
+            for code in annotation_order
+        },
     }
-    return staff_metrics, totals, ot_columns
+    return staff_metrics, totals, annotation_columns
 
 
 def _fy_start_for(d: date) -> date:
@@ -6063,11 +6325,13 @@ def metrics():
     end_str = request.args.get("end", today.isoformat())
     start_day = date.fromisoformat(start_str)
     end_day = date.fromisoformat(end_str)
-    staff_metrics, totals, ot_columns = _compute_metrics_range(start_day, end_day)
+    staff_metrics, totals, annotation_columns = _compute_metrics_range(
+        start_day, end_day
+    )
     return render_template("metrics.html",
                            start=start_day, end=end_day,
                            staff_metrics=staff_metrics, totals=totals,
-                           ot_columns=ot_columns)
+                           annotation_columns=annotation_columns)
 
 
 def _count_aava_soal_since_prev_april(staff_id: int, upto: date):
@@ -6144,31 +6408,39 @@ def metrics_export():
     start_day = date.fromisoformat(
         request.args.get("start", default_start.isoformat()))
     end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
-    staff_metrics, totals, ot_columns = _compute_metrics_range(start_day, end_day)
+    staff_metrics, totals, annotation_columns = _compute_metrics_range(
+        start_day, end_day
+    )
 
     output = io.StringIO()
     w = csv.writer(output)
-    header = ["ATCO", "Staff #", "Watch",
-              "Ext L", "Ext S", "Ext Total", "Swaps"]
-    header.extend([col["code"] for col in ot_columns])
-    header.extend(["AAVA Total", "OT Total"])
+    header = ["ATCO", "Staff #", "Watch"]
+    header.extend([
+        f"{column['label']} ({column['code']})"
+        for column in annotation_columns
+    ])
     w.writerow(header)
     for row in staff_metrics:
         s = row["staff"]
         watch = s.watch.name.replace("Watch ", "") if s.watch else "-"
-        ot_values = [row["ot"].get(col["code"], 0) for col in ot_columns]
-        w.writerow([s.name, s.staff_no, watch,
-                    row["ext_long"], row["ext_short"], row["ext_total"], row["swaps"]] +
-                   ot_values + [row["aava_total"], row["ot_total"]])
+        annotation_values = [
+            row["annotations"].get(column["code"], 0)
+            for column in annotation_columns
+        ]
+        w.writerow([s.name, s.staff_no, watch] + annotation_values)
     w.writerow([])
-    total_row = ["All ATCOs", "", "",
-                 totals["ext_long"], totals["ext_short"], totals["ext_total"], totals["swaps"]]
-    total_row.extend([totals["ot"].get(col["code"], 0) for col in ot_columns])
-    total_row.extend([totals["aava_total"], totals["ot_total"]])
+    total_row = ["All ATCOs", "", ""]
+    total_row.extend([
+        totals["annotations"].get(column["code"], 0)
+        for column in annotation_columns
+    ])
     w.writerow(total_row)
 
     csv_bytes = output.getvalue().encode("utf-8")
-    filename = f"overtime-swap-ext-count_{start_day.isoformat()}_to_{end_day.isoformat()}.csv"
+    filename = (
+        f"annotation-totals_{start_day.isoformat()}_to_"
+        f"{end_day.isoformat()}.csv"
+    )
     return Response(csv_bytes,
                     mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
@@ -6296,7 +6568,11 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
 @app.route("/overtime", methods=["GET", "POST"])
 @login_required
 def overtime():
-    if not (is_admin_user(current_user) or getattr(current_user, "role", "") in ("editor", "admin")):
+    if not (
+        is_editor_user(current_user)
+        or getattr(current_user, "is_wm", False)
+        or getattr(current_user, "is_dwm", False)
+    ):
         abort(403)
 
     shifts = ShiftType.query.filter_by(
@@ -6319,6 +6595,8 @@ def overtime():
         results, error_msg = _compute_overtime_candidates(chosen_date, chosen_shift)
 
         if action == "send_sms":
+            if not can_send_unit_messages(current_user):
+                abort(403)
             if error_msg:
                 flash(error_msg, "error")
                 results = []
@@ -6367,6 +6645,81 @@ def overtime():
                            selected_staff_ids=selected_staff_ids,
                            searched=searched)
 
+
+@app.route("/messages", methods=["GET", "POST"])
+@login_required
+def unit_messages():
+    if not can_send_unit_messages(current_user):
+        abort(403)
+    people = Staff.query.filter_by(
+        membership_status="active"
+    ).order_by(Staff.name).all()
+    watches = Watch.query.order_by(Watch.order_index, Watch.name).all()
+    selected_scope = request.form.get("scope", "individual")
+    selected_recipient = request.form.get("recipient_id", "")
+    selected_watch = request.form.get("watch_id", "")
+    template = request.form.get("template", "custom")
+    message = (request.form.get("message") or "").strip()
+    preview = []
+
+    if request.method == "POST":
+        _validate_csrf()
+        recipients = []
+        if selected_scope == "all":
+            recipients = people
+        elif selected_scope == "watch" and selected_watch.isdigit():
+            recipients = [
+                person for person in people
+                if person.watch_id == int(selected_watch)
+            ]
+        elif selected_scope == "individual" and selected_recipient.isdigit():
+            recipients = [
+                person for person in people
+                if person.id == int(selected_recipient)
+            ]
+        if not recipients:
+            flash("Choose at least one recipient.", "error")
+        elif template == "today_shift":
+            today = date.today()
+            assignment_map = {
+                row.staff_id: row for row in Assignment.query.filter(
+                    Assignment.day == today,
+                    Assignment.staff_id.in_([person.id for person in recipients]),
+                ).all()
+            }
+            failures = []
+            sent = 0
+            for person in recipients:
+                assignment = assignment_map.get(person.id)
+                body = (
+                    f"Hello {person.name}, you are rostered for "
+                    f"{assignment.code if assignment else 'no assigned'} shift today "
+                    f"({today.strftime('%d %b %Y')})."
+                )
+                ok, detail = _send_sms_via_twilio(person.phone_number, body)
+                preview.append((person, body))
+                if ok:
+                    sent += 1
+                else:
+                    failures.append((person, detail))
+            _flash_sms_result(sent, failures)
+        elif not message:
+            flash("Enter a custom message.", "error")
+        elif len(message) > 480:
+            flash("Message is too long (limit 480 characters).", "error")
+        else:
+            sent, failures = _send_overtime_sms_notifications(recipients, message)
+            preview = [(person, message) for person in recipients]
+            _flash_sms_result(sent, failures)
+
+    return render_template(
+        "messages.html", people=people, watches=watches,
+        sms_ready=_sms_service_configured(), template=template,
+        message=message, selected_scope=selected_scope,
+        selected_recipient=selected_recipient, selected_watch=selected_watch,
+        preview=preview,
+    )
+
 # -------------------- Calendar subscription --------------------
 
 
@@ -6391,9 +6744,9 @@ def _ical_escape(txt: str) -> str:
 
 @app.route("/calendar/<int:sid>/<token>.ics")
 def calendar_feed(sid, token):
-    s = Staff.query.filter_by(
-        id=sid, unit_id=_current_unit_id()
-    ).first_or_404()
+    # The unguessable token is the credential. Calendar clients are not
+    # logged in, so this public feed must not depend on session tenancy.
+    s = Staff.query.filter_by(id=sid, calendar_token=token).first_or_404()
     if not s.calendar_token or token != s.calendar_token:
         abort(403)
 
@@ -6412,7 +6765,7 @@ def calendar_feed(sid, token):
     lines.append(f"X-WR-CALNAME:{_ical_escape(s.name)} Roster")
 
     for a in q.all():
-        sh = get_shift(a.code)
+        sh = get_shift(a.code, unit_id=s.unit_id)
         uid = f"{s.id}-{a.day.isoformat()}-{a.code}@atcroster"
         lines.append("BEGIN:VEVENT")
         lines.append(f"UID:{uid}")
@@ -6453,7 +6806,9 @@ def _leave_summary_for_month(year: int, month: int):
              .outerjoin(Watch, Staff.watch_id == Watch.id)
              .order_by(Watch.order_index, Staff.name).all())
 
-    codes_sorted = ["AL"]  # only AL
+    codes_sorted = [
+        item["code"] for item in get_absence_types("leave", active_only=True)
+    ]
     rows = []
     totals = Counter()
 
@@ -6461,8 +6816,8 @@ def _leave_summary_for_month(year: int, month: int):
         counts = {c: 0 for c in codes_sorted}
         for d in days:
             code = a_map[s.id].get(d)
-            if code == "AL":
-                counts["AL"] += 1
+            if code in counts:
+                counts[code] += 1
         total = sum(counts.values())
         for c, v in counts.items():
             totals[c] += v
@@ -6642,20 +6997,29 @@ def report_sickness():
     people = (Staff.query
               .outerjoin(Watch, Staff.watch_id == Watch.id)
               .order_by(Watch.order_index, Staff.name).all())
+    sickness_types = get_absence_types("sickness", active_only=True)
+    codes = [item["code"] for item in sickness_types]
     rows = []
+    totals = Counter()
     for s in people:
         q = (Assignment.query
              .filter(Assignment.staff_id == s.id,
                      Assignment.day >= start,
                      Assignment.day <= today))
-        sick_days = sorted([a.day for a in q.all() if a.code in ("SC", "SSC")])
+        assignments = [a for a in q.all() if a.code in codes]
+        sick_days = sorted(a.day for a in assignments)
+        counts = Counter(a.code for a in assignments)
+        totals.update(counts)
         total = len(sick_days)
         groups = _group_consecutive_days(set(sick_days))
         rows.append({
             "staff": s, "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
-            "total": total, "groups": groups
+            "total": total, "groups": groups, "counts": counts,
         })
-    return render_template("report_sickness.html", start=start, end=today, rows=rows)
+    return render_template(
+        "report_sickness.html", start=start, end=today, rows=rows,
+        sickness_types=sickness_types, totals=totals,
+    )
 
 
 # -------------------- Request Sheets (shift requests) --------------------
@@ -8671,41 +9035,6 @@ def operations_assurance(ym):
     )
 
 
-@app.route("/fatigue/report", methods=["GET", "POST"])
-@login_required
-def fatigue_self_report():
-    if getattr(current_user, "role", "") == "superadmin":
-        abort(403)
-    if request.method == "POST":
-        _validate_csrf()
-        try:
-            duty_day = date.fromisoformat(request.form["duty_day"])
-            severity = request.form.get("severity") or ""
-            summary = (request.form.get("summary") or "").strip()
-            if severity not in {"low", "medium", "high", "unfit"}:
-                raise ValueError("Select a fatigue severity.")
-            if len(summary) < 10:
-                raise ValueError("Provide a short description of the fatigue concern.")
-            db.session.add(FatigueReport(
-                unit_id=_current_unit_id(), person_id=current_user.id,
-                duty_day=duty_day, severity=severity, summary=summary[:500],
-            ))
-            db.session.commit()
-            flash(
-                "Fatigue report submitted. If you may be unfit for duty, "
-                "follow the unit's immediate reporting procedure as well.",
-                "ok",
-            )
-            return redirect(url_for("fatigue_self_report"))
-        except (ValueError, KeyError) as exc:
-            db.session.rollback()
-            flash(str(exc), "error")
-    reports = FatigueReport.query.filter_by(
-        person_id=current_user.id
-    ).order_by(FatigueReport.reported_at.desc()).all()
-    return render_template("fatigue_report.html", reports=reports, today=date.today())
-
-
 @app.route("/planning/coverage/<ym>")
 @login_required
 def coverage_heatmap(ym):
@@ -8886,10 +9215,10 @@ def reports_index():
             month_title=month_title,
             months=months,
             links=links,
-            page_title="OT/Swap/Ext Totals",
+            page_title="Annotation Totals",
         )
 
-    # Editor: only OT/SWAP totals
+    # Editor: annotation totals only
     if getattr(current_user, "role", "") in ("editor", "admin"):
         return redirect(url_for("metrics"))
 

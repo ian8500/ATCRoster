@@ -21,6 +21,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 import app
 from app import (
+    AnnotationType,
+    Assignment,
     ShiftType,
     Staff,
     StaffWatchHistory,
@@ -333,7 +335,6 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         "roster": "/roster/2025-04",
         "requests": "/requests",
         "published": "/publications/2025-04",
-        "fatigue": "/fatigue/report",
         "overtime": "/overtime",
         "leave": "/leave",
         "reports": "/reports",
@@ -360,7 +361,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         },
         "editor": {
             "roster": 200, "requests": 200, "published": 200,
-            "fatigue": 200, "overtime": 200, "leave": 200,
+            "overtime": 200, "leave": 200,
             "reports": 302, "metrics": 200, "qualification": 200,
             "compliance": 403, "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
@@ -368,7 +369,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         },
         "watch_manager": {
             "roster": 200, "requests": 200, "published": 200,
-            "fatigue": 200, "overtime": 403, "leave": 403,
+            "overtime": 200, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
             "compliance": 403, "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
@@ -376,7 +377,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         },
         "duty_watch_manager": {
             "roster": 200, "requests": 200, "published": 200,
-            "fatigue": 200, "overtime": 403, "leave": 403,
+            "overtime": 200, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
             "compliance": 403, "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
@@ -384,7 +385,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         },
         "staff": {
             "roster": 200, "requests": 200, "published": 200,
-            "fatigue": 200, "overtime": 403, "leave": 403,
+            "overtime": 403, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
             "compliance": 403, "operations": 403, "coverage": 403,
             "scenarios": 403, "accounts": 403, "onboarding": 403,
@@ -507,7 +508,7 @@ def test_overtime_finder_reports_an_empty_search_instead_of_looking_broken(clien
     assert b"Nobody is eligible for overtime for this date and shift" in response.data
 
 
-def test_production_operations_and_fatigue_workflows(client):
+def test_production_operations_workflows(client):
     login(client)
     token = csrf(client)
     with app.app.app_context():
@@ -566,23 +567,23 @@ def test_production_operations_and_fatigue_workflows(client):
     )
     assert break_response.status_code == 200
 
-    fatigue_response = client.post(
-        "/fatigue/report",
-        data={
-            "_csrf_token": token, "duty_day": "2025-04-01",
-            "severity": "medium",
-            "summary": "Reduced sleep before the planned morning duty.",
-        },
-        follow_redirects=True,
-    )
-    assert b"Fatigue report submitted" in fatigue_response.data
     with app.app.app_context():
         assert app.PositionEndorsement.query.count() == 1
         assert app.PositionRequirement.query.filter_by(
             position_id=position_id
         ).count() == 1
         assert app.BreakPlan.query.filter_by(position_id=position_id).count() == 1
-        assert app.FatigueReport.query.count() == 1
+
+
+def test_standalone_fatigue_reporting_workflow_is_removed(client):
+    login(client)
+    roster = client.get("/roster/2025-04")
+    assert b'href="/fatigue/report"' not in roster.data
+    assert client.get("/fatigue/report").status_code == 404
+    assert client.post(
+        "/fatigue/report",
+        data={"_csrf_token": csrf(client)},
+    ).status_code == 404
 
 
 def test_index_redirects_to_roster(client):
@@ -611,6 +612,7 @@ def test_admin_pages_accessible(client):
         "/reports",
         "/requests",
         "/admin/toil/new",
+        "/admin/fatigue-rules",
         "/metrics/export",
     ]
     for url in endpoints:
@@ -618,25 +620,177 @@ def test_admin_pages_accessible(client):
         assert resp.status_code == 200, f"Endpoint {url} returned {resp.status_code}"
 
 
-def test_ai_rules_form_includes_security_token_and_saves(client):
+def test_operations_workspace_is_hidden_from_primary_navigation(client):
     login(client)
-    page = client.get("/admin/ai/rules?ym=2026-07")
+    roster = client.get("/roster/2025-04")
+    assert roster.status_code == 200
+    assert b'href="/operations/' not in roster.data
+    # The underlying workspace is retained for a later re-enable.
+    assert client.get("/operations/2025-04").status_code == 200
+
+
+def test_annotation_totals_follow_unit_definitions_not_fixed_columns(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        db.session.add_all([
+            AnnotationType(
+                unit_id=1, code="CUSTOM", label="Custom Cover",
+                category="Operations", is_active=True, sort_order=1,
+            ),
+            AnnotationType(
+                unit_id=1, code="OLD", label="Retired Marker",
+                category="Operations", is_active=False, sort_order=2,
+                has_been_used=True,
+            ),
+            Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 1, 10),
+                code="M", annotation="CUSTOM", source="manual",
+            ),
+            Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 1, 11),
+                code="M", annotation="OLD", source="manual",
+            ),
+        ])
+        db.session.commit()
+        app.refresh_annotation_cache()
+
+    page = client.get(
+        "/metrics?start=2026-01-10&end=2026-01-11"
+    )
     assert page.status_code == 200
-    assert b'name="_csrf_token"' in page.data
-    saved = client.post(
-        "/admin/ai/rules?ym=2026-07",
+    assert b"Annotation Totals" in page.data
+    assert b"Custom Cover" in page.data
+    assert b"Retired Marker" in page.data
+    assert b"historical" in page.data
+    assert b"Ext Total" not in page.data
+    assert b"AAVA Total" not in page.data
+
+    exported = client.get(
+        "/metrics/export?start=2026-01-10&end=2026-01-11"
+    )
+    assert exported.status_code == 200
+    csv_text = exported.data.decode()
+    assert "Custom Cover (CUSTOM)" in csv_text
+    assert "Retired Marker (OLD)" in csv_text
+    assert "Ext Total" not in csv_text
+
+
+def test_admin_can_add_and_manage_custom_fatigue_rules(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        target_day = date(2026, 2, 1)
+        db.session.add(Assignment(
+            unit_id=1, staff_id=person.id, day=target_day,
+            code="M", source="manual",
+        ))
+        db.session.commit()
+        person_id = person.id
+
+    added = client.post(
+        "/admin/fatigue-rules",
         data={
             "_csrf_token": csrf(client),
-            "mode": "form",
-            "respect_user_requests": "on",
-            "equalize_nights": "on",
-            "day_weekday": "D",
-            "day_sunday": "D",
+            "action": "add_custom",
+            "name": "Local seven-hour duty limit",
+            "rule_type": "max_duty_hours",
+            "threshold": "7",
+            "window_days": "1",
+            "severity": "critical",
+            "enabled": "on",
         },
         follow_redirects=True,
     )
-    assert saved.status_code == 200
-    assert b"AI rules saved" in saved.data
+    assert added.status_code == 200
+    assert b"fatigue rule saved" in added.data
+    assert b"Local seven-hour duty limit" in added.data
+
+    with app.app.app_context():
+        person = db.session.get(Staff, person_id)
+        findings = app.fatigue_flags_for_range(
+            person, [target_day]
+        )
+        custom_messages = [
+            message for message in findings[target_day]
+            if "Local seven-hour duty limit" in message
+        ]
+        assert custom_messages
+        config = app._fatigue_rule_config(1)
+        custom_code = config["custom"][0]["code"]
+
+    paused = client.post(
+        "/admin/fatigue-rules",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "update_custom",
+            "code": custom_code,
+            "name": "Local seven-hour duty limit",
+            "rule_type": "max_duty_hours",
+            "threshold": "7",
+            "window_days": "1",
+            "severity": "critical",
+        },
+        follow_redirects=True,
+    )
+    assert paused.status_code == 200
+    with app.app.app_context():
+        person = db.session.get(Staff, person_id)
+        findings = app.fatigue_flags_for_range(
+            person, [target_day]
+        )
+        assert not any(
+            custom_code in message
+            for message in findings.get(target_day, [])
+        )
+
+
+def test_system_fatigue_threshold_changes_are_airport_specific(client):
+    login(client)
+    updated = client.post(
+        "/admin/fatigue-rules",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "update_system",
+            "code": "D21",
+            "name": "Local duty duration",
+            "severity": "warning",
+            "enabled": "on",
+            "parameter_max_duty_hours": "7",
+        },
+        follow_redirects=True,
+    )
+    assert updated.status_code == 200
+    assert b"D21 fatigue rule updated" in updated.data
+    assert b"Test Airport" in updated.data
+    with app.app.app_context():
+        unit_one = app._fatigue_rule_config(1)
+        other_airport = app._fatigue_rule_config(3)
+        assert (
+            unit_one["system"]["D21"]["parameters"]
+            ["max_duty_hours"]["value"]
+        ) == 7
+        assert (
+            other_airport["system"]["D21"]["parameters"]
+            ["max_duty_hours"]["value"]
+        ) == 10
+        assert unit_one["system"]["D21"]["name"] == "Local duty duration"
+        assert other_airport["system"]["D21"]["name"] != "Local duty duration"
+
+    # Restore the test airport default for subsequent tests.
+    restored = client.post(
+        "/admin/fatigue-rules",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "update_system",
+            "code": "D21",
+            "name": "Duty duration and rolling hours",
+            "severity": "critical",
+            "enabled": "on",
+            "parameter_max_duty_hours": "10",
+        },
+    )
+    assert restored.status_code == 302
 
 
 def test_admin_can_configure_requestable_shift(client):
@@ -1114,3 +1268,63 @@ def test_mfa_challenge_completes_login(client):
     )
     assert verified.status_code == 302
     assert "/roster/" in client.get("/", follow_redirects=False).headers["Location"]
+
+
+def test_airport_absence_catalogue_and_calendar_token(client):
+    with app.app.app_context():
+        app.MfaCredential.query.delete()
+        db.session.commit()
+    client.get("/logout")
+    login(client)
+    added = client.post(
+        "/leave?ym=2026-07",
+        data={
+            "_csrf_token": csrf(client),
+            "form": "absence_type_add",
+            "code": "CL",
+            "label": "Compassionate leave",
+            "category": "leave",
+        },
+        follow_redirects=True,
+    )
+    assert added.status_code == 200
+    assert b"Compassionate leave (CL)" in added.data
+
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        person.calendar_token = None
+        db.session.commit()
+        person_id = person.id
+    generated = client.post(
+        f"/staff/{person_id}/calendar-token",
+        data={"_csrf_token": csrf(client)},
+        follow_redirects=True,
+    )
+    assert generated.status_code == 200
+    with app.app.app_context():
+        person = db.session.get(Staff, person_id)
+        token = person.calendar_token
+        assert token
+    feed = app.app.test_client().get(f"/calendar/{person_id}/{token}.ics")
+    assert feed.status_code == 200
+    assert b"BEGIN:VCALENDAR" in feed.data
+
+
+def test_unit_messages_permission_boundary(client):
+    client.get("/logout")
+    login(client)
+    assert client.get("/messages").status_code == 200
+
+    staff_client = app.app.test_client()
+    staff_client.post(
+        "/login",
+        data={"username": "staff_test", "password": "password123"},
+    )
+    assert staff_client.get("/messages").status_code == 403
+
+    wm_client = app.app.test_client()
+    wm_client.post(
+        "/login",
+        data={"username": "watch_manager_test", "password": "password123"},
+    )
+    assert wm_client.get("/messages").status_code == 200

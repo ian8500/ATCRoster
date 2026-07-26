@@ -69,10 +69,6 @@ After signing in:
 - Use **Qualification compliance** at `/compliance`.
 - Use **Compliance** at `/compliance-centre` for explainable fatigue findings
   and the regulator/auditor evidence export.
-- Use **Operations** for position endorsements, resilient staffing
-  requirements, break planning, achieved duty, fatigue-report review and
-  approved rostering-rule versions.
-- Use **Fatigue** to submit a personal fatigue concern for manager review.
 - Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
 - Use **Roster scenarios** at `/planning/scenarios`.
 - Use **Airport onboarding** at `/unit/onboarding`.
@@ -118,7 +114,7 @@ attention. It is divided into focused sections:
   **Not counted** footer total.
 - **Staff** creates operational ATCO records and provides a name, watch, and
   role search for existing records.
-- **Tools** links to reference data, AI rules, manual TOIL, the change log,
+- **Tools** links to reference data, fatigue rules, manual TOIL, the change log,
   account management, and onboarding.
 
 The selected section is retained in the browser and reflected in the URL
@@ -213,20 +209,20 @@ assignment.
 
 ### Publication and acknowledgement
 
-Open **Published** or `/publications/YYYY-MM`. A Unit Admin can publish the
-current month after completing the pre-publication assurance gate. The gate
-checks:
+Open **Published** or `/publications/YYYY-MM`. The page presents a simple
+readiness, current release, and publish flow. A Unit Admin can publish the
+current month after checking:
 
 - every operational controller has an explicit assignment for every day;
 - working shifts do not violate their configured required qualification;
-- Morning, Day, Afternoon and Night staffing meet the configured requirement;
-- all explainable fatigue findings have been reviewed.
+- Morning, Day, Afternoon and Night staffing against the configured requirement;
+- explainable fatigue and optional assurance findings.
 
 Missing assignments and required-qualification failures block publication.
-Remaining fatigue findings or staffing shortfalls require an accountable
-manager rationale of at least 20 characters. The manager must also confirm the
-release declaration covering competence, coverage, fatigue, breaks and
-operational contingencies.
+Coverage, fatigue, position, break-plan and other assurance findings remain
+visible as advisories and require an accountable manager rationale of at least
+20 characters; they do not force a unit through an unrelated setup workflow.
+The manager also confirms the release declaration.
 
 Publication creates an immutable JSON snapshot containing the roster and its
 release-assurance summary, records the declaration in the change log, and
@@ -364,6 +360,31 @@ and the explainable finding. It is intended to support competent human review,
 not declare a roster legally compliant. Correct the roster or record an
 authorised decision through the controlled change process before publication.
 
+Unit Admins use **Compliance → Manage rules** (or
+`/admin/fatigue-rules`) to control fatigue monitoring:
+
+- review the nine system-rule families and their plain-language names;
+- edit airport-specific thresholds including duty hours, rolling periods,
+  minimum rest, recovery, consecutive duties/nights, early starts and morning
+  duty limits;
+- pause or reactivate a system warning and choose whether it is shown as a
+  warning or critical finding;
+- add local rules using guided checks for maximum duty length, minimum rest,
+  consecutive duties, consecutive nights, early-start frequency, or maximum
+  hours in a rolling period;
+- edit, pause, reactivate, or remove a locally created rule.
+
+Custom rules require a name, limit and severity. Rules measured over time also
+require a review period in days. They are evaluated for every operational ATCO
+and feed both roster-cell warnings and the Compliance Centre. No code or JSON
+editing is required. Changing a rule affects future calculations; it does not
+rewrite historical roster assignments.
+
+Fatigue configuration is stored against the authenticated airport’s unit ID.
+An administrator cannot read or change another airport’s thresholds, names,
+severity choices or custom rules. The dashboard displays the active airport
+name and code before any edits are made.
+
 ### Production operational assurance
 
 The Unit Admin **Operations** workspace at `/operations/YYYY-MM` provides:
@@ -382,9 +403,10 @@ date. Publication is blocked when the month has no operational positions,
 position requirements, break plan or approved rule version; when an endorsed
 position is short; or when a high/unfit fatigue report remains open.
 
-Controllers submit fatigue concerns through `/fatigue/report`. This supports,
-but does not replace, the unit's immediate fit-for-duty reporting procedure or
-Safety Management System.
+The standalone in-app fatigue self-report form is not enabled. Controllers
+should use the unit’s established fit-for-duty reporting procedure and Safety
+Management System. Automatic roster warnings and the Compliance Centre remain
+available.
 
 ## Coverage and scenario planning
 
@@ -402,11 +424,22 @@ step.
 
 ## Leave, sickness, overtime, and reports
 
-- Record leave through **Leave**, not a roster-cell shortcut.
-- Record sickness using the dedicated sickness workflow.
-- Configure Twilio before sending overtime SMS messages.
+- Record leave and sickness through **Leave / Sickness**, not a roster-cell
+  shortcut. Unit Admins can add or deactivate airport-specific types there.
+  Deactivation preserves history while removing the type from new entries and
+  reports.
+- Configure Twilio before sending overtime or unit SMS messages.
+- **Messages** is available only to Admin, WM and DWM users. It can target one
+  person, a named watch, or all active airport users with a custom message or
+  a personalised today-shift reminder.
 - Reports include fatigue, sickness, leave year, overtime, swaps, extensions,
   and CSV exports.
+
+The **Annotation Totals** report is definition-driven: it creates one column
+for every active annotation available in the airport’s roster selector rather
+than relying on fixed OT/Swap/EXT codes. If a retired annotation appears in
+the selected date range, it remains visible as a historical column so earlier
+records are not hidden. The CSV export uses the same columns as the screen.
 
 Twilio environment variables:
 
@@ -417,6 +450,14 @@ TWILIO_FROM_NUMBER
 ```
 
 When they are absent, SMS sending is disabled.
+
+### Calendar subscription
+
+Each user can open **Profile → Calendar subscription** and generate a private
+calendar link. Apple and Google subscription actions are shown immediately.
+Generating a replacement invalidates the previous link. Calendar clients
+authenticate with the unguessable token and therefore do not need an active
+browser login; treat the link as confidential.
 
 ## Accounts and platform administration
 

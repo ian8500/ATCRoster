@@ -88,18 +88,6 @@
             onclick="setRosterZoomPreset('fit')">Fit width</button>
   </div>
 
-  {# Admin-only: Run AI for Month (POST) #}
-  {% if current_user.is_authenticated and is_admin %}
-    <form method="post"
-          action="{{ url_for('admin_ai_generate', ym=ym) }}"
-          style="display:inline;">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <button class="btn" type="submit" style="margin-left:.5rem;"
-              onclick="return confirm('Run AI for {{ month_title }} now?');">
-        Run AI for Month
-      </button>
-    </form>
-  {% endif %}
 </div>
 
 <!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
