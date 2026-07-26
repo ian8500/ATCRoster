@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Edit {{ s.name }} · ATC Roster{% endblock %}
+{% block title %}Edit {{ s.name }}{% endblock %}
 {% block content %}
 <h1><i class="fa-regular fa-id-card"></i> Edit {{ s.name }}</h1>
 
@@ -45,13 +45,22 @@
   </div>
 
   <div class="card">
-    <div class="card-hd">Pattern</div>
-    <div class="card-bd grid grid-3">
-      <label>CSV <input name="pattern_csv" value="{{ s.pattern_csv }}"></label>
-      <label>Anchor
-        <input type="date" name="pattern_anchor"
-               value="{{ s.pattern_anchor and s.pattern_anchor.isoformat() or '' }}">
-      </label>
+    <div class="card-hd">Roster pattern</div>
+    <div class="card-bd">
+      <label class="inheritance-choice"><input type="checkbox" name="pattern_override" data-personal-pattern-toggle {% if s.pattern_override %}checked{% endif %}> Use a personal pattern for this ATCO</label>
+      <p class="text-muted">Leave this off to follow the effective watch pattern automatically, including scheduled watch moves.</p>
+      <div class="pattern-builder" data-pattern-builder data-personal-pattern {% if not s.pattern_override %}hidden{% endif %}>
+        <input type="hidden" name="pattern_csv" value="{{ s.pattern_csv or '' }}" data-pattern-value>
+        <div class="pattern-sequence" data-pattern-sequence></div>
+        <div class="pattern-palette">
+          {% for code in pattern_codes %}<button type="button" class="pattern-duty pattern-duty--{{ code|lower }}" data-add-pattern="{{ code }}">{{ code }}</button>{% endfor %}
+          <button type="button" class="btn btn-sm" data-undo-pattern>Undo</button>
+          <button type="button" class="btn btn-sm" data-clear-pattern>Clear</button>
+        </div>
+        <label>Personal pattern day 1 starts on
+          <input type="date" name="pattern_anchor" value="{{ s.pattern_anchor and s.pattern_anchor.isoformat() or '' }}">
+        </label>
+      </div>
     </div>
   </div>
 
@@ -101,30 +110,60 @@
   <div><button class="btn"><i class="fa-solid fa-floppy-disk"></i> Save</button></div>
 </form>
 
-<!-- Watch move (needs backend route + history model wired) -->
-<form method="post" action="{{ url_for('admin_watch_move', sid=s.id) }}">
-  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-  <h3>Move watch (effective date)</h3>
-  <label>New watch:
-    <select name="watch_id">
-      {% for w in watches %}
-        <option value="{{ w.id }}">{{ w.name }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label>Effective date: <input type="date" name="effective_date" required></label>
-  <button type="submit">Record move</button>
-</form>
+<section class="card mt-3 access-readiness-card">
+  <div class="card-hd">Account access</div>
+  <div class="card-bd">
+    {% if account_membership %}
+      <div class="release-ready-message"><i class="fa-solid fa-circle-check"></i><div><strong>Account access: {{ account_membership.status }}</strong><span>The roster profile remains independent of login access.</span></div></div>
+      <a class="btn" href="{{ url_for('unit_accounts') }}">Manage account</a>
+    {% elif pending_access_invitation %}
+      <div class="release-ready-message"><i class="fa-solid fa-envelope"></i><div><strong>Invitation awaiting acceptance</strong><span>Expires {{ pending_access_invitation.expires_at.strftime('%d %b %Y at %H:%M') }}.</span></div></div>
+      <a class="btn" href="{{ url_for('unit_accounts') }}">Manage invitation</a>
+    {% else %}
+      <p>{{ s.name }} can be completely configured and rostered without a login. When ready, create a one-time invitation that only adds account access.</p>
+      <form method="post" action="{{ url_for('unit_accounts') }}" class="admin-form-grid">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create_invitation">
+        <input type="hidden" name="person_id" value="{{ s.id }}">
+        <label>Access level<select name="role">
+          <option value="StaffUser">Staff user</option>
+          <option value="WatchManager">Watch manager</option>
+          <option value="RosterEditor">Roster editor</option>
+          <option value="ReadOnlyAuditor">Read-only auditor</option>
+          <option value="UnitAdmin">Unit admin</option>
+        </select></label>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Create invitation link for {{ s.name }}</button></div>
+      </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card mt-3">
+  <div class="card-hd">Schedule a watch move</div>
+  <div class="card-bd">
+    <p>From the effective date, {{ s.name }} automatically follows the new watch’s pattern unless the personal-pattern option above is enabled.</p>
+    <form method="post" action="{{ url_for('admin_watch_move', sid=s.id) }}" class="admin-form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>New watch
+        <select name="watch_id" required>
+          <option value="">Select watch</option>
+          {% for w in watches %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Effective from<input type="date" name="effective_date" required></label>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Schedule watch move</button></div>
+    </form>
+  </div>
+</section>
 
 
 {% if s.watch_history is defined and s.watch_history %}
-  <h4>Watch history</h4>
-  <ul>
+  <section class="card mt-3"><div class="card-hd">Scheduled moves and history</div><div class="card-bd"><div class="watch-history-list">
     {% for h in s.watch_history|sort(attribute='effective_date', reverse=True) %}
       {% set hist_watch_name = h.watch.name if h.watch else 'Unknown watch' %}
       {% set hist_date_value = h.effective_date.isoformat() if h.effective_date else '' %}
-      <li>
-        {{ hist_date_value or 'Date TBC' }} → {{ hist_watch_name }}
+      <article>
+        <strong>{{ hist_date_value or 'Date TBC' }} → {{ hist_watch_name }}</strong>
         <form method="post" action="{{ url_for('admin_watch_move_edit', hid=h.id) }}" class="d-inline" style="margin-left:.5rem">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <select name="watch_id">
@@ -137,10 +176,40 @@
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-sm btn-danger" onclick="return confirm('Delete this watch move?')">Delete</button>
         </form>
-      </li>
+      </article>
     {% endfor %}
-  </ul>
+  </div></div></section>
 {% endif %}
 
+<script>
+(() => {
+  const toggle = document.querySelector('[data-personal-pattern-toggle]');
+  const personal = document.querySelector('[data-personal-pattern]');
+  toggle?.addEventListener('change', () => { personal.hidden = !toggle.checked; });
+  document.querySelectorAll('[data-pattern-builder]').forEach(builder => {
+    const input = builder.querySelector('[data-pattern-value]');
+    const sequence = builder.querySelector('[data-pattern-sequence]');
+    let values = (input.value || '').split(',').map(v => v.trim()).filter(Boolean);
+    const render = () => {
+      input.value = values.join(',');
+      sequence.innerHTML = '';
+      values.forEach((value, index) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = `pattern-chip pattern-chip--${value.toLowerCase()}`;
+        chip.textContent = `${index + 1} · ${value}`;
+        chip.addEventListener('click', () => { values.splice(index, 1); render(); });
+        sequence.append(chip);
+      });
+    };
+    builder.querySelectorAll('[data-add-pattern]').forEach(button => button.addEventListener('click', () => {
+      values.push(button.dataset.addPattern); render();
+    }));
+    builder.querySelector('[data-undo-pattern]')?.addEventListener('click', () => { values.pop(); render(); });
+    builder.querySelector('[data-clear-pattern]')?.addEventListener('click', () => { values = []; render(); });
+    render();
+  });
+})();
+</script>
 
 {% endblock %}

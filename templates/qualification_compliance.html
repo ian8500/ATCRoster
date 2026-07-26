@@ -1,76 +1,142 @@
 {% extends "base.html" %}
-{% block title %}Qualification Compliance{% endblock %}
+{% block title %}Qualifications{% endblock %}
 {% block content %}
-<div class="container my-4">
-  <h2>Qualification compliance</h2>
-  <p class="text-muted">Competence is evaluated against the duty date. Suspended, revoked, inactive, expired and not-yet-valid records never satisfy a shift requirement.</p>
+{% set summary = namespace(valid=0, attention=0, blocked=0) %}
+{% for row in rows %}
+  {% if row.state == 'valid' %}{% set summary.valid = summary.valid + 1 %}
+  {% elif row.state == 'expiring' %}{% set summary.attention = summary.attention + 1 %}
+  {% else %}{% set summary.blocked = summary.blocked + 1 %}{% endif %}
+{% endfor %}
 
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">People and competence</span>
+    <h2>Qualifications</h2>
+    <p>See what needs attention, then update or renew a qualification in one short form.</p>
+  </div>
   {% if current_user.is_admin_role %}
-  <section class="card card-body mb-3">
-    <h3>Qualification types</h3>
-    <form method="post" class="row g-2">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="create_type">
-      <div class="col-md-2"><label>Code<input class="form-control" name="code" required></label></div>
-      <div class="col-md-3"><label>Label<input class="form-control" name="label" required></label></div>
-      <div class="col-md-3"><label>Warning days<input class="form-control" name="warning_days_csv" value="180,90,60,30" required></label></div>
-      <div class="col-md-2"><label>Expiry<select class="form-select" name="expiry_required"><option value="yes">Required</option><option value="no">Optional</option></select></label></div>
-      <input type="hidden" name="is_active" value="yes">
-      <div class="col-md-2 align-self-end"><button class="btn btn-primary" type="submit">Add type</button></div>
-    </form>
-    <div class="table-responsive mt-3"><table class="table table-sm">
-      <thead><tr><th>Code</th><th>Label</th><th>Warnings</th><th>Expiry</th><th>State</th><th>Save</th></tr></thead>
-      <tbody>{% for qtype in qualification_types %}<tr><form method="post">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="edit_type"><input type="hidden" name="type_id" value="{{ qtype.id }}">
-        <td><input class="form-control form-control-sm" name="code" value="{{ qtype.code }}" required></td>
-        <td><input class="form-control form-control-sm" name="label" value="{{ qtype.label }}" required></td>
-        <td><input class="form-control form-control-sm" name="warning_days_csv" value="{{ qtype.warning_days_csv }}" required></td>
-        <td><select class="form-select form-select-sm" name="expiry_required"><option value="yes" {% if qtype.expiry_required %}selected{% endif %}>Required</option><option value="no" {% if not qtype.expiry_required %}selected{% endif %}>Optional</option></select></td>
-        <td><select class="form-select form-select-sm" name="is_active"><option value="yes" {% if qtype.is_active %}selected{% endif %}>Active</option><option value="no" {% if not qtype.is_active %}selected{% endif %}>Inactive</option></select></td>
-        <td><button class="btn btn-sm" type="submit">Save</button></td>
-      </form></tr>{% endfor %}</tbody>
-    </table></div>
-  </section>
-
-  <section class="card card-body mb-3">
-    <h3>Assign or renew</h3>
-    <form method="post" class="row g-2">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="save_person">
-      <div class="col-md-3"><label>Person<select class="form-select" name="person_id" required>{% for person in people %}<option value="{{ person.id }}">{{ person.name }} · {{ person.staff_no }}</option>{% endfor %}</select></label></div>
-      <div class="col-md-2"><label>Type<select class="form-select" name="type_id" required>{% for qtype in qualification_types if qtype.is_active %}<option value="{{ qtype.id }}">{{ qtype.code }}</option>{% endfor %}</select></label></div>
-      <div class="col-md-2"><label>Issued<input class="form-control" type="date" name="issued_on"></label></div>
-      <div class="col-md-2"><label>Valid from<input class="form-control" type="date" name="valid_from"></label></div>
-      <div class="col-md-2"><label>Expiry<input class="form-control" type="date" name="expires_on"></label></div>
-      <div class="col-md-2"><label>Status<select class="form-select" name="status"><option>valid</option><option>suspended</option><option>revoked</option><option>inactive</option></select></label></div>
-      <div class="col-md-2 align-self-end"><button class="btn btn-primary" type="submit">Save qualification</button></div>
-    </form>
-  </section>
-
-  <section class="card card-body mb-3">
-    <h3>CSV import</h3>
-    <p class="form-text">UTF-8 columns: <code>staff_no,type_code,status,issued_on,valid_from,expires_on</code>.</p>
-    <form method="post" enctype="multipart/form-data">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="import_preview">
-      <input class="form-control mb-2" type="file" name="csv_file" accept=".csv,text/csv" required>
-      <button class="btn" type="submit">Validate preview</button>
-    </form>
-    {% if import_preview %}
-      {% if import_preview.errors %}<div class="alert alert-danger mt-2">{{ import_preview.errors|join(" ") }}</div>
-      {% else %}
-      <p class="mt-2">{{ import_preview.rows|length }} validated records.</p>
-      <form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="import_apply"><input type="hidden" name="nonce" value="{{ import_preview.nonce }}"><button class="btn btn-primary" type="submit">Apply validated import</button></form>
-      {% endif %}
-    {% endif %}
-  </section>
+  <div class="compliance-actions">
+    <a class="btn btn-primary" href="#update-qualification">Update qualification</a>
+    <a class="btn" href="#qualification-records">View all records</a>
+  </div>
   {% endif %}
+</section>
 
-  <div class="table-responsive"><table class="table"><thead><tr><th>Person</th><th>Qualification</th><th>Expiry</th><th>Status</th></tr></thead><tbody>
-  {% for row in rows %}<tr><td>{{ row.person.name }}</td><td>{{ row.type.label }}</td><td>{{ row.expires_on or ("Not required" if not row.type.expiry_required else "Missing") }}</td><td><span class="badge bg-{{ 'success' if row.state == 'valid' else 'warning' if row.state == 'expiring' else 'danger' }}">{{ row.state }}</span></td></tr>
-  {% else %}<tr><td colspan="4">No qualifications configured.</td></tr>{% endfor %}
-  </tbody></table></div>
-
-  {% if current_user.is_admin_role %}
-  <details><summary>Recent qualification history</summary><ul>{% for item in history %}<li>{{ item.occurred_at }} · record {{ item.person_qualification_id }} · {{ item.action }}</li>{% else %}<li>No history yet.</li>{% endfor %}</ul></details>
-  {% endif %}
+<div class="compliance-summary compliance-summary--three">
+  <article class="success"><span>Current</span><strong>{{ summary.valid }}</strong><small>No action needed</small></article>
+  <article class="{{ 'warning' if summary.attention else 'success' }}"><span>Expiring</span><strong>{{ summary.attention }}</strong><small>Plan a renewal</small></article>
+  <article class="{{ 'danger' if summary.blocked else 'success' }}"><span>Not valid</span><strong>{{ summary.blocked }}</strong><small>Action required</small></article>
 </div>
+
+{% if current_user.is_admin_role %}
+<section class="card card-body mb-3 qualification-primary" id="update-qualification">
+  <div class="section-heading">
+    <div><span class="admin-step">Common task</span><h3>Update or renew a qualification</h3></div>
+    <p>Choose a person and qualification. Add only the dates that apply.</p>
+  </div>
+  <form method="post" class="qualification-quick-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="save_person">
+    <label>Person
+      <select class="form-select" name="person_id" required>
+        <option value="" selected disabled>Select a person</option>
+        {% for person in people %}<option value="{{ person.id }}">{{ person.name }} · {{ person.staff_no }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Qualification
+      <select class="form-select" name="type_id" required>
+        <option value="" selected disabled>Select a qualification</option>
+        {% for qtype in qualification_types if qtype.is_active %}<option value="{{ qtype.id }}">{{ qtype.label }} ({{ qtype.code }})</option>{% endfor %}
+      </select>
+    </label>
+    <label>Status
+      <select class="form-select" name="status">
+        <option value="valid">Valid</option>
+        <option value="suspended">Suspended</option>
+        <option value="revoked">Revoked</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </label>
+    <label>Valid from <input class="form-control" type="date" name="valid_from"></label>
+    <label>Expiry date <input class="form-control" type="date" name="expires_on"></label>
+    <details class="qualification-optional">
+      <summary>Optional issue date</summary>
+      <label>Issued on <input class="form-control" type="date" name="issued_on"></label>
+    </details>
+    <button class="btn btn-primary qualification-save" type="submit">Save qualification</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="card" id="qualification-records">
+  <div class="card-hd">
+    <span>Qualification records</span>
+    <small>{{ rows|length }} total</small>
+  </div>
+  <div class="card-bd">
+    <div class="table-responsive"><table class="table qualification-table">
+      <thead><tr><th>Person</th><th>Qualification</th><th>Expiry</th><th>State</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr class="qualification-row qualification-row--{{ row.state }}">
+          <td><strong>{{ row.person.name }}</strong></td>
+          <td>{{ row.type.label }} <small>{{ row.type.code }}</small></td>
+          <td>{{ row.expires_on or ("Not required" if not row.type.expiry_required else "Missing") }}</td>
+          <td><span class="status-pill {{ 'success' if row.state == 'valid' else 'warning' if row.state == 'expiring' else 'danger' }}">{{ row.state|replace('_', ' ')|title }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4"><div class="empty-state"><strong>No qualification records yet</strong><span>Use “Update qualification” to add the first record.</span></div></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+{% if current_user.is_admin_role %}
+<details class="card card-body mt-3 advanced-panel">
+  <summary><span><strong>Qualification setup and bulk tools</strong><small>Types, warning periods, CSV import and audit history</small></span></summary>
+  <div class="advanced-panel__content">
+    <section>
+      <h3>Qualification types</h3>
+      <form method="post" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create_type">
+        <div class="col-md-2"><label>Code<input class="form-control" name="code" required></label></div>
+        <div class="col-md-3"><label>Label<input class="form-control" name="label" required></label></div>
+        <div class="col-md-3"><label>Warning days<input class="form-control" name="warning_days_csv" value="180,90,60,30" required></label></div>
+        <div class="col-md-2"><label>Expiry<select class="form-select" name="expiry_required"><option value="yes">Required</option><option value="no">Optional</option></select></label></div>
+        <input type="hidden" name="is_active" value="yes">
+        <div class="col-md-2 align-self-end"><button class="btn" type="submit">Add type</button></div>
+      </form>
+      <div class="table-responsive mt-3"><table class="table table-sm">
+        <thead><tr><th>Code</th><th>Label</th><th>Warnings</th><th>Expiry</th><th>State</th><th></th></tr></thead>
+        <tbody>{% for qtype in qualification_types %}<tr><form method="post">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="edit_type"><input type="hidden" name="type_id" value="{{ qtype.id }}">
+          <td><input class="form-control form-control-sm" name="code" value="{{ qtype.code }}" required></td>
+          <td><input class="form-control form-control-sm" name="label" value="{{ qtype.label }}" required></td>
+          <td><input class="form-control form-control-sm" name="warning_days_csv" value="{{ qtype.warning_days_csv }}" required></td>
+          <td><select class="form-select form-select-sm" name="expiry_required"><option value="yes" {% if qtype.expiry_required %}selected{% endif %}>Required</option><option value="no" {% if not qtype.expiry_required %}selected{% endif %}>Optional</option></select></td>
+          <td><select class="form-select form-select-sm" name="is_active"><option value="yes" {% if qtype.is_active %}selected{% endif %}>Active</option><option value="no" {% if not qtype.is_active %}selected{% endif %}>Inactive</option></select></td>
+          <td><button class="btn btn-sm" type="submit">Save</button></td>
+        </form></tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <section class="advanced-panel__section">
+      <h3>CSV import</h3>
+      <p class="form-text">UTF-8 columns: <code>staff_no,type_code,status,issued_on,valid_from,expires_on</code>.</p>
+      <form method="post" enctype="multipart/form-data">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="import_preview">
+        <input class="form-control mb-2" type="file" name="csv_file" accept=".csv,text/csv" required>
+        <button class="btn" type="submit">Validate file</button>
+      </form>
+      {% if import_preview %}
+        {% if import_preview.errors %}<div class="alert alert-danger mt-2">{{ import_preview.errors|join(" ") }}</div>
+        {% else %}<p class="mt-2">{{ import_preview.rows|length }} validated records.</p>
+        <form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="import_apply"><input type="hidden" name="nonce" value="{{ import_preview.nonce }}"><button class="btn btn-primary" type="submit">Apply validated import</button></form>{% endif %}
+      {% endif %}
+    </section>
+    <details class="advanced-panel__section"><summary>Recent audit history</summary><ul>{% for item in history %}<li>{{ item.occurred_at }} · record {{ item.person_qualification_id }} · {{ item.action }}</li>{% else %}<li>No history yet.</li>{% endfor %}</ul></details>
+  </div>
+</details>
+{% endif %}
 {% endblock %}

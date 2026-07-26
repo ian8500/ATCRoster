@@ -16,6 +16,35 @@
   <span style="width:{{ readiness_percent }}%"></span>
 </div>
 
+{% if unit.onboarding_step < 100 %}
+<section class="card onboarding-welcome">
+  <div class="card-bd">
+    <div>
+      <span class="admin-step">Guided first-time setup</span>
+      <h3>Build a safe starting point for {{ unit.name }}</h3>
+      <p>Work through the checklist at your own pace. Until you confirm setup is complete, Unit Admin logins return here automatically.</p>
+    </div>
+    <form method="post" class="onboarding-complete-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="complete_setup">
+      <label class="checkbox">
+        <input type="checkbox" name="confirm_complete" value="yes" required>
+        I have reviewed the remaining items and am ready to use the operational dashboard.
+      </label>
+      <button class="btn btn-primary" type="submit">Finish setup and open dashboard</button>
+      {% if readiness_percent < 100 %}<small>{{ readiness|length - readiness_complete }} checklist item(s) still need attention. You can return here later from Admin → Tools.</small>{% endif %}
+    </form>
+  </div>
+</section>
+{% else %}
+<section class="card onboarding-welcome onboarding-welcome--complete">
+  <div class="card-bd">
+    <div><span class="admin-step">Setup complete</span><h3>This airport is in normal operating mode</h3><p>You can still update any configuration below.</p></div>
+    <a class="btn btn-primary" href="{{ url_for('index') }}">Open dashboard</a>
+  </div>
+</section>
+{% endif %}
+
 <div class="onboarding-layout">
   <section class="card">
     <div class="card-hd">Configuration checklist · {{ readiness_complete }}/{{ readiness|length }}</div>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Multi-factor Authentication · ATC Roster{% endblock %}
+{% block title %}Multi-factor Authentication{% endblock %}
 {% block content %}
 <div class="container container--narrow py-4">
   <section class="card"><div class="card-hd"><i class="fa-solid fa-shield-halved"></i> Multi-factor authentication</div><div class="card-bd">
@@ -14,10 +14,17 @@
     {% else %}
       <h2>Protect your account</h2>
       <ol class="compliance-workflow">
-        <li>Add an account in your authenticator app.</li>
-        <li>Enter this setup key: <code class="mfa-secret">{{ secret }}</code></li>
+        <li>Open your authenticator app and choose <strong>Scan QR code</strong>.</li>
+        <li>Scan the code below. If scanning is unavailable, enter the setup key manually.</li>
         <li>Confirm using the current six-digit code.</li>
       </ol>
+      {% if qr_data_uri %}
+        <figure class="mfa-qr">
+          <img src="{{ qr_data_uri }}" alt="QR code for adding ATCRoster to your authenticator app" width="240" height="240">
+          <figcaption>Scan with Microsoft Authenticator, Google Authenticator, Authy, or another TOTP app.</figcaption>
+        </figure>
+      {% endif %}
+      <details class="mt-3"><summary>Enter a setup key instead</summary><code class="mfa-secret">{{ secret }}</code></details>
       <details><summary>Authenticator provisioning URI</summary><code class="profile-calendar-url">{{ provisioning_uri }}</code></details>
       <form method="post" class="operations-form mt-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

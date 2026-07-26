@@ -154,6 +154,16 @@
           {% set ann  = ann_map.get(s.id, {}).get(d, "") %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
           <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}">
+            {% if f %}
+              <span class="fatigue-hazard" tabindex="0" role="img"
+                    aria-label="Fatigue warning: {{ f|join('; ') }}">
+                <span aria-hidden="true">⚠</span>
+                <span class="fatigue-tooltip" role="tooltip">
+                  <strong>Fatigue warning</strong>
+                  {% for reason in f %}<span>{{ reason }}</span>{% endfor %}
+                </span>
+              </span>
+            {% endif %}
             <!-- SHIFT CODE -->
             <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

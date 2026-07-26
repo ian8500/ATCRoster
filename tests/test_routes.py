@@ -43,7 +43,8 @@ def setup_database():
         db.create_all()
 
         db.session.add(Unit(
-            id=1, code="TST", name="Test Airport", active_user_limit=20
+            id=1, code="TST", name="Test Airport", active_user_limit=20,
+            onboarding_step=100,
         ))
         watch_a = Watch(name="Watch A", order_index=1)
         watch_b = Watch(name="Watch B", order_index=2)
@@ -617,6 +618,27 @@ def test_admin_pages_accessible(client):
         assert resp.status_code == 200, f"Endpoint {url} returned {resp.status_code}"
 
 
+def test_ai_rules_form_includes_security_token_and_saves(client):
+    login(client)
+    page = client.get("/admin/ai/rules?ym=2026-07")
+    assert page.status_code == 200
+    assert b'name="_csrf_token"' in page.data
+    saved = client.post(
+        "/admin/ai/rules?ym=2026-07",
+        data={
+            "_csrf_token": csrf(client),
+            "mode": "form",
+            "respect_user_requests": "on",
+            "equalize_nights": "on",
+            "day_weekday": "D",
+            "day_sunday": "D",
+        },
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert b"AI rules saved" in saved.data
+
+
 def test_admin_can_configure_requestable_shift(client):
     login(client)
     with app.app.app_context():
@@ -773,6 +795,134 @@ def test_onboarding_branding_rules_and_csv_preview(client):
         assert unit.request_lock_day == 18
 
 
+def test_unit_admin_is_guided_until_onboarding_is_completed(client):
+    login(client)
+    with app.app.app_context():
+        unit = db.session.get(Unit, 1)
+        unit.onboarding_step = 0
+        db.session.commit()
+
+    home = client.get("/", follow_redirects=False)
+    assert home.status_code == 302
+    assert "/unit/onboarding" in home.headers["Location"]
+    guided = client.get("/unit/onboarding")
+    assert b"Guided first-time setup" in guided.data
+
+    completed = client.post(
+        "/unit/onboarding",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "complete_setup",
+            "confirm_complete": "yes",
+        },
+        follow_redirects=False,
+    )
+    assert completed.status_code == 302
+    assert completed.headers["Location"].endswith("/")
+    dashboard = client.get("/", follow_redirects=False)
+    assert "/roster/" in dashboard.headers["Location"]
+    with app.app.app_context():
+        assert db.session.get(Unit, 1).onboarding_step == 100
+
+
+def test_admin_can_map_created_shifts_to_roster_counts(client):
+    login(client)
+    with app.app.app_context():
+        shifts = ShiftType.query.filter_by(unit_id=1).all()
+        morning = next(shift for shift in shifts if shift.code == "M")
+        form = {
+            "_csrf_token": csrf(client),
+            "form": "counter_mapping",
+        }
+        for shift in shifts:
+            form[f"counter_group_{shift.id}"] = ""
+        form[f"counter_group_{morning.id}"] = "D"
+
+    saved = client.post("/admin", data=form, follow_redirects=True)
+    assert saved.status_code == 200
+    assert b"Shift counter mapping saved" in saved.data
+    assert b"Which shifts count toward staffing?" in saved.data
+    with app.app.app_context():
+        app.refresh_roster_settings_cache()
+        assert app.shift_counter_group("M", 1) == "D"
+        assert app.shift_counter_group("OFF", 1) == ""
+
+        row = app.RosterSetting.query.filter_by(
+            unit_id=1, key="shift_counter_map"
+        ).one()
+        mapping = json.loads(row.value)
+        mapping["M"] = "M"
+        row.value = json.dumps(mapping)
+        db.session.commit()
+        app.refresh_roster_settings_cache()
+
+
+def test_manual_toil_form_submits_and_can_add_or_deduct(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        person.toil_half_days = 2
+        person_id = person.id
+        db.session.commit()
+
+    added = client.post(
+        "/admin/toil/new",
+        data={
+            "_csrf_token": csrf(client),
+            "staff_id": person_id,
+            "direction": "add",
+            "amount": "1",
+            "unit": "days",
+            "note": "Regression test",
+        },
+        follow_redirects=True,
+    )
+    assert added.status_code == 200
+    assert b"1 days added to Staff Test" in added.data
+    deducted = client.post(
+        "/admin/toil/new",
+        data={
+            "_csrf_token": csrf(client),
+            "staff_id": person_id,
+            "direction": "subtract",
+            "amount": "4",
+            "unit": "hours",
+            "note": "Regression test",
+        },
+        follow_redirects=True,
+    )
+    assert deducted.status_code == 200
+    with app.app.app_context():
+        assert db.session.get(Staff, person_id).toil_half_days == 3
+
+
+def test_roster_scenario_uses_guided_fields_without_json(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        person_id = person.id
+    saved = client.post(
+        "/planning/scenarios",
+        data={
+            "_csrf_token": csrf(client),
+            "name": "Guided cover check",
+            "staff_id": person_id,
+            "day": "2026-07-27",
+            "code": "M",
+        },
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert b"live roster" in saved.data
+    with app.app.app_context():
+        scenario = app.Scenario.query.filter_by(
+            name="Guided cover check"
+        ).one()
+        changes = json.loads(scenario.changes_json)
+        assert changes[0]["staff_id"] == str(person_id)
+        assert changes[0]["code"] == "M"
+
+
 def test_non_working_shift_cannot_be_requestable(client):
     login(client)
     with app.app.app_context():
@@ -883,6 +1033,55 @@ def test_admin_watch_move_flow(client):
     # Sanity check that the main admin dashboard still renders after the flow
     admin_resp = client.get("/admin")
     assert admin_resp.status_code == 200
+
+
+def test_unit_watch_and_personal_pattern_inheritance(client):
+    anchor = date(2026, 7, 27)  # Monday
+    with app.app.app_context():
+        watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
+        watch_a.pattern_csv = "N,N"
+        watch_a.pattern_anchor = anchor
+        watch_b.pattern_csv = "A,A"
+        watch_b.pattern_anchor = anchor
+        person = Staff(
+            unit_id=1, username="pattern_test", name="Pattern Test",
+            staff_no="PAT-001", role="user", watch=watch_a,
+            pattern_override=False,
+        )
+        person.set_password("password123")
+        db.session.add(person)
+        db.session.add(app.RosterSetting(
+            unit_id=1, key="night_active_weekdays", value="0"
+        ))
+        db.session.commit()
+        app.refresh_roster_settings_cache()
+
+        assert app.code_from_pattern(person, anchor) == "N"
+        assert app.code_from_pattern(
+            person, date(2026, 7, 28)
+        ) == "OFF"
+
+        db.session.add(StaffWatchHistory(
+            unit_id=1, staff_id=person.id, watch_id=watch_b.id,
+            effective_date=date(2026, 7, 28),
+        ))
+        db.session.commit()
+        assert app.code_from_pattern(
+            person, date(2026, 7, 28)
+        ) == "A"
+
+        person.pattern_override = True
+        person.pattern_csv = "D,OFF"
+        person.pattern_anchor = anchor
+        db.session.commit()
+        assert app.code_from_pattern(person, anchor) == "D"
+
+    login(client)
+    admin_page = client.get("/admin")
+    assert admin_page.status_code == 200
+    assert b"Roster cycle and watches" in admin_page.data
+    assert b"Nights when the airport is open" in admin_page.data
 
 
 def test_mfa_challenge_completes_login(client):
