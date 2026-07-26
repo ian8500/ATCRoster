@@ -568,6 +568,8 @@ example:
 ```text
 CONTROL_DATABASE_URL=postgresql+psycopg://...
 ATCROSTER_UNIT_1_DATABASE_URL=postgresql+psycopg://...
+ATCROSTER_UNIT_2_DATABASE_URL=postgresql+psycopg://...
+REDIS_URL=redis://...
 ```
 
 The tenant-routed SQLAlchemy session sends every operational mapper to the
@@ -586,6 +588,9 @@ FLASK_SECRET_KEY=<high-entropy deployment secret>
 DATABASE_URL=<database URL for the selected deployment role>
 ATCROSTER_SECURE_COOKIES=true
 ATCROSTER_FIELD_ENCRYPTION_KEY=<Fernet key from the managed secret store>
+ATCROSTER_SESSION_IDLE_MINUTES=30
+ATCROSTER_SESSION_ABSOLUTE_MINUTES=720
+ATCROSTER_TRUSTED_PROXY_HOPS=1
 ```
 
 Production mode refuses to start with SQLite, the fallback/short Flask secret,
@@ -600,13 +605,16 @@ cp .env.example .env
 docker compose build
 docker compose run --rm migrate
 docker compose run --rm web flask --app app bootstrap-platform
-docker compose up -d web
+docker compose up -d web worker
 ```
 
-For managed hosting, `railway.toml` configures the Docker build, Alembic
-pre-deployment migration, Waitress production server and readiness health
-check. Create separate Railway PostgreSQL and application services, keep all
-secrets in Railway's encrypted variables, and follow
+For managed hosting, `railway.toml` configures the Docker build, the explicit
+control-and-airport migration orchestrator, Waitress production server and
+readiness health check. Create separate Railway services for the web process,
+provisioning worker, Redis, control PostgreSQL and every airport PostgreSQL
+database. The worker start command is
+`python scripts/run_provisioning_worker.py`. Keep all secrets in Railway's
+encrypted variables, and follow
 `docs/production_runbook.md` for bootstrap and verification.
 
 The Compose port binds to loopback. Place a maintained HTTPS reverse proxy in

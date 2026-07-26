@@ -97,6 +97,10 @@ def register_saas_models(db, utcnow):
         unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
         token_digest = db.Column(db.String(128), unique=True, nullable=False)
         role = db.Column(db.String(30), nullable=False)
+        # A nullable uniqueness sentinel makes the "one active bootstrap"
+        # invariant portable across PostgreSQL and SQLite. It is cleared when
+        # the invitation is consumed or revoked.
+        active_bootstrap_key = db.Column(db.String(20))
         # Opaque id of an already configured roster person. The operational
         # row may live in the airport database, so no cross-database FK.
         target_person_id = db.Column(db.Integer, index=True)
@@ -104,6 +108,12 @@ def register_saas_models(db, utcnow):
         accepted_at = db.Column(db.DateTime)
         disabled_at = db.Column(db.DateTime)
         issued_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint(
+                "unit_id", "role", "active_bootstrap_key",
+                name="uq_active_bootstrap_invitation",
+            ),
+        )
 
     class SignupWorkflow(db.Model):
         __tablename__ = "signup_workflow"
@@ -138,6 +148,33 @@ def register_saas_models(db, utcnow):
         attempt_count = db.Column(db.Integer, nullable=False, default=0)
         last_attempt_at = db.Column(db.DateTime)
         ready_at = db.Column(db.DateTime)
+
+    class ProvisioningJob(db.Model):
+        __tablename__ = "provisioning_job"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"),
+            nullable=False, index=True,
+        )
+        idempotency_key = db.Column(db.String(64), nullable=False, unique=True)
+        state = db.Column(db.String(30), nullable=False, default="queued")
+        # Only active jobs carry this sentinel. Completed/cancelled/failed
+        # history uses NULL and therefore remains unrestricted.
+        active_key = db.Column(db.String(20))
+        attempt_count = db.Column(db.Integer, nullable=False, default=0)
+        next_attempt_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        locked_at = db.Column(db.DateTime)
+        worker_id = db.Column(db.String(64), nullable=False, default="")
+        cancel_requested = db.Column(db.Boolean, nullable=False, default=False)
+        last_error_code = db.Column(db.String(80), nullable=False, default="")
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint(
+                "unit_id", "active_key", name="uq_active_provisioning_job"
+            ),
+        )
+
 
     class FeatureFlag(db.Model):
         __tablename__ = "feature_flag"

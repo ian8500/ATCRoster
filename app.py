@@ -35,6 +35,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from rate_limiting import (
+    LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
+)
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -79,14 +82,27 @@ app.config["MAX_CONTENT_LENGTH"] = int(
 )
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_NAME"] = os.environ.get(
+    "ATCROSTER_SESSION_COOKIE_NAME",
+    "__Host-atcroster"
+    if os.environ.get("ATCROSTER_ENVIRONMENT", "").lower() == "production"
+    else "atcroster_session",
+)
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ATCROSTER_SECURE_COOKIES", "").lower() in {
     "1", "true", "yes"
 }
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=12)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
+    minutes=int(os.environ.get("ATCROSTER_SESSION_ABSOLUTE_MINUTES", "720"))
+)
 
 # Make external URLs prefer https behind PA’s proxy
 app.config["PREFERRED_URL_SCHEME"] = "https"
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+_trusted_proxy_hops = int(os.environ.get("ATCROSTER_TRUSTED_PROXY_HOPS", "0"))
+if _trusted_proxy_hops:
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app, x_for=_trusted_proxy_hops,
+        x_proto=_trusted_proxy_hops, x_host=_trusted_proxy_hops,
+    )
 
 DEPLOYMENT_ENV = os.environ.get("ATCROSTER_ENVIRONMENT", "development").lower()
 FIELD_ENCRYPTION_KEY = os.environ.get("ATCROSTER_FIELD_ENCRYPTION_KEY", "")
@@ -113,10 +129,21 @@ if DEPLOYMENT_ENV == "production":
         raise RuntimeError(
             "ATCROSTER_FIELD_ENCRYPTION_KEY must be a valid Fernet key."
         ) from exc
+    if not os.environ.get("REDIS_URL"):
+        raise RuntimeError("Production requires REDIS_URL.")
 else:
     FIELD_ENCRYPTION_KEY = base64.urlsafe_b64encode(
         hashlib.sha256(str(app.config["SECRET_KEY"]).encode()).digest()
     ).decode()
+
+if DEPLOYMENT_ENV == "production":
+    import redis
+    _rate_limiter = RedisRateLimiter(redis.from_url(
+        os.environ["REDIS_URL"], socket_connect_timeout=2,
+        socket_timeout=2, decode_responses=True,
+    ))
+else:
+    _rate_limiter = MemoryRateLimiter()
 
 
 def _field_cipher() -> Fernet:
@@ -224,22 +251,29 @@ def health_live():
 @app.get("/health/ready")
 def health_ready():
     try:
-        db.session.execute(text("SELECT 1"))
-        required_tables = {
-            "unit", "staff", "assignment", "roster_publication",
-            "operational_position", "fatigue_report", "roster_rule_version",
-        }
+        connection = db.session.connection()
+        connection.execute(text("SELECT 1"))
         from sqlalchemy import inspect
-        present = set(inspect(db.engine).get_table_names())
-        missing = sorted(required_tables - present)
-        if missing:
-            return jsonify({
-                "status": "not_ready", "missing_tables": missing,
-            }), 503
-        return jsonify({"status": "ready", "database": "ok"})
+        from alembic.runtime.migration import MigrationContext
+        from migrations.fresh_schema import CONTROL_TABLES
+
+        present = set(inspect(connection).get_table_names())
+        revision = MigrationContext.configure(connection).get_current_revision()
+        if (
+            not CONTROL_TABLES.issubset(present)
+            or (
+                DEPLOYMENT_ENV == "production"
+                and revision != "20260726_12"
+            )
+        ):
+            return jsonify({"status": "not_ready"}), 503
+        return jsonify({"status": "ready"})
     except Exception:
-        app.logger.exception("readiness_check_failed")
-        return jsonify({"status": "not_ready", "database": "unavailable"}), 503
+        app.logger.error(
+            "readiness_check_failed request_id=%s",
+            getattr(g, "request_id", ""),
+        )
+        return jsonify({"status": "not_ready"}), 503
 
 
 @app.errorhandler(500)
@@ -376,6 +410,18 @@ def _bind_tenant_context():
     g.request_id = request.headers.get("X-Request-ID") or secrets.token_hex(12)
     g.tenant_context_token = None
     g.platform_control_token = None
+    if current_user.is_authenticated:
+        now_epoch = int(utcnow().timestamp())
+        idle_limit = int(
+            os.environ.get("ATCROSTER_SESSION_IDLE_MINUTES", "30")
+        ) * 60
+        last_seen = int(session.get("_last_seen_epoch") or now_epoch)
+        if now_epoch - last_seen > idle_limit:
+            logout_user()
+            session.clear()
+            flash("Your session expired due to inactivity.", "error")
+            return redirect(url_for("login"))
+        session["_last_seen_epoch"] = now_epoch
     if (
         current_user.is_authenticated
         and getattr(current_user, "role", "") == "superadmin"
@@ -1163,6 +1209,7 @@ UnitMembership = SaaS.UnitMembership
 SecureInvitation = SaaS.SecureInvitation
 SignupWorkflow = SaaS.SignupWorkflow
 DatabaseRoutingMetadata = SaaS.DatabaseRoutingMetadata
+ProvisioningJob = SaaS.ProvisioningJob
 FeatureFlag = SaaS.FeatureFlag
 PlanHistory = SaaS.PlanHistory
 AggregateUsageEvent = SaaS.AggregateUsageEvent
@@ -2921,6 +2968,11 @@ def admin_fatigue_rules():
 def compliance_centre_export():
     if not is_admin_user(current_user):
         abort(403)
+    if not _consume_rate_limit(
+        "compliance-export", current_user.id, limit=20,
+        window=timedelta(hours=1),
+    ):
+        abort(429)
     year, month = _compliance_month(request.args.get("ym"))
     findings = _compliance_findings(year, month)
     output = io.StringIO()
@@ -4755,6 +4807,11 @@ def bulk_annotations():
 @app.route("/roster/<ym>/export")
 @login_required
 def roster_export_csv(ym):
+    if not _consume_rate_limit(
+        "roster-export", current_user.id, limit=30,
+        window=timedelta(hours=1),
+    ):
+        abort(429)
     year, month = parse_ym(ym)
     start, days = month_range(year, month)
 
@@ -6401,6 +6458,11 @@ def _has_in_date_ue(s: Staff, ref_day: date) -> bool:
 @app.route("/metrics/export")
 @login_required
 def metrics_export():
+    if not _consume_rate_limit(
+        "metrics-export", current_user.id, limit=20,
+        window=timedelta(hours=1),
+    ):
+        abort(429)
     if not is_admin_user(current_user):
         abort(403)
     today = date.today()
@@ -6568,6 +6630,11 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
 @app.route("/overtime", methods=["GET", "POST"])
 @login_required
 def overtime():
+    if request.method == "POST" and not _consume_rate_limit(
+        "overtime-search", current_user.id, limit=60,
+        window=timedelta(hours=1),
+    ):
+        abort(429)
     if not (
         is_editor_user(current_user)
         or getattr(current_user, "is_wm", False)
@@ -7482,140 +7549,111 @@ def platform_admin():
                     db.session.rollback()
                     raise
         elif action == "provision_unit":
+            if not _consume_rate_limit(
+                "airport-provisioning", platform_actor.id,
+                limit=10, window=timedelta(hours=1),
+            ):
+                abort(429, "Too many provisioning requests.")
             unit_id = int(request.form.get("unit_id") or 0)
             unit = db.session.get(Unit, unit_id)
             routing = db.session.get(DatabaseRoutingMetadata, unit_id)
             if not unit or unit.status == "platform_control" or not routing:
                 abort(404)
-            routing.attempt_count = int(routing.attempt_count or 0) + 1
-            routing.last_attempt_at = utcnow()
-            routing.last_error_code = ""
-            db.session.commit()
-            try:
-                if not re.fullmatch(
-                    r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL",
-                    routing.secret_name or "",
-                ):
-                    raise RuntimeError("invalid_secret_reference")
-                operational_url = os.environ.get(routing.secret_name)
-                if (
-                    not operational_url
-                    and DEPLOYMENT_ENV != "production"
-                    and not app.config.get("TESTING")
-                    and os.environ.get(
-                        "ATCROSTER_DISABLE_LOCAL_AUTO_PROVISION"
-                    ) != "1"
-                    and db.engine.dialect.name == "sqlite"
-                ):
-                    # Local development still keeps every airport in its own
-                    # database, but does not require the operator to configure
-                    # a managed secret before testing the onboarding workflow.
-                    operational_url = (
-                        "sqlite:///"
-                        + os.path.join(
-                            INSTANCE_DIR, f"unit-{unit.id}-{unit.code.lower()}.db"
-                        )
-                    )
-                    os.environ[routing.secret_name] = operational_url
-                if not operational_url:
-                    raise RuntimeError("database_secret_unavailable")
-                control_url = (
-                    os.environ.get("CONTROL_DATABASE_URL")
-                    or app.config["SQLALCHEMY_DATABASE_URI"]
-                )
-                if operational_url == control_url:
-                    raise RuntimeError("database_not_isolated")
-                routing.provisioning_state = "database_configured"
-                db.session.commit()
-                from scripts.migrate_all_databases import upgrade_database
-                routing.migration_version = upgrade_database(
-                    operational_url, "operational"
-                )
-                routing.provisioning_state = "migrations_complete"
-                from sqlalchemy import create_engine, inspect
-                health_engine = create_engine(
-                    operational_url, pool_pre_ping=True
-                )
-                try:
-                    with health_engine.connect() as connection:
-                        connection.execute(text("SELECT 1"))
-                    required = {
-                        "staff", "assignment", "shift_request",
-                        "qualification_type",
-                    }
-                    if not required.issubset(
-                        set(inspect(health_engine).get_table_names())
-                    ):
-                        raise RuntimeError("schema_health_check_failed")
-                finally:
-                    health_engine.dispose()
-                invitation = SecureInvitation.query.filter_by(
-                    unit_id=unit.id, role="UnitAdmin",
-                    accepted_at=None, disabled_at=None,
-                ).first()
-                raw_token = None
-                if not invitation:
-                    raw_token = secrets.token_urlsafe(32)
-                    invitation = SecureInvitation(
-                        unit_id=unit.id,
-                        token_digest=hashlib.sha256(
-                            raw_token.encode()
-                        ).hexdigest(),
-                        role="UnitAdmin",
-                        expires_at=utcnow() + timedelta(days=7),
-                    )
-                    db.session.add(invitation)
-                routing.provisioning_state = "invitation_issued"
-                routing.health = "healthy"
-                routing.ready_at = utcnow()
-                db.session.add(SuperAdminAudit(
-                    actor_identity_id=platform_actor.id,
-                    unit_id=unit.id,
-                    action="airport_provisioned",
-                    safe_summary=(
-                        f"Operational schema ready for {unit.code}; "
-                        "bootstrap invitation issued."
-                    ),
-                ))
-                db.session.commit()
-                if raw_token:
-                    flash(
-                        "Provisioning completed. Transfer this one-time "
-                        f"bootstrap link securely: {url_for('accept_invitation', token=raw_token, _external=True)}",
-                        "ok",
-                    )
-                else:
-                    flash(
-                        "Provisioning is already complete; the existing "
-                        "invitation remains valid.", "ok",
-                    )
-            except Exception as exc:
-                db.session.rollback()
-                routing = db.session.get(DatabaseRoutingMetadata, unit_id)
-                allowed = {
-                    "invalid_secret_reference",
-                    "database_secret_unavailable",
-                    "database_not_isolated",
-                    "schema_health_check_failed",
-                }
-                code = (
-                    str(exc) if str(exc) in allowed
-                    else "database_provisioning_failed"
-                )
-                routing.provisioning_state = "failed"
-                routing.last_error_code = code
-                routing.health = "failed"
-                db.session.add(SuperAdminAudit(
-                    actor_identity_id=platform_actor.id,
+            active = ProvisioningJob.query.filter(
+                ProvisioningJob.unit_id == unit_id,
+                ProvisioningJob.state.in_(("queued", "running", "retry_wait")),
+            ).with_for_update().first()
+            if not active:
+                active = ProvisioningJob(
                     unit_id=unit_id,
-                    action="airport_provisioning_failed",
-                    safe_summary=f"Provisioning failed with code {code}.",
-                ))
-                db.session.commit()
-                flash(
-                    f"Provisioning did not complete ({code}). Correct the "
-                    "configuration and retry.", "error",
+                    idempotency_key=hashlib.sha256(
+                        f"{unit_id}:{secrets.token_hex(16)}".encode()
+                    ).hexdigest(),
+                    state="queued", active_key="active",
+                    next_attempt_at=utcnow(),
                 )
+                db.session.add(active)
+            elif active.state == "retry_wait":
+                active.state = "queued"
+                active.next_attempt_at = utcnow()
+            routing.provisioning_state = "queued"
+            try:
+                db.session.commit()
+            except IntegrityError:
+                # A concurrent request won the database uniqueness race.
+                # Treat this request as an idempotent resume.
+                db.session.rollback()
+                active = ProvisioningJob.query.filter_by(
+                    unit_id=unit_id, active_key="active"
+                ).first()
+                if not active:
+                    raise
+            flash(
+                "Provisioning was queued. The worker will migrate and check "
+                "the airport database before issuing an invitation.",
+                "ok",
+            )
+            return redirect(url_for("platform_admin"))
+        elif action == "cancel_provisioning":
+            job = ProvisioningJob.query.filter_by(
+                id=int(request.form.get("job_id") or 0)
+            ).with_for_update().first_or_404()
+            job.cancel_requested = True
+            job.updated_at = utcnow()
+            db.session.commit()
+            flash("Provisioning cancellation requested.", "ok")
+            return redirect(url_for("platform_admin"))
+        elif action == "reveal_bootstrap":
+            job = ProvisioningJob.query.filter_by(
+                id=int(request.form.get("job_id") or 0), state="completed"
+            ).first_or_404()
+            from platform_provisioning import pop_one_time_token
+
+            raw_token = pop_one_time_token(job.id)
+            if raw_token:
+                invite_url = url_for(
+                    "accept_invitation", token=raw_token, _external=True
+                )
+                flash(
+                    "Copy this bootstrap link now; it will not be shown "
+                    f"again: {invite_url}",
+                    "ok",
+                )
+            else:
+                flash(
+                    "The one-time link is no longer available. Revoke the "
+                    "pending bootstrap and deliberately issue a replacement.",
+                    "error",
+                )
+            return redirect(url_for("platform_admin"))
+        elif action == "replace_bootstrap":
+            unit_id = int(request.form.get("unit_id") or 0)
+            invitation = SecureInvitation.query.filter_by(
+                unit_id=unit_id, role="UnitAdmin",
+                active_bootstrap_key="active",
+            ).with_for_update().first()
+            if invitation:
+                invitation.disabled_at = utcnow()
+                invitation.active_bootstrap_key = None
+            active = ProvisioningJob.query.filter_by(
+                unit_id=unit_id, active_key="active"
+            ).first()
+            if active:
+                flash("Provisioning is already in progress.", "error")
+            else:
+                db.session.add(ProvisioningJob(
+                    unit_id=unit_id,
+                    idempotency_key=hashlib.sha256(
+                        f"{unit_id}:{secrets.token_hex(16)}".encode()
+                    ).hexdigest(),
+                    state="queued", active_key="active",
+                    next_attempt_at=utcnow(),
+                ))
+                routing = db.session.get(DatabaseRoutingMetadata, unit_id)
+                if routing:
+                    routing.provisioning_state = "queued"
+                flash("Replacement bootstrap generation was queued.", "ok")
+            db.session.commit()
             return redirect(url_for("platform_admin"))
         elif action == "update_limit":
             try:
@@ -7721,6 +7759,9 @@ def platform_admin():
         bootstrap = SecureInvitation.query.filter_by(
             unit_id=unit.id, role="UnitAdmin"
         ).order_by(SecureInvitation.id.desc()).first()
+        latest_job = ProvisioningJob.query.filter_by(
+            unit_id=unit.id
+        ).order_by(ProvisioningJob.id.desc()).first()
         if not bootstrap:
             bootstrap_status = "not issued"
         elif bootstrap.accepted_at:
@@ -7750,6 +7791,7 @@ def platform_admin():
             "storage_bytes": routing.storage_bytes if routing else 0,
             "activity_count": int(activity or 0),
             "bootstrap_status": bootstrap_status,
+            "provisioning_job": latest_job,
         })
     return render_template(
         "platform_admin.html", rows=rows,
@@ -7970,6 +8012,7 @@ def unit_accounts():
                 accepted_at=None, disabled_at=None,
             ).first_or_404()
             invitation.disabled_at = utcnow()
+            invitation.active_bootstrap_key = None
             db.session.commit()
             flash("Invitation disabled.", "ok")
             return redirect(url_for("unit_accounts"))
@@ -8187,6 +8230,7 @@ def _run_invitation_signup(
                 SecureInvitation, workflow.invitation_id
             )
             invitation.accepted_at = utcnow()
+            invitation.active_bootstrap_key = None
             if invitation.role == "UnitAdmin":
                 unit.status = "active"
                 routing = db.session.get(
@@ -8230,6 +8274,11 @@ def accept_invitation(token):
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token or ""):
         abort(404)
     digest = hashlib.sha256(token.encode()).hexdigest()
+    if not _consume_rate_limit(
+        "invitation-acceptance", digest, limit=20,
+        window=timedelta(hours=1),
+    ):
+        abort(429, "Too many invitation attempts.")
     invitation = SecureInvitation.query.filter_by(
         token_digest=digest
     ).first_or_404()
@@ -8298,9 +8347,19 @@ def accept_invitation(token):
                 target_person=target_person,
             ), 400
         try:
-            _run_invitation_signup(
-                invitation, unit, name, username, password
-            )
+            from signup_locking import invitation_signup_lock
+
+            with invitation_signup_lock(db, invitation.id):
+                locked_invitation = SecureInvitation.query.filter_by(
+                    id=invitation.id,
+                    accepted_at=None,
+                    disabled_at=None,
+                ).with_for_update().first()
+                if not locked_invitation:
+                    abort(410, "This invitation has already been used.")
+                _run_invitation_signup(
+                    locked_invitation, unit, name, username, password
+                )
         except (SignupWorkflowError, ValueError) as exc:
             flash(str(exc), "error")
             return render_template(
@@ -9226,15 +9285,45 @@ def reports_index():
     abort(403)
 
 
-_login_attempts: dict[str, deque[datetime]] = defaultdict(deque)
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
 
 
 def _login_rate_key(username: str) -> str:
     remote = request.remote_addr or "unknown"
-    digest = hashlib.sha256(username.lower().encode()).hexdigest()[:16]
-    return f"{remote}:{digest}"
+    return privacy_key(
+        str(app.config["SECRET_KEY"]), "login", remote, username.lower()
+    )
+
+
+def _consume_rate_limit(
+    scope: str, subject: object, limit: int = LOGIN_RATE_LIMIT,
+    window: timedelta = LOGIN_RATE_WINDOW, fail_closed: bool = True,
+) -> bool:
+    key = privacy_key(
+        str(app.config["SECRET_KEY"]), scope,
+        request.remote_addr or "unknown", subject,
+    )
+    try:
+        return _rate_limiter.consume(
+            key, limit, max(1, int(window.total_seconds()))
+        )
+    except LimiterUnavailable:
+        _security_event("rate_limiter_unavailable", scope=scope)
+        if fail_closed:
+            abort(503, "Security service is temporarily unavailable.")
+        return True
+
+
+def _reset_rate_limit(scope: str, subject: object) -> None:
+    key = privacy_key(
+        str(app.config["SECRET_KEY"]), scope,
+        request.remote_addr or "unknown", subject,
+    )
+    try:
+        _rate_limiter.reset(key)
+    except LimiterUnavailable:
+        _security_event("rate_limiter_unavailable", scope=scope)
 
 
 def _security_event(event: str, **safe_fields) -> None:
@@ -9285,11 +9374,7 @@ def signin_form():   # function name can be anything; endpoint is 'login'
         )
         password = (request.form.get("password") or "").strip()
         rate_key = _login_rate_key(username)
-        attempts = _login_attempts[rate_key]
-        cutoff = utcnow() - LOGIN_RATE_WINDOW
-        while attempts and attempts[0] < cutoff:
-            attempts.popleft()
-        if len(attempts) >= LOGIN_RATE_LIMIT:
+        if not _consume_rate_limit("password-login", username):
             _security_event("login_rate_limited", principal=rate_key[-16:])
             abort(429, "Too many login attempts. Try again later.")
         identity = PlatformIdentity.query.filter_by(username=username).first()
@@ -9324,12 +9409,22 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                     platform_login = identity.public_id.startswith(
                         "platform-"
                     )
-        else:
+        elif DEPLOYMENT_ENV != "production":
             user = Staff.query.filter_by(username=username).first()
             credentials_valid = bool(
                 user and user.check_password(password)
             )
+        else:
+            # Production authentication always begins in the control plane.
+            # Do not query operational databases for unknown principals.
+            credentials_valid = False
+        if (
+            identity and credentials_valid and not user
+            and not identity.public_id.startswith("platform-")
+        ):
+            credentials_valid = False
         if user and credentials_valid:
+            _reset_rate_limit("password-login", username)
             if user.membership_status != "active":
                 flash("This account is not active.", "error")
                 return render_template("login.html"), 403
@@ -9382,7 +9477,6 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             login_user(user)
             session.permanent = True
             session["_session_started_at"] = utcnow().isoformat()
-            _login_attempts.pop(rate_key, None)
             _security_event(
                 "login_succeeded",
                 principal=rate_key[-16:],
@@ -9393,7 +9487,6 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             # support ?next=... to return where user was going
             nxt = request.args.get("next")
             return redirect(nxt if _is_safe_local_redirect(nxt) else url_for("index"))
-        attempts.append(utcnow())
         if identity:
             _central_security_event(
                 "platform_login_failed", "denied", identity.id,
@@ -9425,9 +9518,6 @@ def _matching_totp_step(secret: str, code: str) -> int | None:
     return None
 
 
-_platform_mfa_attempts: dict[int, deque[datetime]] = defaultdict(deque)
-
-
 def _pending_platform_login():
     identity_id = int(session.get("_platform_mfa_identity_id") or 0)
     user_id = int(session.get("_platform_mfa_user_id") or 0)
@@ -9441,7 +9531,6 @@ def _pending_platform_login():
 
 def _complete_platform_login(identity, user, recovery_used=False):
     next_url = session.get("_platform_mfa_next", "")
-    rate_key = session.get("_platform_mfa_rate_key", "")
     session.clear()
     login_user(user)
     session.permanent = True
@@ -9455,9 +9544,6 @@ def _complete_platform_login(identity, user, recovery_used=False):
         hashlib.sha256(identity.username.lower().encode()).hexdigest()[:16],
     )
     db.session.commit()
-    if rate_key:
-        _login_attempts.pop(rate_key, None)
-    _platform_mfa_attempts.pop(identity.id, None)
     return redirect(next_url or url_for("platform_admin"))
 
 
@@ -9497,6 +9583,11 @@ def platform_mfa_setup():
     qr_data_uri = _totp_qr_data_uri(provisioning_uri)
     if request.method == "POST":
         _validate_csrf()
+        if not _consume_rate_limit(
+            "platform-mfa-enrolment", identity.id, limit=10,
+            window=timedelta(minutes=15),
+        ):
+            abort(429)
         code = re.sub(r"\s", "", request.form.get("code") or "")
         if not pyotp.TOTP(pending).verify(code, valid_window=1):
             _central_security_event(
@@ -9551,18 +9642,14 @@ def platform_mfa_challenge():
     ).first()
     if not credential:
         return redirect(url_for("platform_mfa_setup"))
-    attempts = _platform_mfa_attempts[identity.id]
-    cutoff = utcnow() - LOGIN_RATE_WINDOW
-    while attempts and attempts[0] < cutoff:
-        attempts.popleft()
-    if len(attempts) >= LOGIN_RATE_LIMIT:
-        _central_security_event(
-            "platform_mfa_rate_limited", "denied", identity.id
-        )
-        db.session.commit()
-        abort(429, "Too many verification attempts. Try again later.")
     if request.method == "POST":
         _validate_csrf()
+        if not _consume_rate_limit("platform-mfa", identity.id):
+            _central_security_event(
+                "platform_mfa_rate_limited", "denied", identity.id
+            )
+            db.session.commit()
+            abort(429, "Too many verification attempts. Try again later.")
         code = re.sub(
             r"[\s-]", "", request.form.get("code") or ""
         ).upper()
@@ -9592,7 +9679,6 @@ def platform_mfa_challenge():
             return _complete_platform_login(
                 identity, user, recovery_used=recovery_used
             )
-        attempts.append(utcnow())
         _central_security_event(
             "platform_mfa_verification", "denied", identity.id
         )
@@ -9625,6 +9711,8 @@ def mfa_challenge():
         return redirect(url_for("login"))
     if request.method == "POST":
         _validate_csrf()
+        if not _consume_rate_limit("airport-mfa", f"{unit_id}:{user_id}"):
+            abort(429, "Too many verification attempts. Try again later.")
         code = re.sub(r"[\s-]", "", request.form.get("code") or "").upper()
         accepted = False
         if re.fullmatch(r"\d{6}", code):
@@ -9649,9 +9737,7 @@ def mfa_challenge():
             login_user(user)
             session.permanent = True
             session["_session_started_at"] = utcnow().isoformat()
-            rate_key = session.pop("_mfa_rate_key", "")
-            if rate_key:
-                _login_attempts.pop(rate_key, None)
+            session.pop("_mfa_rate_key", "")
             _security_event(
                 "mfa_login_succeeded",
                 principal=hashlib.sha256(
@@ -9691,6 +9777,12 @@ def mfa_setup():
     qr_data_uri = _totp_qr_data_uri(provisioning_uri)
     if request.method == "POST":
         _validate_csrf()
+        if not _consume_rate_limit(
+            "airport-mfa-enrolment",
+            f"{_current_unit_id()}:{current_user.id}",
+            limit=10, window=timedelta(minutes=15),
+        ):
+            abort(429)
         code = re.sub(r"\s", "", request.form.get("code") or "")
         if not pyotp.TOTP(pending).verify(code, valid_window=1):
             flash("The verification code is not valid.", "error")
@@ -9781,8 +9873,16 @@ def reset_platform_mfa(username):
 
 @app.cli.command("reconcile-signups")
 @click.option("--apply", "apply_changes", is_flag=True)
-def reconcile_signups(apply_changes):
+@click.option(
+    "--confirm", default="",
+    help="Required with --apply: enter RECONCILE-INCOMPLETE-SIGNUPS",
+)
+def reconcile_signups(apply_changes, confirm):
     """Report or safely reconcile interrupted cross-database signups."""
+    if apply_changes and confirm != "RECONCILE-INCOMPLETE-SIGNUPS":
+        raise click.UsageError(
+            "--apply requires --confirm RECONCILE-INCOMPLETE-SIGNUPS"
+        )
     rows = SignupWorkflow.query.filter(
         SignupWorkflow.state != "completed"
     ).order_by(SignupWorkflow.id).all()

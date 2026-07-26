@@ -5,10 +5,12 @@ acceptance, data-protection approval and security certification remain the
 operator's responsibility.
 
 Airport creation is intentionally two-phase. Create non-personal metadata,
-configure the named database secret, then use **Provision / retry**. The
-platform connects, runs operational migrations, checks schema health and only
-then displays the one-time bootstrap invitation. Do not send an invitation
-while provisioning is `pending` or `failed`.
+configure the named database secret, then use **Provision / retry**. The web
+process queues the work; the worker migrates and checks the operational
+database before issuing a bootstrap invitation. Its raw token is held in
+Redis for one hour and can be displayed exactly once. If it is lost, revoke
+and deliberately replace it. Do not send an invitation while provisioning is
+`pending`, `retry_wait` or `failed`.
 
 Platform SuperAdmins must enrol application-verified MFA. Their encrypted
 credential and one-time recovery-code hashes live only in control. Use
@@ -18,6 +20,8 @@ recovery; never disable the MFA requirement.
 ## Required services
 
 - PostgreSQL 16 or a supported managed PostgreSQL service
+- Redis 7 or a supported managed Redis service
+- A continuously running `python scripts/run_provisioning_worker.py` process
 - TLS reverse proxy or load balancer
 - Managed secret store
 - Encrypted backup destination outside the application host
@@ -40,6 +44,9 @@ SQLite and the Flask development server are prohibited in production.
 4. Provide `CONTROL_DATABASE_URL`, `DATABASE_URL` and every secret referenced
    by `database_routing_metadata`, then run
    `python scripts/migrate_all_databases.py`.
+   Control and airport URLs must be different. Additional airports use the
+   exact secret name stored in control, for example
+   `ATCROSTER_UNIT_2_DATABASE_URL`; never pass URLs through a web form.
 5. Run:
 
    ```bash
@@ -59,26 +66,34 @@ With Docker Compose:
 docker compose build
 docker compose run --rm migrate
 docker compose run --rm web flask --app app bootstrap-platform
-docker compose up -d web
+docker compose up -d web worker
 ```
 
 ### Railway
 
 The repository includes `railway.toml` for a managed Railway deployment.
-Provision one PostgreSQL service and one application service, then set these
-application variables through Railway's encrypted variable store:
+Provision a control PostgreSQL service, a separate PostgreSQL service per
+airport, Redis, a web service and a worker service. Both application services
+receive the same encrypted variables:
 
 - `ATCROSTER_ENVIRONMENT=production`
 - `ATCROSTER_SECURE_COOKIES=true`
 - `FLASK_SECRET_KEY` with at least 32 random characters
 - `ATCROSTER_FIELD_ENCRYPTION_KEY` generated with Fernet
 - `DATABASE_URL` using the PostgreSQL service's private connection variables
+- `CONTROL_DATABASE_URL` using the control PostgreSQL service
+- `ATCROSTER_UNIT_<id>_DATABASE_URL` for every airport database
+- `REDIS_URL`
+- `ATCROSTER_SESSION_IDLE_MINUTES` and
+  `ATCROSTER_SESSION_ABSOLUTE_MINUTES`
+- `ATCROSTER_TRUSTED_PROXY_HOPS` matching the verified proxy topology
 
-The deployment runs Alembic before starting, serves through Waitress on port
-8080 and uses `/health/ready` as its health check. After the first healthy
-deployment, run `flask --app app bootstrap-platform` once with a unique
-administrator password. Do not upload acceptance data or local environment
-files.
+The web service uses the repository `railway.toml`. Configure the worker
+service start command as `python scripts/run_provisioning_worker.py` and no
+public endpoint. The pre-deploy command upgrades control first and then all
+configured operational databases. After the first healthy deployment, run
+`flask --app app bootstrap-platform` once with a unique administrator
+password. Do not upload acceptance data or local environment files.
 
 ## Reverse proxy
 

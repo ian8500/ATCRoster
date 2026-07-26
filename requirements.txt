@@ -30,4 +30,5 @@ pytest==9.0.3
 # Desktop app packaging
 pywebview==5.1
 waitress==3.0.2
+redis==5.2.1
 pyinstaller==6.11.1

@@ -121,8 +121,24 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
         follow_redirects=True,
     )
     assert provisioned.status_code == 200
+    from platform_provisioning import ProvisioningWorker
+
+    assert ProvisioningWorker(app.app).run_once()
+    with app.app.app_context():
+        job = app.ProvisioningJob.query.filter_by(unit_id=unit.id).one()
+        job_id = job.id
+        assert job.state == "completed"
+    revealed = super_client.post(
+        "/platform/admin",
+        data={
+            "_csrf_token": _csrf(super_client, "/platform/admin"),
+            "action": "reveal_bootstrap",
+            "job_id": str(job_id),
+        },
+        follow_redirects=True,
+    )
     bootstrap_match = re.search(
-        rb"/invite/([A-Za-z0-9_-]+)", provisioned.data
+        rb"/invite/([A-Za-z0-9_-]+)", revealed.data
     )
     assert bootstrap_match
     bootstrap_path = bootstrap_match.group(0).decode()
