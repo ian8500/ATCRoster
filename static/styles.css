@@ -801,7 +801,7 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
 }
 .roster .cell .annotation-picker{
   display:block;
-  height:20px;
+  height:26px;
   line-height:0;
 }
 
@@ -915,8 +915,8 @@ select.code-input{
   font-size:10px;
 }
 .annotation-display{
-  min-height:20px;
-  height:20px;
+  min-height:26px;
+  height:26px;
   flex-shrink:0;
   box-sizing:border-box;
   display:flex;
@@ -1839,7 +1839,7 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
    ============================== */
 table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
 .roster .cell .code-input { font-size: calc(.9rem * var(--ui-scale)); height:28px; }
-.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height:20px; }
+.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height:26px; }
 .roster th, .roster td { font-size: calc(.82rem * var(--ui-scale)); }
 
 /* ==============================
