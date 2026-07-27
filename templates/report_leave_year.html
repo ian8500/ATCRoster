@@ -6,6 +6,17 @@
   <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>
 </section>
 
+<form class="report-filter card" method="get">
+  <label for="leave-year-watch">Users</label>
+  <select id="leave-year-watch" name="watch_id" onchange="this.form.submit()">
+    <option value="">All users</option>
+    {% for watch in watches %}
+      <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button class="btn btn-primary" type="submit">Apply</button></noscript>
+</form>
+
 <div class="table-scroll">
   <table class="table">
     <thead>
@@ -32,6 +43,8 @@
           <td class="ta-right">{{ '%.1f' % r.toil_used_days }}</td>
           <td class="ta-right"><strong>{{ '%.1f' % r.toil_balance_days }}</strong></td>
         </tr>
+      {% else %}
+        <tr><td colspan="12">No users are assigned to this watch.</td></tr>
       {% endfor %}
     </tbody>
   </table>

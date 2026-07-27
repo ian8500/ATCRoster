@@ -3144,6 +3144,26 @@ table:not(.roster) td {
   background:#1b252c;
 }
 
+.report-filter{
+  display:flex;
+  flex-direction:row;
+  align-items:center;
+  gap:.75rem;
+  margin-bottom:1rem;
+  padding:.75rem 1rem;
+}
+.report-filter label{
+  margin:0;
+  color:var(--text-muted);
+  font-size:.78rem;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.report-filter select{
+  width:min(280px, 100%);
+}
+
 .alert,
 .flash {
   border-radius:6px;

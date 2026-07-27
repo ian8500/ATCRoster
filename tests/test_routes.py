@@ -205,6 +205,29 @@ def csrf(client):
         return sess["_csrf_token"]
 
 
+def test_leave_year_report_filters_by_watch(client):
+    login(client)
+    with app.app.app_context():
+        watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
+
+    all_users = client.get("/reports/leave-year")
+    assert all_users.status_code == 200
+    assert b"All users" in all_users.data
+    assert b"<td>Admin Test</td>" in all_users.data
+    assert b"<td>Duty Watch Manager Test</td>" in all_users.data
+
+    watch_a_only = client.get(f"/reports/leave-year?watch_id={watch_a.id}")
+    assert watch_a_only.status_code == 200
+    assert b"<td>Admin Test</td>" in watch_a_only.data
+    assert b"<td>Duty Watch Manager Test</td>" not in watch_a_only.data
+
+    watch_b_only = client.get(f"/reports/leave-year?watch_id={watch_b.id}")
+    assert watch_b_only.status_code == 200
+    assert b"<td>Duty Watch Manager Test</td>" in watch_b_only.data
+    assert b"<td>Admin Test</td>" not in watch_b_only.data
+
+
 def test_sickness_days_are_grouped_into_continuous_instances():
     person = SimpleNamespace(name="Test ATCO")
     rows = [

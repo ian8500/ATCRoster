@@ -5,9 +5,20 @@
   <div><span class="admin-step">Leave reporting</span><h2>Leave · {{ month_title }}</h2><p>Recorded leave totals by controller and leave type.</p></div>
   <div class="compliance-actions">
     <a class="btn" href="{{ url_for('reports_index', ym=ym) }}"><i class="fa-solid fa-chevron-left"></i> Reports</a>
-    <a class="btn" href="{{ url_for('report_leave_csv', ym=ym) }}"><i class="fa-solid fa-file-csv"></i> Download CSV</a>
+    <a class="btn" href="{{ url_for('report_leave_csv', ym=ym, watch_id=selected_watch.id if selected_watch else None) }}"><i class="fa-solid fa-file-csv"></i> Download CSV</a>
   </div>
 </section>
+
+<form class="report-filter card" method="get">
+  <label for="leave-watch">Users</label>
+  <select id="leave-watch" name="watch_id" onchange="this.form.submit()">
+    <option value="">All users</option>
+    {% for watch in watches %}
+      <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button class="btn btn-primary" type="submit">Apply</button></noscript>
+</form>
 
 <div class="table-scroll">
   <table class="table">
@@ -29,6 +40,8 @@
           {% endfor %}
           <td class="ta-right"><strong>{{ r.total }}</strong></td>
         </tr>
+      {% else %}
+        <tr><td colspan="{{ 4 + codes|length }}">No users are assigned to this watch.</td></tr>
       {% endfor %}
       <tr class="totals">
         <td colspan="3" class="ta-right"><strong>Totals</strong></td>
