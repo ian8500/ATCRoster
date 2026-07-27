@@ -867,15 +867,6 @@ select.code-input{
 
 .annot-select:focus{outline:none;}
 
-.annot-select.has-annotation{
-  background:#ffeb3b !important;
-  color:#000 !important;
-  font-weight:800;
-  border-color:#f1c40f;
-  box-shadow:0 0 0 1px rgba(0,0,0,.25) inset, 0 0 8px rgba(255,235,59,.55);
-}
-
-.annot-select.has-annotation option{ background:#111; color:#fff; }
 .annotation-note{
   display:block;
   width:100%;
@@ -885,6 +876,59 @@ select.code-input{
   border:1px solid var(--border);
   border-radius:4px;
   font-size:10px;
+}
+.annotation-display{
+  min-height:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  margin-top:1px;
+}
+.annotation-code{
+  display:inline-block;
+  max-width:calc(100% - 17px);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  padding:1px 4px;
+  border:1px solid #d6bd1a;
+  border-radius:4px;
+  background:#ffeb3b;
+  color:#171717;
+  font-size:9px;
+  font-weight:800;
+  line-height:1.2;
+}
+.annotation-detail-editor{position:relative;}
+.annotation-detail-editor summary{
+  width:14px;
+  height:14px;
+  display:grid;
+  place-items:center;
+  border-radius:3px;
+  color:var(--text-muted);
+  font-size:10px;
+  cursor:pointer;
+  list-style:none;
+}
+.annotation-detail-editor summary::-webkit-details-marker{display:none;}
+.annotation-detail-editor[open] form{
+  position:absolute;
+  z-index:30;
+  right:0;
+  bottom:18px;
+  width:190px;
+  padding:6px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:var(--card);
+  box-shadow:0 8px 24px rgba(0,0,0,.4);
+}
+.annotation-detail-editor textarea{
+  width:100%;
+  margin-bottom:4px;
+  resize:vertical;
+  font-size:11px;
 }
 
 tfoot td{background:var(--card); font-weight:bold; color:var(--text);}

@@ -592,6 +592,59 @@ def test_annotation_application_is_tenant_scoped_and_audited(secured_client):
     assert cross_write.status_code == 404
 
 
+def test_roster_shows_annotation_once_and_hover_detail_can_be_edited(
+    secured_client,
+):
+    with app.app.app_context():
+        definition = AnnotationType(
+            unit_id=1, code="NEAT", label="Neat annotation",
+            is_active=True,
+        )
+        target = Staff.query.filter_by(username="user-a").one()
+        db.session.add(definition)
+        db.session.commit()
+        target_id = target.id
+        refresh_annotation_cache()
+
+    token = login(secured_client, "admin-a")
+    endpoint = (
+        f"/assign/{target_id}/{request_day():%Y-%m}/"
+        f"{request_day():%Y-%m-%d}"
+    )
+    applied = secured_client.post(
+        endpoint,
+        data={"_csrf_token": token, "annotation": "NEAT"},
+    )
+    assert applied.status_code == 302
+
+    page = secured_client.get(f"/roster/{request_day():%Y-%m}")
+    assert page.status_code == 200
+    assert b'<option value="" selected>' in page.data
+    assert b'class="annotation-code"' in page.data
+    assert b"Current: NEAT" not in page.data
+
+    updated = secured_client.post(
+        endpoint,
+        data={
+            "_csrf_token": token,
+            "annotation": "NEAT",
+            "annotation_detail_update": "1",
+            "annotation_note": "Cover requested by tower",
+        },
+    )
+    assert updated.status_code == 302
+    with app.app.app_context():
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=target_id, day=request_day()
+        ).one()
+        assert assignment.annotation_note == "Cover requested by tower"
+        assert assignment.note != "Cover requested by tower"
+
+    page = secured_client.get(f"/roster/{request_day():%Y-%m}")
+    assert b'title="Cover requested by tower"' in page.data
+    assert page.data.count(b">NEAT</span>") == 1
+
+
 def test_bulk_annotation_feature_is_removed(secured_client):
     token = login(secured_client, "admin-a")
     response = secured_client.post("/annotations/bulk", data={

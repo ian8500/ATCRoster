@@ -1355,6 +1355,8 @@ class Assignment(db.Model):
     note = db.Column(db.String(140), default="")
     # Annotation code (managed via AnnotationType, optional suffix like A6M)
     annotation = db.Column(db.String(20), default="")
+    # User-facing detail for the annotation. Kept separate from system notes.
+    annotation_note = db.Column(db.String(140), default="")
     __table_args__ = (db.UniqueConstraint(
         "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),)
 
@@ -1945,14 +1947,17 @@ def _load_month_roster_core(unit_id: int, y: int, m: int):
             Assignment.day,
             Assignment.code,
             Assignment.source,
-            Assignment.annotation
+            Assignment.annotation,
+            Assignment.annotation_note,
         )
             .filter(Assignment.day >= start, Assignment.day < end)
             .all())
 
         a_map = {}
-        for sid, d, code, source, ann in rows:
-            a_map.setdefault(sid, {})[d] = (code, source, ann)
+        for sid, d, code, source, ann, ann_note in rows:
+            a_map.setdefault(sid, {})[d] = (
+                code, source, ann, ann_note or ""
+            )
 
         req = Requirement.query.filter_by(year=y, month=m).first()
         if not req:
@@ -4542,17 +4547,21 @@ def roster_month(ym):
         return 0 if getattr(person, "is_wm", False) else (1 if getattr(person, "is_dwm", False) else 2)
 
     # Build code_map (what the template expects) and ann_map from the tuples
-    # a_map_tuples[sid][day] = (code, source, annotation)
+    # a_map_tuples[sid][day] = (code, source, annotation, annotation note)
     a_map: dict[int, dict[date, str]] = {}
     ann_map: dict[int, dict[date, str]] = {}
+    ann_note_map: dict[int, dict[date, str]] = {}
     for sid, dmap in a_map_tuples.items():
         codes = {}
         anns = {}
-        for d, (code, _src, ann) in dmap.items():
+        ann_notes = {}
+        for d, (code, _src, ann, ann_note) in dmap.items():
             codes[d] = code
             anns[d] = ann or ""
+            ann_notes[d] = ann_note or ""
         a_map[sid] = codes
         ann_map[sid] = anns
+        ann_note_map[sid] = ann_notes
 
     # Prev/next month strings
     py, pm = _month_add(year, month, -1)
@@ -4717,6 +4726,7 @@ def roster_month(ym):
         staff=staff,
         a_map=a_map,
         ann_map=ann_map,             # <<< required by template
+        ann_note_map=ann_note_map,
         counters=counters,
         req=req,                     # <<< ensure 'req' exists for template
         requirement=req,             # <<< keep this if any blocks expect 'requirement'
@@ -4805,30 +4815,33 @@ def assign_cell(staff_id, ym, day):
             abort(403)
         old = a.annotation or ""
         newv = (annot or "").strip().upper()
+        if newv == "__REMOVE__":
+            newv = ""
+        note_was_posted = "annotation_detail_update" in request.form
+        annotation_note = (
+            request.form.get("annotation_note") or ""
+        ).strip()[:140]
+        parsed = parse_annotation(newv) if newv else None
+        ann_def = None
+        if parsed:
+            ann_def = AnnotationType.query.filter_by(
+                unit_id=unit_id, code=parsed["type"]
+            ).first()
+        if newv and (not parsed or not ann_def):
+            flash(f"Unknown annotation '{newv}'.", "error")
+            return redirect(url_for("roster_month", ym=ym))
+        if ann_def and not ann_def.is_active and old != newv:
+            flash(
+                f"{ann_def.code} is inactive and cannot be newly applied.",
+                "error",
+            )
+            return redirect(url_for("roster_month", ym=ym))
+        if ann_def and ann_def.admin_only and not is_admin_user(current_user):
+            abort(403)
+        if ann_def and ann_def.note_required and not annotation_note:
+            flash(f"{ann_def.code} requires a note.", "error")
+            return redirect(url_for("roster_month", ym=ym))
         if old != newv:
-            parsed = parse_annotation(newv) if newv else None
-            ann_def = None
-            if parsed:
-                ann_def = AnnotationType.query.filter_by(
-                    unit_id=unit_id, code=parsed["type"]
-                ).first()
-            if newv and (not parsed or not ann_def):
-                flash(f"Unknown annotation '{newv}'.", "error")
-                return redirect(url_for("roster_month", ym=ym))
-            if ann_def and not ann_def.is_active:
-                flash(
-                    f"{ann_def.code} is inactive and cannot be newly applied.",
-                    "error",
-                )
-                return redirect(url_for("roster_month", ym=ym))
-            if ann_def and ann_def.admin_only and not is_admin_user(current_user):
-                abort(403)
-            annotation_note = (
-                request.form.get("annotation_note") or ""
-            ).strip()
-            if ann_def and ann_def.note_required and not annotation_note:
-                flash(f"{ann_def.code} requires a note.", "error")
-                return redirect(url_for("roster_month", ym=ym))
             transaction_key = (request.form.get("transaction_key") or "").strip()[:64]
             if transaction_key and AnnotationAudit.query.filter_by(
                 unit_id=unit_id, transaction_key=transaction_key
@@ -4837,8 +4850,7 @@ def assign_cell(staff_id, ym, day):
             _apply_toil_annotation_delta(
                 staff=st, old_annot=old, new_annot=newv)
             a.annotation = newv
-            if annotation_note:
-                a.note = annotation_note[:140]
+            a.annotation_note = annotation_note if newv else ""
             if ann_def:
                 ann_def.has_been_used = True
             db.session.flush()
@@ -4849,6 +4861,8 @@ def assign_cell(staff_id, ym, day):
                 old_value=old, new_value=newv,
                 transaction_key=transaction_key or None,
             ))
+        elif note_was_posted:
+            a.annotation_note = annotation_note
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))
