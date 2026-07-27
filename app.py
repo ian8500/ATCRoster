@@ -7597,7 +7597,7 @@ def _leave_summary_for_month(year: int, month: int, watch_id: int | None = None)
     return rows, codes_sorted, totals, grand_total, days
 
 
-def _leave_report_watch_selection():
+def _report_watch_selection():
     unit_id = _current_unit_id()
     watches = (
         Watch.query
@@ -7626,7 +7626,7 @@ def report_leave(ym):
     year, month = parse_ym(ym)
     ensure_month_requirement(year, month)
     generate_month(year, month)
-    watches, selected_watch = _leave_report_watch_selection()
+    watches, selected_watch = _report_watch_selection()
     rows, codes, totals, grand_total, days = _leave_summary_for_month(
         year, month, selected_watch.id if selected_watch else None)
     month_title = datetime(year, month, 1).strftime("%B %Y")
@@ -7648,7 +7648,7 @@ def report_leave_csv():
     year, month = parse_ym(ym)
     ensure_month_requirement(year, month)
     generate_month(year, month)
-    watches, selected_watch = _leave_report_watch_selection()
+    watches, selected_watch = _report_watch_selection()
     rows, codes, totals, grand_total, days = _leave_summary_for_month(
         year, month, selected_watch.id if selected_watch else None)
 
@@ -7733,7 +7733,7 @@ def report_leave_year():
         abort(403)
     today = date.today()
     unit_id = _current_unit_id()
-    watches, selected_watch = _leave_report_watch_selection()
+    watches, selected_watch = _report_watch_selection()
     people_query = (
         Staff.query
         .filter(Staff.unit_id == unit_id)
@@ -7802,16 +7802,24 @@ def report_sickness():
         abort(403)
     today = date.today()
     start = today - timedelta(days=365)
-    people = (Staff.query
-              .outerjoin(Watch, Staff.watch_id == Watch.id)
-              .order_by(Watch.order_index, Staff.name).all())
+    unit_id = _current_unit_id()
+    watches, selected_watch = _report_watch_selection()
+    people_query = (
+        Staff.query
+        .filter(Staff.unit_id == unit_id)
+        .outerjoin(Watch, Staff.watch_id == Watch.id)
+    )
+    if selected_watch:
+        people_query = people_query.filter(Staff.watch_id == selected_watch.id)
+    people = people_query.order_by(Watch.order_index, Staff.name).all()
     sickness_types = get_absence_types("sickness", active_only=True)
     codes = [item["code"] for item in sickness_types]
     rows = []
     totals = Counter()
     for s in people:
         q = (Assignment.query
-             .filter(Assignment.staff_id == s.id,
+             .filter(Assignment.unit_id == unit_id,
+                     Assignment.staff_id == s.id,
                      Assignment.day >= start,
                      Assignment.day <= today))
         assignments = [a for a in q.all() if a.code in codes]
@@ -7827,6 +7835,8 @@ def report_sickness():
     return render_template(
         "report_sickness.html", start=start, end=today, rows=rows,
         sickness_types=sickness_types, totals=totals,
+        watches=watches, selected_watch=selected_watch,
+        has_sickness=any(row["total"] > 0 for row in rows),
     )
 
 
