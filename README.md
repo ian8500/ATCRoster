@@ -116,8 +116,11 @@ attention. It is divided into focused sections:
 - **Roster setup** defines the unit base cycle, the weekdays on which night
   duties operate, and the unit's named watches.
 - **Staffing levels** edits monthly Morning, Day, Afternoon, and Night minimums
-  across a rolling 24-month planning window. **Copy below** repeats one
-  month's four values into every later row for review before saving.
+  for weekdays, Saturdays, and Sundays across a rolling 24-month planning
+  window. **Copy below** repeats all twelve values into every later row for
+  review before saving. A special-date calendar adds one-day overrides for
+  events such as Christmas Day; those dates are identified in a dedicated
+  section beneath the relevant monthly roster.
 - **Shifts** creates shift definitions and keeps existing definitions collapsed
   until an administrator chooses one to edit. Its **Roster count mapping**
   assigns every created shift to the Morning, Day, Afternoon, Night, or
@@ -196,7 +199,10 @@ two authorised unit users.
 
 Open a month from **Roster**. Each row represents a person and each column a
 date. Requirement indicators show whether coverage meets the configured
-minimum for Morning, Day, Afternoon, and Night duties.
+minimum for Morning, Day, Afternoon, and Night duties. Weekdays, Saturdays,
+and Sundays can use different monthly minimums. A date-specific special
+requirement takes priority over those defaults and is listed beneath the
+roster with its reason and required staffing.
 
 ### Editing a cell
 

@@ -128,17 +128,26 @@
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="req">
       <div class="table-scroll admin-requirements-table">
-        <table class="mini admin-table">
-          <thead><tr><th>Month</th><th>Morning (M)</th><th>Day (D)</th><th>Afternoon (A)</th><th>Night (N)</th><th>Apply</th></tr></thead>
+        <table class="mini admin-table requirements-matrix">
+          <thead>
+            <tr><th rowspan="2">Month</th><th colspan="4">Monday–Friday</th><th colspan="4">Saturday</th><th colspan="4">Sunday</th><th rowspan="2">Apply</th></tr>
+            <tr>
+              {% for _group in range(3) %}
+                <th title="Morning">M</th><th title="Day">D</th><th title="Afternoon">A</th><th title="Night">N</th>
+              {% endfor %}
+            </tr>
+          </thead>
           <tbody>
           {% for y,m in months %}
             {% set r = requirements_by_month.get((y,m)) %}
             <tr data-requirement-row>
               <td class="table-label"><input type="hidden" name="ym" value="{{ '%04d-%02d'|format(y,m) }}">{{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }} {{ y }}</td>
-              <td><input type="number" min="0" name="req_m" value="{{ r.req_m if r else 0 }}" class="table-input" aria-label="Morning requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
-              <td><input type="number" min="0" name="req_d" value="{{ r.req_d if r else 0 }}" class="table-input" aria-label="Day requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
-              <td><input type="number" min="0" name="req_a" value="{{ r.req_a if r else 0 }}" class="table-input" aria-label="Afternoon requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
-              <td><input type="number" min="0" name="req_n" value="{{ r.req_n if r else 0 }}" class="table-input" aria-label="Night requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
+              {% for prefix, day_name in [('', 'weekday'), ('sat_', 'Saturday'), ('sun_', 'Sunday')] %}
+                {% for code, duty_name in [('m', 'Morning'), ('d', 'Day'), ('a', 'Afternoon'), ('n', 'Night')] %}
+                  {% set field = 'req_' ~ prefix ~ code %}
+                  <td><input type="number" min="0" name="{{ field }}" value="{{ r|attr(field) if r else 0 }}" class="table-input" aria-label="{{ duty_name }} {{ day_name }} requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
+                {% endfor %}
+              {% endfor %}
               <td class="table-actions">
                 <button type="button" class="btn btn-sm requirements-copy-button"
                         data-copy-requirements-below
@@ -155,6 +164,40 @@
       <p class="requirements-copy-status" data-requirements-copy-status aria-live="polite">Copied values are not saved until you select Save requirements.</p>
       <div class="admin-sticky-actions"><span>Changes apply to this airport only.</span><button class="btn btn-primary" type="submit">Save requirements</button></div>
     </form>
+
+    <div class="section-body special-requirements">
+      <div class="special-requirements__intro">
+        <div><h4>Special date requirements</h4><p>Override the normal weekday or weekend level for one date, such as Christmas Day or a major event.</p></div>
+      </div>
+      <form method="post" class="special-requirements__form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form" value="special_requirement">
+        <label>Date<input type="date" name="special_day" required></label>
+        <label>Reason<input name="special_label" maxlength="80" placeholder="e.g. Christmas Day" required></label>
+        {% for code, name in [('m', 'Morning'), ('d', 'Day'), ('a', 'Afternoon'), ('n', 'Night')] %}
+          <label>{{ name }} ({{ code|upper }})<input type="number" min="0" name="special_req_{{ code }}" value="0" required></label>
+        {% endfor %}
+        <button class="btn btn-primary" type="submit">Add special date</button>
+      </form>
+      <div class="special-requirements__list">
+        {% for special in special_requirements %}
+          <article class="special-requirement-row">
+            <div><strong>{{ special.day.strftime('%d %B %Y') }}</strong><span>{{ special.label }}</span></div>
+            <div class="special-requirement-values">
+              <span>M {{ special.req_m }}</span><span>D {{ special.req_d }}</span><span>A {{ special.req_a }}</span><span>N {{ special.req_n }}</span>
+            </div>
+            <form method="post" data-confirm="Remove the special requirements for {{ special.day.strftime('%d %B %Y') }}?">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form" value="special_requirement_delete">
+              <input type="hidden" name="special_requirement_id" value="{{ special.id }}">
+              <button class="btn btn-sm" type="submit">Delete</button>
+            </form>
+          </article>
+        {% else %}
+          <p class="empty-state">No special date requirements have been added.</p>
+        {% endfor %}
+      </div>
+    </div>
   </section>
 
   <section id="admin-shifts" class="admin-panel" data-admin-panel="shifts" hidden>
@@ -337,7 +380,11 @@
   const requirementRows = [
     ...document.querySelectorAll('[data-requirement-row]')
   ];
-  const requirementFields = ['req_m', 'req_d', 'req_a', 'req_n'];
+  const requirementFields = [
+    'req_m', 'req_d', 'req_a', 'req_n',
+    'req_sat_m', 'req_sat_d', 'req_sat_a', 'req_sat_n',
+    'req_sun_m', 'req_sun_d', 'req_sun_a', 'req_sun_n'
+  ];
   const copyStatus = document.querySelector(
     '[data-requirements-copy-status]'
   );
