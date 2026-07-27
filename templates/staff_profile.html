@@ -82,9 +82,17 @@
     <div class="card-bd profile-notifications">
       {% for item in notifications %}
         <article class="{{ 'unread' if not item.read_at else '' }}">
-          <strong>{{ item.kind|replace('_',' ')|title }}</strong>
-          <p>{{ item.message }}</p>
-          <small>{{ item.created_at.strftime('%d %b %Y %H:%M') }}</small>
+          <div class="profile-notification-copy">
+            <strong>{{ item.kind|replace('_',' ')|title }}</strong>
+            <p>{{ item.message }}</p>
+            <small>{{ item.created_at.strftime('%d %b %Y %H:%M') }}</small>
+          </div>
+          {% if item.read_at %}
+          <form method="post" action="{{ url_for('notification_delete', notification_id=item.id) }}" data-confirm="Delete this notification?">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm profile-notification-delete" type="submit">Delete</button>
+          </form>
+          {% endif %}
         </article>
       {% else %}
         <p>No notifications.</p>

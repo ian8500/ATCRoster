@@ -1907,8 +1907,10 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
 .profile-timeline > div { display:grid; grid-template-columns:minmax(105px,1fr) 60px 1fr; gap:.7rem; padding:.55rem 0; border-bottom:1px solid rgba(255,255,255,.08); }
 .profile-timeline time,.profile-timeline span { color:var(--muted,#aab7c4); }
 .profile-notifications { display:grid; gap:.65rem; }
-.profile-notifications article { padding:.7rem; border-left:3px solid transparent; }
+.profile-notifications article { padding:.7rem; border-left:3px solid transparent; display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
 .profile-notifications article.unread { border-color:#58aef5; background:rgba(88,174,245,.07); }
+.profile-notification-copy { min-width:0; flex:1; }
+.profile-notification-delete { padding:.2rem .5rem; font-size:.72rem; }
 .profile-notifications p { margin:.25rem 0; }
 .profile-notifications small { color:var(--muted,#aab7c4); }
 .profile-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8rem; }
