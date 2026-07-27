@@ -1,11 +1,22 @@
 __pycache__/
 *.pyc
+.DS_Store
+.env
+.env.*
+!.env.example
 instance/roster.db
+instance/backups/
 instance/*.manifest.json
 instance/*.db-shm
 instance/*.db-wal
 env/
+.venv/
+venv/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 *.sqlite3
 *.db
 1 Version to deploy/

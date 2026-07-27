@@ -156,6 +156,7 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
             "_csrf_token": bootstrap_csrf,
             "name": "Initial Unit Admin",
             "username": "tst.admin",
+            "email": "tst.admin@example.test",
             "password": "UnitAdmin-Test-2026!",
         },
     )
@@ -174,8 +175,10 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
             "_csrf_token": mfa_csrf,
             "code": pyotp.TOTP(secret).now(),
         },
+        follow_redirects=True,
     )
     assert enrolled.status_code == 200
+    assert b"Save your recovery codes" in enrolled.data
     unit_token = _csrf(unit_client, "/unit/accounts")
     with app.app.app_context():
         db.session.add(
@@ -297,6 +300,7 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
         data={
             "_csrf_token": invite_token,
             "username": "tst.auditor",
+            "email": "tst.auditor@example.test",
             "password": "Auditor-Test-2026!",
         },
         follow_redirects=True,

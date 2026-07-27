@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 from datetime import date, time
+from types import SimpleNamespace
 
 import pyotp
 import pytest
@@ -169,9 +170,31 @@ def login(client):
 
 
 def csrf(client):
-    client.get("/publications/2025-04")
+    client.get("/roster/2025-04")
     with client.session_transaction() as sess:
         return sess["_csrf_token"]
+
+
+def test_sickness_days_are_grouped_into_continuous_instances():
+    person = SimpleNamespace(name="Test ATCO")
+    rows = [
+        SimpleNamespace(
+            staff_id=7, staff=person, day=date(2025, 4, 1), code="SC"
+        ),
+        SimpleNamespace(
+            staff_id=7, staff=person, day=date(2025, 4, 2), code="SSC"
+        ),
+        SimpleNamespace(
+            staff_id=7, staff=person, day=date(2025, 4, 4), code="SC"
+        ),
+    ]
+    instances = app._group_sickness_instances(
+        rows, date(2025, 4, 1), date(2025, 4, 30)
+    )
+    assert len(instances) == 2
+    assert instances[0]["duration"] == 2
+    assert instances[0]["codes"] == ["SC", "SSC"]
+    assert instances[1]["start"] == date(2025, 4, 4)
 
 
 def test_login_page_loads(client):
@@ -183,6 +206,34 @@ def test_login_page_loads(client):
     assert b'data-password-toggle="login-password"' in resp.data
 
 
+def test_user_can_update_own_profile_contact_details(client):
+    login(client)
+    with app.app.app_context():
+        staff_id = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one().id
+    response = client.post(
+        f"/staff/{staff_id}",
+        data={
+            "_csrf_token": csrf(client),
+            "email": "admin.profile@example.test",
+            "phone_number": "0044 7700 900123",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Contact details updated" in response.data
+    assert b'data-profile-section="overview"' in response.data
+    assert b'data-profile-section="contact"' in response.data
+    assert b'data-profile-section="security"' in response.data
+    assert b'data-profile-section="mfa"' in response.data
+    assert b'action="/password"' in response.data
+    assert b'action="/security/mfa"' in response.data
+    assert b"Select a profile function" in response.data
+    with app.app.app_context():
+        staff = db.session.get(Staff, staff_id)
+        assert staff.email == "admin.profile@example.test"
+        assert staff.phone_number == "+447700900123"
 def test_friendly_error_pages_preserve_status_codes(client):
     missing = client.get("/this-page-does-not-exist")
     assert missing.status_code == 404
@@ -213,7 +264,7 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="fit"' in response.data
     assert b"code-input code-len-3" in response.data
     assert b"shift on 01 April 2025" in response.data
-    assert b"Active unit" in response.data
+    assert b"Active unit" not in response.data
     assert b"data-operational-clock" in response.data
     assert b"Secure session" in response.data
 
@@ -242,74 +293,73 @@ def test_compliance_centre_and_evidence_export(client):
     assert b"Airport,Month,ATCO" in export.data
 
 
-def test_roster_publication_and_acknowledgement(client):
+def test_roster_publication_is_managed_from_monthly_roster(client):
     login(client)
+    draft = client.get("/roster/2025-04")
+    assert b"Draft roster" in draft.data
+    assert b"Publish roster" in draft.data
     token = csrf(client)
-    with app.app.app_context():
-        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
-        position = app.OperationalPosition(
-            unit_id=admin.unit_id, code="PUB", label="Publication test position"
-        )
-        db.session.add(position)
-        db.session.flush()
-        db.session.add(app.PositionRequirement(
-            unit_id=admin.unit_id, day=date(2025, 4, 1), shift_code="M",
-            position_id=position.id, required_count=0, contingency_count=0,
-        ))
-        db.session.add(app.BreakPlan(
-            unit_id=admin.unit_id, day=date(2025, 4, 1),
-            person_id=admin.id, start_time=time(10, 0), end_time=time(10, 30),
-            recorded_by_id=admin.id,
-        ))
-        db.session.add(app.RosterRuleVersion(
-            unit_id=admin.unit_id, version=1, name="Approved test rules",
-            rules_json="{}", state="approved", effective_from=date(2025, 1, 1),
-            change_reference="TEST-001",
-            consultation_summary="Approved test consultation evidence.",
-            approved_by_id=admin.id, approved_at=app.utcnow(),
-        ))
-        db.session.commit()
-    rejected = client.post(
-        "/publications/2025-04",
-        data={"_csrf_token": token, "action": "publish"},
-        follow_redirects=True,
-    )
-    assert b"release declaration" in rejected.data
     published = client.post(
-        "/publications/2025-04",
-        data={
-            "_csrf_token": token,
-            "action": "publish",
-            "release_declaration": "yes",
-            "exception_reason": (
-                "Operational manager reviewed staffing and fatigue exceptions "
-                "with mitigations in place."
-            ),
-        },
+        "/roster/2025-04/publish",
+        data={"_csrf_token": token},
         follow_redirects=True,
     )
     assert published.status_code == 200
-    assert b"Version 1" in published.data
+    assert b"Published roster" in published.data
+    assert b"Published " in published.data
+    assert b"Draft roster" not in published.data
     with app.app.app_context():
         publication = app.RosterPublication.query.filter_by(
             year=2025, month=4, state="published"
         ).first()
         assert publication is not None
         snapshot = app.json.loads(publication.snapshot_json)
-        assert snapshot["release_assurance"]["declared_by_id"]
-        assert snapshot["release_assurance"]["exception_reason"]
-        publication_id = publication.id
-    acknowledged = client.post(
-        "/publications/2025-04",
-        data={
-            "_csrf_token": token,
-            "action": "acknowledge",
-            "publication_id": publication_id,
-        },
+        assert snapshot["published_by"]["name"] == "Admin Test"
+
+    returned_to_draft = client.post(
+        "/roster/2025-04/unpublish",
+        data={"_csrf_token": csrf(client)},
         follow_redirects=True,
     )
-    assert acknowledged.status_code == 200
-    assert b"You acknowledged this version" in acknowledged.data
+    assert returned_to_draft.status_code == 200
+    assert b"Draft roster" in returned_to_draft.data
+    assert b"returned to Draft" in returned_to_draft.data
+    with app.app.app_context():
+        publication = app.RosterPublication.query.filter_by(
+            year=2025, month=4
+        ).order_by(app.RosterPublication.version.desc()).first()
+        assert publication.state == "withdrawn"
+
+    client.get("/logout")
+    client.post("/login", data={
+        "username": "staff_test", "password": "password123",
+    })
+    denied = client.post(
+        "/roster/2025-05/publish",
+        data={"_csrf_token": csrf(client)},
+    )
+    assert denied.status_code == 403
+    denied_undo = client.post(
+        "/roster/2025-04/unpublish",
+        data={"_csrf_token": csrf(client)},
+    )
+    assert denied_undo.status_code == 403
+
+    for username, ym in (
+        ("watch_manager_test", "2025-05"),
+        ("duty_watch_manager_test", "2025-06"),
+    ):
+        client.get("/logout")
+        client.post("/login", data={
+            "username": username, "password": "password123",
+        })
+        response = client.post(
+            f"/roster/{ym}/publish",
+            data={"_csrf_token": csrf(client)},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert b"Published roster" in response.data
 
 
 def test_security_headers_are_present(client):
@@ -337,7 +387,6 @@ def test_role_permission_matrix_and_cross_airport_isolation():
     common = {
         "roster": "/roster/2025-04",
         "requests": "/requests",
-        "published": "/publications/2025-04",
         "overtime": "/overtime",
         "leave": "/leave",
         "reports": "/reports",
@@ -363,7 +412,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "platform": 403,
         },
         "editor": {
-            "roster": 200, "requests": 200, "published": 200,
+            "roster": 200, "requests": 200,
             "overtime": 200, "leave": 200,
             "reports": 302, "metrics": 200, "qualification": 200,
             "compliance": 403, "operations": 403, "coverage": 200,
@@ -371,7 +420,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "admin": 403, "reference": 403, "platform": 403,
         },
         "watch_manager": {
-            "roster": 200, "requests": 200, "published": 200,
+            "roster": 200, "requests": 200,
             "overtime": 200, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
             "compliance": 403, "operations": 403, "coverage": 200,
@@ -379,7 +428,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "admin": 403, "reference": 403, "platform": 403,
         },
         "duty_watch_manager": {
-            "roster": 200, "requests": 200, "published": 200,
+            "roster": 200, "requests": 200,
             "overtime": 200, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
             "compliance": 403, "operations": 403, "coverage": 200,
@@ -387,7 +436,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "admin": 403, "reference": 403, "platform": 403,
         },
         "staff": {
-            "roster": 200, "requests": 200, "published": 200,
+            "roster": 200, "requests": 200,
             "overtime": 403, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
             "compliance": 403, "operations": 403, "coverage": 403,
@@ -491,6 +540,18 @@ def test_health_endpoints_report_ready(client):
     ready = client.get("/health/ready")
     assert ready.status_code == 200
     assert ready.get_json()["status"] == "ready"
+
+
+def test_untrusted_host_returns_plain_400_instead_of_error_handler_500(client):
+    original = app.app.config.get("TRUSTED_HOSTS")
+    app.app.config["TRUSTED_HOSTS"] = ["expected.example"]
+    try:
+        response = client.get("/health/ready", headers={"Host": "unknown.example"})
+    finally:
+        app.app.config["TRUSTED_HOSTS"] = original
+    assert response.status_code == 400
+    assert response.content_type.startswith("text/plain")
+    assert b"untrusted host" in response.data
 
 
 def test_overtime_finder_reports_an_empty_search_instead_of_looking_broken(client):

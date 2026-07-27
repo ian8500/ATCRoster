@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Fatigue Monitoring Rules{% endblock %}
 {% block content %}
-<section class="compliance-hero">
+{% include "_admin_nav.html" %}
+<section class="admin-function-heading">
   <div>
     <span class="admin-step">Compliance configuration</span>
     <h2>Fatigue monitoring rules</h2>
@@ -9,7 +10,7 @@
   </div>
   <div class="compliance-actions">
     <a class="btn" href="{{ url_for('compliance_centre') }}">View findings</a>
-    <a class="btn" href="{{ url_for('admin') }}#tools">Back to settings</a>
+    <a class="btn" href="{{ url_for('admin') }}">Back to Admin</a>
   </div>
 </section>
 
@@ -19,6 +20,21 @@
   <article><span>Custom rules</span><strong>{{ custom_rules|length }}</strong></article>
   <article><span>Custom rules active</span><strong>{{ custom_rules|selectattr('enabled')|list|length }}</strong></article>
 </div>
+
+<section class="card mt-3">
+  <div class="card-hd">Duty time definitions</div>
+  <div class="card-bd">
+    <p class="muted">Set how this airport classifies early starts and night duties. These times affect roster warnings only at {{ current_unit.code }}.</p>
+    <form method="post" class="admin-form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="update_definitions">
+      <label>Early start is before<input type="time" name="early_start_before" value="{{ definitions.early_start_before }}" required></label>
+      <label>Night period starts<input type="time" name="night_period_start" value="{{ definitions.night_period_start }}" required></label>
+      <label>Night period ends<input type="time" name="night_period_end" value="{{ definitions.night_period_end }}" required></label>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Save duty definitions</button></div>
+    </form>
+  </div>
+</section>
 
 <section class="card mt-3">
   <div class="card-hd">Established system rules</div>

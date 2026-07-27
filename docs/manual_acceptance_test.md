@@ -154,10 +154,11 @@ Use the manifest’s `request_month`.
 | F04 | Try a second request on the same date. | One-request-per-person/date rule is enforced. | |
 | F05 | Try a non-requestable/unknown shift, past date and date outside the window. | Each is rejected server-side with no stored request. | |
 | F06 | Cancel the request. | Status becomes cancelled, audit is retained and active badge disappears. | |
-| F07 | As LBA Unit Admin, approve a pending request without applying it. | Status becomes approved, response/audit/notification are recorded, assignment is unchanged. | |
-| F08 | Approve and apply another request. | Matching assignment is created/updated, request becomes fulfilled and links to it. | |
-| F09 | Attempt approve-and-apply where leave, sickness, qualification or fatigue conflicts. | Unsafe application is blocked and original data remains intact. | |
-| F10 | Sign in as the requester and inspect notifications/roster. | Outcome is visible only to the correct user and airport. | |
+| F07 | As LBA Unit Admin, enter an optional comment and select Approve and add to roster. | Matching assignment is created/updated, the request becomes fulfilled, and an outcome notification includes the comment. | |
+| F08 | Enter an optional comment on another pending request and select Refuse. | The request becomes rejected, the roster is unchanged, and the requester receives the refusal and comment. | |
+| F09 | Reload the manager request view after each decision. | Completed requests clearly show their status and cannot be decided twice. | |
+| F10 | Sign in as each requester and inspect notifications/roster. | Each outcome and optional manager comment are visible only to the correct user and airport. | |
+| F11 | Select Delete from my list on a fulfilled and a rejected request. | Each disappears from the requester’s list while remaining available in the manager view and audit history. | |
 
 ## G. Leave, sickness, TOIL and overtime
 
@@ -197,21 +198,22 @@ Use the manifest’s `request_month`.
 | I08 | Open Compliance Centre and compare the finding with the roster. | Person, dates, duties and explanation agree and remain scoped to LBA. | |
 | I09 | Export compliance evidence CSV. | The export contains the expected LBA finding and no other airport’s data. | |
 
-## J. Coverage, scenarios and publication
+## J. Coverage, scenarios and monthly publication
 
 | ID | Action | Expected result | Result |
 | --- | --- | --- | --- |
 | J01 | Open Coverage heatmap for the current month. | M/D/A/N coverage and shortfall colours agree with roster requirements. | |
 | J02 | Open Scenarios and inspect “Summer traffic uplift”. | Scenario changes display without modifying the live roster. | |
 | J03 | Create a scenario with two changes, then apply/approve only if the UI supports the required authority. | Preview is isolated; authorised application is audited and explicit. | |
-| J04 | Open Published for the previous month. | Version 1 and release information display; one seeded acknowledgement exists. | |
-| J05 | As an unacknowledged Staff User, acknowledge previous version. | Acknowledgement records once; repeat does not duplicate it. | |
-| J06 | Open current-month publication centre. | Preflight reports configuration, competence, coverage, position, break, fatigue and acknowledgement information. | |
-| J07 | Introduce an unassigned cell or qualification failure and attempt publication. | Publication is hard-blocked. Restore the baseline. | |
-| J08 | Attempt publication without release declaration. | Publication is refused. | |
-| J09 | If only soft exceptions remain, use a short rationale then a 20+ character rationale. | Short rationale is refused; adequate rationale plus declaration publishes version 1. | |
-| J10 | Change a roster cell and publish again. | Prior version becomes superseded; version 2 is immutable and current. | |
-| J11 | As Staff User, acknowledge current version and inspect notification. | Acknowledgement and notification state persist for that person only. | |
+| J04 | Open an unpublished monthly roster as Staff User. | A Draft banner states that the roster may be subject to change; no Publish button is shown. | |
+| J05 | Open the same roster as Unit Admin. | The Draft banner includes a Publish roster button. | |
+| J06 | Publish the month and confirm the prompt. | The banner changes to Published and displays the publication date. | |
+| J07 | Repeat J06 as a Watch Manager on another draft month. | The Watch Manager can publish the month. | |
+| J08 | Repeat J06 as a Duty Watch Manager on another draft month. | The Duty Watch Manager can publish the month. | |
+| J09 | Attempt the publication POST as a standard Staff User. | The server returns 403 and no publication is created. | |
+| J10 | Change a shift or annotation in a published month. | The live roster returns to Draft because it no longer matches the published snapshot. | |
+| J11 | Publish the updated roster. | The new roster becomes current, the previous version is superseded, and operational staff receive a notification. | |
+| J12 | As Admin, WM and DWM, select Undo publication on a published test month. | The month returns to Draft, staff receive a notification and the withdrawn release remains in the audit trail. | |
 
 ## K. Reports, audit and data quality
 

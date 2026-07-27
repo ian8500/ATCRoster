@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Sickness (12 months){% endblock %}
 {% block content %}
-<h1><i class="fa-solid fa-stethoscope"></i> Sickness (last 12 months)</h1>
-<p class="muted">Period: {{ start }} → {{ end }}</p>
+<section class="compliance-hero">
+  <div><span class="admin-step">Sickness reporting</span><h2>Sickness · last 12 months</h2><p>Recorded absence from {{ start }} to {{ end }}.</p></div>
+  <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>
+</section>
 
 <div class="table-scroll">
   <table class="table">

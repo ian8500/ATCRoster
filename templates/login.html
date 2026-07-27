@@ -22,6 +22,10 @@
           <button class="btn btn-primary" type="submit"><i class="fa-solid fa-right-to-bracket"></i> Sign in</button>
         </div>
       </form>
+      <div class="login-recovery mt-3">
+        <a href="{{ url_for('account_recovery', mode='password') }}">Forgotten password?</a>
+        <a href="{{ url_for('account_recovery', mode='username') }}">Forgotten username?</a>
+      </div>
     </div>
   </div>
 </div>

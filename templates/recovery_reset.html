@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Choose a new password{% endblock %}
+{% block content %}
+<div class="container container--xs py-5">
+  <section class="card">
+    <div class="card-hd">Choose a new password</div>
+    <div class="card-bd">
+      <p>Use at least 12 characters and do not reuse a password from another service.</p>
+      <form method="post" class="grid">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <label>New password<input type="password" name="password" autocomplete="new-password" minlength="12" required></label>
+        <label>Confirm new password<input type="password" name="password_confirmation" autocomplete="new-password" minlength="12" required></label>
+        <button class="btn btn-primary" type="submit">Save new password</button>
+      </form>
+    </div>
+  </section>
+</div>
+{% endblock %}

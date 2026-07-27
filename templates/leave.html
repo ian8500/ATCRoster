@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Leave & Sickness{% endblock %}
 {% block content %}
-<div class="container my-4">
-  <h2 class="mb-3">Leave &amp; Sickness — {{ month_title }}</h2>
+<div class="page-shell">
+  <section class="compliance-hero">
+    <div><span class="admin-step">People availability</span><h2>Leave &amp; Sickness</h2><p>Record and review absence information for {{ month_title }}.</p></div>
+  </section>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -44,8 +46,11 @@
   {% endif %}
 
   <!-- Add Leave -->
-  <div class="card mb-4">
-    <div class="card-header"><strong>Add leave</strong></div>
+  <details class="card mb-4 absence-entry-panel">
+    <summary class="card-header">
+      <strong><i class="fa-solid fa-calendar-plus" aria-hidden="true"></i> Add leave</strong>
+      <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
+    </summary>
     <div class="card-body">
       <form class="row g-3 align-items-end" method="post">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -81,11 +86,14 @@
         </div>
       </form>
     </div>
-  </div>
+  </details>
 
   <!-- Add Sickness -->
-  <div class="card mb-4">
-    <div class="card-header"><strong>Add sickness</strong></div>
+  <details class="card mb-4 absence-entry-panel">
+    <summary class="card-header">
+      <strong><i class="fa-solid fa-notes-medical" aria-hidden="true"></i> Add sickness</strong>
+      <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
+    </summary>
     <div class="card-body">
       <form class="row g-3 align-items-end" method="post">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -119,68 +127,71 @@
         </div>
       </form>
     </div>
-  </div>
+  </details>
 
 
   <!-- Month navigation -->
-  <div class="month-nav" style="margin:.5rem 0 1rem;">
+  <div class="month-nav leave-month-nav">
     {% if prev_ym %}
       <a class="btn ghost" href="{{ url_for('leave', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
     {% else %}
-      <span class="btn ghost" style="opacity:.4; pointer-events:none">&larr; —</span>
+      <span class="btn ghost disabled-nav-control">&larr; —</span>
     {% endif %}
-    <a class="btn ghost" href="{{ url_for('leave', ym=next_ym) }}" style="margin-left:.5rem;">{{ next_ym }} &rarr;</a>
+    <a class="btn ghost" href="{{ url_for('leave', ym=next_ym) }}">{{ next_ym }} &rarr;</a>
   </div>
 
-  <!-- Existing Sickness (month) -->
+  <!-- Sickness instances overlapping the selected month -->
   <div class="card mb-4">
-    <div class="card-header"><strong>Sickness — {{ month_title }}</strong></div>
-    <div class="card-body table-responsive">
-      <table class="table table-sm align-middle">
-        <thead>
-          <tr>
-            <th>Staff</th>
-            <th>Date</th>
-            <th>Code</th>
-            <th style="width:220px">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for a in sickness %}
-          <tr>
-            <td>{{ a.staff.name }}</td>
-            <td>{{ a.day }}</td>
-            <td>{{ a.code }}</td>
-            <td>
-              <form class="d-inline" method="post">
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="form" value="sick_edit">
-                <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
-                <input type="hidden" name="start" value="{{ a.day }}">
-                <input type="hidden" name="end" value="{{ a.day }}">
-                <select name="sick_code" aria-label="Sickness code for {{ a.staff.name }} on {{ a.day.strftime('%d %B %Y') }}" class="form-select form-select-sm d-inline-block" style="width:110px;">
-                  {% for item in sickness_types %}
-                  <option value="{{ item.code }}" {% if a.code==item.code %}selected{% endif %}>{{ item.code }}</option>
-                  {% endfor %}
-                </select>
-                <button class="btn btn-sm btn-secondary" type="submit">Save</button>
-              </form>
-              <form class="d-inline ms-1" method="post"
-                    data-confirm="Delete this sickness record?">
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="form" value="sick_delete">
-                <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
-                <input type="hidden" name="start" value="{{ a.day }}">
-                <input type="hidden" name="end" value="{{ a.day }}">
-                <button class="btn btn-sm btn-danger" type="submit">Delete</button>
-              </form>
-            </td>
-          </tr>
-          {% else %}
-            <tr><td colspan="4" class="text-muted">No sickness recorded for this month.</td></tr>
+    <div class="card-header"><strong>Sickness instances — {{ month_title }}</strong></div>
+    <div class="card-body sickness-instance-list">
+      {% for instance in sickness_instances %}
+      <details class="sickness-instance">
+        <summary>
+          <span>
+            <strong>{{ instance.staff.name }}</strong>
+            <small>{{ instance.start.strftime('%d %b %Y') }} – {{ instance.end.strftime('%d %b %Y') }}</small>
+          </span>
+          <span class="status-pill">{{ instance.duration }} day{{ '' if instance.duration == 1 else 's' }}</span>
+          <span class="sickness-instance__codes">{{ instance.codes|join(' / ') }}</span>
+          <span class="sickness-instance__open">
+            <span class="sickness-instance__open-label">Open</span>
+            <span class="sickness-instance__close-label">Close</span>
+            <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+          </span>
+        </summary>
+        <div class="sickness-instance__days">
+          <p class="text-muted">Edit or remove individual days without changing the rest of this sickness instance.</p>
+          {% for a in instance.days %}
+          <div class="sickness-day">
+            <time datetime="{{ a.day.isoformat() }}"><strong>{{ a.day.strftime('%A') }}</strong><span>{{ a.day.strftime('%d %B %Y') }}</span></time>
+            <form method="post" class="sickness-day__edit">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form" value="sick_edit">
+              <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
+              <input type="hidden" name="start" value="{{ a.day }}">
+              <input type="hidden" name="end" value="{{ a.day }}">
+              <select name="sick_code" aria-label="Sickness code for {{ a.staff.name }} on {{ a.day.strftime('%d %B %Y') }}" class="form-select form-select-sm">
+                {% for item in sickness_types %}
+                <option value="{{ item.code }}" {% if a.code == item.code %}selected{% endif %}>{{ item.label }} ({{ item.code }})</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-secondary" type="submit">Save</button>
+            </form>
+            <form method="post" data-confirm="Remove {{ a.day.strftime('%d %B %Y') }} from this sickness instance?">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form" value="sick_delete">
+              <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
+              <input type="hidden" name="start" value="{{ a.day }}">
+              <input type="hidden" name="end" value="{{ a.day }}">
+              <button class="btn btn-sm btn-danger" type="submit">Remove day</button>
+            </form>
+          </div>
           {% endfor %}
-        </tbody>
-      </table>
+        </div>
+      </details>
+      {% else %}
+      <p class="text-muted mb-0">No sickness instances overlap this month.</p>
+      {% endfor %}
     </div>
   </div>
 
@@ -195,7 +206,7 @@
             <th>Type</th>
             <th>Start</th>
             <th>End</th>
-            <th style="width:220px">Actions</th>
+            <th class="leave-actions-column">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -212,8 +223,8 @@
                 <input type="hidden" name="leave_id" value="{{ lv.id }}">
                 <input type="hidden" name="staff_id" value="{{ lv.staff_id }}">
                 <input type="hidden" name="leave_type" value="{{ lv.leave_type }}">
-                <input type="date" aria-label="Leave start date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block" style="width: 150px" name="start" value="{{ lv.start }}">
-                <input type="date" aria-label="Leave end date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block" style="width: 150px" name="end" value="{{ lv.end }}">
+                <input type="date" aria-label="Leave start date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block compact-date-input" name="start" value="{{ lv.start }}">
+                <input type="date" aria-label="Leave end date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block compact-date-input" name="end" value="{{ lv.end }}">
                 <button class="btn btn-sm btn-secondary" type="submit">Save</button>
               </form>
               <form class="d-inline ms-1" method="post"

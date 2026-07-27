@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Annotate {{ staff.name }} – {{ day }}{% endblock %}
 {% block content %}
-<h2>Annotate – {{ staff.name }} ({{ staff.staff_no }}) – {{ day }}</h2>
+<section class="compliance-hero">
+  <div><span class="admin-step">Roster annotation</span><h2>{{ staff.name }} · {{ day }}</h2><p>Apply an authorised annotation for {{ staff.staff_no }}.</p></div>
+</section>
 
-<form method="post" class="card" style="max-width:640px">
+<form method="post" class="card annotation-form">
   <div class="row">
     <label>Extension
       <select name="ext_type">

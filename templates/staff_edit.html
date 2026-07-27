@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ s.name }}{% endblock %}
 {% block content %}
-<h1><i class="fa-regular fa-id-card"></i> Edit {{ s.name }}</h1>
+<section class="compliance-hero">
+  <div><span class="admin-step">Staff administration</span><h2>Edit {{ s.name }}</h2><p>Maintain identity, roster placement, qualifications and account settings.</p></div>
+</section>
 
 <form method="post" class="grid">
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -11,6 +13,7 @@
       <label>Name <input name="name" value="{{ s.name }}"></label>
       <label>Staff # <input name="staff_no" value="{{ s.staff_no }}"></label>
       <label>Username <input name="username" value="{{ s.username }}"></label>
+      <label>Email <input type="email" name="email" value="{{ s.email or '' }}" autocomplete="email"></label>
       <label>Phone <input name="phone_number" value="{{ s.phone_number or '' }}" placeholder="+441234567890"></label>
 
       <label>Watch
@@ -27,7 +30,7 @@
         </select>
       </label>
 
-      <div class="grid grid-4" style="align-items:center">
+      <div class="grid grid-4 grid-align-center">
         <label><input type="checkbox" name="operational" {% if s.is_operational %}checked{% endif %}> Operational</label>
         <label><input type="checkbox" name="trainee" {% if s.is_trainee %}checked{% endif %}> Trainee</label>
         <label><input type="checkbox" name="ojti" {% if s.has_ojti %}checked{% endif %}> OJTI</label>
@@ -164,7 +167,7 @@
       {% set hist_date_value = h.effective_date.isoformat() if h.effective_date else '' %}
       <article>
         <strong>{{ hist_date_value or 'Date TBC' }} → {{ hist_watch_name }}</strong>
-        <form method="post" action="{{ url_for('admin_watch_move_edit', hid=h.id) }}" class="d-inline" style="margin-left:.5rem">
+        <form method="post" action="{{ url_for('admin_watch_move_edit', hid=h.id) }}" class="d-inline inline-action-spaced">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <select name="watch_id">
             {% for w in watches %}<option value="{{ w.id }}" {% if h.watch_id==w.id %}selected{% endif %}>{{ w.name }}</option>{% endfor %}

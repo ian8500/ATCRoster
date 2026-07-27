@@ -64,16 +64,15 @@
 
 <h2>ATC Roster – {{ month_title }}</h2>
 
-<div class="month-nav" style="margin:.5rem 0 1rem;">
+<div class="month-nav roster-month-nav">
   {% if prev_ym %}
     <a class="btn ghost" href="{{ url_for('roster_month', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
   {% else %}
-    <span class="btn ghost" style="opacity:.4; pointer-events:none">&larr; —</span>
+    <span class="btn ghost disabled-nav-control">&larr; —</span>
   {% endif %}
-  <a class="btn ghost" href="{{ url_for('roster_month', ym=next_ym) }}" style="margin-left:.5rem;">{{ next_ym }} &rarr;</a>
+  <a class="btn ghost roster-next-link" href="{{ url_for('roster_month', ym=next_ym) }}">{{ next_ym }} &rarr;</a>
 
-  <a class="btn" href="{{ url_for('roster_export_csv', ym=ym) }}" style="margin-left:1rem">Export CSV</a>
-  {% if can_edit %}<a class="btn ghost" href="{{ url_for('bulk_annotations') }}">Bulk annotations</a>{% endif %}
+  <a class="btn roster-export-link" href="{{ url_for('roster_export_csv', ym=ym) }}">Export CSV</a>
   <button class="btn" data-command="print-roster">Print</button>
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
@@ -91,7 +90,7 @@
 </div>
 
 <!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
-<div id="roster"
+<div id="roster" class="roster-status-frame {{ 'roster-status-frame--published' if roster_publication else 'roster-status-frame--draft' }}"
      data-can-edit="{{ '1' if can_edit else '0' }}"
      data-readonly="{{ '1' if readonly else '0' }}"
      data-day-count="{{ days|length }}">
@@ -158,7 +157,7 @@
               <select
                 name="code"
                 class="code-input code-len-{{ code|length }} {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
-                data-auto-submit="true"
+                data-annotation-select
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 {% if f %}title="{{ ', '.join(f) }}"{% endif %}
                 aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
@@ -213,7 +212,7 @@
                   {% if opts %}
                   <optgroup label="{{ group }}">
                     {% for opt in opts %}
-                      <option value="{{ opt.code }}" {% if ann==opt.code %}selected{% endif %}>
+                      <option value="{{ opt.code }}" data-note-required="{{ 'yes' if opt.note_required else 'no' }}" {% if ann==opt.code %}selected{% endif %}>
                         {{ opt.label }} ({{ opt.code }}){% if opt.toil_half_days %} · {{ "%+.1f"|format(opt.toil_half_days / 2) }} day TOIL{% endif %}{% if opt.description %} — {{ opt.description }}{% endif %}
                       </option>
                     {% endfor %}
@@ -222,10 +221,11 @@
                 {% endfor %}
               </select>
               {% if ann %}<small class="annotation-current">Current: {{ ann }}</small>{% endif %}
-              <input name="annotation_note" class="annotation-note"
+              <input name="annotation_note" class="annotation-note" hidden
                      maxlength="140" value=""
                      placeholder="Annotation note (when required)"
                      aria-label="{{ s.name }} annotation note on {{ d.strftime('%d %B %Y') }}">
+              <button type="submit" class="btn btn-sm annotation-apply" hidden>Apply annotation</button>
             </form>
           </td>
         {% endfor %}
@@ -241,13 +241,13 @@
         {% set dday = counters[d]["D"] %}
         {% set a = counters[d]["A"] %}
         {% set n = counters[d]["N"] %}
-        {% set total = m + dday + a + n %}
+        {% set total = m + dday + a + (n if night_active[d] else 0) %}
         <td class="totcell{% if d == today %} is-today{% endif %}">
           <div><strong>Total {{ total }}</strong></div>
           <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ requirement.req_m if requirement else 0 }}</div>
           <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ requirement.req_d if requirement else 0 }}</div>
           <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ requirement.req_a if requirement else 0 }}</div>
-          <div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ requirement.req_n if requirement else 0 }}</div>
+          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ requirement.req_n if requirement else 0 }}</div>{% endif %}
         </td>
       {% endfor %}
     </tr>
@@ -255,7 +255,55 @@
 </table>
 </div> <!-- /#roster -->
 
+{% if roster_publication %}
+  <div class="roster-state-note roster-state-note--published" role="status">
+    <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+    <span><strong>Published roster</strong> · Published {{ roster_publication.published_at.strftime('%d %B %Y') }}</span>
+    {% if can_publish_roster %}
+      <form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}"
+            data-confirm="Undo publication for the {{ month_title }} roster? It will return to Draft and staff will be notified.">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm" type="submit">Undo publication</button>
+      </form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="roster-state-note roster-state-note--draft" role="status">
+    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+    <span><strong>Draft roster</strong> · This roster is a draft and may be subject to change.</span>
+    {% if can_publish_roster %}
+      <form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}"
+            data-confirm="Publish the {{ month_title }} roster? Staff will see it as the current published roster.">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm" type="submit">Publish roster</button>
+      </form>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="roster-expiry-key" aria-label="UE and medical date colour guide">
+  <strong>UE / Medical</strong>
+  <span class="roster-key-chip exp-green" title="More than 90 days remaining">&gt;90 days</span>
+  <span class="roster-key-chip exp-amber" title="90 days or fewer remaining">&lt;90 days</span>
+  <span class="roster-key-chip exp-red" title="The recorded date has expired">Expired</span>
+  <span class="roster-key-chip exp-orange" title="Under training">UT</span>
+</div>
+
 <script nonce="{{ csp_nonce() }}">
   function printRoster(){ window.print(); }
+  document.querySelectorAll('[data-annotation-select]').forEach((select) => {
+    select.addEventListener('change', () => {
+      const form = select.form;
+      const option = select.selectedOptions[0];
+      const needsNote = option?.dataset.noteRequired === 'yes';
+      const note = form.querySelector('.annotation-note');
+      const apply = form.querySelector('.annotation-apply');
+      note.hidden = !needsNote;
+      apply.hidden = !needsNote;
+      note.required = needsNote;
+      if (needsNote) note.focus();
+      else form.requestSubmit();
+    });
+  });
 </script>
 {% endblock %}

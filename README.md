@@ -72,11 +72,21 @@ After signing in:
 - Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
 - Use **Roster scenarios** at `/planning/scenarios`.
 - Use **Airport onboarding** at `/unit/onboarding`.
+- Use **Forgot username** or **Forgot password** on the login page when access
+  is lost. Username reminders go to the account email; accounts without an
+  email are referred to the airport administrators. Password resets use a
+  two-stage process: an airport administrator approves the request, then the
+  account holder receives a separate, expiring reset link. Unit Admin requests
+  are approved by a Super Admin.
 
 The shared interface includes:
 
 - a compact mobile **Menu** that keeps the current page and airport context
   visible;
+- a consistent Messages-style page banner, Inter typography, dark surface
+  palette, form controls, cards and data tables across every operational,
+  reporting and administration workspace (the roster retains its specialist
+  dense-grid sizing);
 - keyboard skip navigation, visible focus states and reduced-motion support;
 - persistent roster zoom presets at 75%, 90%, 100% and **Fit width**;
 - clear success/error announcements and purpose-built 400, 403, 404 and 500
@@ -207,32 +217,30 @@ assignment.
 - Rejected, cancelled, and fulfilled requests do not appear as active roster
   badges.
 
-### Publication and acknowledgement
+### Monthly roster publication
 
-Open **Published** or `/publications/YYYY-MM`. The page presents a simple
-readiness, current release, and publish flow. A Unit Admin can publish the
-current month after checking:
+Every monthly roster has one clear status directly above the roster grid:
 
-- every operational controller has an explicit assignment for every day;
-- working shifts do not violate their configured required qualification;
-- Morning, Day, Afternoon and Night staffing against the configured requirement;
-- explainable fatigue and optional assurance findings.
+- **Draft roster** — the roster may be subject to change.
+- **Published roster** — shows the date on which the current roster was
+  published.
 
-Missing assignments and required-qualification failures block publication.
-Coverage, fatigue, position, break-plan and other assurance findings remain
-visible as advisories and require an accountable manager rationale of at least
-20 characters; they do not force a unit through an unrelated setup workflow.
-The manager also confirms the release declaration.
+Unit Admins, Watch Managers and Duty Watch Managers can select **Publish
+roster** from the Draft banner. Publication records an immutable snapshot,
+captures the publishing manager and time in the audit trail, and notifies the
+unit’s other active operational staff.
 
-Publication creates an immutable JSON snapshot containing the roster and its
-release-assurance summary, records the declaration in the change log, and
-notifies active operational staff.
+The same authorised grades can select **Undo publication** beside a Published
+status. The month immediately returns to Draft, operational staff are
+notified, and the withdrawn publication remains in the audit history rather
+than being deleted.
 
-Publishing a replacement marks the previous version `superseded`; it does not
-delete it. Staff acknowledge the active version, and acknowledgements remain
-tied to that exact version. The publication screen lists staff still awaiting
-acknowledgement. A rollback must create or restore an auditable version; it
-must not erase intervening history.
+If any roster assignment or annotation changes after publication, the live
+month automatically displays as Draft again because it no longer matches the
+published snapshot. Publishing the updated month creates a new version and
+marks the previous version as superseded. Publication is managed only from the
+monthly roster; there is no separate publication centre or acknowledgement
+workflow.
 
 ## Shift requests
 
@@ -269,25 +277,25 @@ removed with a forged form submission.
 
 ### Admin decisions
 
-Valid states are:
+Each pending request has two clear manager actions:
 
-- `pending`
-- `approved`
-- `rejected`
-- `fulfilled`
-- `cancelled`
+- **Approve and add to roster** creates or updates the assignment immediately.
+- **Refuse** records that the request was not accepted.
 
-**Approve only** records the decision without changing the roster.
+When decisions are outstanding, Unit Admins see an orange count on the main
+**Requests** tab and an attention banner on the Requests page. Both clear
+automatically when no pending requests remain.
 
-**Approve and apply to roster** checks the shift, airport ownership, roster
-lock, qualifications, and fatigue rules. Permitted conflicts are shown as
-warnings and require explicit override confirmation. A successful application
-creates or updates the assignment, records its ID, and marks the request
-`fulfilled`.
+The manager can add an optional comment to either decision. The requester
+receives an in-app notification that explains the outcome and includes that
+comment. Internally, an approved-and-rostered request is retained as
+`fulfilled` and a refused request as `rejected`, preserving reporting and
+audit compatibility.
 
-The selected admin month is preserved after an action. The requester receives
-an in-app notification when a request becomes pending again, approved,
-rejected, or fulfilled.
+The requester can select **Delete from my list** for fulfilled or rejected
+requests. This removes the completed item from their personal Requests view
+without deleting the operational decision or audit history visible to
+authorised managers.
 
 Every transition records actor, UTC timestamp, old value, new value, and
 reason in the request audit.
@@ -705,6 +713,15 @@ Review every table count and retain the report with the migration change
 record before go-live.
 
 ## Security operations
+
+### Account-recovery email
+
+Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_FROM_ADDRESS`, and `SMTP_USE_TLS` before enabling recovery in
+production. Set `ATCROSTER_SUPPORT_EMAIL` to the monitored Super Admin mailbox.
+Every person should have a unique registered email in **Admin → People**.
+Recovery responses deliberately do not reveal whether an account or address
+exists. Approval and reset links are single-use and expire automatically.
 
 - CSRF tokens protect shift-request and annotation-definition changes.
 - IDs, dates, status values, comments, codes, and suffixes are validated on

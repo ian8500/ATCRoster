@@ -38,9 +38,7 @@
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><span></span></span>
         <div class="brand-copy">
-          <span class="brand-eyebrow">Operational roster control</span>
           <h1 class="logo">{{ unit_branding.display_name if unit_branding and unit_branding.display_name else 'ATC Roster' }}</h1>
-          <p class="logo-sub">Precision scheduling for critical operations</p>
         </div>
       </div>
       {% if current_user.is_authenticated %}
@@ -59,17 +57,6 @@
           }.get(current_user.role, current_user.role|replace('_', ' ')|title) %}
         {% endif %}
         <div class="command-context" aria-label="Current operational context">
-          {% if current_unit %}
-            <div class="airport-context" role="status"
-                 aria-label="Logged into {{ current_unit.name }}, airport code {{ current_unit.code }}">
-              <span class="context-icon" aria-hidden="true"></span>
-              <span class="context-copy">
-                <span class="airport-context__label">Active unit</span>
-                <strong class="airport-context__name">{{ current_unit.name }}</strong>
-              </span>
-              <span class="airport-context__code">{{ current_unit.code }}</span>
-            </div>
-          {% endif %}
           <div class="session-context">
             <span class="session-context__status" aria-hidden="true"></span>
             <span class="context-copy">
@@ -78,7 +65,7 @@
             </span>
           </div>
           <div class="time-context" aria-label="Current local and UTC time">
-            <span class="time-context__label">LCL / UTC</span>
+            <span class="time-context__label">Local / UTC</span>
             <strong data-operational-clock>--:-- / --:--</strong>
           </div>
         </div>
@@ -94,24 +81,28 @@
             <a href="{{ url_for('platform_admin') }}" {% if request.endpoint == 'platform_admin' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'platform_admin' %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Platform Admin</a>
           {% else %}
             <a href="{{ url_for('index') }}" {% if request.endpoint == 'roster_month' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}"><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Roster</a>
-            <a href="{{ url_for('requests_page') }}" class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}"><i class="fa-solid fa-inbox" aria-hidden="true"></i> Requests</a>
-            <a href="{{ url_for('publication_index') }}" class="nav-link {% if request.endpoint in ('publication_index','publication_centre') %}active{% endif %}"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Published</a>
+            <a href="{{ url_for('requests_page') }}"
+               class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}{% if pending_request_count %} nav-link--attention{% endif %}"
+               {% if pending_request_count %}aria-label="Requests, {{ pending_request_count }} awaiting decision"{% endif %}>
+              <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+              Requests
+              {% if pending_request_count %}
+                <span class="nav-attention-count" aria-hidden="true">{{ pending_request_count }}</span>
+              {% endif %}
+            </a>
             <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}"><i class="fa-solid fa-id-badge" aria-hidden="true"></i> Profile</a>
-            {% if is_admin or is_editor %}
+            {% if is_admin or current_user.is_wm or current_user.is_dwm %}
+              <a href="{{ url_for('unit_messages') }}" class="nav-link {% if request.endpoint == 'unit_messages' %}active{% endif %}"><i class="fa-solid fa-message" aria-hidden="true"></i> Messages</a>
+            {% endif %}
+            {% if is_admin or is_editor or current_user.is_wm or current_user.is_dwm %}
               <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}"><i class="fa-solid fa-satellite-dish" aria-hidden="true"></i> Overtime Finder</a>
+            {% endif %}
+            {% if is_admin or is_editor %}
               <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}"><i class="fa-solid fa-user-clock" aria-hidden="true"></i> Leave / Sickness</a>
               <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Reports</a>
             {% endif %}
             {% if is_admin %}
               <a href="{{ url_for('compliance_centre') }}" class="nav-link {% if request.endpoint in ('compliance_centre','compliance_centre_export') %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Compliance</a>
-            {% endif %}
-            {% if (current_user.is_wm or current_user.is_dwm) and not (is_admin or is_editor) %}
-              <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}"><i class="fa-solid fa-satellite-dish" aria-hidden="true"></i> Overtime Finder</a>
-            {% endif %}
-            {% if is_admin or current_user.is_wm or current_user.is_dwm %}
-              <a href="{{ url_for('unit_messages') }}" class="nav-link {% if request.endpoint == 'unit_messages' %}active{% endif %}"><i class="fa-solid fa-message" aria-hidden="true"></i> Messages</a>
-            {% endif %}
-            {% if is_admin %}
               <a href="{{ url_for('unit_accounts') }}" class="nav-link {% if request.endpoint == 'unit_accounts' %}active{% endif %}"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> Accounts</a>
               <a href="{{ url_for('admin') }}" class="nav-link {% if request.endpoint == 'admin' %}active{% endif %}"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Admin</a>
             {% endif %}
@@ -144,10 +135,8 @@
   <footer class="site-footer">
     <div class="container-xl d-flex flex-column flex-md-row align-items-center justify-content-between gap-3">
       <div>
-        <strong>ATC Roster</strong>
-        <span class="text-secondary ms-2">Trusted planning for critical operations</span>
+        <span class="site-footer__copyright">&copy; {{ now().year }} IDAviation</span>
       </div>
-      <div class="text-secondary small">&copy; ATC Ops · Built for performance &amp; clarity.</div>
     </div>
   </footer>
 

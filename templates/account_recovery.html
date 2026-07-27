@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Account recovery{% endblock %}
+{% block content %}
+<div class="container container--xs py-5">
+  <section class="card">
+    <div class="card-hd">Account recovery</div>
+    <div class="card-bd">
+      <div class="compliance-actions mb-3">
+        <a class="btn {{ 'btn-primary' if mode == 'password' else '' }}"
+           href="{{ url_for('account_recovery', mode='password') }}">Forgotten password</a>
+        <a class="btn {{ 'btn-primary' if mode == 'username' else '' }}"
+           href="{{ url_for('account_recovery', mode='username') }}">Forgotten username</a>
+      </div>
+      {% if mode == 'username' %}
+      <p>Enter your registered email. If it is not registered, enter your airport code so its administrator can help after verifying your identity.</p>
+      <form method="post" class="grid">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="mode" value="username">
+        <label>Email address<input type="email" name="email" autocomplete="email" required></label>
+        <label>Airport code (recommended)<input name="airport_code" maxlength="12" placeholder="LBA"></label>
+        <button class="btn btn-primary" type="submit">Request username help</button>
+      </form>
+      {% else %}
+      <p>Enter your username. A Unit Administrator must approve the request before a one-time reset link is emailed to your registered address. Unit Administrator requests are escalated to platform support.</p>
+      <form method="post" class="grid">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="mode" value="password">
+        <label>Username<input name="username" autocomplete="username" required></label>
+        <button class="btn btn-primary" type="submit">Request password reset</button>
+      </form>
+      {% endif %}
+      <p class="form-text mt-3">For security, the confirmation message is the same whether or not an account is found.</p>
+      <a class="btn mt-2" href="{{ url_for('login') }}">Back to login</a>
+    </div>
+  </section>
+</div>
+{% endblock %}

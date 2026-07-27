@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 preDeployCommand = "python scripts/migrate_all_databases.py"
-startCommand = "waitress-serve --host=0.0.0.0 --port=8080 --threads=8 wsgi:application"
+startCommand = "python scripts/start_service.py"
 healthcheckPath = "/health/ready"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
