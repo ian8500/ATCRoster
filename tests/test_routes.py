@@ -1117,6 +1117,92 @@ def test_staffing_requirements_rows_offer_copy_below(client):
     assert b"requirementRows.slice(rowIndex + 1)" in page.data
 
 
+def test_weekend_and_special_date_requirements_are_available(client):
+    login(client)
+    page = client.get("/admin")
+    assert page.status_code == 200
+    assert b"Monday\xe2\x80\x93Friday" in page.data
+    assert b"Saturday" in page.data
+    assert b"Sunday" in page.data
+    assert page.data.count(b'name="req_sat_m"') == 24
+    assert page.data.count(b'name="req_sun_n"') == 24
+    assert b"Special date requirements" in page.data
+    assert b'name="special_day"' in page.data
+
+    requirement_values = {
+        "req_m": "4", "req_d": "3", "req_a": "4", "req_n": "2",
+        "req_sat_m": "2", "req_sat_d": "1",
+        "req_sat_a": "2", "req_sat_n": "0",
+        "req_sun_m": "1", "req_sun_d": "1",
+        "req_sun_a": "1", "req_sun_n": "0",
+    }
+    saved_defaults = client.post(
+        "/admin",
+        data={
+            "_csrf_token": csrf(client),
+            "form": "req",
+            "ym": "2026-12",
+            **requirement_values,
+        },
+        follow_redirects=True,
+    )
+    assert saved_defaults.status_code == 200
+    with app.app.app_context():
+        monthly = app.Requirement.query.filter_by(
+            unit_id=1, year=2026, month=12
+        ).one()
+        assert monthly.req_sat_m == 2
+        assert monthly.req_sun_a == 1
+
+    saved = client.post(
+        "/admin",
+        data={
+            "_csrf_token": csrf(client),
+            "form": "special_requirement",
+            "special_day": "2026-12-25",
+            "special_label": "Christmas Day",
+            "special_req_m": "2",
+            "special_req_d": "1",
+            "special_req_a": "2",
+            "special_req_n": "0",
+        },
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert b"Special requirements saved for 25 December 2026" in saved.data
+
+    roster = client.get("/roster/2026-12")
+    assert roster.status_code == 200
+    assert b"Special staffing requirements" in roster.data
+    assert b"Christmas Day" in roster.data
+    assert b"Friday 25 December" in roster.data
+
+    with app.app.app_context():
+        special = app.SpecialRequirement.query.filter_by(
+            unit_id=1, day=date(2026, 12, 25)
+        ).one()
+        assert app.requirements_for_day(
+            None, special.day, special
+        ) == {"M": 2, "D": 1, "A": 2, "N": 0}
+
+
+def test_effective_requirements_use_weekend_defaults_and_date_override():
+    monthly = app.Requirement(
+        req_m=4, req_d=3, req_a=4, req_n=2,
+        req_sat_m=2, req_sat_d=1, req_sat_a=2, req_sat_n=0,
+        req_sun_m=1, req_sun_d=1, req_sun_a=1, req_sun_n=0,
+    )
+    assert app.requirements_for_day(
+        monthly, date(2026, 12, 21)
+    ) == {"M": 4, "D": 3, "A": 4, "N": 2}
+    assert app.requirements_for_day(
+        monthly, date(2026, 12, 26)
+    ) == {"M": 2, "D": 1, "A": 2, "N": 0}
+    assert app.requirements_for_day(
+        monthly, date(2026, 12, 27)
+    ) == {"M": 1, "D": 1, "A": 1, "N": 0}
+
+
 def test_counter_requires_created_shift_and_respects_closed_nights(client):
     monday = date(2026, 7, 27)
     tuesday = date(2026, 7, 28)

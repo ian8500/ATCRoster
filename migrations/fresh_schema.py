@@ -200,9 +200,30 @@ def create_fresh_schema():
         sa.Column('req_d', sa.Integer()),
         sa.Column('req_a', sa.Integer()),
         sa.Column('req_n', sa.Integer()),
+        sa.Column('req_sat_m', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sat_d', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sat_a', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sat_n', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_m', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_d', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_a', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_n', sa.Integer(), nullable=False, server_default='0'),
         sa.UniqueConstraint('unit_id', 'year', 'month', name='uniq_unit_year_month'),
     )
     op.create_index('ix_requirement_unit_id', 'requirement', ['unit_id'], unique=False)
+    op.create_table('special_requirement',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('unit_id', sa.Integer(), sa.ForeignKey('unit.id'), nullable=False),
+        sa.Column('day', sa.Date(), nullable=False),
+        sa.Column('label', sa.String(80), nullable=False),
+        sa.Column('req_m', sa.Integer(), nullable=False),
+        sa.Column('req_d', sa.Integer(), nullable=False),
+        sa.Column('req_a', sa.Integer(), nullable=False),
+        sa.Column('req_n', sa.Integer(), nullable=False),
+        sa.UniqueConstraint('unit_id', 'day', name='uniq_unit_special_requirement_day'),
+    )
+    op.create_index('ix_special_requirement_unit_id', 'special_requirement', ['unit_id'], unique=False)
+    op.create_index('ix_special_requirement_day', 'special_requirement', ['day'], unique=False)
     op.create_table('roster_publication',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('unit_id', sa.Integer(), sa.ForeignKey('unit.id'), nullable=False),

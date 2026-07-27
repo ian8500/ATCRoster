@@ -1320,8 +1320,35 @@ class Requirement(db.Model):
     req_d = db.Column(db.Integer, default=0)
     req_a = db.Column(db.Integer, default=0)
     req_n = db.Column(db.Integer, default=0)
+    req_sat_m = db.Column(db.Integer, default=0)
+    req_sat_d = db.Column(db.Integer, default=0)
+    req_sat_a = db.Column(db.Integer, default=0)
+    req_sat_n = db.Column(db.Integer, default=0)
+    req_sun_m = db.Column(db.Integer, default=0)
+    req_sun_d = db.Column(db.Integer, default=0)
+    req_sun_a = db.Column(db.Integer, default=0)
+    req_sun_n = db.Column(db.Integer, default=0)
     __table_args__ = (db.UniqueConstraint(
         "unit_id", "year", "month", name="uniq_unit_year_month"),)
+
+
+class SpecialRequirement(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(
+        db.Integer, db.ForeignKey("unit.id"), nullable=False,
+        default=1, index=True,
+    )
+    day = db.Column(db.Date, nullable=False, index=True)
+    label = db.Column(db.String(80), nullable=False, default="")
+    req_m = db.Column(db.Integer, nullable=False, default=0)
+    req_d = db.Column(db.Integer, nullable=False, default=0)
+    req_a = db.Column(db.Integer, nullable=False, default=0)
+    req_n = db.Column(db.Integer, nullable=False, default=0)
+    __table_args__ = (
+        db.UniqueConstraint(
+            "unit_id", "day", name="uniq_unit_special_requirement_day"
+        ),
+    )
 
 
 class Leave(db.Model):
@@ -1490,7 +1517,8 @@ from sqlalchemy.orm import Session as OrmSession, with_loader_criteria
 from tenancy import authenticated_unit_id
 
 TENANT_OPERATIONAL_MODELS = (
-    RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement, Leave, Sickness,
+    RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement,
+    SpecialRequirement, Leave, Sickness,
     Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
     ChangeLog, StaffWatchHistory, QualificationType,
     PersonQualification, PersonQualificationHistory,
@@ -2355,11 +2383,38 @@ def ensure_month_requirement(year, month, default=(4, 4, 4, 2)):
             dd = 0
         else:
             dm, dd, da, dn = default
-        r = Requirement(year=year, month=month, req_m=dm,
-                        req_d=dd, req_a=da, req_n=dn)
+        r = Requirement(
+            year=year, month=month,
+            req_m=dm, req_d=dd, req_a=da, req_n=dn,
+            req_sat_m=dm, req_sat_d=dd, req_sat_a=da, req_sat_n=dn,
+            req_sun_m=dm, req_sun_d=dd, req_sun_a=da, req_sun_n=dn,
+        )
         db.session.add(r)
         db.session.commit()
     return r
+
+
+def requirements_for_day(
+    requirement: Requirement | None,
+    day: date,
+    special: SpecialRequirement | None = None,
+) -> dict[str, int]:
+    """Return the effective M/D/A/N requirement for one roster date."""
+    source = special or requirement
+    if not source:
+        return {code: 0 for code in ("M", "D", "A", "N")}
+    prefix = ""
+    if not special:
+        prefix = "sat_" if day.weekday() == 5 else (
+            "sun_" if day.weekday() == 6 else ""
+        )
+    return {
+        code: max(
+            0,
+            int(getattr(source, f"req_{prefix}{code.lower()}", 0) or 0),
+        )
+        for code in ("M", "D", "A", "N")
+    }
 
 # Idempotent month generation that preserves manual entries
 
@@ -4626,6 +4681,15 @@ def roster_month(ym):
                 counters[d][grp] += 1
     rag = {}
     night_active = {d: _night_active_on(unit_id, d) for d in days}
+    special_requirements = SpecialRequirement.query.filter(
+        SpecialRequirement.day >= start,
+        SpecialRequirement.day < month_end,
+    ).order_by(SpecialRequirement.day).all()
+    special_by_day = {row.day: row for row in special_requirements}
+    req_by_day = {
+        d: requirements_for_day(req, d, special_by_day.get(d))
+        for d in days
+    }
     for d in days:
         rag[d] = {}
         for code in ("M", "D", "A", "N"):
@@ -4633,7 +4697,7 @@ def roster_month(ym):
             need = (
                 0
                 if code == "N" and not night_active[d]
-                else getattr(req, f"req_{code.lower()}") if req else 0
+                else req_by_day[d][code]
             )
             # Green if we meet/beat requirement, Amber if short by 1, else Red
             rag[d][code] = (
@@ -4727,6 +4791,8 @@ def roster_month(ym):
         a_map=a_map,
         ann_map=ann_map,             # <<< required by template
         ann_note_map=ann_note_map,
+        req_by_day=req_by_day,
+        special_requirements=special_requirements,
         counters=counters,
         req=req,                     # <<< ensure 'req' exists for template
         requirement=req,             # <<< keep this if any blocks expect 'requirement'
@@ -4891,6 +4957,17 @@ def roster_export_csv(ym):
 
     # compute daily counters + RAG for footer (prefix grouping) — EXCLUDE training shifts & excluded codes
     req = Requirement.query.filter_by(year=year, month=month).first()
+    special_by_day = {
+        row.day: row
+        for row in SpecialRequirement.query.filter(
+            SpecialRequirement.day >= start,
+            SpecialRequirement.day < month_end,
+        ).all()
+    }
+    req_by_day = {
+        d: requirements_for_day(req, d, special_by_day.get(d))
+        for d in days
+    }
     counters = {d: Counter() for d in days}
     for s in staff:
         if not s.is_operational:
@@ -4920,7 +4997,7 @@ def roster_export_csv(ym):
                 if code == "N" and not _night_active_on(
                     _current_unit_id(), d
                 )
-                else getattr(req, f"req_{code.lower()}") if req else 0
+                else req_by_day[d][code]
             )
             rag[d][code] = (
                 "green" if have >= need
@@ -4940,10 +5017,10 @@ def roster_export_csv(ym):
 
     w.writerow([])
     w.writerow(["Totals (M/D/A/N)", "", ""] + [
-        f"M:{counters[d]['M']}/{getattr(req, 'req_m', 0)}-{rag[d]['M']} | "
-        f"D:{counters[d]['D']}/{getattr(req, 'req_d', 0)}-{rag[d]['D']} | "
-        f"A:{counters[d]['A']}/{getattr(req, 'req_a', 0)}-{rag[d]['A']} | "
-        f"N:{counters[d]['N']}/{getattr(req, 'req_n', 0)}-{rag[d]['N']}"
+        f"M:{counters[d]['M']}/{req_by_day[d]['M']}-{rag[d]['M']} | "
+        f"D:{counters[d]['D']}/{req_by_day[d]['D']}-{rag[d]['D']} | "
+        f"A:{counters[d]['A']}/{req_by_day[d]['A']}-{rag[d]['A']} | "
+        f"N:{counters[d]['N']}/{req_by_day[d]['N']}-{rag[d]['N']}"
         for d in days
     ])
 
@@ -5262,23 +5339,75 @@ def admin():
         # Save requirements grid (includes req_d)
         if form == "req":
             yms = request.form.getlist("ym")
-            req_m = request.form.getlist("req_m")
-            req_d = request.form.getlist("req_d")
-            req_a = request.form.getlist("req_a")
-            req_n = request.form.getlist("req_n")
+            field_names = [
+                f"req_{prefix}{code}"
+                for prefix in ("", "sat_", "sun_")
+                for code in ("m", "d", "a", "n")
+            ]
+            values = {
+                field: request.form.getlist(field)
+                for field in field_names
+            }
             for i in range(len(yms)):
                 y, m = [int(x) for x in yms[i].split("-")]
                 r = Requirement.query.filter_by(year=y, month=m).first()
                 if not r:
                     r = Requirement(year=y, month=m)
                     db.session.add(r)
-                r.req_m = int(req_m[i] or 0)
-                r.req_d = int(req_d[i] or 0)
-                r.req_a = int(req_a[i] or 0)
-                r.req_n = int(req_n[i] or 0)
+                for field in field_names:
+                    try:
+                        value = int(values[field][i] or 0)
+                    except (ValueError, IndexError):
+                        abort(400, f"Invalid staffing value for {field}.")
+                    setattr(r, field, max(0, value))
             db.session.commit()
             flash("Requirements saved.", "ok")
-            return redirect(url_for("admin"))
+            return redirect(url_for("admin") + "#requirements")
+
+        if form == "special_requirement":
+            try:
+                selected_day = date.fromisoformat(
+                    request.form.get("special_day") or ""
+                )
+            except ValueError:
+                flash("Choose a valid date for the special requirement.", "error")
+                return redirect(url_for("admin") + "#requirements")
+            label = (request.form.get("special_label") or "").strip()[:80]
+            if not label:
+                flash(
+                    "Describe the reason, for example Christmas Day.",
+                    "error",
+                )
+                return redirect(url_for("admin") + "#requirements")
+            row = SpecialRequirement.query.filter_by(day=selected_day).first()
+            if not row:
+                row = SpecialRequirement(day=selected_day)
+                db.session.add(row)
+            row.label = label
+            for code in ("m", "d", "a", "n"):
+                try:
+                    value = int(
+                        request.form.get(f"special_req_{code}") or 0
+                    )
+                except ValueError:
+                    abort(400, "Special staffing values must be numbers.")
+                setattr(row, f"req_{code}", max(0, value))
+            db.session.commit()
+            flash(
+                f"Special requirements saved for "
+                f"{selected_day.strftime('%d %B %Y')}.",
+                "ok",
+            )
+            return redirect(url_for("admin") + "#requirements")
+
+        if form == "special_requirement_delete":
+            row = SpecialRequirement.query.filter_by(
+                id=int(request.form.get("special_requirement_id") or 0)
+            ).first_or_404()
+            db.session.delete(row)
+            db.session.commit()
+            flash("Special requirement removed.", "ok")
+            return redirect(url_for("admin") + "#requirements")
 
         # (Legacy) Bulk TOIL seed still accepted server-side, but you won't use it in UI.
         if form == "toil_seed":
@@ -5341,6 +5470,9 @@ def admin():
         )
     requirements_by_month = {
         (r.year, r.month): r for r in Requirement.query.all()}
+    special_requirements = SpecialRequirement.query.order_by(
+        SpecialRequirement.day
+    ).all()
     leaves = Leave.query.order_by(Leave.start.desc()).all()
     roster_settings = _roster_settings_snapshot(_current_unit_id())
     base_pattern = ",".join(_validated_pattern(
@@ -5364,6 +5496,7 @@ def admin():
     return render_template("admin.html",
                            shifts=shifts, staff=staff, watches=watches,
                            months=months, requirements_by_month=requirements_by_month,
+                           special_requirements=special_requirements,
                            leaves=leaves,
                            qualification_types=qualification_types,
                            base_pattern=base_pattern,

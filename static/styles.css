@@ -1412,6 +1412,79 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
   color:var(--text-muted);
   font-size:.84rem;
 }
+.requirements-matrix{min-width:1180px !important;}
+.requirements-matrix thead tr:first-child th:not(:first-child):not(:last-child){
+  text-align:center;
+  border-bottom:1px solid var(--control-border);
+}
+.requirements-matrix .table-input{min-width:48px; max-width:58px;}
+.special-requirements{
+  margin-top:1rem;
+  padding-top:1.25rem;
+  border-top:1px solid var(--control-border);
+}
+.special-requirements__intro h4,
+.special-requirements__intro p{margin:0;}
+.special-requirements__intro p{color:var(--text-muted);}
+.special-requirements__form{
+  display:grid;
+  grid-template-columns:minmax(145px,.8fr) minmax(220px,1.5fr) repeat(4,minmax(82px,.55fr)) auto;
+  gap:.75rem;
+  align-items:end;
+}
+.special-requirements__form label{display:grid; gap:.3rem;}
+.special-requirements__list{display:grid; gap:.5rem;}
+.special-requirement-row,
+.roster-special-requirements__list article{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:1rem;
+  padding:.7rem .8rem;
+  border:1px solid var(--control-border);
+  border-radius:var(--radius-sm);
+  background:var(--panel-surface);
+}
+.special-requirement-row > div:first-child,
+.roster-special-requirements__list article > div:first-child{
+  display:grid;
+  gap:.1rem;
+}
+.special-requirement-row > div:first-child span,
+.roster-special-requirements__list article > div:first-child span{
+  color:var(--text-muted);
+  font-size:.84rem;
+}
+.special-requirement-values{display:flex; flex-wrap:wrap; gap:.35rem;}
+.special-requirement-values span{
+  min-width:38px;
+  padding:.2rem .4rem;
+  border:1px solid var(--control-border);
+  border-radius:4px;
+  text-align:center;
+  font-size:.8rem;
+}
+.roster-special-requirements{
+  display:grid;
+  grid-template-columns:minmax(180px,.35fr) minmax(0,1fr);
+  gap:1rem;
+  margin-top:1rem;
+  padding:1rem;
+  border:1px solid var(--control-border);
+  border-radius:var(--radius);
+  background:var(--panel-surface);
+}
+.roster-special-requirements h3{margin:.15rem 0 0;}
+.roster-special-requirements__list{display:grid; gap:.5rem;}
+@media (max-width:1100px){
+  .special-requirements__form{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width:700px){
+  .special-requirements__form,
+  .roster-special-requirements{grid-template-columns:1fr;}
+  .special-requirement-row,
+  .roster-special-requirements__list article{align-items:flex-start; flex-direction:column;}
+}
 
 .inline-form{display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center;}
 

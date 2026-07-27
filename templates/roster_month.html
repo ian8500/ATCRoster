@@ -269,16 +269,36 @@
         {% set total = m + dday + a + (n if night_active[d] else 0) %}
         <td class="totcell{% if d == today %} is-today{% endif %}">
           <div><strong>Total {{ total }}</strong></div>
-          <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ requirement.req_m if requirement else 0 }}</div>
-          <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ requirement.req_d if requirement else 0 }}</div>
-          <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ requirement.req_a if requirement else 0 }}</div>
-          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ requirement.req_n if requirement else 0 }}</div>{% endif %}
+          <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ req_by_day[d]['M'] }}</div>
+          <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ req_by_day[d]['D'] }}</div>
+          <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ req_by_day[d]['A'] }}</div>
+          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ req_by_day[d]['N'] }}</div>{% endif %}
         </td>
       {% endfor %}
     </tr>
   </tfoot>
 </table>
 </div> <!-- /#roster -->
+
+{% if special_requirements %}
+  <section class="roster-special-requirements" aria-labelledby="special-requirements-title">
+    <div>
+      <span class="eyebrow">Date-specific coverage</span>
+      <h3 id="special-requirements-title">Special staffing requirements</h3>
+    </div>
+    <div class="roster-special-requirements__list">
+      {% for special in special_requirements %}
+        <article>
+          <div><strong>{{ special.day.strftime('%A %d %B') }}</strong><span>{{ special.label }}</span></div>
+          <div class="special-requirement-values" aria-label="Required staffing">
+            <span>M {{ special.req_m }}</span><span>D {{ special.req_d }}</span><span>A {{ special.req_a }}</span>
+            {% if night_active[special.day] %}<span>N {{ special.req_n }}</span>{% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
 
 {% if roster_publication %}
   <div class="roster-state-note roster-state-note--published" role="status">
