@@ -1768,6 +1768,56 @@ def test_sms_audit_is_unit_admin_only(client):
     assert wm_client.get("/admin/sms-audit").status_code == 403
 
 
+def test_users_can_delete_only_their_own_read_notifications(client):
+    login(client)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username="admin_test").one()
+        other = Staff.query.filter_by(username="staff_test").one()
+        unread = app.Notification(
+            unit_id=1, recipient_id=admin.id,
+            kind="test", message="Unread notification",
+        )
+        read = app.Notification(
+            unit_id=1, recipient_id=admin.id,
+            kind="test", message="Read notification",
+            read_at=app.utcnow(),
+        )
+        someone_else = app.Notification(
+            unit_id=1, recipient_id=other.id,
+            kind="test", message="Private notification",
+            read_at=app.utcnow(),
+        )
+        db.session.add_all([unread, read, someone_else])
+        db.session.commit()
+        unread_id, read_id, other_id = unread.id, read.id, someone_else.id
+
+    blocked = client.post(
+        f"/notifications/{unread_id}/delete",
+        data={"_csrf_token": csrf(client)},
+        follow_redirects=True,
+    )
+    assert b"Mark the notification as read before deleting it." in blocked.data
+    with app.app.app_context():
+        assert db.session.get(app.Notification, unread_id) is not None
+
+    deleted = client.post(
+        f"/notifications/{read_id}/delete",
+        data={"_csrf_token": csrf(client)},
+        follow_redirects=True,
+    )
+    assert b"Notification deleted." in deleted.data
+    with app.app.app_context():
+        assert db.session.get(app.Notification, read_id) is None
+
+    forbidden = client.post(
+        f"/notifications/{other_id}/delete",
+        data={"_csrf_token": csrf(client)},
+    )
+    assert forbidden.status_code == 404
+    with app.app.app_context():
+        assert db.session.get(app.Notification, other_id) is not None
+
+
 def test_primary_navigation_matches_role_permissions():
     editor_client = app.app.test_client()
     editor_client.post(

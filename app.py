@@ -6793,6 +6793,28 @@ def notifications_read():
         url_for("staff_profile", sid=current_user.id) + "#notifications"
     )
 
+
+@app.post("/notifications/<int:notification_id>/delete")
+@login_required
+def notification_delete(notification_id):
+    _validate_csrf()
+    item = Notification.query.filter_by(
+        id=notification_id,
+        unit_id=_current_unit_id(),
+        recipient_id=current_user.id,
+    ).first_or_404()
+    if not item.read_at:
+        flash("Mark the notification as read before deleting it.", "error")
+        return redirect(
+            url_for("staff_profile", sid=current_user.id) + "#notifications"
+        )
+    db.session.delete(item)
+    db.session.commit()
+    flash("Notification deleted.", "ok")
+    return redirect(
+        url_for("staff_profile", sid=current_user.id) + "#notifications"
+    )
+
 # -------------------- Metrics + CSV (date range; FYTD default) --------------------
 # (… unchanged metrics functions from your file …)
 
