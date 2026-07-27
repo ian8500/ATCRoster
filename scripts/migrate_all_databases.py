@@ -54,11 +54,7 @@ def _ensure_info_annotation(database_url: str, unit_id: int) -> None:
         engine.dispose()
 
 
-def upgrade_database(
-    database_url: str,
-    schema_role: str,
-    unit_id: int | None = None,
-) -> str:
+def upgrade_database(database_url: str, schema_role: str) -> str:
     if schema_role not in {"control", "operational", "combined"}:
         raise ValueError("schema_role must be control, operational, or combined")
     if (
@@ -74,8 +70,6 @@ def upgrade_database(
         config = Config(str(REPOSITORY / "alembic.ini"))
         config.set_main_option("script_location", str(REPOSITORY / "migrations"))
         command.upgrade(config, "head")
-        if schema_role == "operational" and unit_id:
-            _ensure_info_annotation(database_url, unit_id)
         engine = create_engine(database_url, pool_pre_ping=True)
         try:
             with engine.connect() as connection:
@@ -145,7 +139,8 @@ def main() -> None:
             raise SystemExit(
                 f"Unit {unit_id} operational database must differ from control."
             )
-        version = upgrade_database(operational_url, "operational", unit_id=unit_id)
+        version = upgrade_database(operational_url, "operational")
+        _ensure_info_annotation(operational_url, unit_id)
         print(f"Operational database for unit {unit_id} upgraded to {version}.")
 
 

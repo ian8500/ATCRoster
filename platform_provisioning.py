@@ -22,6 +22,7 @@ from sqlalchemy import create_engine, inspect
 
 from scripts.migrate_all_databases import (
     _canonical_database_url,
+    _ensure_info_annotation,
     upgrade_database,
 )
 
@@ -259,7 +260,8 @@ class ProvisioningWorker:
             self._fail(application, job, "database_route_conflict", False)
             return
         try:
-            version = upgrade_database(operational_url, "operational", unit_id=unit.id)
+            version = upgrade_database(operational_url, "operational")
+            _ensure_info_annotation(operational_url, unit.id)
             application.db.session.expire(job)
             if not self._owns_lease(job):
                 return
