@@ -1645,6 +1645,20 @@ def test_unit_messages_permission_boundary(client):
     assert wm_client.get("/messages").status_code == 200
 
 
+def test_unit_messages_recipient_order_and_default(client):
+    login(client)
+    page = client.get("/messages")
+    assert page.status_code == 200
+    content = page.data
+    whole_unit = content.index(b'value="all" selected')
+    watch = content.index(b'value="watch"')
+    individual = content.index(b'value="individual"')
+    assert whole_unit < watch < individual
+    assert b">Whole unit</option>" in content
+    assert b">Watch</option>" in content
+    assert b">Individual</option>" in content
+
+
 def test_admin_configures_airport_sms_numbers(client, monkeypatch):
     login(client)
     monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")

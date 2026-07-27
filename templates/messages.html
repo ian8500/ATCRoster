@@ -22,9 +22,9 @@
       </label>
       <label>Recipients
         <select name="scope" id="message-scope">
-          <option value="individual" {% if selected_scope == 'individual' %}selected{% endif %}>One person</option>
-          <option value="watch" {% if selected_scope == 'watch' %}selected{% endif %}>A watch</option>
-          <option value="all" {% if selected_scope == 'all' %}selected{% endif %}>Everyone at this airport</option>
+          <option value="all" {% if selected_scope == 'all' %}selected{% endif %}>Whole unit</option>
+          <option value="watch" {% if selected_scope == 'watch' %}selected{% endif %}>Watch</option>
+          <option value="individual" {% if selected_scope == 'individual' %}selected{% endif %}>Individual</option>
           <option value="operational" {% if selected_scope == 'operational' %}selected{% endif %}>Operational number</option>
         </select>
       </label>
