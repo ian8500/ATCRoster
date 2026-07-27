@@ -90,7 +90,15 @@
                 <span class="nav-attention-count" aria-hidden="true">{{ pending_request_count }}</span>
               {% endif %}
             </a>
-            <a href="{{ url_for('staff_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}"><i class="fa-solid fa-id-badge" aria-hidden="true"></i> Profile</a>
+            <a href="{{ url_for('staff_profile', sid=current_user.id) }}"
+               class="nav-link {% if request.endpoint == 'staff_profile' %}active{% endif %}{% if unread_notification_count %} nav-link--personal-attention{% endif %}"
+               {% if unread_notification_count %}aria-label="Profile, {{ unread_notification_count }} unread notification{{ '' if unread_notification_count == 1 else 's' }}"{% endif %}>
+              <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
+              Profile
+              {% if unread_notification_count %}
+                <span class="nav-notification-count" aria-hidden="true">{{ unread_notification_count }}</span>
+              {% endif %}
+            </a>
             {% if is_admin or current_user.is_wm or current_user.is_dwm %}
               <a href="{{ url_for('unit_messages') }}" class="nav-link {% if request.endpoint == 'unit_messages' %}active{% endif %}"><i class="fa-solid fa-message" aria-hidden="true"></i> Messages</a>
             {% endif %}

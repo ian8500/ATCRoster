@@ -4558,15 +4558,30 @@ def inject_perms():
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", accent_colour):
         accent_colour = ""
     pending_request_count = 0
+    unread_notification_count = 0
+    active_admin_count = 0
     if current_unit and au and is_admin_user(au):
-        pending_request_count = ShiftRequest.query.filter_by(
+        active_admin_count = Staff.query.filter(
+            Staff.unit_id == current_unit.id,
+            Staff.membership_status == "active",
+            db.or_(Staff.role == "admin", Staff.is_admin.is_(True)),
+        ).count()
+        pending_request_count = ShiftRequest.query.filter(
+            ShiftRequest.unit_id == current_unit.id,
+            ShiftRequest.status.in_(("pending", "approved")),
+        ).count()
+    if current_unit and au:
+        unread_notification_count = Notification.query.filter_by(
             unit_id=current_unit.id,
-            status="pending",
+            recipient_id=au.id,
+            read_at=None,
         ).count()
     return {
         "is_admin":  bool(au) and is_admin_user(au),
         "is_editor": bool(au) and is_editor_user(au),
         "pending_request_count": pending_request_count,
+        "unread_notification_count": unread_notification_count,
+        "active_admin_count": active_admin_count,
         "current_unit": current_unit,
         "unit_branding": {
             "primary_colour": primary_colour,
@@ -7723,6 +7738,23 @@ def admin_request_respond(rid):
         abort(409, "The request has an invalid current status.")
     if not r.staff or r.staff.unit_id != unit_id:
         abort(409, "The requester does not belong to this airport.")
+    approval_actions = {"approve", "approve_only", "approve_apply"}
+    is_approval = (
+        action in approval_actions
+        or (action == "status" and requested_status in {"approved", "fulfilled"})
+    )
+    if is_approval and r.staff_id == current_user.id:
+        active_admin_count = Staff.query.filter(
+            Staff.unit_id == unit_id,
+            Staff.membership_status == "active",
+            db.or_(Staff.role == "admin", Staff.is_admin.is_(True)),
+        ).count()
+        if active_admin_count > 1:
+            abort(
+                403,
+                "Administrators cannot approve their own shift requests "
+                "while another active administrator is available.",
+            )
 
     old = {"status": r.status, "response": r.admin_response}
     if action in {"approve", "approve_apply"}:
