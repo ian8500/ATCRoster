@@ -6,6 +6,17 @@
   <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>
 </section>
 
+<form class="report-filter card" method="get">
+  <label for="sickness-watch">Users</label>
+  <select id="sickness-watch" name="watch_id" onchange="this.form.submit()">
+    <option value="">All users</option>
+    {% for watch in watches %}
+      <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button class="btn btn-primary" type="submit">Apply</button></noscript>
+</form>
+
 <div class="table-scroll">
   <table class="table">
     <thead><tr><th>ATCO</th><th>Watch</th>{% for item in sickness_types %}<th>{{ item.label }} ({{ item.code }})</th>{% endfor %}<th>Total days</th><th>Periods</th></tr></thead>
@@ -21,6 +32,9 @@
         </tr>
         {% endif %}
       {% endfor %}
+      {% if not has_sickness %}
+        <tr><td colspan="{{ 5 + sickness_types|length }}">No sickness is recorded for this selection.</td></tr>
+      {% endif %}
       <tr class="totals"><td colspan="2"><strong>Totals</strong></td>{% for item in sickness_types %}<td class="ta-right"><strong>{{ totals.get(item.code, 0) }}</strong></td>{% endfor %}<td class="ta-right"><strong>{{ totals.values()|sum }}</strong></td><td></td></tr>
     </tbody>
   </table>
