@@ -5283,6 +5283,7 @@ def roster_print_view(ym):
 @login_required
 def logout():
     session.pop("reports_sensitive_data_ack", None)
+    session.pop("reports_sensitive_data_hub_entry", None)
     logout_user()
     flash("Logged out", "ok")
     return redirect(url_for("login"))
@@ -10383,9 +10384,21 @@ def reports_index():
     if request.method == "POST":
         _validate_csrf()
         session["reports_sensitive_data_ack"] = _reports_acknowledgement_key()
+        # Permit exactly the redirect that opens the reports hub. A later
+        # navigation back to /reports is a new entry and must show the privacy
+        # warning again.
+        session["reports_sensitive_data_hub_entry"] = _reports_acknowledgement_key()
         return redirect(url_for("reports_index"))
 
     if not _reports_sensitive_data_acknowledged():
+        return render_template(
+            "reports_index.html",
+            requires_acknowledgement=True,
+        )
+
+    hub_entry_key = session.pop("reports_sensitive_data_hub_entry", None)
+    if hub_entry_key != _reports_acknowledgement_key():
+        session.pop("reports_sensitive_data_ack", None)
         return render_template(
             "reports_index.html",
             requires_acknowledgement=True,

@@ -240,6 +240,17 @@ def test_reports_require_sensitive_data_acknowledgement(client):
     assert opened.status_code == 200
     assert b"Leave year" in opened.data
 
+    # Returning to the Reports tab is a new entry and must require a fresh
+    # privacy acknowledgement.
+    returned = client.get("/reports")
+    assert returned.status_code == 200
+    assert b"Sensitive information ahead" in returned.data
+    assert b"Leave-Year Summary" not in returned.data
+
+    direct_after_return = client.get("/reports/leave-year")
+    assert direct_after_return.status_code == 302
+    assert direct_after_return.headers["Location"].endswith("/reports")
+
 
 def test_leave_year_report_filters_by_watch(client):
     login(client)
