@@ -27,7 +27,8 @@ No local acceptance database or production data was uploaded.
 | `/login` | HTTP 200 |
 | Control migration | `20260727_15` |
 | Operational migration | `20260727_15` |
-| Automated regression suite | 101 passed, 2 skipped |
+| Automated regression suite | 106 passed, 2 skipped |
+| CodeQL analysis of pull request | Pass; redirect finding fixed |
 
 ## Defects found and corrected during deployment
 
@@ -46,6 +47,10 @@ No local acceptance database or production data was uploaded.
    deployment now selects the intended process using
    `ATCROSTER_PROCESS_TYPE`; the worker exposes a minimal supervised health
    endpoint and fails when its child process fails.
+6. Post-login redirects accepted arbitrary local paths. Redirects are now
+   canonicalised through an explicit route allowlist, including validated
+   month-based roster and report routes. External, protocol-relative,
+   unknown and cross-user profile destinations are rejected.
 
 ## Boundaries
 
