@@ -730,6 +730,8 @@ def test_roster_shows_annotation_once_and_hover_detail_can_be_edited(
     assert b'class="annotation-code"' in page.data
     assert b"annotation-display--shift-line" in page.data
     assert b'class="annotation-dialog"' in page.data
+    assert b'class="annotation-remove-form"' in page.data
+    assert b'aria-label="Remove NEAT annotation"' in page.data
     assert b"Save text" in page.data
     assert b"Current: NEAT" not in page.data
 
