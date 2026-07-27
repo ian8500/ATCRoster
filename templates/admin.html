@@ -20,6 +20,48 @@
     <span>Choose an option from the toolbar above to begin.</span>
   </div>
 
+  <section id="admin-sms" class="admin-panel" data-admin-panel="sms" hidden>
+    <header class="admin-panel-heading">
+      <div>
+        <span class="admin-step">Operational messaging</span>
+        <h3>SMS numbers</h3>
+        <p>Choose the approved numbers this airport can send from and the operational numbers staff may message.</p>
+      </div>
+    </header>
+    <form method="post" class="card card-body roster-setup-card">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="form" value="sms_settings">
+      <div class="setup-walkthrough">
+        <article><span>1</span><div><strong>Add Twilio sender numbers</strong><small>Twilio only permits numbers owned by, or approved for, your Twilio account.</small></div></article>
+        <article><span>2</span><div><strong>Add operational destinations</strong><small>These can be unit mobiles or telephones capable of receiving SMS.</small></div></article>
+        <article><span>3</span><div><strong>Choose defaults</strong><small>The Messages page preselects these, but an authorised sender can choose another configured option.</small></div></article>
+      </div>
+      <div class="admin-form-grid">
+        <label>Approved sender numbers
+          <textarea name="sms_sender_numbers" rows="6" placeholder="Operations | +447700900123">{% for item in sms_senders %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
+          <small>One per line as “Name | +international number”. These must be Twilio-owned sender numbers; arbitrary caller ID is not allowed.</small>
+        </label>
+        <label>Operational destination numbers
+          <textarea name="sms_operational_numbers" rows="6" placeholder="Duty desk | +441412345678">{% for item in sms_operational_numbers %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
+          <small>One per line. These appear as named destinations on the Messages page.</small>
+        </label>
+        <label>Default sender
+          <input name="sms_default_sender" list="sms-sender-options" value="{{ sms_default_sender }}" placeholder="Leave blank to use the first sender">
+          <datalist id="sms-sender-options">{% for item in sms_senders %}<option value="{{ item.number }}">{{ item.label }}</option>{% endfor %}</datalist>
+          <small>Paste one of the sender numbers above, or leave blank to use the first.</small>
+        </label>
+        <label>Default operational destination
+          <input name="sms_default_operational_number" list="sms-operational-options" value="{{ sms_default_operational_number }}" placeholder="Leave blank to use the first destination">
+          <datalist id="sms-operational-options">{% for item in sms_operational_numbers %}<option value="{{ item.number }}">{{ item.label }}</option>{% endfor %}</datalist>
+          <small>Paste one of the destination numbers above, or leave blank to use the first.</small>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save SMS settings</button>
+      </div>
+    </form>
+  </section>
+
   <section id="admin-roster-setup" class="admin-panel" data-admin-panel="roster-setup" hidden>
     <header class="admin-panel-heading">
       <div><span class="admin-step">Roster cycle and watches</span><h3>How duties repeat</h3><p>Set the normal repeating cycle once. Watches and individual people inherit it unless you deliberately give them a different cycle.</p></div>

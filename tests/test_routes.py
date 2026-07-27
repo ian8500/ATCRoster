@@ -1645,6 +1645,86 @@ def test_unit_messages_permission_boundary(client):
     assert wm_client.get("/messages").status_code == 200
 
 
+def test_admin_configures_airport_sms_numbers(client, monkeypatch):
+    login(client)
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "secret")
+    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+447700900999")
+
+    response = client.post(
+        "/admin",
+        data={
+            "_csrf_token": csrf(client),
+            "form": "sms_settings",
+            "sms_sender_numbers": (
+                "Operations | +44 7700 900111\nBackup | +447700900112"
+            ),
+            "sms_operational_numbers": (
+                "Duty desk | +44 141 555 0100\nSupervisor | +447700900113"
+            ),
+            "sms_default_sender": "+447700900112",
+            "sms_default_operational_number": "+441415550100",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"SMS numbers saved for this airport." in response.data
+
+    page = client.get("/messages")
+    assert page.status_code == 200
+    assert b"Operations" in page.data
+    assert b"Duty desk" in page.data
+    assert b'value="+447700900112" selected' in page.data
+    assert b'value="+441415550100" selected' in page.data
+
+
+def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
+    client, monkeypatch
+):
+    login(client)
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "secret")
+    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+447700900999")
+    sent = []
+
+    def fake_send(to_number, body, creds=None, from_number=None):
+        sent.append((to_number, body, from_number))
+        return True, "SMtest"
+
+    monkeypatch.setattr(app, "_send_sms_via_twilio", fake_send)
+    rejected = client.post(
+        "/messages",
+        data={
+            "_csrf_token": csrf(client),
+            "scope": "operational",
+            "sender_number": "+447700900777",
+            "operational_number": "+441415550100",
+            "template": "custom",
+            "message": "Test message",
+        },
+    )
+    assert rejected.status_code == 400
+    assert not sent
+
+    response = client.post(
+        "/messages",
+        data={
+            "_csrf_token": csrf(client),
+            "scope": "operational",
+            "sender_number": "+447700900112",
+            "operational_number": "+441415550100",
+            "template": "custom",
+            "message": "Operational test",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert sent == [
+        ("+441415550100", "Operational test", "+447700900112")
+    ]
+    assert b"SMS sent to 1 recipient." in response.data
+
+
 def test_primary_navigation_matches_role_permissions():
     editor_client = app.app.test_client()
     editor_client.post(
