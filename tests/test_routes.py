@@ -542,6 +542,36 @@ def test_health_endpoints_report_ready(client):
     assert ready.get_json()["status"] == "ready"
 
 
+def test_login_next_uses_canonical_allowlisted_internal_route(client):
+    response = client.post(
+        "/login?next=/requests%3Fview%3Dpending",
+        data=ADMIN_CREDENTIALS,
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/requests"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://attacker.example/collect",
+        "//attacker.example/collect",
+        "/unknown-path",
+        "/staff/999999",
+    ],
+)
+def test_login_next_rejects_external_or_unapproved_destinations(
+    client, target,
+):
+    response = client.post(
+        "/login",
+        query_string={"next": target},
+        data=ADMIN_CREDENTIALS,
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/"
+
+
 def test_untrusted_host_returns_plain_400_instead_of_error_handler_500(client):
     original = app.app.config.get("TRUSTED_HOSTS")
     app.app.config["TRUSTED_HOSTS"] = ["expected.example"]

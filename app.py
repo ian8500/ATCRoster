@@ -651,11 +651,49 @@ def _reset_tenant_context(_error=None):
     clear_request_context()
 
 
-def _is_safe_local_redirect(target: str | None) -> bool:
+_LOGIN_NEXT_ENDPOINTS = {
+    "/": "index",
+    "/admin": "admin",
+    "/compliance-centre": "compliance_centre",
+    "/leave": "leave",
+    "/messages": "unit_messages",
+    "/overtime": "overtime",
+    "/platform/admin": "platform_admin",
+    "/reports": "reports_index",
+    "/reports/leave-year": "report_leave_year",
+    "/reports/sickness": "report_sickness",
+    "/requests": "requests_page",
+    "/unit/accounts": "unit_accounts",
+}
+
+
+def _canonical_login_redirect(
+    target: str | None,
+    *,
+    default_endpoint: str = "index",
+    user_id: int | None = None,
+) -> str:
+    """Return only a URL generated from an explicitly permitted app route."""
     if not target:
-        return False
+        return url_for(default_endpoint)
     parsed = urllib_parse.urlsplit(target)
-    return not parsed.scheme and not parsed.netloc and target.startswith("/")
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return url_for(default_endpoint)
+    endpoint = _LOGIN_NEXT_ENDPOINTS.get(parsed.path)
+    if endpoint:
+        return url_for(endpoint)
+    roster_match = re.fullmatch(r"/roster/(\d{4}-\d{2})", parsed.path)
+    if roster_match:
+        return url_for("roster_month", ym=roster_match.group(1))
+    leave_report_match = re.fullmatch(
+        r"/reports/leave/(\d{4}-\d{2})", parsed.path
+    )
+    if leave_report_match:
+        return url_for("report_leave", ym=leave_report_match.group(1))
+    profile_match = re.fullmatch(r"/staff/(\d+)", parsed.path)
+    if profile_match and user_id and int(profile_match.group(1)) == user_id:
+        return url_for("staff_profile", sid=user_id)
+    return url_for(default_endpoint)
 
 
 # ----- SQLite performance helpers (define only; run after db exists) -----
@@ -10046,9 +10084,10 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 session["_platform_mfa_identity_id"] = identity.id
                 session["_platform_mfa_user_id"] = user.id
                 session["_platform_mfa_rate_key"] = rate_key
-                session["_platform_mfa_next"] = (
-                    request.args.get("next")
-                    if _is_safe_local_redirect(request.args.get("next")) else ""
+                session["_platform_mfa_next"] = _canonical_login_redirect(
+                    request.args.get("next"),
+                    default_endpoint="platform_admin",
+                    user_id=user.id,
                 )
                 _central_security_event(
                     "platform_password_verified", "challenge",
@@ -10066,9 +10105,9 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 session["_mfa_user_id"] = user.id
                 session["_mfa_unit_id"] = user.unit_id
                 session["_mfa_rate_key"] = rate_key
-                session["_mfa_next"] = (
-                    request.args.get("next")
-                    if _is_safe_local_redirect(request.args.get("next")) else ""
+                session["_mfa_next"] = _canonical_login_redirect(
+                    request.args.get("next"),
+                    user_id=user.id,
                 )
                 return redirect(url_for("mfa_challenge"))
             login_user(user)
@@ -10081,8 +10120,9 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             _record_successful_login(user)
             flash("Logged in successfully", "ok")
             # support ?next=... to return where user was going
-            nxt = request.args.get("next")
-            return redirect(nxt if _is_safe_local_redirect(nxt) else url_for("index"))
+            return redirect(_canonical_login_redirect(
+                request.args.get("next"), user_id=user.id,
+            ))
         if identity:
             _central_security_event(
                 "platform_login_failed", "denied", identity.id,
@@ -10136,7 +10176,11 @@ def _complete_platform_login(identity, user, recovery_used=False):
         hashlib.sha256(identity.username.lower().encode()).hexdigest()[:16],
     )
     db.session.commit()
-    return redirect(next_url or url_for("platform_admin"))
+    return redirect(_canonical_login_redirect(
+        next_url,
+        default_endpoint="platform_admin",
+        user_id=user.id,
+    ))
 
 
 def _totp_qr_data_uri(provisioning_uri: str) -> str:
@@ -10334,7 +10378,9 @@ def mfa_challenge():
             )
             _record_successful_login(user)
             db.session.commit()
-            return redirect(next_url or url_for("index"))
+            return redirect(_canonical_login_redirect(
+                next_url, user_id=user.id,
+            ))
         flash("Invalid, expired or already-used verification code.", "error")
     return render_template("mfa_challenge.html")
 
