@@ -437,7 +437,8 @@ def _not_found(_error):
 
 OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_setting", "annotation_type", "watch", "staff", "shift_type",
-    "requirement", "leave", "sickness", "assignment", "shift_request",
+    "requirement", "special_requirement", "leave", "sickness", "assignment",
+    "shift_request",
     "request_audit", "notification", "annotation_audit", "ai_rule_set",
     "change_log", "staff_watch_history", "qualification_type",
     "person_qualification", "person_qualification_history",
@@ -7186,7 +7187,7 @@ def unit_messages():
         membership_status="active"
     ).order_by(Staff.name).all()
     watches = Watch.query.order_by(Watch.order_index, Watch.name).all()
-    selected_scope = request.form.get("scope", "individual")
+    selected_scope = request.form.get("scope", "all")
     selected_recipient = request.form.get("recipient_id", "")
     selected_watch = request.form.get("watch_id", "")
     sender_options = _sms_sender_options()
