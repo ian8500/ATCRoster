@@ -129,21 +129,30 @@
       <input type="hidden" name="form" value="req">
       <div class="table-scroll admin-requirements-table">
         <table class="mini admin-table">
-          <thead><tr><th>Month</th><th>Morning (M)</th><th>Day (D)</th><th>Afternoon (A)</th><th>Night (N)</th></tr></thead>
+          <thead><tr><th>Month</th><th>Morning (M)</th><th>Day (D)</th><th>Afternoon (A)</th><th>Night (N)</th><th>Apply</th></tr></thead>
           <tbody>
           {% for y,m in months %}
             {% set r = requirements_by_month.get((y,m)) %}
-            <tr>
+            <tr data-requirement-row>
               <td class="table-label"><input type="hidden" name="ym" value="{{ '%04d-%02d'|format(y,m) }}">{{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }} {{ y }}</td>
               <td><input type="number" min="0" name="req_m" value="{{ r.req_m if r else 0 }}" class="table-input" aria-label="Morning requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
               <td><input type="number" min="0" name="req_d" value="{{ r.req_d if r else 0 }}" class="table-input" aria-label="Day requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
               <td><input type="number" min="0" name="req_a" value="{{ r.req_a if r else 0 }}" class="table-input" aria-label="Afternoon requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
               <td><input type="number" min="0" name="req_n" value="{{ r.req_n if r else 0 }}" class="table-input" aria-label="Night requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
+              <td class="table-actions">
+                <button type="button" class="btn btn-sm requirements-copy-button"
+                        data-copy-requirements-below
+                        aria-label="Copy {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }} {{ y }} requirements to every month below"
+                        {% if loop.last %}disabled title="There are no months below this row"{% endif %}>
+                  <i class="fa-solid fa-arrow-down" aria-hidden="true"></i> Copy below
+                </button>
+              </td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
       </div>
+      <p class="requirements-copy-status" data-requirements-copy-status aria-live="polite">Copied values are not saved until you select Save requirements.</p>
       <div class="admin-sticky-actions"><span>Changes apply to this airport only.</span><button class="btn btn-primary" type="submit">Save requirements</button></div>
     </form>
   </section>
@@ -324,6 +333,39 @@
       if (matches) visible++;
     });
     if (empty) empty.hidden = visible !== 0;
+  });
+  const requirementRows = [
+    ...document.querySelectorAll('[data-requirement-row]')
+  ];
+  const requirementFields = ['req_m', 'req_d', 'req_a', 'req_n'];
+  const copyStatus = document.querySelector(
+    '[data-requirements-copy-status]'
+  );
+  requirementRows.forEach((row, rowIndex) => {
+    const button = row.querySelector('[data-copy-requirements-below]');
+    button?.addEventListener('click', () => {
+      const sourceValues = Object.fromEntries(
+        requirementFields.map(name => [
+          name, row.querySelector(`[name="${name}"]`).value
+        ])
+      );
+      const laterRows = requirementRows.slice(rowIndex + 1);
+      laterRows.forEach(laterRow => {
+        requirementFields.forEach(name => {
+          const input = laterRow.querySelector(`[name="${name}"]`);
+          input.value = sourceValues[name];
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        laterRow.classList.add('requirements-row--copied');
+      });
+      if (copyStatus) {
+        const month = row.querySelector('[name="ym"]').value;
+        copyStatus.textContent = (
+          `Copied ${month} requirements to ${laterRows.length} month` +
+          `${laterRows.length === 1 ? '' : 's'} below. Review and save.`
+        );
+      }
+    });
   });
   document.querySelectorAll('[data-pattern-builder]').forEach(builder => {
     const input = builder.querySelector('[data-pattern-value]');

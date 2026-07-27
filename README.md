@@ -116,7 +116,8 @@ attention. It is divided into focused sections:
 - **Roster setup** defines the unit base cycle, the weekdays on which night
   duties operate, and the unit's named watches.
 - **Staffing levels** edits monthly Morning, Day, Afternoon, and Night minimums
-  across a rolling 24-month planning window.
+  across a rolling 24-month planning window. **Copy below** repeats one
+  month's four values into every later row for review before saving.
 - **Shifts** creates shift definitions and keeps existing definitions collapsed
   until an administrator chooses one to edit. Its **Roster count mapping**
   assigns every created shift to the Morning, Day, Afternoon, Night, or
