@@ -727,13 +727,15 @@ def test_roster_shows_annotation_once_and_hover_detail_can_be_edited(
     page = secured_client.get(f"/roster/{request_day():%Y-%m}")
     assert page.status_code == 200
     assert b'<option value="" selected>' in page.data
-    assert b'class="annotation-code"' in page.data
+    assert b'class="annotation-code annotation-code--editable"' in page.data
     assert b"annotation-display--shift-line" in page.data
     assert b'class="annotation-dialog"' in page.data
     assert b'class="annotation-remove-form"' in page.data
     assert b'aria-label="Remove NEAT annotation"' in page.data
     assert b'class="shift-picker"' in page.data
-    assert b'<svg viewBox="0 0 16 16"' in page.data
+    assert b"annotation-code--editable" in page.data
+    assert b"Click to add annotation text" in page.data
+    assert b'<svg viewBox="0 0 16 16"' not in page.data
     assert b"Save text" in page.data
     assert b"Current: NEAT" not in page.data
 
@@ -762,9 +764,9 @@ def test_roster_shows_annotation_once_and_hover_detail_can_be_edited(
         assert audit.new_value == "Cover requested by tower"
 
     page = secured_client.get(f"/roster/{request_day():%Y-%m}")
-    assert b'title="Cover requested by tower"' in page.data
+    assert b'title="Cover requested by tower \xe2\x80\x94 click to edit"' in page.data
     assert b"annotation-display--has-detail" in page.data
-    assert page.data.count(b">NEAT</span>") == 1
+    assert page.data.count(b"NEAT\n      </button>") == 1
     assert b">Cover requested by tower</textarea>" in page.data
 
 
