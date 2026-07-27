@@ -138,7 +138,8 @@
         {% for d in days %}
           {% set code = a_map.get(s.id, {}).get(d, "") %}          
           {% set f = fatigue.get(s.id, {}).get(d) %}
-          {% set ann  = ann_map.get(s.id, {}).get(d, "") %}
+          {% set ann = ann_map.get(s.id, {}).get(d, "") %}
+          {% set ann_note = ann_note_map.get(s.id, {}).get(d, "") %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
           <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}">
             {% if f %}
@@ -157,7 +158,7 @@
               <select
                 name="code"
                 class="code-input code-len-{{ code|length }} {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
-                data-annotation-select
+                data-auto-submit="true"
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 {% if f %}title="{{ ', '.join(f) }}"{% endif %}
                 aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
@@ -197,22 +198,25 @@
             {% endif %}
 
             <!-- ANNOTATION -->
-            <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+            <form class="annotation-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
                 name="annotation"
-                class="annot-select {% if ann %}has-annotation{% endif %}"
-                data-auto-submit="true"
+                class="annot-select"
+                data-annotation-select
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 title="Annotate"
                 aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"
               >
-                <option value="" {% if not ann %}selected{% endif %}>—</option>
+                <option value="" selected>—</option>
+                {% if ann %}
+                  <option value="__remove__">Remove {{ ann }}</option>
+                {% endif %}
                 {% for group, opts in annotation_groups.items() %}
                   {% if opts %}
                   <optgroup label="{{ group }}">
                     {% for opt in opts %}
-                      <option value="{{ opt.code }}" data-note-required="{{ 'yes' if opt.note_required else 'no' }}" {% if ann==opt.code %}selected{% endif %}>
+                      <option value="{{ opt.code }}" data-note-required="{{ 'yes' if opt.note_required else 'no' }}">
                         {{ opt.label }} ({{ opt.code }}){% if opt.toil_half_days %} · {{ "%+.1f"|format(opt.toil_half_days / 2) }} day TOIL{% endif %}{% if opt.description %} — {{ opt.description }}{% endif %}
                       </option>
                     {% endfor %}
@@ -220,13 +224,34 @@
                   {% endif %}
                 {% endfor %}
               </select>
-              {% if ann %}<small class="annotation-current">Current: {{ ann }}</small>{% endif %}
               <input name="annotation_note" class="annotation-note" hidden
                      maxlength="140" value=""
                      placeholder="Annotation note (when required)"
                      aria-label="{{ s.name }} annotation note on {{ d.strftime('%d %B %Y') }}">
               <button type="submit" class="btn btn-sm annotation-apply" hidden>Apply annotation</button>
             </form>
+            {% if ann %}
+              <div class="annotation-display">
+                <span class="annotation-code" tabindex="0"
+                      {% if ann_note %}title="{{ ann_note }}"{% endif %}
+                      aria-label="{{ ann }}{% if ann_note %}: {{ ann_note }}{% endif %}">{{ ann }}</span>
+                {% if can_edit and not readonly %}
+                  <details class="annotation-detail-editor">
+                    <summary title="{% if ann_note %}Edit annotation detail{% else %}Add annotation detail{% endif %}"
+                             aria-label="{% if ann_note %}Edit detail for {{ ann }}{% else %}Add detail for {{ ann }}{% endif %}">✎</summary>
+                    <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+                      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="annotation" value="{{ ann }}">
+                      <input type="hidden" name="annotation_detail_update" value="1">
+                      <textarea name="annotation_note" maxlength="140" rows="2"
+                                placeholder="Optional detail shown on hover"
+                                aria-label="Detail for {{ ann }}">{{ ann_note }}</textarea>
+                      <button type="submit" class="btn btn-sm">Save</button>
+                    </form>
+                  </details>
+                {% endif %}
+              </div>
+            {% endif %}
           </td>
         {% endfor %}
       </tr>

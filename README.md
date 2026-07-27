@@ -330,6 +330,12 @@ definitions. Watch and deputy watch managers receive only their explicitly
 configured permissions. Unit-Admin-only annotations return a permission error
 for other roles.
 
+On the roster, the annotation selector returns to **—** after each action and
+the applied code appears once as a compact yellow label beneath the shift.
+Select the pencil beside that label to add or edit optional detail; the detail
+is shown when the code is hovered or keyboard-focused. Use **Remove [code]**
+in the selector to clear an applied annotation.
+
 Application/removal and definition changes are audited. TOIL updates and the
 annotation assignment occur in one database transaction. Optional transaction
 keys make retries idempotent so TOIL is not applied twice.
