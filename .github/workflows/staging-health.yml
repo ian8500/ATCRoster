@@ -1,0 +1,34 @@
+name: Pilot staging health
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-staging-health
+  cancel-in-progress: true
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check liveness and readiness
+        env:
+          STAGING_ORIGIN: https://web-pilot-staging.up.railway.app
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent \
+            --retry 3 --retry-all-errors --retry-delay 5 \
+            --max-time 15 \
+            "$STAGING_ORIGIN/health/live" |
+            jq -e '.status == "ok" and .environment == "production"'
+          curl --fail --show-error --silent \
+            --retry 3 --retry-all-errors --retry-delay 5 \
+            --max-time 15 \
+            "$STAGING_ORIGIN/health/ready" |
+            jq -e '.status == "ready"'
