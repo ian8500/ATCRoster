@@ -1106,6 +1106,17 @@ def test_admin_can_map_created_shifts_to_roster_counts(client):
         app.refresh_roster_settings_cache()
 
 
+def test_staffing_requirements_rows_offer_copy_below(client):
+    login(client)
+    page = client.get("/admin")
+    assert page.status_code == 200
+    assert page.data.count(b"<tr data-requirement-row>") == 24
+    assert page.data.count(b'aria-label="Copy ') == 24
+    assert b"Copy below" in page.data
+    assert b"data-requirements-copy-status" in page.data
+    assert b"requirementRows.slice(rowIndex + 1)" in page.data
+
+
 def test_counter_requires_created_shift_and_respects_closed_nights(client):
     monday = date(2026, 7, 27)
     tuesday = date(2026, 7, 28)

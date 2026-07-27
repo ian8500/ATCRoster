@@ -1360,6 +1360,15 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
 
 .table-scroll table{min-width:620px;}
 
+.requirements-copy-button{font-size:.78rem; padding:.34rem .5rem;}
+.requirements-copy-button:disabled{opacity:.38; cursor:not-allowed;}
+.requirements-row--copied{background:rgba(108,179,255,.055);}
+.requirements-copy-status{
+  margin:-.55rem 0 0;
+  color:var(--text-muted);
+  font-size:.84rem;
+}
+
 .inline-form{display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center;}
 
 .inline-form--tight{gap:.4rem .75rem; justify-content:flex-start;}
