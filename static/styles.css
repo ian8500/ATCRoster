@@ -911,6 +911,10 @@ select.code-input{
   gap:2px;
   margin-top:1px;
 }
+.annotation-display--shift-line{
+  min-height:28px;
+  margin-top:0;
+}
 .annotation-code{
   display:inline-block;
   max-width:calc(100% - 17px);
@@ -925,36 +929,92 @@ select.code-input{
   font-weight:800;
   line-height:1.2;
 }
-.annotation-detail-editor{position:relative;}
-.annotation-detail-editor summary{
-  width:14px;
-  height:14px;
+.annotation-display--shift-line .annotation-code{
+  max-width:calc(100% - 20px);
+  font-size:clamp(9px, .72rem, 12px);
+  line-height:1.1;
+}
+.annotation-edit-button{
+  width:16px;
+  height:16px;
   display:grid;
   place-items:center;
   border-radius:3px;
+  border:0;
+  padding:0;
+  background:transparent;
   color:var(--text-muted);
   font-size:10px;
   cursor:pointer;
-  list-style:none;
 }
-.annotation-detail-editor summary::-webkit-details-marker{display:none;}
-.annotation-detail-editor[open] form{
-  position:absolute;
-  z-index:30;
-  right:0;
-  bottom:18px;
-  width:190px;
-  padding:6px;
+.annotation-edit-button:hover,
+.annotation-edit-button:focus-visible{
+  background:rgba(83,170,255,.14);
+  color:#fff;
+}
+.annotation-dialog{
+  width:min(520px, calc(100vw - 2rem));
+  max-width:520px;
+  padding:0;
   border:1px solid var(--border);
-  border-radius:6px;
+  border-radius:12px;
   background:var(--card);
-  box-shadow:0 8px 24px rgba(0,0,0,.4);
+  color:var(--text);
+  box-shadow:0 18px 60px rgba(0,0,0,.65);
 }
-.annotation-detail-editor textarea{
+.annotation-dialog::backdrop{background:rgba(0,0,0,.72);}
+.annotation-dialog form{padding:1.1rem;}
+.annotation-dialog__header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:1rem;
+  margin-bottom:1rem;
+}
+.annotation-dialog__header h3{
+  margin:.2rem 0 0;
+  font-size:1.1rem;
+}
+.annotation-dialog__close{
+  min-width:34px;
+  min-height:34px;
+  padding:0;
+  border-radius:7px;
+  font-size:1.35rem;
+  line-height:1;
+}
+.annotation-dialog label{
+  display:block;
+  margin-bottom:.45rem;
+  font-size:.9rem;
+  font-weight:600;
+}
+.annotation-dialog textarea{
   width:100%;
-  margin-bottom:4px;
+  min-height:150px;
+  padding:.75rem;
+  border:1px solid var(--control-border);
+  border-radius:8px;
+  background:rgba(0,0,0,.28);
+  color:var(--text);
   resize:vertical;
-  font-size:11px;
+  font:500 1rem/1.45 Inter, sans-serif;
+}
+.annotation-dialog textarea:focus{
+  border-color:var(--control-border-hover);
+  outline:2px solid rgba(83,170,255,.22);
+}
+.annotation-dialog__count{
+  margin-top:.35rem;
+  color:var(--text-muted);
+  font-size:.78rem;
+  text-align:right;
+}
+.annotation-dialog__actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:.5rem;
+  margin-top:1rem;
 }
 
 tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
@@ -2485,4 +2545,46 @@ button:hover,
   border-color:var(--control-border);
   background:var(--panel-surface);
   box-shadow:none;
+}
+
+.site-footer__links {
+  display:flex;
+  flex-wrap:wrap;
+  gap:.5rem 1rem;
+}
+
+.site-footer__links a {
+  color:var(--muted);
+  font-size:.85rem;
+  text-decoration:none;
+}
+
+.site-footer__links a:hover,
+.site-footer__links a:focus-visible {
+  color:var(--text);
+  text-decoration:underline;
+}
+
+.legal-page {
+  max-width:900px;
+  margin-inline:auto;
+}
+
+.legal-page h2 {
+  margin-top:2rem;
+  font-size:1.2rem;
+}
+
+.legal-page h3 {
+  margin-top:1.25rem;
+  font-size:1rem;
+}
+
+.legal-page li + li {
+  margin-top:.35rem;
+}
+
+.legal-meta {
+  color:var(--muted);
+  font-size:.9rem;
 }

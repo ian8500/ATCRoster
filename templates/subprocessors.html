@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Subprocessors{% endblock %}
+{% block content %}
+<article class="legal-page card"><div class="card-bd">
+  <p class="admin-step">Legal information</p>
+  <h1>ATCRoster subprocessors</h1>
+  <p class="legal-meta">Effective {{ policy_date }}</p>
+  <p>This list identifies providers currently expected to process customer information for the hosted ATCRoster service. The signed customer agreement and deployment configuration remain authoritative.</p>
+  <div class="table-responsive"><table class="table">
+    <thead><tr><th>Provider</th><th>Purpose</th><th>Information</th><th>Location/transfer</th></tr></thead>
+    <tbody>
+      <tr><td>Railway Corporation</td><td>Application, PostgreSQL and Redis infrastructure</td><td>Account, roster, operational, audit and technical service data</td><td>Configured deployment region; confirm the production region and contractual transfer terms</td></tr>
+      <tr><td>Twilio Inc.</td><td>Optional operational SMS delivery</td><td>Telephone numbers, message content, delivery metadata</td><td>Global provider; applicable UK transfer safeguards required</td></tr>
+      <tr><td>Configured email provider</td><td>Invitations, recovery and service email</td><td>Email address, delivery metadata and message content</td><td>Provider and region must be recorded before launch</td></tr>
+      <tr><td>Configured backup provider</td><td>Encrypted resilient backups and recovery</td><td>Encrypted copies of hosted customer data</td><td>Provider and region must be recorded before launch</td></tr>
+    </tbody>
+  </table></div>
+  <p>Airport customers should receive advance notice of a new subprocessor and a reasonable opportunity to object on genuine data-protection grounds, as specified in the data-processing agreement.</p>
+  {% if privacy_email %}<p>Questions or objections: <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>.</p>{% endif %}
+</div></article>
+{% endblock %}

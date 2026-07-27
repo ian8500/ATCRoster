@@ -144,6 +144,12 @@
       <div>
         <span class="site-footer__copyright">&copy; {{ now().year }} IDAviation</span>
       </div>
+      <nav class="site-footer__links" aria-label="Legal information">
+        <a href="{{ url_for('privacy_notice') }}">Privacy</a>
+        <a href="{{ url_for('cookie_notice') }}">Cookies</a>
+        <a href="{{ url_for('terms_of_service') }}">Terms</a>
+        <a href="{{ url_for('subprocessor_notice') }}">Subprocessors</a>
+      </nav>
     </div>
   </footer>
 
