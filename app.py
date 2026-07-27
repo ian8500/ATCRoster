@@ -7677,6 +7677,17 @@ def platform_admin():
             routing = db.session.get(DatabaseRoutingMetadata, unit_id)
             if not unit or unit.status == "platform_control" or not routing:
                 abort(404)
+            active_accounts = UnitMembership.query.filter_by(
+                unit_id=unit_id, status="active"
+            ).count()
+            if active_accounts:
+                flash(
+                    "This airport already has active accounts. Manage access "
+                    "from the airport's Accounts page; bootstrap provisioning "
+                    "is only for a new airport.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
             existing_invitation = SecureInvitation.query.filter_by(
                 unit_id=unit_id,
                 role="UnitAdmin",
@@ -7758,6 +7769,18 @@ def platform_admin():
             return redirect(url_for("platform_admin"))
         elif action == "replace_bootstrap":
             unit_id = int(request.form.get("unit_id") or 0)
+            unit = db.session.get(Unit, unit_id)
+            if not unit or unit.status == "platform_control":
+                abort(404)
+            if UnitMembership.query.filter_by(
+                unit_id=unit_id, status="active"
+            ).count():
+                flash(
+                    "This airport already has active accounts, so a bootstrap "
+                    "invitation cannot be replaced.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
             invitation = SecureInvitation.query.filter_by(
                 unit_id=unit_id, role="UnitAdmin",
                 active_bootstrap_key="active",
@@ -8035,7 +8058,9 @@ def platform_admin():
                 last_error_code="",
             ).order_by(ProvisioningJob.id.desc()).first()
         if not bootstrap:
-            bootstrap_status = "not issued"
+            bootstrap_status = (
+                "established" if active_accounts else "not issued"
+            )
         elif bootstrap.accepted_at:
             bootstrap_status = "accepted"
         elif bootstrap.disabled_at:

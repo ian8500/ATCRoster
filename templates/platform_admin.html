@@ -62,7 +62,7 @@
               </form>
               {% endif %}
             {% endif %}
-            {% if row.provisioning_state not in ("active", "invitation_issued") %}
+            {% if not row.active_accounts and row.provisioning_state not in ("active", "invitation_issued") %}
             <form method="post" class="mt-2">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="provision_unit">

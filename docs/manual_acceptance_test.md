@@ -43,7 +43,8 @@ The dataset contains:
 - Leeds Bradford (`LBA`): 16 ATCOs, 17-account limit;
 - East Midlands (`EMA`): 14 ATCOs, 15-account limit;
 - Inverness (`INV`): 12 ATCOs, 13-account limit;
-- a Platform Super Admin, Unit Admin, Roster Editor and Staff User login;
+- a Platform Super Admin, Unit Admin, Roster Editor, Watch Manager, Duty Watch
+  Manager and Staff User login;
 - four rolling months of complete assignments (previous, current, next and
   two months ahead);
 - watches, shifts, leave, sickness, TOIL, overtime annotations, requirements,
@@ -182,21 +183,19 @@ Use the manifest’s `request_month`.
 | H05 | Export compliance evidence CSV. | Correct airport/month, headers and findings; no other airport data. | |
 | H06 | Compare a finding against the person’s roster sequence. | Dates and duties support the explanation. | |
 
-## I. Operational assurance and fatigue
+## I. Automatic fatigue monitoring
 
 | ID | Action | Expected result | Result |
 | --- | --- | --- | --- |
-| I01 | Open Operations for current month. | TWR/GMC/APP, endorsements, position requirements, break, achieved duty, reports and rule v1 display. | |
-| I02 | Add a position and grant an endorsement with valid dates. | Both persist and are airport-scoped. | |
-| I03 | Add/update a position requirement for a date/shift. | Assurance recalculates eligible count and shortfall. | |
-| I04 | Set a requirement above endorsed staffing. | Shortfall becomes visible and blocks publication. Restore the original value. | |
-| I05 | Add a break with end before start, then a valid break. | Invalid period is rejected; valid period persists. | |
-| I06 | Record achieved duty with a variance reason. | Actual times and variance persist; invalid negative duration is rejected. | |
-| I07 | As Staff User, submit low, high and unfit fatigue reports. | Reports are stored with clear immediate-reporting guidance. | |
-| I08 | As Unit Admin, review/close the reports with a meaningful response. | Reviewer/time/status persist; high/unfit remains a publication blocker until closed. | |
-| I09 | Create draft rule v2 with valid JSON and governance evidence. | Draft is created without changing approved v1. | |
-| I10 | Try malformed JSON and approval without evidence. | Both are rejected safely. | |
-| I11 | Approve rule v2 with effective date. | v2 is approved, v1 superseded and audit evidence retained. | |
+| I01 | As Unit Admin, open Fatigue monitoring rules from Admin. | The airport’s system and local rules display with plain-language descriptions and current limits. | |
+| I02 | Change one editable airport rule, reload, then restore it. | The change persists only for LBA and is reflected by subsequent roster evaluation. | |
+| I03 | Add a local rule with valid limits and guidance. | It appears once, is enabled for LBA and does not appear in EMA or INV. | |
+| I04 | Try malformed, incomplete and duplicate local rules. | Clear validation is shown and no partial rule is saved. | |
+| I05 | Disable and re-enable the test rule. | Disabled rules stop generating new findings; re-enabled rules resume evaluation. | |
+| I06 | Create a roster sequence that breaches a rule. | The affected roster cell shows the yellow hazard treatment. | |
+| I07 | Hover and keyboard-focus the hazard marker. | The exact breached rule and reason are available without opening a separate workflow. | |
+| I08 | Open Compliance Centre and compare the finding with the roster. | Person, dates, duties and explanation agree and remain scoped to LBA. | |
+| I09 | Export compliance evidence CSV. | The export contains the expected LBA finding and no other airport’s data. | |
 
 ## J. Coverage, scenarios and publication
 
@@ -208,7 +207,7 @@ Use the manifest’s `request_month`.
 | J04 | Open Published for the previous month. | Version 1 and release information display; one seeded acknowledgement exists. | |
 | J05 | As an unacknowledged Staff User, acknowledge previous version. | Acknowledgement records once; repeat does not duplicate it. | |
 | J06 | Open current-month publication centre. | Preflight reports configuration, competence, coverage, position, break, fatigue and acknowledgement information. | |
-| J07 | Introduce an unassigned cell, position shortfall or open high fatigue report and attempt publication. | Publication is hard-blocked. Restore the baseline. | |
+| J07 | Introduce an unassigned cell or qualification failure and attempt publication. | Publication is hard-blocked. Restore the baseline. | |
 | J08 | Attempt publication without release declaration. | Publication is refused. | |
 | J09 | If only soft exceptions remain, use a short rationale then a 20+ character rationale. | Short rationale is refused; adequate rationale plus declaration publishes version 1. | |
 | J10 | Change a roster cell and publish again. | Prior version becomes superseded; version 2 is immutable and current. | |

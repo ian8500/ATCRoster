@@ -44,14 +44,20 @@
         </div>
       </div>
       {% if current_user.is_authenticated %}
-        {% set role_label = {
-          'superadmin': 'Platform Super Admin',
-          'admin': 'Unit Administrator',
-          'editor': 'Roster Editor',
-          'watch_manager': 'Watch Manager',
-          'duty_watch_manager': 'Duty Watch Manager',
-          'user': 'Operational ATCO'
-        }.get(current_user.role, current_user.role|replace('_', ' ')|title) %}
+        {% if current_user.role == 'user' and current_user.is_wm %}
+          {% set role_label = 'Watch Manager' %}
+        {% elif current_user.role == 'user' and current_user.is_dwm %}
+          {% set role_label = 'Duty Watch Manager' %}
+        {% else %}
+          {% set role_label = {
+            'superadmin': 'Platform Super Admin',
+            'admin': 'Unit Administrator',
+            'editor': 'Roster Editor',
+            'watch_manager': 'Watch Manager',
+            'duty_watch_manager': 'Duty Watch Manager',
+            'user': 'Operational ATCO'
+          }.get(current_user.role, current_user.role|replace('_', ' ')|title) %}
+        {% endif %}
         <div class="command-context" aria-label="Current operational context">
           {% if current_unit %}
             <div class="airport-context" role="status"
@@ -95,6 +101,8 @@
               <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}"><i class="fa-solid fa-satellite-dish" aria-hidden="true"></i> Overtime Finder</a>
               <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}"><i class="fa-solid fa-user-clock" aria-hidden="true"></i> Leave / Sickness</a>
               <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Reports</a>
+            {% endif %}
+            {% if is_admin %}
               <a href="{{ url_for('compliance_centre') }}" class="nav-link {% if request.endpoint in ('compliance_centre','compliance_centre_export') %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Compliance</a>
             {% endif %}
             {% if (current_user.is_wm or current_user.is_dwm) and not (is_admin or is_editor) %}

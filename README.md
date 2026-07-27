@@ -785,7 +785,8 @@ used in production. The seed command creates:
 
 - three isolated airport tenants and a platform-control account;
 - 42 operational ATCOs across four watches;
-- Unit Admin, Roster Editor and Staff User accounts;
+- Unit Admin, Roster Editor, Watch Manager, Duty Watch Manager and Staff User
+  accounts;
 - four complete rolling roster months;
 - leave, sickness, requests, notifications, qualifications, annotations and
   TOIL examples;

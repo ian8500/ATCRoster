@@ -1368,3 +1368,34 @@ def test_unit_messages_permission_boundary(client):
         data={"username": "watch_manager_test", "password": "password123"},
     )
     assert wm_client.get("/messages").status_code == 200
+
+
+def test_primary_navigation_matches_role_permissions():
+    editor_client = app.app.test_client()
+    editor_client.post(
+        "/login",
+        data={"username": "editor_test", "password": "password123"},
+    )
+    editor_page = editor_client.get("/")
+    assert editor_page.status_code == 302
+    editor_page = editor_client.get(editor_page.headers["Location"])
+    assert b'href="/compliance-centre"' not in editor_page.data
+    assert editor_client.get("/compliance-centre").status_code == 403
+
+    wm_client = app.app.test_client()
+    wm_client.post(
+        "/login",
+        data={"username": "watch_manager_test", "password": "password123"},
+    )
+    wm_page = wm_client.get("/roster/2025-04")
+    assert wm_page.status_code == 200
+    assert b"Secure session \xc2\xb7 Watch Manager" in wm_page.data
+
+    dwm_client = app.app.test_client()
+    dwm_client.post(
+        "/login",
+        data={"username": "duty_watch_manager_test", "password": "password123"},
+    )
+    dwm_page = dwm_client.get("/roster/2025-04")
+    assert dwm_page.status_code == 200
+    assert b"Secure session \xc2\xb7 Duty Watch Manager" in dwm_page.data

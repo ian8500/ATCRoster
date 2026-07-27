@@ -219,6 +219,18 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
     assert b"Account activated" in second.data
     assert b"2 of 2" in second.data
 
+    redundant_bootstrap = super_client.post(
+        "/platform/admin",
+        data={
+            "_csrf_token": _csrf(super_client, "/platform/admin"),
+            "action": "provision_unit",
+            "unit_id": str(unit.id),
+        },
+        follow_redirects=True,
+    )
+    assert b"already has active accounts" in redundant_bootstrap.data
+    assert b"Provision / retry" not in redundant_bootstrap.data
+
     blocked = unit_client.post(
         "/unit/accounts",
         data={

@@ -120,7 +120,7 @@ def main() -> None:
         roster.db.session.add(platform_user)
         roster.db.session.flush()
         platform_identity = roster.PlatformIdentity(
-            public_id="acceptance-platform-admin",
+            public_id="platform-acceptance-admin",
             username=platform_user.username,
             password_hash=platform_user.password_hash,
         )
@@ -569,6 +569,18 @@ def main() -> None:
                     "airport": name,
                     "role": "Staff User",
                     "username": people[2].username,
+                    "password": PASSWORD,
+                },
+                {
+                    "airport": name,
+                    "role": "Watch Manager",
+                    "username": people[4].username,
+                    "password": PASSWORD,
+                },
+                {
+                    "airport": name,
+                    "role": "Duty Watch Manager",
+                    "username": people[5].username,
                     "password": PASSWORD,
                 },
             ])
