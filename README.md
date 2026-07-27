@@ -463,6 +463,11 @@ step.
   sender numbers, named operational destination numbers, and defaults in
   **Admin → SMS settings**. The Messages page preselects those defaults and
   lets the sender choose another airport-approved number.
+- Every successful unit, operational, shift-reminder, and overtime SMS is
+  retained in the airport-isolated **Admin → SMS audit**. The audit records
+  who initiated it, the actual sender and recipient numbers, delivery time,
+  message type, provider reference and exact message content. Only Unit
+  Administrators can view it; failed sends are not shown as delivered.
 - Reports include fatigue, sickness, leave year, overtime, swaps, extensions,
   and CSV exports.
 

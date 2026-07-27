@@ -224,6 +224,22 @@ def create_fresh_schema():
     )
     op.create_index('ix_special_requirement_unit_id', 'special_requirement', ['unit_id'], unique=False)
     op.create_index('ix_special_requirement_day', 'special_requirement', ['day'], unique=False)
+    op.create_table('sms_audit',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('unit_id', sa.Integer(), nullable=False),
+        sa.Column('sent_at', sa.DateTime(), nullable=False),
+        sa.Column('sent_by_staff_id', sa.Integer(), nullable=False),
+        sa.Column('sent_by_name', sa.String(80), nullable=False),
+        sa.Column('sender_number', sa.String(20), nullable=False),
+        sa.Column('recipient_number', sa.String(20), nullable=False),
+        sa.Column('recipient_label', sa.String(120), nullable=False),
+        sa.Column('message_type', sa.String(30), nullable=False),
+        sa.Column('message_content', sa.Text(), nullable=False),
+        sa.Column('provider_message_id', sa.String(64), nullable=False),
+    )
+    op.create_index('ix_sms_audit_unit_id', 'sms_audit', ['unit_id'], unique=False)
+    op.create_index('ix_sms_audit_sent_at', 'sms_audit', ['sent_at'], unique=False)
+    op.create_index('ix_sms_audit_sent_by_staff_id', 'sms_audit', ['sent_by_staff_id'], unique=False)
     op.create_table('roster_publication',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('unit_id', sa.Integer(), sa.ForeignKey('unit.id'), nullable=False),

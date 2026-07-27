@@ -50,4 +50,8 @@
     <i class="fa-solid fa-comment-sms"></i><span>SMS settings</span>
   </a>
   {% endif %}
+  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_sms_audit' %}active{% endif %}"
+     href="{{ url_for('admin_sms_audit') }}">
+    <i class="fa-solid fa-receipt"></i><span>SMS audit</span>
+  </a>
 </nav>

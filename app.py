@@ -438,7 +438,7 @@ def _not_found(_error):
 OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_setting", "annotation_type", "watch", "staff", "shift_type",
     "requirement", "special_requirement", "leave", "sickness", "assignment",
-    "shift_request",
+    "shift_request", "sms_audit",
     "request_audit", "notification", "annotation_audit", "ai_rule_set",
     "change_log", "staff_watch_history", "qualification_type",
     "person_qualification", "person_qualification_history",
@@ -977,6 +977,30 @@ def _send_sms_via_twilio(
         return False, str(exc)
 
 
+def _record_sms_audit(
+    *,
+    sender_number: str,
+    recipient_number: str,
+    recipient_label: str,
+    body: str,
+    message_type: str,
+    provider_message_id: str,
+) -> None:
+    """Persist one successful provider delivery in the airport database."""
+    db.session.add(SmsAudit(
+        unit_id=_current_unit_id(),
+        sent_by_staff_id=current_user.id,
+        sent_by_name=current_user.name,
+        sender_number=_normalise_sms_number(sender_number),
+        recipient_number=_normalise_sms_number(recipient_number),
+        recipient_label=(recipient_label or recipient_number)[:120],
+        message_type=(message_type or "unit")[:30],
+        message_content=body,
+        provider_message_id=(provider_message_id or "")[:64],
+    ))
+    db.session.commit()
+
+
 def _send_overtime_sms_notifications(
     staff_list: list["Staff"], message: str
 ) -> tuple[int, list[tuple[Optional["Staff"], str]]]:
@@ -998,6 +1022,14 @@ def _send_overtime_sms_notifications(
             staff.phone_number, message, creds, from_number
         )
         if ok:
+            _record_sms_audit(
+                sender_number=from_number,
+                recipient_number=staff.phone_number,
+                recipient_label=staff.name,
+                body=message,
+                message_type="overtime",
+                provider_message_id=detail,
+            )
             sent += 1
         else:
             failures.append((staff, detail))
@@ -1420,6 +1452,25 @@ class SpecialRequirement(db.Model):
     )
 
 
+class SmsAudit(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(
+        db.Integer, db.ForeignKey("unit.id"), nullable=False,
+        default=1, index=True,
+    )
+    sent_at = db.Column(
+        db.DateTime, nullable=False, default=utcnow, index=True
+    )
+    sent_by_staff_id = db.Column(db.Integer, nullable=False, index=True)
+    sent_by_name = db.Column(db.String(80), nullable=False)
+    sender_number = db.Column(db.String(20), nullable=False)
+    recipient_number = db.Column(db.String(20), nullable=False)
+    recipient_label = db.Column(db.String(120), nullable=False)
+    message_type = db.Column(db.String(30), nullable=False, default="unit")
+    message_content = db.Column(db.Text, nullable=False)
+    provider_message_id = db.Column(db.String(64), nullable=False, default="")
+
+
 class Leave(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
@@ -1587,7 +1638,7 @@ from tenancy import authenticated_unit_id
 
 TENANT_OPERATIONAL_MODELS = (
     RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement,
-    SpecialRequirement, Leave, Sickness,
+    SpecialRequirement, SmsAudit, Leave, Sickness,
     Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
     ChangeLog, StaffWatchHistory, QualificationType,
     PersonQualification, PersonQualificationHistory,
@@ -7264,6 +7315,14 @@ def unit_messages():
                 )
                 preview.append((person.name, body))
                 if ok:
+                    _record_sms_audit(
+                        sender_number=selected_sender,
+                        recipient_number=person.phone_number,
+                        recipient_label=person.name,
+                        body=body,
+                        message_type="shift_reminder",
+                        provider_message_id=detail,
+                    )
                     sent += 1
                 else:
                     failures.append((person, detail))
@@ -7284,6 +7343,15 @@ def unit_messages():
                 direct_recipient,
             )
             preview = [(label, message)]
+            if ok:
+                _record_sms_audit(
+                    sender_number=selected_sender,
+                    recipient_number=direct_recipient,
+                    recipient_label=label,
+                    body=message,
+                    message_type="operational",
+                    provider_message_id=detail,
+                )
             _flash_sms_result(
                 1 if ok else 0,
                 [] if ok else [(None, detail)],
@@ -7298,6 +7366,14 @@ def unit_messages():
                     from_number=selected_sender,
                 )
                 if ok:
+                    _record_sms_audit(
+                        sender_number=selected_sender,
+                        recipient_number=person.phone_number,
+                        recipient_label=person.name,
+                        body=message,
+                        message_type="unit",
+                        provider_message_id=detail,
+                    )
                     sent += 1
                 else:
                     failures.append((person, detail))
@@ -7315,6 +7391,16 @@ def unit_messages():
         selected_operational=selected_operational,
         preview=preview,
     )
+
+
+@app.route("/admin/sms-audit")
+@login_required
+@admin_required
+def admin_sms_audit():
+    rows = SmsAudit.query.order_by(
+        SmsAudit.sent_at.desc(), SmsAudit.id.desc()
+    ).limit(1000).all()
+    return render_template("admin_sms_audit.html", rows=rows)
 
 # -------------------- Calendar subscription --------------------
 
