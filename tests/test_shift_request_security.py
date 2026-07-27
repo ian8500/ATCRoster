@@ -365,6 +365,11 @@ def test_approve_only_then_apply_and_notify(secured_client):
         assert row.status == "fulfilled"
         assert db.session.get(Assignment, row.resulting_assignment_id).code == "REQ"
         assert Notification.query.filter_by(recipient_id=row.staff_id, kind="shift_request_fulfilled").count() == 1
+    roster = secured_client.get(f"/roster/{request_day():%Y-%m}")
+    assert roster.status_code == 200
+    assert b"request-applied" in roster.data
+    assert b"Applied from an approved shift request" in roster.data
+    assert b"request-applied-marker" in roster.data
 
 
 def test_simple_manager_approve_and_refuse_actions_notify_user(secured_client):

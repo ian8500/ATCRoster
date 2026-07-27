@@ -140,8 +140,13 @@
           {% set f = fatigue.get(s.id, {}).get(d) %}
           {% set ann = ann_map.get(s.id, {}).get(d, "") %}
           {% set ann_note = ann_note_map.get(s.id, {}).get(d, "") %}
+          {% set applied_request = applied_request_map.get((s.id, d)) %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
-          <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}">
+          <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
+              {% if applied_request %}title="Applied from an approved shift request" aria-label="{{ s.name }}, {{ d.strftime('%d %B %Y') }}, {{ code }}, applied from an approved shift request"{% endif %}>
+            {% if applied_request %}
+              <span class="request-applied-marker" aria-hidden="true"></span>
+            {% endif %}
             {% if f %}
               <span class="fatigue-hazard" tabindex="0" role="img"
                     aria-label="Fatigue warning: {{ f|join('; ') }}">
@@ -332,6 +337,9 @@
   <span class="roster-key-chip exp-amber" title="90 days or fewer remaining">&lt;90 days</span>
   <span class="roster-key-chip exp-red" title="The recorded date has expired">Expired</span>
   <span class="roster-key-chip exp-orange" title="Under training">UT</span>
+  <span class="roster-key-divider" aria-hidden="true"></span>
+  <span class="roster-key-chip roster-key-chip--request"
+        title="Shift applied through an approved request">Requested shift</span>
 </div>
 
 <script nonce="{{ csp_nonce() }}">
