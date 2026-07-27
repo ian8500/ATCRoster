@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Terms of use{% endblock %}
+{% block content %}
+<article class="legal-page card"><div class="card-bd">
+  <p class="admin-step">Legal information</p>
+  <h1>ATCRoster user terms</h1>
+  <p class="legal-meta">Effective {{ policy_date }}</p>
+  <p>These user terms apply alongside the agreement between {{ legal_entity }} and your airport or air traffic services unit. If they conflict, the customer agreement controls.</p>
+
+  <h2>Authorised use</h2>
+  <p>Use ATCRoster only for your authorised unit duties. Keep your credentials and MFA recovery codes secure, do not share accounts, and immediately report suspected compromise. You must not access another person's account or another unit's information, test security without written permission, introduce malicious content, or interfere with the service.</p>
+
+  <h2>Operational responsibility</h2>
+  <p>ATCRoster is a roster-management and decision-support service. Fatigue, qualification, staffing and other warnings require competent human review. The service does not replace applicable law, regulatory requirements, local safety-management systems, operational instructions or accountable management decisions. Users must verify safety-significant information before relying upon it.</p>
+
+  <h2>Accuracy and changes</h2>
+  <p>Users must enter accurate information and correct known errors promptly. Draft rosters may change. Publication status does not by itself certify regulatory compliance or operational fitness.</p>
+
+  <h2>Communications</h2>
+  <p>Operational email and SMS must be relevant, proportionate and sent only by authorised roles. Do not include unnecessary medical or sensitive information in message content. Delivery is not guaranteed; urgent or safety-critical communication requires the unit's approved primary method and confirmation process.</p>
+
+  <h2>Availability and support</h2>
+  <p>The service may be interrupted for maintenance, security, provider outages or circumstances outside reasonable control. Support, availability commitments, data export, suspension and termination are governed by the customer agreement.</p>
+
+  <h2>Intellectual property</h2>
+  <p>{{ legal_entity }} and its licensors retain rights in ATCRoster and its software. Customers and users retain rights in information they lawfully provide. No right is granted to copy, resell, reverse engineer or create a competing service from protected elements except where law cannot exclude that right.</p>
+
+  <h2>Privacy</h2>
+  <p>See the <a href="{{ url_for('privacy_notice') }}">privacy notice</a> and your unit's workforce privacy information.</p>
+
+  <h2>Contact</h2>
+  {% if privacy_email %}<p>Contact <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>.</p>{% else %}<p>Contact your Unit Administrator, who can escalate the matter to {{ legal_entity }}.</p>{% endif %}
+</div></article>
+{% endblock %}

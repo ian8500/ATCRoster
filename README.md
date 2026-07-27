@@ -29,6 +29,15 @@ aggregates only.
 
 ## Roles and privacy
 
+Public legal information is available without signing in at `/privacy`,
+`/cookies`, `/terms`, and `/subprocessors`. The controller/processor agreement,
+DPIA, retention schedule, rights procedure, special-category policy, incident
+procedure, and launch-owner actions are maintained in
+[`docs/legal`](docs/legal/README.md). The airport/ATS unit normally controls its
+workforce and operational records; IDAviation normally processes those records
+to provide ATCRoster and separately controls limited platform-security,
+support, contracting, and billing records.
+
 | Role | Intended access |
 | --- | --- |
 | `SuperAdmin` | Airport account metadata, plans, feature flags, database health, migration state, storage, and aggregate activity. No personnel or roster data. |
@@ -869,6 +878,23 @@ acceptance and evidence plan.
 
 Deployment, monitoring, backup, restore, incident and upgrade procedures are
 in [docs/production_runbook.md](docs/production_runbook.md).
+
+The visual language, component hierarchy, colour roles and responsive rules are
+defined in the [interface design system](docs/design_system.md). New UI work
+must preserve its restrained operational appearance and the distinct semantic
+colours used by the roster.
+
+Live-service ownership, monitoring/alerting, support, incident communications
+and controlled release procedures are collected in the
+[production operations pack](docs/operations/README.md). A scheduled
+production health probe checks the public live, ready and login endpoints; a
+dedicated pager/status service is still required for a contractual service.
+
+Pricing assumptions, customer onboarding, training, demo, draft service levels,
+customer readiness and a customer-facing assurance summary are collected in
+the [commercial-launch pack](docs/commercial/README.md). Draft prices and
+service targets are not approved offers until costs, coverage and legal review
+are complete.
 
 The accountable-manager product assessment and remaining operational roadmap
 are recorded in [docs/atc_manager_review.md](docs/atc_manager_review.md).

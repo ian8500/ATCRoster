@@ -39,6 +39,36 @@ from app import (
 ADMIN_CREDENTIALS = {"username": "admin_test", "password": "password123"}
 
 
+@pytest.mark.parametrize(
+    "path, expected",
+    [
+        ("/privacy", b"ATCRoster privacy notice"),
+        ("/cookies", b"Cookie and local-storage notice"),
+        ("/terms", b"ATCRoster user terms"),
+        ("/subprocessors", b"ATCRoster subprocessors"),
+    ],
+)
+def test_public_legal_pages(client, path, expected):
+    response = client.get(path)
+    assert response.status_code == 200
+    assert expected in response.data
+
+
+def test_privacy_notice_identifies_operator_and_contact(client):
+    response = client.get("/privacy")
+    assert response.status_code == 200
+    assert b"Ian John Dickson trading as IDAviation" in response.data
+    assert b"Flat 0/2, 24 Caird Drive" in response.data
+    assert b"privacy@atcroster.com" in response.data
+
+
+def test_public_shell_uses_local_professional_branding(client):
+    response = client.get("/login")
+    assert response.status_code == 200
+    assert b'<span class="brand-mark" aria-hidden="true"><span>AR</span>' in response.data
+    assert b"fonts.googleapis.com" not in response.data
+
+
 @pytest.fixture(scope="module", autouse=True)
 def setup_database():
     with app.app.app_context():

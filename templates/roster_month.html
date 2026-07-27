@@ -1,6 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Roster {{ month_title }}{% endblock %}
 
+{% macro annotation_badge(staff, roster_day, value, detail, editable, shift_line=false) -%}
+  {% set dialog_id = 'annotation-detail-' ~ staff.id ~ '-' ~ roster_day.strftime('%Y%m%d') %}
+  <div class="annotation-display{% if shift_line %} annotation-display--shift-line{% endif %}">
+    <span class="annotation-code" tabindex="0"
+          {% if detail %}title="{{ detail }}"{% endif %}
+          aria-label="{{ value }}{% if detail %}: {{ detail }}{% endif %}">{{ value }}</span>
+    {% if editable %}
+      <button type="button" class="annotation-edit-button"
+              data-annotation-dialog-open="{{ dialog_id }}"
+              title="{% if detail %}Edit annotation text{% else %}Add annotation text{% endif %}"
+              aria-label="{% if detail %}Edit text for {{ value }}{% else %}Add text for {{ value }}{% endif %}">
+        <i class="fa-solid fa-pencil" aria-hidden="true"></i>
+      </button>
+      <dialog class="annotation-dialog" id="{{ dialog_id }}"
+              aria-labelledby="{{ dialog_id }}-title">
+        <form method="post" action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="annotation" value="{{ value }}">
+          <input type="hidden" name="annotation_detail_update" value="1">
+          <div class="annotation-dialog__header">
+            <div>
+              <span class="admin-step">Annotation text</span>
+              <h3 id="{{ dialog_id }}-title">{{ staff.name }} · {{ roster_day.strftime('%d %B %Y') }}</h3>
+            </div>
+            <button type="button" class="annotation-dialog__close"
+                    data-annotation-dialog-close aria-label="Close annotation editor">×</button>
+          </div>
+          <label for="{{ dialog_id }}-text">Text shown when the {{ value }} annotation is hovered over</label>
+          <textarea id="{{ dialog_id }}-text" name="annotation_note" maxlength="140"
+                    rows="6" placeholder="Add clear, concise context for this annotation">{{ detail }}</textarea>
+          <div class="annotation-dialog__count"><span data-annotation-character-count>{{ detail|length }}</span>/140 characters</div>
+          <div class="annotation-dialog__actions">
+            <button type="button" class="btn btn-sm" data-annotation-dialog-close>Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm">Save text</button>
+          </div>
+        </form>
+      </dialog>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
 {% block content %}
 <style>
   :root { --today-col: rgba(255,255,0,.85); }
@@ -157,7 +198,10 @@
                 </span>
               </span>
             {% endif %}
-            <!-- SHIFT CODE -->
+            <!-- SHIFT CODE (an annotation occupies this line when no shift exists) -->
+            {% if ann and not code %}
+              {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly, true) }}
+            {% else %}
             <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
@@ -194,6 +238,7 @@
                 </optgroup>
               </select>
             </form>
+            {% endif %}
 
             {% set req_info = req_pending_map.get((s.id, d)) %}
             {% if req_info %}
@@ -235,27 +280,8 @@
                      aria-label="{{ s.name }} annotation note on {{ d.strftime('%d %B %Y') }}">
               <button type="submit" class="btn btn-sm annotation-apply" hidden>Apply annotation</button>
             </form>
-            {% if ann %}
-              <div class="annotation-display">
-                <span class="annotation-code" tabindex="0"
-                      {% if ann_note %}title="{{ ann_note }}"{% endif %}
-                      aria-label="{{ ann }}{% if ann_note %}: {{ ann_note }}{% endif %}">{{ ann }}</span>
-                {% if can_edit and not readonly %}
-                  <details class="annotation-detail-editor">
-                    <summary title="{% if ann_note %}Edit annotation detail{% else %}Add annotation detail{% endif %}"
-                             aria-label="{% if ann_note %}Edit detail for {{ ann }}{% else %}Add detail for {{ ann }}{% endif %}">✎</summary>
-                    <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
-                      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                      <input type="hidden" name="annotation" value="{{ ann }}">
-                      <input type="hidden" name="annotation_detail_update" value="1">
-                      <textarea name="annotation_note" maxlength="140" rows="2"
-                                placeholder="Optional detail shown on hover"
-                                aria-label="Detail for {{ ann }}">{{ ann_note }}</textarea>
-                      <button type="submit" class="btn btn-sm">Save</button>
-                    </form>
-                  </details>
-                {% endif %}
-              </div>
+            {% if ann and code %}
+              {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly) }}
             {% endif %}
           </td>
         {% endfor %}
@@ -356,6 +382,29 @@
       note.required = needsNote;
       if (needsNote) note.focus();
       else form.requestSubmit();
+    });
+  });
+  document.querySelectorAll('[data-annotation-dialog-open]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const dialog = document.getElementById(button.dataset.annotationDialogOpen);
+      if (!dialog) return;
+      dialog.showModal();
+      const textarea = dialog.querySelector('textarea');
+      textarea?.focus();
+      textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+    });
+  });
+  document.querySelectorAll('.annotation-dialog').forEach((dialog) => {
+    dialog.querySelectorAll('[data-annotation-dialog-close]').forEach((button) => {
+      button.addEventListener('click', () => dialog.close());
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    const textarea = dialog.querySelector('textarea');
+    const counter = dialog.querySelector('[data-annotation-character-count]');
+    textarea?.addEventListener('input', () => {
+      if (counter) counter.textContent = textarea.value.length;
     });
   });
 </script>

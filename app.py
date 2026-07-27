@@ -312,6 +312,50 @@ def favicon():
     )
 
 
+def _legal_context() -> dict[str, str]:
+    """Public contact details used by the legal and privacy notices."""
+    return {
+        "legal_entity": os.environ.get(
+            "ATCROSTER_LEGAL_ENTITY",
+            "Ian John Dickson trading as IDAviation",
+        ).strip(),
+        "privacy_email": os.environ.get(
+            "ATCROSTER_PRIVACY_EMAIL",
+            os.environ.get(
+                "ATCROSTER_SUPPORT_EMAIL", "privacy@atcroster.com"
+            ),
+        ).strip(),
+        "legal_address": os.environ.get(
+            "ATCROSTER_LEGAL_ADDRESS",
+            "Flat 0/2, 24 Caird Drive, Glasgow, Scotland, G11 5DT",
+        ).strip(),
+        "company_number": os.environ.get(
+            "ATCROSTER_COMPANY_NUMBER", ""
+        ).strip(),
+        "policy_date": "27 July 2026",
+    }
+
+
+@app.get("/privacy")
+def privacy_notice():
+    return render_template("privacy.html", **_legal_context())
+
+
+@app.get("/cookies")
+def cookie_notice():
+    return render_template("cookies.html", **_legal_context())
+
+
+@app.get("/terms")
+def terms_of_service():
+    return render_template("terms.html", **_legal_context())
+
+
+@app.get("/subprocessors")
+def subprocessor_notice():
+    return render_template("subprocessors.html", **_legal_context())
+
+
 @app.get("/health/live")
 def health_live():
     return jsonify({
@@ -5064,6 +5108,7 @@ def assign_cell(staff_id, ym, day):
         if not can_apply_annotations(current_user):
             abort(403)
         old = a.annotation or ""
+        old_annotation_note = a.annotation_note or ""
         newv = (annot or "").strip().upper()
         if newv == "__REMOVE__":
             newv = ""
@@ -5113,6 +5158,17 @@ def assign_cell(staff_id, ym, day):
             ))
         elif note_was_posted:
             a.annotation_note = annotation_note
+            if old_annotation_note != annotation_note:
+                db.session.flush()
+                db.session.add(AnnotationAudit(
+                    unit_id=unit_id,
+                    annotation_type_id=ann_def.id if ann_def else None,
+                    assignment_id=a.id,
+                    actor_id=current_user.id,
+                    action="detail_updated",
+                    old_value=old_annotation_note,
+                    new_value=annotation_note,
+                ))
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))

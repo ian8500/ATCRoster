@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Privacy notice{% endblock %}
+{% block content %}
+<article class="legal-page card">
+  <div class="card-bd">
+    <p class="admin-step">Legal information</p>
+    <h1>ATCRoster privacy notice</h1>
+    <p class="legal-meta">Effective {{ policy_date }}</p>
+
+    <h2>Who is responsible for your information?</h2>
+    <p>Your airport or air traffic services unit decides why operational and employment information is entered into ATCRoster and is normally the data controller. {{ legal_entity }} supplies and operates ATCRoster on the unit's instructions and is normally its data processor.</p>
+    <p>{{ legal_entity }} is separately a controller for limited platform administration, account security, service support, billing and legal-compliance information.</p>
+
+    <h2>Information processed</h2>
+    <ul>
+      <li>identity and work details, including name, username, staff number, role, watch and airport;</li>
+      <li>contact details, including email address and telephone number;</li>
+      <li>rosters, shift requests, annotations, overtime, TOIL, leave and availability;</li>
+      <li>qualification, endorsement, medical-validity and training status;</li>
+      <li>sickness and absence records, which may constitute health information;</li>
+      <li>account, MFA, invitation, recovery, login, audit and security records;</li>
+      <li>SMS delivery records, including sender, recipient, time and message content; and</li>
+      <li>technical records such as IP address, browser information and service logs where required for security and reliability.</li>
+    </ul>
+
+    <h2>Purposes and lawful bases</h2>
+    <p>Your unit determines its lawful bases and any additional condition required for health information. Typical purposes include managing staffing, operational competence, fatigue risk, leave, absence, communications and legal or employment obligations. Ask your unit for its workforce privacy notice for the exact bases it relies upon.</p>
+    <p>{{ legal_entity }} processes unit information to provide, secure, support and maintain the contracted service. For its own limited controller activities it relies, as applicable, on performance of a contract, legitimate interests in operating and securing the service, and compliance with legal obligations.</p>
+
+    <h2>Who receives information?</h2>
+    <p>Information is available only to authorised users according to their unit and role. Service providers may process limited information to host the platform, deliver email or SMS, operate infrastructure, create backups and provide support. The current provider list is published on the <a href="{{ url_for('subprocessor_notice') }}">subprocessors page</a>.</p>
+    <p>Information may also be disclosed where required by law, to protect legal rights, or to investigate a security incident.</p>
+
+    <h2>International transfers</h2>
+    <p>Some service providers may process information outside the United Kingdom. {{ legal_entity }} will use an applicable UK transfer safeguard and transfer-risk assessment where required. Airport customers should review the subprocessor list before enabling optional communications services.</p>
+
+    <h2>Retention and deletion</h2>
+    <p>Your unit sets retention periods for operational, employment and health records. {{ legal_entity }} retains information only for the contracted service, security, support and legal purposes, then returns, deletes or anonymises it in accordance with the contract and documented instructions. Backup copies expire through the applicable backup-retention cycle.</p>
+
+    <h2>Security</h2>
+    <p>Safeguards include tenant separation, role-based permissions, password hashing, MFA support, encrypted secrets, protected session cookies, audit logging, transport encryption and controlled database access. No online service can guarantee absolute security.</p>
+
+    <h2>Your rights</h2>
+    <p>Depending on the circumstances, you may have rights of access, correction, erasure, restriction, objection and data portability, and the right to complain to the Information Commissioner's Office. Contact your unit first about operational or employment records because it controls that information. The unit can refer technical requests to {{ legal_entity }}.</p>
+
+    <h2>Contact</h2>
+    {% if privacy_email %}<p>Email {{ legal_entity }} at <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>.</p>{% else %}<p>Contact your Unit Administrator and ask for the request to be escalated to {{ legal_entity }}. A public privacy email must be configured before commercial launch.</p>{% endif %}
+    {% if legal_address %}<p>{{ legal_address }}</p>{% endif %}
+    {% if company_number %}<p>Company number: {{ company_number }}</p>{% endif %}
+    <p>You can complain to the <a href="https://ico.org.uk/make-a-complaint/" rel="external">Information Commissioner's Office</a>.</p>
+
+    <h2>Changes</h2>
+    <p>Material changes will be posted here and, where appropriate, communicated to airport customers before they take effect.</p>
+  </div>
+</article>
+{% endblock %}
