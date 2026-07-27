@@ -4589,6 +4589,57 @@ def _publication_preflight(year: int, month: int) -> dict:
     }
 
 
+def _send_roster_publication_emails(
+    unit_id: int,
+    year: int,
+    month: int,
+    published_at: datetime,
+) -> tuple[int, int, int]:
+    """Email each registered unit user without exposing recipient addresses."""
+    recipients = (
+        Staff.query
+        .filter(
+            Staff.unit_id == unit_id,
+            Staff.membership_status == "active",
+            Staff.email.isnot(None),
+            Staff.email != "",
+        )
+        .order_by(Staff.name)
+        .all()
+    )
+    unit = db.session.get(Unit, unit_id)
+    unit_name = (unit.name or unit.code) if unit else "your airport"
+    month_name = date(year, month, 1).strftime("%B %Y")
+    roster_url = url_for(
+        "roster_month", ym=f"{year:04d}-{month:02d}", _external=True
+    )
+    subject = f"{month_name} roster published — {unit_name}"
+    sent = 0
+    failed = 0
+    unique_addresses: set[str] = set()
+
+    for person in recipients:
+        address = _valid_email(person.email)
+        if not address or address in unique_addresses:
+            continue
+        unique_addresses.add(address)
+        body = (
+            f"Hello {person.name},\n\n"
+            f"The {month_name} roster for {unit_name} was published on "
+            f"{published_at.strftime('%d %B %Y')}.\n\n"
+            f"View the roster: {roster_url}\n\n"
+            "Please sign in to ATC Roster to review your duties. If you "
+            "believe anything is incorrect, contact your unit management "
+            "team.\n"
+        )
+        if _send_account_email(address, subject, body):
+            sent += 1
+        else:
+            failed += 1
+
+    return sent, failed, len(unique_addresses)
+
+
 @app.route("/roster/<ym>/publish", methods=["POST"])
 @login_required
 def roster_month_publish(ym):
@@ -4654,6 +4705,17 @@ def roster_month_publish(ym):
                 ),
             ))
     db.session.commit()
+    email_sent, email_failed, email_recipients = (
+        _send_roster_publication_emails(
+            unit_id, year, month, published_at
+        )
+    )
+    if email_failed:
+        app.logger.warning(
+            "roster_publication_email_delivery_incomplete "
+            "unit_id=%s year=%s month=%s sent=%s failed=%s",
+            unit_id, year, month, email_sent, email_failed,
+        )
     log_change(
         "RosterPublication",
         publication.id,
@@ -4663,7 +4725,24 @@ def roster_month_publish(ym):
         note=f"Published directly from the monthly roster by {current_user.name}.",
         context_day=date(year, month, 1),
     )
-    flash(f"{date(year, month, 1).strftime('%B %Y')} roster published.", "ok")
+    publication_message = (
+        f"{date(year, month, 1).strftime('%B %Y')} roster published."
+    )
+    if email_recipients:
+        publication_message += (
+            f" Email sent to {email_sent} registered "
+            f"user{'s' if email_sent != 1 else ''}."
+        )
+        if email_failed:
+            publication_message += (
+                f" {email_failed} email"
+                f"{'s' if email_failed != 1 else ''} could not be delivered."
+            )
+    else:
+        publication_message += (
+            " No registered users have an email address."
+        )
+    flash(publication_message, "ok" if not email_failed else "warning")
     return redirect(url_for("roster_month", ym=ym))
 
 

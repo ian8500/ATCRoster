@@ -507,6 +507,44 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         assert b"Published roster" in response.data
 
 
+def test_roster_publication_emails_every_registered_unit_user(
+    client, monkeypatch,
+):
+    login(client)
+    with app.app.app_context():
+        Staff.query.filter_by(unit_id=1).update({"email": ""})
+        admin = Staff.query.filter_by(
+            unit_id=1, username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        staff = Staff.query.filter_by(
+            unit_id=1, username="staff_test"
+        ).one()
+        admin.email = "publishing.admin@example.test"
+        staff.email = "registered.user@example.test"
+        db.session.commit()
+
+    delivered = []
+
+    def capture_email(address, subject, body):
+        delivered.append((address, subject, body))
+        return True
+
+    monkeypatch.setattr(app, "_send_account_email", capture_email)
+    response = client.post(
+        "/roster/2025-07/publish",
+        data={"_csrf_token": csrf(client)},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Email sent to 2 registered users." in response.data
+    assert {row[0] for row in delivered} == {
+        "publishing.admin@example.test",
+        "registered.user@example.test",
+    }
+    assert all("July 2025 roster published" in row[1] for row in delivered)
+    assert all("/roster/2025-07" in row[2] for row in delivered)
+
+
 def test_security_headers_are_present(client):
     response = client.get("/login")
     assert response.headers["X-Content-Type-Options"] == "nosniff"
