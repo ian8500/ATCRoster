@@ -12,7 +12,9 @@
               data-annotation-dialog-open="{{ dialog_id }}"
               title="{% if detail %}Edit annotation text{% else %}Add annotation text{% endif %}"
               aria-label="{% if detail %}Edit text for {{ value }}{% else %}Add text for {{ value }}{% endif %}">
-        <i class="fa-solid fa-pencil" aria-hidden="true"></i>
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M11.9 1.4a1.5 1.5 0 0 1 2.1 0l.6.6a1.5 1.5 0 0 1 0 2.1L6 12.7 2.4 13.6l.9-3.6 8.6-8.6ZM4.2 10.5l-.4 1.7 1.7-.4 7.4-7.4-1.3-1.3-7.4 7.4Z"/>
+        </svg>
       </button>
       <form class="annotation-remove-form" method="post"
             action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
@@ -209,7 +211,7 @@
             {% if ann and not code %}
               {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly, true) }}
             {% else %}
-            <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+            <form class="shift-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
                 name="code"
