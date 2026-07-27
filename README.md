@@ -879,6 +879,11 @@ acceptance and evidence plan.
 Deployment, monitoring, backup, restore, incident and upgrade procedures are
 in [docs/production_runbook.md](docs/production_runbook.md).
 
+The visual language, component hierarchy, colour roles and responsive rules are
+defined in the [interface design system](docs/design_system.md). New UI work
+must preserve its restrained operational appearance and the distinct semantic
+colours used by the roster.
+
 Live-service ownership, monitoring/alerting, support, incident communications
 and controlled release procedures are collected in the
 [production operations pack](docs/operations/README.md). A scheduled

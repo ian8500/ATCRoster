@@ -62,6 +62,13 @@ def test_privacy_notice_identifies_operator_and_contact(client):
     assert b"privacy@atcroster.com" in response.data
 
 
+def test_public_shell_uses_local_professional_branding(client):
+    response = client.get("/login")
+    assert response.status_code == 200
+    assert b'<span class="brand-mark" aria-hidden="true"><span>AR</span>' in response.data
+    assert b"fonts.googleapis.com" not in response.data
+
+
 @pytest.fixture(scope="module", autouse=True)
 def setup_database():
     with app.app.app_context():
