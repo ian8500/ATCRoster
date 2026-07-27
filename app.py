@@ -1666,14 +1666,37 @@ def shift_counter_group(
     value = (code or "").strip().upper()
     if not value:
         return ""
-    mapping = get_shift_counter_map(unit_id)
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    mapping = get_shift_counter_map(resolved_unit_id)
     if value in mapping:
         return mapping[value]
+    # Legacy default grouping is only valid for a working shift that actually
+    # exists for this airport. Pattern letters are not, by themselves, enough
+    # to claim that somebody is covering that staffing group.
+    shift = get_shift(value, resolved_unit_id)
+    if (
+        not shift
+        or not shift.is_active
+        or not shift.is_working
+        or shift.is_training
+    ):
+        return ""
     if value == "EM":
         return "M"
     if value == "LA":
         return "A"
     return value if value in {"M", "D", "A", "N"} else ""
+
+
+def shift_counter_group_for_day(
+    code: str | None, on_date: date, unit_id: int | None = None
+) -> str:
+    """Return the staffing group, suppressing nights when the unit is closed."""
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    group = shift_counter_group(code, resolved_unit_id)
+    if group == "N" and not _night_active_on(resolved_unit_id, on_date):
+        return ""
+    return group
 
 
 @lru_cache(maxsize=128)
@@ -2179,12 +2202,18 @@ def _pattern_context(staff: Staff, on_date: date) -> tuple[list[str], date]:
         personal = _validated_pattern(staff.pattern_csv)
         if personal:
             return personal, staff.pattern_anchor or on_date
+    unit_pattern, unit_anchor = _unit_pattern_context(staff.unit_id)
     watch = _effective_watch(staff, on_date)
     if watch:
         watch_pattern = _validated_pattern(watch.pattern_csv)
-        if watch_pattern:
-            return watch_pattern, watch.pattern_anchor or on_date
-    return _unit_pattern_context(staff.unit_id)
+        # A watch anchor phases both a watch-specific pattern and the inherited
+        # unit pattern. This is what makes two watches on the same base cycle
+        # start on different cycle days.
+        return (
+            watch_pattern or unit_pattern,
+            watch.pattern_anchor or unit_anchor,
+        )
+    return unit_pattern, unit_anchor
 
 
 def pattern_for(staff: Staff, on_date: date | None = None):
@@ -4246,8 +4275,8 @@ def _publication_preflight(year: int, month: int) -> dict:
                 shift and shift.is_working and not shift.is_training
                 and assignment.code not in get_exclude_from_counters()
             ):
-                group = shift_counter_group(
-                    assignment.code, _current_unit_id()
+                group = shift_counter_group_for_day(
+                    assignment.code, day, _current_unit_id()
                 )
                 if group:
                     counts[day][group] += 1
@@ -4255,7 +4284,15 @@ def _publication_preflight(year: int, month: int) -> dict:
     coverage_gaps = []
     for day in days:
         for group in ("M", "D", "A", "N"):
-            needed = int(getattr(requirement, f"req_{group.lower()}", 0) or 0)
+            needed = (
+                0
+                if group == "N" and not _night_active_on(
+                    _current_unit_id(), day
+                )
+                else int(
+                    getattr(requirement, f"req_{group.lower()}", 0) or 0
+                )
+            )
             available = counts[day][group]
             if available < needed:
                 coverage_gaps.append({
@@ -4592,7 +4629,7 @@ def roster_month(ym):
             # Explicit exclusions
             if c in ("AL", "NOPS"):
                 continue
-            grp = shift_counter_group(c, unit_id)
+            grp = shift_counter_group_for_day(c, d, unit_id)
             if grp:
                 counters[d][grp] += 1
     rag = {}
@@ -4863,7 +4900,9 @@ def roster_export_csv(ym):
             sh = get_shift(c) if c else None
             if not c or not sh or sh.is_training:
                 continue
-            grp = shift_counter_group(c, _current_unit_id())
+            grp = shift_counter_group_for_day(
+                c, d, _current_unit_id()
+            )
             if grp:
                 counters[d][grp] += 1
 
@@ -4874,7 +4913,13 @@ def roster_export_csv(ym):
         rag[d] = {}
         for code in ("M", "D", "A", "N"):
             have = counters[d][code]
-            need = getattr(req, f"req_{code.lower()}") if req else 0
+            need = (
+                0
+                if code == "N" and not _night_active_on(
+                    _current_unit_id(), d
+                )
+                else getattr(req, f"req_{code.lower()}") if req else 0
+            )
             rag[d][code] = (
                 "green" if have >= need
                 else ("amber" if have >= max(0, need - 1) else "red")
@@ -9484,8 +9529,8 @@ def coverage_heatmap(ym):
         shift = ShiftType.query.filter_by(
             unit_id=_current_unit_id(), code=assignment.code
         ).first()
-        group = shift_counter_group(
-            assignment.code, _current_unit_id()
+        group = shift_counter_group_for_day(
+            assignment.code, assignment.day, _current_unit_id()
         )
         if not group:
             continue

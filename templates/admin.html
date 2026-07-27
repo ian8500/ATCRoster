@@ -85,7 +85,7 @@
               <button type="button" class="btn btn-sm" data-clear-pattern>Use unit pattern</button>
             </div>
           </div>
-          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor" value="{{ watch.pattern_anchor.isoformat() if watch.pattern_anchor else '' }}"><small>Required only when this watch has its own pattern.</small></label>
+          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor" value="{{ watch.pattern_anchor.isoformat() if watch.pattern_anchor else '' }}"><small>This phases the watch even when it inherits the unit pattern.</small></label>
           <button class="btn btn-primary" type="submit">Save {{ watch.name }}</button>
         </form>
         <form method="post" class="admin-danger-action" data-confirm="Delete {{ watch.name }}?">
@@ -113,7 +113,7 @@
               <button type="button" class="btn btn-sm" data-clear-pattern>Clear</button>
             </div>
           </div>
-          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor"></label>
+          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor"><small>This phases either the unit pattern or the optional watch pattern.</small></label>
           <button class="btn btn-primary" type="submit">Add watch</button>
         </form>
       </article>

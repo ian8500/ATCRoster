@@ -1105,6 +1105,38 @@ def test_admin_can_map_created_shifts_to_roster_counts(client):
         app.refresh_roster_settings_cache()
 
 
+def test_counter_requires_created_shift_and_respects_closed_nights(client):
+    monday = date(2026, 7, 27)
+    tuesday = date(2026, 7, 28)
+    with app.app.app_context():
+        night_setting = app.RosterSetting.query.filter_by(
+            unit_id=1, key="night_active_weekdays"
+        ).first()
+        if not night_setting:
+            night_setting = app.RosterSetting(
+                unit_id=1, key="night_active_weekdays"
+            )
+            db.session.add(night_setting)
+        night_setting.value = "0"
+        mapping_setting = app.RosterSetting.query.filter_by(
+            unit_id=1, key="shift_counter_map"
+        ).first()
+        if not mapping_setting:
+            mapping_setting = app.RosterSetting(
+                unit_id=1, key="shift_counter_map"
+            )
+            db.session.add(mapping_setting)
+        mapping = json.loads(mapping_setting.value or "{}")
+        mapping["N"] = "N"
+        mapping_setting.value = json.dumps(mapping)
+        db.session.commit()
+        app.refresh_roster_settings_cache()
+
+        assert app.shift_counter_group_for_day("N", monday, 1) == "N"
+        assert app.shift_counter_group_for_day("N", tuesday, 1) == ""
+        assert app.shift_counter_group("UNCREATED", 1) == ""
+
+
 def test_manual_toil_form_submits_and_can_add_or_deduct(client):
     login(client)
     with app.app.app_context():
@@ -1299,9 +1331,15 @@ def test_unit_watch_and_personal_pattern_inheritance(client):
         )
         person.set_password("password123")
         db.session.add(person)
-        db.session.add(app.RosterSetting(
-            unit_id=1, key="night_active_weekdays", value="0"
-        ))
+        night_setting = app.RosterSetting.query.filter_by(
+            unit_id=1, key="night_active_weekdays"
+        ).first()
+        if not night_setting:
+            night_setting = app.RosterSetting(
+                unit_id=1, key="night_active_weekdays"
+            )
+            db.session.add(night_setting)
+        night_setting.value = "0"
         db.session.commit()
         app.refresh_roster_settings_cache()
 
@@ -1315,6 +1353,26 @@ def test_unit_watch_and_personal_pattern_inheritance(client):
             effective_date=date(2026, 7, 28),
         ))
         db.session.commit()
+        assert app.code_from_pattern(
+            person, date(2026, 7, 28)
+        ) == "A"
+
+        watch_a.pattern_csv = ""
+        watch_a.pattern_anchor = anchor
+        for key, value in (
+            ("base_pattern_csv", "M,A,OFF"),
+            ("base_pattern_anchor", "2026-07-26"),
+        ):
+            setting = app.RosterSetting.query.filter_by(
+                unit_id=1, key=key
+            ).first()
+            if not setting:
+                setting = app.RosterSetting(unit_id=1, key=key)
+                db.session.add(setting)
+            setting.value = value
+        db.session.commit()
+        app.refresh_roster_settings_cache()
+        assert app.code_from_pattern(person, anchor) == "M"
         assert app.code_from_pattern(
             person, date(2026, 7, 28)
         ) == "A"

@@ -146,8 +146,9 @@ Configure the repeating roster in **Admin → Roster setup**:
 2. Select the weekdays on which the unit operates a night duty. An `N` that
    falls on a closed night is displayed as `OFF` without shifting the
    underlying cycle.
-3. Add and name the required watches. A watch may inherit the unit pattern or
-   define its own pattern and day-1 date.
+3. Add and name the required watches. Every watch has its own day-1 date,
+   which phases the inherited unit pattern; a watch may instead define a
+   different pattern while retaining that watch-specific phase.
 
 Pattern precedence is **personal ATCO override → effective watch pattern →
 unit base pattern**. Personal patterns are configured on the ATCO profile and
@@ -157,7 +158,9 @@ The roster footer does not infer custom codes by their first letter. In
 **Admin → Shifts → Roster count mapping**, explicitly map each operational
 shift to `M`, `D`, `A`, or `N`; map leave, training, standby and support codes
 to **Not counted**. The same mapping is used by the on-screen totals, CSV
-export, coverage heatmap and publication readiness checks.
+export, coverage heatmap and publication readiness checks. A pattern letter
+does not count unless the airport has created the corresponding working shift,
+and Night totals are suppressed on weekdays when night operations are closed.
 
 To move an ATCO, open their Admin profile and use **Schedule a watch move**.
 On the effective date, roster generation picks up the new watch and its
