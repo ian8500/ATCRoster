@@ -145,9 +145,7 @@ def main() -> None:
             raise SystemExit(
                 f"Unit {unit_id} operational database must differ from control."
             )
-        version = upgrade_database(
-            operational_url, "operational", unit_id=unit_id
-        )
+        version = upgrade_database(operational_url, "operational", unit_id=unit_id)
         print(f"Operational database for unit {unit_id} upgraded to {version}.")
 
 
