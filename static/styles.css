@@ -917,6 +917,23 @@ select.code-input{
   height:calc(28px * var(--ui-scale));
   margin-top:0;
 }
+.annotation-display--has-detail{
+  background:#ffeb3b;
+  color:#171717;
+}
+.annotation-display--has-detail .annotation-code{
+  border-color:transparent;
+  background:transparent;
+}
+.annotation-display--has-detail .annotation-edit-button,
+.annotation-display--has-detail .annotation-remove-form button{
+  color:#2d2d2d;
+}
+.annotation-display--has-detail .annotation-edit-button:hover,
+.annotation-display--has-detail .annotation-edit-button:focus-visible{
+  background:rgba(0,0,0,.12);
+  color:#000;
+}
 .annotation-code{
   display:inline-block;
   max-width:calc(100% - 17px);
