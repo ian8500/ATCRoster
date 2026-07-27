@@ -10,13 +10,55 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
 
 
-def upgrade_database(database_url: str, schema_role: str) -> str:
+def _ensure_info_annotation(database_url: str, unit_id: int) -> None:
+    """Idempotently seed the non-reportable INFO annotation."""
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.begin() as connection:
+            if "annotation_type" not in inspect(connection).get_table_names():
+                return
+            exists = connection.execute(
+                text(
+                    "SELECT 1 FROM annotation_type "
+                    "WHERE unit_id = :unit_id AND code = 'INFO'"
+                ),
+                {"unit_id": unit_id},
+            ).first()
+            if exists:
+                return
+            connection.execute(
+                text(
+                    "INSERT INTO annotation_type "
+                    "(unit_id, code, label, category, colour, description, "
+                    "allow_suffix, suffixes, toil_half_days, tags, "
+                    "note_required, admin_only, has_been_used, is_active, "
+                    "sort_order) VALUES "
+                    "(:unit_id, 'INFO', 'Information', 'Information', "
+                    "'#6c757d', :description, false, '', 0, "
+                    "'info,report_exclude', false, false, false, true, 0)"
+                ),
+                {
+                    "unit_id": unit_id,
+                    "description": (
+                        "Additional roster information. Excluded from reports."
+                    ),
+                },
+            )
+    finally:
+        engine.dispose()
+
+
+def upgrade_database(
+    database_url: str,
+    schema_role: str,
+    unit_id: int | None = None,
+) -> str:
     if schema_role not in {"control", "operational", "combined"}:
         raise ValueError("schema_role must be control, operational, or combined")
     if (
@@ -32,6 +74,8 @@ def upgrade_database(database_url: str, schema_role: str) -> str:
         config = Config(str(REPOSITORY / "alembic.ini"))
         config.set_main_option("script_location", str(REPOSITORY / "migrations"))
         command.upgrade(config, "head")
+        if schema_role == "operational" and unit_id:
+            _ensure_info_annotation(database_url, unit_id)
         engine = create_engine(database_url, pool_pre_ping=True)
         try:
             with engine.connect() as connection:
@@ -101,7 +145,9 @@ def main() -> None:
             raise SystemExit(
                 f"Unit {unit_id} operational database must differ from control."
             )
-        version = upgrade_database(operational_url, "operational")
+        version = upgrade_database(
+            operational_url, "operational", unit_id=unit_id
+        )
         print(f"Operational database for unit {unit_id} upgraded to {version}.")
 
 

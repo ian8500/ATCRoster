@@ -259,7 +259,9 @@ class ProvisioningWorker:
             self._fail(application, job, "database_route_conflict", False)
             return
         try:
-            version = upgrade_database(operational_url, "operational")
+            version = upgrade_database(
+                operational_url, "operational", unit_id=unit.id
+            )
             application.db.session.expire(job)
             if not self._owns_lease(job):
                 return
