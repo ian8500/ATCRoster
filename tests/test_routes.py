@@ -1657,6 +1657,10 @@ def test_unit_messages_recipient_order_and_default(client):
     assert b">Whole unit</option>" in content
     assert b">Watch</option>" in content
     assert b">Individual</option>" in content
+    assert b'data-recipient-detail="watch" hidden' in content
+    assert b'data-recipient-detail="individual" hidden' in content
+    assert b'data-recipient-detail="operational" hidden' in content
+    assert b"updateRecipientDetails" in content
 
 
 def test_admin_configures_airport_sms_numbers(client, monkeypatch):
