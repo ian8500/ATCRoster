@@ -7554,17 +7554,27 @@ def calendar_feed(sid, token):
 # (unchanged core; monthly AL-only kept to endpoints)
 
 
-def _leave_summary_for_month(year: int, month: int):
+def _leave_summary_for_month(year: int, month: int, watch_id: int | None = None):
     start, days = month_range(year, month)
     month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
+    unit_id = _current_unit_id()
 
     a_map = defaultdict(dict)
-    for a in Assignment.query.filter(Assignment.day >= start, Assignment.day < month_end):
+    for a in Assignment.query.filter(
+        Assignment.unit_id == unit_id,
+        Assignment.day >= start,
+        Assignment.day < month_end,
+    ):
         a_map[a.staff_id][a.day] = a.code
 
-    staff = (Staff.query
-             .outerjoin(Watch, Staff.watch_id == Watch.id)
-             .order_by(Watch.order_index, Staff.name).all())
+    staff_query = (
+        Staff.query
+        .filter(Staff.unit_id == unit_id)
+        .outerjoin(Watch, Staff.watch_id == Watch.id)
+    )
+    if watch_id is not None:
+        staff_query = staff_query.filter(Staff.watch_id == watch_id)
+    staff = staff_query.order_by(Watch.order_index, Staff.name).all()
 
     codes_sorted = [
         item["code"] for item in get_absence_types("leave", active_only=True)
@@ -7587,6 +7597,27 @@ def _leave_summary_for_month(year: int, month: int):
     return rows, codes_sorted, totals, grand_total, days
 
 
+def _leave_report_watch_selection():
+    unit_id = _current_unit_id()
+    watches = (
+        Watch.query
+        .filter(Watch.unit_id == unit_id)
+        .order_by(Watch.order_index, Watch.name)
+        .all()
+    )
+    raw_watch_id = (request.args.get("watch_id") or "").strip()
+    if not raw_watch_id:
+        return watches, None
+    try:
+        watch_id = int(raw_watch_id)
+    except ValueError:
+        abort(400, "Invalid watch.")
+    selected_watch = next((watch for watch in watches if watch.id == watch_id), None)
+    if selected_watch is None:
+        abort(404)
+    return watches, selected_watch
+
+
 @app.route("/reports/leave/<ym>")
 @login_required
 def report_leave(ym):
@@ -7595,13 +7626,15 @@ def report_leave(ym):
     year, month = parse_ym(ym)
     ensure_month_requirement(year, month)
     generate_month(year, month)
+    watches, selected_watch = _leave_report_watch_selection()
     rows, codes, totals, grand_total, days = _leave_summary_for_month(
-        year, month)
+        year, month, selected_watch.id if selected_watch else None)
     month_title = datetime(year, month, 1).strftime("%B %Y")
     return render_template("report_leave.html",
                            ym=ym, year=year, month=month, month_title=month_title,
                            rows=rows, codes=codes,
-                           totals=totals, grand_total=grand_total)
+                           totals=totals, grand_total=grand_total,
+                           watches=watches, selected_watch=selected_watch)
 
 
 @app.route("/reports/leave.csv")
@@ -7615,8 +7648,9 @@ def report_leave_csv():
     year, month = parse_ym(ym)
     ensure_month_requirement(year, month)
     generate_month(year, month)
+    watches, selected_watch = _leave_report_watch_selection()
     rows, codes, totals, grand_total, days = _leave_summary_for_month(
-        year, month)
+        year, month, selected_watch.id if selected_watch else None)
 
     output = io.StringIO()
     w = csv.writer(output)
@@ -7631,7 +7665,8 @@ def report_leave_csv():
                for c in codes], grand_total])
 
     csv_bytes = output.getvalue().encode("utf-8")
-    filename = f"leave_{year:04d}-{month:02d}.csv"
+    watch_suffix = f"_watch-{selected_watch.id}" if selected_watch else ""
+    filename = f"leave_{year:04d}-{month:02d}{watch_suffix}.csv"
     return Response(csv_bytes,
                     mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
@@ -7697,9 +7732,16 @@ def report_leave_year():
     if not is_admin_user(current_user):
         abort(403)
     today = date.today()
-    people = (Staff.query
-              .outerjoin(Watch, Staff.watch_id == Watch.id)
-              .order_by(Watch.order_index, Staff.name).all())
+    unit_id = _current_unit_id()
+    watches, selected_watch = _leave_report_watch_selection()
+    people_query = (
+        Staff.query
+        .filter(Staff.unit_id == unit_id)
+        .outerjoin(Watch, Staff.watch_id == Watch.id)
+    )
+    if selected_watch:
+        people_query = people_query.filter(Staff.watch_id == selected_watch.id)
+    people = people_query.order_by(Watch.order_index, Staff.name).all()
     rows = []
     for s in people:
         start, end = _current_leave_year_window(s, today)
@@ -7728,7 +7770,13 @@ def report_leave_year():
             "toil_used_days": use_half / 2.0,
             "toil_balance_days": (s.toil_half_days or 0) / 2.0,
         })
-    return render_template("report_leave_year.html", rows=rows, today=today)
+    return render_template(
+        "report_leave_year.html",
+        rows=rows,
+        today=today,
+        watches=watches,
+        selected_watch=selected_watch,
+    )
 
 
 # ===== Sickness Report (unchanged) =====
