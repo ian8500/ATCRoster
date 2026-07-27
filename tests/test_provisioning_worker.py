@@ -2,6 +2,7 @@ import hashlib
 
 from cryptography.fernet import Fernet
 import pytest
+from sqlalchemy import create_engine, text
 
 import app
 from app import (
@@ -67,6 +68,19 @@ def test_worker_completes_once_and_token_is_one_time(tmp_path, monkeypatch):
         assert invitations[0].active_bootstrap_key == "active"
     assert pop_one_time_token(job_id, unit_id)
     assert pop_one_time_token(job_id, unit_id) is None
+    operational = create_engine(
+        f"sqlite:///{tmp_path / 'operational.db'}"
+    )
+    try:
+        with operational.connect() as connection:
+            info = connection.execute(text(
+                "SELECT label, tags FROM annotation_type "
+                "WHERE unit_id = :unit_id AND code = 'INFO'"
+            ), {"unit_id": unit_id}).one()
+        assert info.label == "Information"
+        assert "report_exclude" in info.tags
+    finally:
+        operational.dispose()
 
 
 def test_worker_recovers_abandoned_job(tmp_path, monkeypatch):

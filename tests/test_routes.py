@@ -1029,12 +1029,18 @@ def test_annotation_totals_follow_unit_definitions_not_fixed_columns(client):
                 unit_id=1, staff_id=person.id, day=date(2026, 1, 11),
                 code="M", annotation="OLD", source="manual",
             ),
+            Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 1, 12),
+                code="M", annotation="INFO",
+                annotation_note="Operational context only",
+                source="manual",
+            ),
         ])
         db.session.commit()
         app.refresh_annotation_cache()
 
     page = client.get(
-        "/metrics?start=2026-01-10&end=2026-01-11"
+        "/metrics?start=2026-01-10&end=2026-01-12"
     )
     assert page.status_code == 200
     assert b"Annotation Totals" in page.data
@@ -1043,14 +1049,18 @@ def test_annotation_totals_follow_unit_definitions_not_fixed_columns(client):
     assert b"historical" in page.data
     assert b"Ext Total" not in page.data
     assert b"AAVA Total" not in page.data
+    assert b">Information</th>" not in page.data
+    assert b"Operational context only" not in page.data
 
     exported = client.get(
-        "/metrics/export?start=2026-01-10&end=2026-01-11"
+        "/metrics/export?start=2026-01-10&end=2026-01-12"
     )
     assert exported.status_code == 200
     csv_text = exported.data.decode()
     assert "Custom Cover (CUSTOM)" in csv_text
     assert "Retired Marker (OLD)" in csv_text
+    assert "Information (INFO)" not in csv_text
+    assert "Operational context only" not in csv_text
     assert "Ext Total" not in csv_text
 
 

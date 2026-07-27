@@ -1115,6 +1115,17 @@ DEFAULT_NON_WORKING_CODES = [
 
 DEFAULT_ANNOTATION_TYPES = [
     {
+        "code": "INFO",
+        "label": "Information",
+        "category": "Information",
+        "allow_suffix": False,
+        "suffixes": "",
+        "toil_half_days": 0,
+        "tags": "info,report_exclude",
+        "is_active": True,
+        "sort_order": 0,
+    },
+    {
         "code": "EXTS",
         "label": "Short EXT",
         "category": "Extensions",
@@ -2058,6 +2069,29 @@ def bootstrap_reference_data() -> None:
             )
             db.session.add(ann)
         db.session.commit()
+
+    for unit in Unit.query.filter(Unit.status != "platform_control").all():
+        if not AnnotationType.query.filter_by(
+            unit_id=unit.id, code="INFO"
+        ).first():
+            db.session.add(AnnotationType(
+                unit_id=unit.id,
+                code="INFO",
+                label="Information",
+                category="Information",
+                colour="#6c757d",
+                description=(
+                    "Additional roster information. Excluded from reports."
+                ),
+                allow_suffix=False,
+                suffixes="",
+                toil_half_days=0,
+                tags="info,report_exclude",
+                note_required=False,
+                admin_only=False,
+                is_active=True,
+                sort_order=0,
+            ))
 
     for key, values in DEFAULT_ROSTER_SETTINGS.items():
         if not RosterSetting.query.filter_by(unit_id=1, key=key).first():
@@ -6965,6 +6999,11 @@ def _compute_metrics_range(start_day: date, end_day: date):
         int(_current_unit_id() or 1)
     )["items"]
     label_map = {item["code"]: item["label"] for item in annotation_snapshot}
+    report_excluded_codes = {
+        item["code"]
+        for item in annotation_snapshot
+        if "report_exclude" in set(item.get("tags") or ())
+    }
 
     annotation_columns = [
         {
@@ -6973,7 +7012,7 @@ def _compute_metrics_range(start_day: date, end_day: date):
             "active": bool(item["is_active"]),
         }
         for item in annotation_snapshot
-        if item["is_active"]
+        if item["is_active"] and item["code"] not in report_excluded_codes
     ]
     annotation_order = [
         column["code"] for column in annotation_columns
@@ -6998,6 +7037,8 @@ def _compute_metrics_range(start_day: date, end_day: date):
         if not parsed:
             continue
         code = parsed["type"]
+        if code in report_excluded_codes:
+            continue
         # Preserve historical totals when a definition was retired after use.
         if code not in annotation_known:
             annotation_known.add(code)
