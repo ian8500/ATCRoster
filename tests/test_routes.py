@@ -1741,6 +1741,31 @@ def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
         ("+441415550100", "Operational test", "+447700900112")
     ]
     assert b"SMS sent to 1 recipient." in response.data
+    with app.app.app_context():
+        audit = app.SmsAudit.query.order_by(app.SmsAudit.id.desc()).first()
+        assert audit.sent_by_name == "Admin Test"
+        assert audit.sender_number == "+447700900112"
+        assert audit.recipient_number == "+441415550100"
+        assert audit.recipient_label == "Duty desk"
+        assert audit.message_type == "operational"
+        assert audit.message_content == "Operational test"
+        assert audit.provider_message_id == "SMtest"
+
+
+def test_sms_audit_is_unit_admin_only(client):
+    login(client)
+    page = client.get("/admin/sms-audit")
+    assert page.status_code == 200
+    assert b"Operational test" in page.data
+    assert b"Admin Test" in page.data
+
+    wm_client = app.app.test_client()
+    wm_client.post(
+        "/login",
+        data={"username": "watch_manager_test", "password": "password123"},
+    )
+    assert wm_client.get("/messages").status_code == 200
+    assert wm_client.get("/admin/sms-audit").status_code == 403
 
 
 def test_primary_navigation_matches_role_permissions():

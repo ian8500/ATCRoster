@@ -54,9 +54,9 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     dispose_operational_engines()
     for url in (CONTROL_URL, AIRPORT_A_URL, AIRPORT_B_URL):
         _reset_postgres(url)
-    assert upgrade_database(CONTROL_URL, "control") == "20260727_19"
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260727_19"
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260727_19"
+    assert upgrade_database(CONTROL_URL, "control") == "20260727_20"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260727_20"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260727_20"
     secret_a = "ATCROSTER_UNIT_1_DATABASE_URL"
     secret_b = "ATCROSTER_UNIT_2_DATABASE_URL"
     monkeypatch.setenv(secret_a, AIRPORT_A_URL)
@@ -128,14 +128,17 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     assert "platform_identity" in control_tables
     assert "staff" not in control_tables
     assert "special_requirement" not in control_tables
+    assert "sms_audit" not in control_tables
     assert "staff" in airport_a_tables and "staff" in airport_b_tables
     assert (
         "special_requirement" in airport_a_tables
         and "special_requirement" in airport_b_tables
     )
+    assert "sms_audit" in airport_a_tables and "sms_audit" in airport_b_tables
     assert "platform_identity" not in airport_a_tables
     assert "unit" not in airport_a_tables
     assert "special_requirement" in app.OPERATIONAL_TABLE_NAMES
+    assert "sms_audit" in app.OPERATIONAL_TABLE_NAMES
 
     # Two independent workers use separate PostgreSQL sessions. The second
     # cannot claim or migrate the airport while the first owns its lease.
