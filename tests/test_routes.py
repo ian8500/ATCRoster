@@ -1138,6 +1138,34 @@ def test_counter_requires_created_shift_and_respects_closed_nights(client):
         assert app.shift_counter_group("UNCREATED", 1) == ""
 
 
+def test_roster_never_shows_fatigue_warning_on_off_shift(
+    client, monkeypatch
+):
+    warning_day = date(2025, 4, 1)
+    with app.app.app_context():
+        person = Staff.query.filter_by(unit_id=1).first()
+        assert person is not None
+        monkeypatch.setattr(
+            app,
+            "fatigue_flags_for_range",
+            lambda *_args, **_kwargs: {
+                warning_day: ["stale warning must not appear"]
+            },
+        )
+
+        visible = app.roster_fatigue_flags_for_range(
+            person, [warning_day], {warning_day: "OFF"}, 1
+        )
+        assert visible == {}
+
+        visible_working = app.roster_fatigue_flags_for_range(
+            person, [warning_day], {warning_day: "M"}, 1
+        )
+        assert visible_working == {
+            warning_day: ["stale warning must not appear"]
+        }
+
+
 def test_manual_toil_form_submits_and_can_add_or_deduct(client):
     login(client)
     with app.app.app_context():

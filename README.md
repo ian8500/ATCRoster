@@ -359,8 +359,9 @@ the current airport’s qualification records only.
 ### Fatigue monitoring
 
 Automatic fatigue findings remain visible on the affected roster cells, with
-the rule explanation available from the cell warning. The standalone
-Compliance Centre is not part of the application navigation.
+the rule explanation available from the cell warning. Rest days and any other
+shift marked non-working are never displayed as fatigue-warning cells. The
+standalone Compliance Centre is not part of the application navigation.
 
 Unit Admins use **Admin → Fatigue rules** (`/admin/fatigue-rules`) to control
 roster monitoring:

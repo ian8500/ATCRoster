@@ -2985,6 +2985,28 @@ def fatigue_flags_for_range(staff: Staff, day_list, lookback_days=30):
     }
 
 
+def roster_fatigue_flags_for_range(
+    staff: Staff,
+    day_list,
+    code_by_day: dict[date, str],
+    unit_id: int | None = None,
+) -> dict[date, list[str]]:
+    """Expose fatigue warnings only on active working-duty roster cells."""
+    resolved_unit_id = int(unit_id or staff.unit_id)
+    findings = fatigue_flags_for_range(staff, day_list)
+    return {
+        finding_day: messages
+        for finding_day, messages in findings.items()
+        if (
+            (shift := get_shift(
+                code_by_day.get(finding_day), resolved_unit_id
+            ))
+            and shift.is_active
+            and shift.is_working
+        )
+    }
+
+
 def would_trigger_fatigue(staff: Staff, day: date, code: str):
     sh = get_shift(code)
     if not _is_working(sh):
@@ -4613,7 +4635,12 @@ def roster_month(ym):
     # Fatigue flags keyed by staff id -> {date -> [flags]}
     # Assumes you have a helper like fatigue_flags_for_range(person, days)
     try:
-        fatigue = {s.id: fatigue_flags_for_range(s, days) for s in staff}
+        fatigue = {
+            s.id: roster_fatigue_flags_for_range(
+                s, days, a_map.get(s.id, {}), unit_id
+            )
+            for s in staff
+        }
     except NameError:
         # If your helper is named differently, fall back to empty flags.
         # (Prevents NameError, but you should wire the real helper.)
