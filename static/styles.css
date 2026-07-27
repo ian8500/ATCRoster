@@ -796,12 +796,12 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
 .roster .cell form{ margin:0; }
 .roster .cell .shift-picker{
   display:block;
-  height:calc(28px * var(--ui-scale));
+  height:28px;
   line-height:0;
 }
 .roster .cell .annotation-picker{
   display:block;
-  height:calc(20px * var(--ui-scale));
+  height:20px;
   line-height:0;
 }
 
@@ -915,8 +915,10 @@ select.code-input{
   font-size:10px;
 }
 .annotation-display{
-  min-height:calc(20px * var(--ui-scale));
-  height:calc(20px * var(--ui-scale));
+  min-height:20px;
+  height:20px;
+  flex-shrink:0;
+  box-sizing:border-box;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -924,8 +926,8 @@ select.code-input{
   margin:0;
 }
 .annotation-display--shift-line{
-  min-height:calc(28px * var(--ui-scale));
-  height:calc(28px * var(--ui-scale));
+  min-height:28px;
+  height:28px;
   margin-top:0;
 }
 .annotation-display--has-detail{
@@ -1836,8 +1838,8 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
    Responsive roster scaling
    ============================== */
 table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
-.roster .cell .code-input { font-size: calc(.9rem * var(--ui-scale)); height: calc(28px * var(--ui-scale)); }
-.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height: calc(20px * var(--ui-scale)); }
+.roster .cell .code-input { font-size: calc(.9rem * var(--ui-scale)); height:28px; }
+.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height:20px; }
 .roster th, .roster td { font-size: calc(.82rem * var(--ui-scale)); }
 
 /* ==============================
