@@ -1,5 +1,7 @@
 """Add weekend defaults and date-specific staffing requirements."""
 
+import os
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect
@@ -17,6 +19,8 @@ WEEKEND_COLUMNS = [
 
 
 def upgrade():
+    if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "control":
+        return
     bind = op.get_bind()
     inspector = inspect(bind)
     tables = set(inspector.get_table_names())
@@ -42,13 +46,18 @@ def upgrade():
 
     inspector = inspect(bind)
     if "special_requirement" not in inspector.get_table_names():
-        op.create_table(
-            "special_requirement",
-            sa.Column("id", sa.Integer(), primary_key=True),
+        unit_column = (
             sa.Column(
                 "unit_id", sa.Integer(), sa.ForeignKey("unit.id"),
                 nullable=False,
-            ),
+            )
+            if "unit" in inspector.get_table_names()
+            else sa.Column("unit_id", sa.Integer(), nullable=False)
+        )
+        op.create_table(
+            "special_requirement",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            unit_column,
             sa.Column("day", sa.Date(), nullable=False),
             sa.Column(
                 "label", sa.String(length=80), nullable=False,
@@ -82,6 +91,8 @@ def upgrade():
 
 
 def downgrade():
+    if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "control":
+        return
     inspector = inspect(op.get_bind())
     if "special_requirement" in inspector.get_table_names():
         op.drop_table("special_requirement")
