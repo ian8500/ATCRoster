@@ -761,6 +761,7 @@ def test_roster_shows_annotation_once_and_hover_detail_can_be_edited(
 
     page = secured_client.get(f"/roster/{request_day():%Y-%m}")
     assert b'title="Cover requested by tower"' in page.data
+    assert b"annotation-display--has-detail" in page.data
     assert page.data.count(b">NEAT</span>") == 1
     assert b">Cover requested by tower</textarea>" in page.data
 

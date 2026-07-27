@@ -3,7 +3,7 @@
 
 {% macro annotation_badge(staff, roster_day, value, detail, editable, shift_line=false) -%}
   {% set dialog_id = 'annotation-detail-' ~ staff.id ~ '-' ~ roster_day.strftime('%Y%m%d') %}
-  <div class="annotation-display{% if shift_line %} annotation-display--shift-line{% endif %}">
+  <div class="annotation-display{% if shift_line %} annotation-display--shift-line{% endif %}{% if detail %} annotation-display--has-detail{% endif %}">
     <span class="annotation-code" tabindex="0"
           {% if detail %}title="{{ detail }}"{% endif %}
           aria-label="{{ value }}{% if detail %}: {{ detail }}{% endif %}">{{ value }}</span>
