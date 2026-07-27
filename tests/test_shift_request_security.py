@@ -103,6 +103,43 @@ def test_comment_persistence_update_and_single_record(secured_client):
         assert RequestAudit.query.filter_by(request_id=rows[0].id).count() == 2
 
 
+def test_profile_navigation_shows_and_clears_unread_notification_count(
+    secured_client,
+):
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="user-a").one()
+        db.session.add_all([
+            Notification(
+                unit_id=1, recipient_id=user.id,
+                kind="request_update", message="First unread update",
+            ),
+            Notification(
+                unit_id=1, recipient_id=user.id,
+                kind="request_update", message="Second unread update",
+            ),
+            Notification(
+                unit_id=1, recipient_id=user.id,
+                kind="request_update", message="Already read",
+                read_at=app.utcnow(),
+            ),
+        ])
+        db.session.commit()
+
+    token = login(secured_client, "user-a")
+    page = secured_client.get("/requests")
+    assert b"Profile, 2 unread notifications" in page.data
+    assert b"nav-notification-count" in page.data
+
+    marked = secured_client.post(
+        "/notifications/read",
+        data={"_csrf_token": token},
+    )
+    assert marked.status_code == 302
+    page = secured_client.get("/requests")
+    assert b"unread notification" not in page.data
+    assert b"nav-notification-count" not in page.data
+
+
 def test_csrf_and_non_requestable_shift_rejected(secured_client):
     login(secured_client)
     missing = secured_client.post("/requests", data={
@@ -395,6 +432,7 @@ def test_simple_manager_approve_and_refuse_actions_notify_user(secured_client):
     )
     assert b"shift requests awaiting your decision" in attention_page.data
     assert b"nav-attention-count" in attention_page.data
+    assert b"Requests, 2 awaiting decision" in attention_page.data
     approved = secured_client.post(
         f"/admin/requests/{approved_id}/respond",
         data={
@@ -437,6 +475,61 @@ def test_simple_manager_approve_and_refuse_actions_notify_user(secured_client):
         assert "Approved for requested cover." in approved_notice.message
         assert "was refused" in refused_notice.message
         assert "Unable to release" in refused_notice.message
+
+
+def test_admin_self_approval_requires_another_admin_unless_sole_admin(
+    secured_client,
+):
+    with app.app.app_context():
+        watch = db.session.get(Watch, 1)
+        requester = Staff.query.filter_by(username="admin-a").one()
+        second_admin = Staff(
+            unit_id=1, username="admin-second", name="Second Admin",
+            staff_no="A3", role="admin", membership_status="active",
+            watch=watch,
+        )
+        second_admin.set_password("password123")
+        request_row = ShiftRequest(
+            unit_id=1, staff_id=requester.id,
+            day=request_day(), code="REQ",
+        )
+        db.session.add_all([second_admin, request_row])
+        db.session.commit()
+        request_id = request_row.id
+        second_admin_id = second_admin.id
+
+    token = login(secured_client, "admin-a")
+    page = secured_client.get(f"/requests?ym={request_day():%Y-%m}")
+    assert b"Another administrator must approve your request." in page.data
+    blocked = secured_client.post(
+        f"/admin/requests/{request_id}/respond",
+        data={
+            "_csrf_token": token,
+            "action": "approve",
+            "admin_response": "Attempted self approval",
+            "ym": f"{request_day():%Y-%m}",
+        },
+    )
+    assert blocked.status_code == 403
+    with app.app.app_context():
+        assert db.session.get(ShiftRequest, request_id).status == "pending"
+        db.session.get(Staff, second_admin_id).membership_status = "inactive"
+        db.session.commit()
+
+    allowed = secured_client.post(
+        f"/admin/requests/{request_id}/respond",
+        data={
+            "_csrf_token": token,
+            "action": "approve",
+            "admin_response": "Sole administrator approval",
+            "ym": f"{request_day():%Y-%m}",
+        },
+    )
+    assert allowed.status_code == 302
+    with app.app.app_context():
+        row = db.session.get(ShiftRequest, request_id)
+        assert row.status == "fulfilled"
+        assert row.resulting_assignment_id is not None
 
 
 def test_requester_can_dismiss_only_fulfilled_or_rejected_requests(

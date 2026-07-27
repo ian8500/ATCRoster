@@ -224,6 +224,13 @@ from an approved shift request. The marker remains only while the linked
 assignment still contains the requested shift code; a later manual change
 does not misleadingly retain the request highlight.
 
+The main navigation shows an unread-notification count on **Profile** for
+every user. Unit Admins also see the number of pending or approved requests
+still requiring a decision on **Requests**. An administrator cannot approve
+their own request while another active Unit Admin is available; the sole
+active administrator may approve their own request so a single-admin airport
+cannot become operationally blocked.
+
 ### Roster request badges
 
 - Pending requests use a warning-style badge and accessible pending label.

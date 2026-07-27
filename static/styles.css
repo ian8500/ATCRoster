@@ -2153,6 +2153,11 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
 }
 .request-decision-form { display:grid; gap:.5rem; min-width:320px; }
 .request-decision-actions { display:flex; flex-wrap:wrap; gap:.45rem; }
+.self-approval-note{
+  flex-basis:100%;
+  color:#f5b742;
+  font-size:.78rem;
+}
 .request-delete-btn {
   padding:.16rem .42rem;
   font-size:.7rem;
@@ -2168,6 +2173,20 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
   border-radius:999px;
   color:#17120a;
   background:#f5b742;
+  font-size:.68rem;
+  font-weight:800;
+  line-height:1;
+}
+.nav-link--personal-attention{color:#75b8ff;}
+.nav-notification-count{
+  display:inline-grid;
+  place-items:center;
+  min-width:1.25rem;
+  height:1.25rem;
+  padding:0 .3rem;
+  border-radius:999px;
+  color:#07131f;
+  background:#75b8ff;
   font-size:.68rem;
   font-weight:800;
   line-height:1;

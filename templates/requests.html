@@ -195,11 +195,15 @@
                                name="admin_response" maxlength="500"
                                placeholder="Optional comment to {{ req.staff.name }}">
                         <div class="request-decision-actions">
-                          <button class="btn btn-primary btn-sm" name="action" value="approve"
-                                  type="submit"
-                                  data-confirm="Approve this request and add {{ req.code }} to the roster for {{ day.strftime('%d %B %Y') }}?">
-                            Approve and add to roster
-                          </button>
+                          {% if req.staff_id == current_user.id and active_admin_count > 1 %}
+                            <span class="self-approval-note">Another administrator must approve your request.</span>
+                          {% else %}
+                            <button class="btn btn-primary btn-sm" name="action" value="approve"
+                                    type="submit"
+                                    data-confirm="Approve this request and add {{ req.code }} to the roster for {{ day.strftime('%d %B %Y') }}?">
+                              Approve and add to roster
+                            </button>
+                          {% endif %}
                           <button class="btn btn-danger btn-sm" name="action" value="refuse"
                                   type="submit"
                                   data-confirm="Refuse this shift request?">
