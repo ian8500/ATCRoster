@@ -205,8 +205,45 @@ def csrf(client):
         return sess["_csrf_token"]
 
 
+def acknowledge_reports(client):
+    warning = client.get("/reports")
+    assert warning.status_code == 200
+    assert b"Sensitive information ahead" in warning.data
+    token = csrf(client)
+    response = client.post(
+        "/reports",
+        data={"_csrf_token": token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/reports")
+
+
+def test_reports_require_sensitive_data_acknowledgement(client):
+    login(client)
+    warning = client.get("/reports")
+    assert warning.status_code == 200
+    assert b"Sensitive information ahead" in warning.data
+    assert b"Check your surroundings" in warning.data
+    assert b"OK, open reports" in warning.data
+    assert b"Leave-Year Summary" not in warning.data
+
+    direct_report = client.get("/reports/leave-year")
+    assert direct_report.status_code == 302
+    assert direct_report.headers["Location"].endswith("/reports")
+
+    acknowledge_reports(client)
+    hub = client.get("/reports")
+    assert hub.status_code == 200
+    assert b"Leave-Year Summary" in hub.data
+    opened = client.get("/reports/leave-year")
+    assert opened.status_code == 200
+    assert b"Leave year" in opened.data
+
+
 def test_leave_year_report_filters_by_watch(client):
     login(client)
+    acknowledge_reports(client)
     with app.app.app_context():
         watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
         watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
@@ -230,6 +267,7 @@ def test_leave_year_report_filters_by_watch(client):
 
 def test_sickness_report_filters_by_watch(client):
     login(client)
+    acknowledge_reports(client)
     with app.app.app_context():
         watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
         watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
@@ -573,6 +611,8 @@ def test_role_permission_matrix_and_cross_airport_isolation():
                 },
             )
             assert verified.status_code == 302
+        if role in ("admin", "editor"):
+            acknowledge_reports(role_client)
         clients[role] = role_client
         for capability, path in common.items():
             actual = role_client.get(path).status_code
@@ -792,6 +832,7 @@ def test_roster_routes_render(client):
 
 def test_admin_pages_accessible(client):
     login(client)
+    acknowledge_reports(client)
     endpoints = [
         "/admin",
         "/leave",
@@ -818,6 +859,7 @@ def test_operations_workspace_is_hidden_from_primary_navigation(client):
 
 def test_annotation_totals_follow_unit_definitions_not_fixed_columns(client):
     login(client)
+    acknowledge_reports(client)
     with app.app.app_context():
         person = Staff.query.filter_by(username="staff_test").one()
         db.session.add_all([

@@ -3164,6 +3164,41 @@ table:not(.roster) td {
   width:min(280px, 100%);
 }
 
+.sensitive-data-gate{
+  display:grid;
+  grid-template-columns:auto minmax(0, 1fr);
+  align-items:start;
+  gap:1rem;
+  max-width:720px;
+  margin:clamp(2rem, 8vh, 6rem) auto;
+  padding:1.35rem;
+  border-color:#8b7127;
+  background:#211d13;
+}
+.sensitive-data-gate__icon{
+  display:grid;
+  place-items:center;
+  width:38px;
+  height:38px;
+  border:1px solid #b99532;
+  border-radius:50%;
+  background:#332a13;
+  color:#f4d66d;
+  font-size:1.15rem;
+  font-weight:800;
+}
+.sensitive-data-gate h2{
+  margin:.15rem 0 .55rem;
+  color:#f5f2e8;
+}
+.sensitive-data-gate p{
+  max-width:62ch;
+  color:#d8d2bf;
+}
+.sensitive-data-gate form{
+  margin-top:1rem;
+}
+
 .alert,
 .flash {
   border-radius:6px;

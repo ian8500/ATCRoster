@@ -5282,6 +5282,7 @@ def roster_print_view(ym):
 @app.route("/logout", methods=["GET"], endpoint="logout")
 @login_required
 def logout():
+    session.pop("reports_sensitive_data_ack", None)
     logout_user()
     flash("Logged out", "ok")
     return redirect(url_for("login"))
@@ -6964,11 +6965,28 @@ def _fy_start_for(d: date) -> date:
     return date(d.year if d.month >= 4 else d.year - 1, 4, 1)
 
 
+def _reports_acknowledgement_key() -> str:
+    return f"{current_user.id}:{_current_unit_id()}"
+
+
+def _reports_sensitive_data_acknowledged() -> bool:
+    return session.get("reports_sensitive_data_ack") == _reports_acknowledgement_key()
+
+
+def _require_reports_sensitive_data_acknowledgement():
+    if _reports_sensitive_data_acknowledged():
+        return None
+    return redirect(url_for("reports_index"))
+
+
 @app.route("/metrics")
 @login_required
 def metrics():
     if not (is_admin_user(current_user) or getattr(current_user, "role", "") in ("editor", "admin")):
         abort(403)
+    acknowledgement = _require_reports_sensitive_data_acknowledgement()
+    if acknowledgement:
+        return acknowledgement
     # ... existing body unchanged ...
     today = date.today()
     default_start = _fy_start_for(today)
@@ -7059,6 +7077,9 @@ def metrics_export():
         abort(429)
     if not is_admin_user(current_user):
         abort(403)
+    acknowledgement = _require_reports_sensitive_data_acknowledgement()
+    if acknowledgement:
+        return acknowledgement
     today = date.today()
     default_start = _fy_start_for(today)
     start_day = date.fromisoformat(
@@ -7623,6 +7644,9 @@ def _report_watch_selection():
 def report_leave(ym):
     if not is_admin_user(current_user):
         abort(403)
+    acknowledgement = _require_reports_sensitive_data_acknowledgement()
+    if acknowledgement:
+        return acknowledgement
     year, month = parse_ym(ym)
     ensure_month_requirement(year, month)
     generate_month(year, month)
@@ -7642,6 +7666,9 @@ def report_leave(ym):
 def report_leave_csv():
     if not is_admin_user(current_user):
         abort(403)
+    acknowledgement = _require_reports_sensitive_data_acknowledgement()
+    if acknowledgement:
+        return acknowledgement
     ym = request.args.get("ym")
     if not ym:
         abort(400)
@@ -7731,6 +7758,9 @@ def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_da
 def report_leave_year():
     if not is_admin_user(current_user):
         abort(403)
+    acknowledgement = _require_reports_sensitive_data_acknowledgement()
+    if acknowledgement:
+        return acknowledgement
     today = date.today()
     unit_id = _current_unit_id()
     watches, selected_watch = _report_watch_selection()
@@ -7800,6 +7830,9 @@ def _group_consecutive_days(days_set):
 def report_sickness():
     if not is_admin_user(current_user):
         abort(403)
+    acknowledgement = _require_reports_sensitive_data_acknowledgement()
+    if acknowledgement:
+        return acknowledgement
     today = date.today()
     start = today - timedelta(days=365)
     unit_id = _current_unit_id()
@@ -10314,6 +10347,24 @@ def admin_toil_new():
 @app.route("/reports", methods=["GET", "POST"])
 @login_required
 def reports_index():
+    can_view_reports = (
+        is_admin_user(current_user)
+        or getattr(current_user, "role", "") in ("editor", "admin")
+    )
+    if not can_view_reports:
+        abort(403)
+
+    if request.method == "POST":
+        _validate_csrf()
+        session["reports_sensitive_data_ack"] = _reports_acknowledgement_key()
+        return redirect(url_for("reports_index"))
+
+    if not _reports_sensitive_data_acknowledged():
+        return render_template(
+            "reports_index.html",
+            requires_acknowledgement=True,
+        )
+
     # Admin: show the hub
     if is_admin_user(current_user):
         today = date.today()
@@ -10334,13 +10385,13 @@ def reports_index():
             months=months,
             links=links,
             page_title="Annotation Totals",
+            requires_acknowledgement=False,
         )
 
     # Editor: annotation totals only
     if getattr(current_user, "role", "") in ("editor", "admin"):
         return redirect(url_for("metrics"))
 
-    # Everyone else: no access
     abort(403)
 
 
