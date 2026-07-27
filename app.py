@@ -784,9 +784,63 @@ def _twilio_credentials() -> tuple[str, str, str]:
     )
 
 
+def _normalise_sms_number(value: str | None) -> str:
+    """Return an E.164 number, accepting harmless display punctuation."""
+    candidate = re.sub(r"[\s().-]+", "", value or "")
+    return candidate if re.fullmatch(r"\+[1-9]\d{7,14}", candidate) else ""
+
+
+def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, str]]:
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    raw = _roster_settings_snapshot(resolved_unit_id).get(key, "[]")
+    try:
+        values = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        values = []
+    result = []
+    seen = set()
+    for item in values if isinstance(values, list) else []:
+        if not isinstance(item, dict):
+            continue
+        number = _normalise_sms_number(item.get("number"))
+        if not number or number in seen:
+            continue
+        seen.add(number)
+        result.append({
+            "number": number,
+            "label": (str(item.get("label") or number).strip()[:80] or number),
+        })
+    return result
+
+
+def _sms_sender_options(unit_id: int | None = None) -> list[dict[str, str]]:
+    options = _sms_number_options("sms_sender_numbers", unit_id)
+    fallback = _normalise_sms_number(_twilio_credentials()[2])
+    if fallback and not options:
+        options = [{"number": fallback, "label": "Twilio account default"}]
+    return options
+
+
+def _sms_operational_options(unit_id: int | None = None) -> list[dict[str, str]]:
+    return _sms_number_options("sms_operational_numbers", unit_id)
+
+
+def _sms_default_number(
+    setting_key: str, options: list[dict[str, str]], unit_id: int | None = None
+) -> str:
+    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
+    configured = _normalise_sms_number(
+        _roster_settings_snapshot(resolved_unit_id).get(setting_key)
+    )
+    allowed = {item["number"] for item in options}
+    return configured if configured in allowed else (
+        options[0]["number"] if options else ""
+    )
+
+
 def _sms_service_configured() -> bool:
-    account_sid, auth_token, from_number = _twilio_credentials()
-    return bool(account_sid and auth_token and from_number)
+    account_sid, auth_token, _from_number = _twilio_credentials()
+    return bool(account_sid and auth_token and _sms_sender_options())
 
 
 def _email_service_configured() -> bool:
@@ -871,14 +925,20 @@ def _unit_admin_emails(unit_id: int) -> list[str]:
     return list(dict.fromkeys(row.email for row in rows if row.email))
 
 
-def _send_sms_via_twilio(to_number: str, body: str,
-                         creds: tuple[str, str, str] | None = None) -> tuple[bool, str]:
-    account_sid, auth_token, from_number = creds or _twilio_credentials()
+def _send_sms_via_twilio(
+    to_number: str,
+    body: str,
+    creds: tuple[str, str, str] | None = None,
+    from_number: str | None = None,
+) -> tuple[bool, str]:
+    account_sid, auth_token, configured_from = creds or _twilio_credentials()
+    from_number = _normalise_sms_number(from_number or configured_from)
     if not (account_sid and auth_token and from_number):
         return False, "SMS credentials are not configured."
 
+    to_number = _normalise_sms_number(to_number)
     if not to_number:
-        return False, "Missing destination number."
+        return False, "Missing or invalid destination number."
 
     payload = urllib_parse.urlencode({
         "To": to_number,
@@ -916,9 +976,15 @@ def _send_sms_via_twilio(to_number: str, body: str,
         return False, str(exc)
 
 
-def _send_overtime_sms_notifications(staff_list: list["Staff"], message: str) -> tuple[int, list[tuple[Optional["Staff"], str]]]:
+def _send_overtime_sms_notifications(
+    staff_list: list["Staff"], message: str
+) -> tuple[int, list[tuple[Optional["Staff"], str]]]:
     creds = _twilio_credentials()
-    if not (creds[0] and creds[1] and creds[2]):
+    sender_options = _sms_sender_options()
+    from_number = _sms_default_number(
+        "sms_default_sender", sender_options
+    )
+    if not (creds[0] and creds[1] and from_number):
         return 0, [(None, "SMS sending is not configured." )]
 
     sent = 0
@@ -927,7 +993,9 @@ def _send_overtime_sms_notifications(staff_list: list["Staff"], message: str) ->
         if not (staff and staff.phone_number):
             failures.append((staff, "No phone number on file."))
             continue
-        ok, detail = _send_sms_via_twilio(staff.phone_number, message, creds)
+        ok, detail = _send_sms_via_twilio(
+            staff.phone_number, message, creds, from_number
+        )
         if ok:
             sent += 1
         else:
@@ -1838,6 +1906,32 @@ def _save_roster_setting(key: str, value: str) -> None:
     else:
         row.value = value
     refresh_roster_settings_cache()
+
+
+def _parse_sms_number_lines(raw: str) -> tuple[list[dict[str, str]], list[str]]:
+    """Parse one `label | +number` or plain `+number` entry per line."""
+    result = []
+    errors = []
+    seen = set()
+    for line_number, raw_line in enumerate((raw or "").splitlines(), 1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        label, separator, number_value = line.partition("|")
+        if not separator:
+            number_value, label = label, ""
+        number = _normalise_sms_number(number_value)
+        if not number:
+            errors.append(f"line {line_number}")
+            continue
+        if number in seen:
+            continue
+        seen.add(number)
+        result.append({
+            "number": number,
+            "label": (label.strip()[:80] or number),
+        })
+    return result, errors
 
 
 def bootstrap_reference_data() -> None:
@@ -5096,6 +5190,65 @@ def admin():
     if request.method == "POST":
         form = request.form.get("form", "")
 
+        if form == "sms_settings":
+            _validate_csrf()
+            senders, sender_errors = _parse_sms_number_lines(
+                request.form.get("sms_sender_numbers") or ""
+            )
+            destinations, destination_errors = _parse_sms_number_lines(
+                request.form.get("sms_operational_numbers") or ""
+            )
+            default_sender = _normalise_sms_number(
+                request.form.get("sms_default_sender")
+            )
+            default_destination = _normalise_sms_number(
+                request.form.get("sms_default_operational_number")
+            )
+            allowed_senders = {item["number"] for item in senders}
+            allowed_destinations = {item["number"] for item in destinations}
+            if sender_errors or destination_errors:
+                invalid = ", ".join(
+                    [f"sender {item}" for item in sender_errors]
+                    + [f"destination {item}" for item in destination_errors]
+                )
+                flash(
+                    f"Use international numbers such as +447700900123. "
+                    f"Check {invalid}.",
+                    "error",
+                )
+            elif default_sender and default_sender not in allowed_senders:
+                flash("The default sender must be in the sender list.", "error")
+            elif (
+                default_destination
+                and default_destination not in allowed_destinations
+            ):
+                flash(
+                    "The default operational number must be in its list.",
+                    "error",
+                )
+            else:
+                _save_roster_setting(
+                    "sms_sender_numbers",
+                    json.dumps(senders, separators=(",", ":")),
+                )
+                _save_roster_setting(
+                    "sms_operational_numbers",
+                    json.dumps(destinations, separators=(",", ":")),
+                )
+                _save_roster_setting(
+                    "sms_default_sender",
+                    default_sender or (senders[0]["number"] if senders else ""),
+                )
+                _save_roster_setting(
+                    "sms_default_operational_number",
+                    default_destination or (
+                        destinations[0]["number"] if destinations else ""
+                    ),
+                )
+                db.session.commit()
+                flash("SMS numbers saved for this airport.", "ok")
+            return redirect(url_for("admin") + "#sms")
+
         if form == "unit_roster_setup":
             pattern = _validated_pattern(request.form.get("base_pattern_csv"))
             anchor = _parse_date(request.form.get("base_pattern_anchor"))
@@ -5530,6 +5683,14 @@ def admin():
         shift.code: shift_counter_group(shift.code, _current_unit_id())
         for shift in shifts
     }
+    sms_senders = _sms_number_options("sms_sender_numbers")
+    sms_operational_numbers = _sms_operational_options()
+    sms_default_sender = _sms_default_number(
+        "sms_default_sender", sms_senders
+    )
+    sms_default_operational_number = _sms_default_number(
+        "sms_default_operational_number", sms_operational_numbers
+    )
     current_unit = db.session.get(Unit, _current_unit_id())
     return render_template("admin.html",
                            shifts=shifts, staff=staff, watches=watches,
@@ -5542,6 +5703,10 @@ def admin():
                            night_active_days=night_active_days,
                            pattern_codes=PATTERN_CODES,
                            shift_counter_mapping=shift_counter_mapping,
+                           sms_senders=sms_senders,
+                           sms_operational_numbers=sms_operational_numbers,
+                           sms_default_sender=sms_default_sender,
+                           sms_default_operational_number=sms_default_operational_number,
                            current_unit=current_unit)
 
 
@@ -7024,6 +7189,20 @@ def unit_messages():
     selected_scope = request.form.get("scope", "individual")
     selected_recipient = request.form.get("recipient_id", "")
     selected_watch = request.form.get("watch_id", "")
+    sender_options = _sms_sender_options()
+    operational_options = _sms_operational_options()
+    default_sender = _sms_default_number(
+        "sms_default_sender", sender_options
+    )
+    default_operational = _sms_default_number(
+        "sms_default_operational_number", operational_options
+    )
+    selected_sender = _normalise_sms_number(
+        request.form.get("sender_number") or default_sender
+    )
+    selected_operational = _normalise_sms_number(
+        request.form.get("operational_number") or default_operational
+    )
     template = request.form.get("template", "custom")
     message = (request.form.get("message") or "").strip()
     preview = []
@@ -7031,6 +7210,13 @@ def unit_messages():
     if request.method == "POST":
         _validate_csrf()
         recipients = []
+        direct_recipient = None
+        allowed_senders = {item["number"] for item in sender_options}
+        allowed_operational = {
+            item["number"] for item in operational_options
+        }
+        if selected_sender not in allowed_senders:
+            abort(400, "Choose an approved sender number for this airport.")
         if selected_scope == "all":
             recipients = people
         elif selected_scope == "watch" and selected_watch.isdigit():
@@ -7043,8 +7229,18 @@ def unit_messages():
                 person for person in people
                 if person.id == int(selected_recipient)
             ]
-        if not recipients:
+        elif (
+            selected_scope == "operational"
+            and selected_operational in allowed_operational
+        ):
+            direct_recipient = selected_operational
+        if not recipients and not direct_recipient:
             flash("Choose at least one recipient.", "error")
+        elif direct_recipient and template == "today_shift":
+            flash(
+                "Shift reminders can only be sent to rostered people.",
+                "error",
+            )
         elif template == "today_shift":
             today = date.today()
             assignment_map = {
@@ -7062,8 +7258,10 @@ def unit_messages():
                     f"{assignment.code if assignment else 'no assigned'} shift today "
                     f"({today.strftime('%d %b %Y')})."
                 )
-                ok, detail = _send_sms_via_twilio(person.phone_number, body)
-                preview.append((person, body))
+                ok, detail = _send_sms_via_twilio(
+                    person.phone_number, body, from_number=selected_sender
+                )
+                preview.append((person.name, body))
                 if ok:
                     sent += 1
                 else:
@@ -7073,9 +7271,36 @@ def unit_messages():
             flash("Enter a custom message.", "error")
         elif len(message) > 480:
             flash("Message is too long (limit 480 characters).", "error")
+        elif direct_recipient:
+            ok, detail = _send_sms_via_twilio(
+                direct_recipient, message, from_number=selected_sender
+            )
+            label = next(
+                (
+                    item["label"] for item in operational_options
+                    if item["number"] == direct_recipient
+                ),
+                direct_recipient,
+            )
+            preview = [(label, message)]
+            _flash_sms_result(
+                1 if ok else 0,
+                [] if ok else [(None, detail)],
+            )
         else:
-            sent, failures = _send_overtime_sms_notifications(recipients, message)
-            preview = [(person, message) for person in recipients]
+            sent = 0
+            failures = []
+            for person in recipients:
+                ok, detail = _send_sms_via_twilio(
+                    person.phone_number,
+                    message,
+                    from_number=selected_sender,
+                )
+                if ok:
+                    sent += 1
+                else:
+                    failures.append((person, detail))
+            preview = [(person.name, message) for person in recipients]
             _flash_sms_result(sent, failures)
 
     return render_template(
@@ -7083,6 +7308,10 @@ def unit_messages():
         sms_ready=_sms_service_configured(), template=template,
         message=message, selected_scope=selected_scope,
         selected_recipient=selected_recipient, selected_watch=selected_watch,
+        sender_options=sender_options,
+        operational_options=operational_options,
+        selected_sender=selected_sender,
+        selected_operational=selected_operational,
         preview=preview,
     )
 

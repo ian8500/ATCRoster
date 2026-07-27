@@ -459,7 +459,10 @@ step.
 - Configure Twilio before sending overtime or unit SMS messages.
 - **Messages** is available only to Admin, WM and DWM users. It can target one
   person, a named watch, or all active airport users with a custom message or
-  a personalised today-shift reminder.
+  a personalised today-shift reminder. Unit Admins configure approved Twilio
+  sender numbers, named operational destination numbers, and defaults in
+  **Admin → SMS settings**. The Messages page preselects those defaults and
+  lets the sender choose another airport-approved number.
 - Reports include fatigue, sickness, leave year, overtime, swaps, extensions,
   and CSV exports.
 
@@ -478,6 +481,11 @@ TWILIO_FROM_NUMBER
 ```
 
 When they are absent, SMS sending is disabled.
+
+Twilio never chooses a random sender. Each configured sender must be a number
+owned by or approved for the Twilio account. Airport settings are tenant
+scoped; one airport cannot select another airport's sender or operational
+destination. Enter numbers in E.164 format, for example `+447700900123`.
 
 ### Calendar subscription
 

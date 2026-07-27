@@ -36,4 +36,18 @@
      href="{{ url_for('admin_fatigue_rules') }}">
     <i class="fa-solid fa-gauge-high"></i><span>Fatigue rules</span>
   </a>
+  {% if admin_nav_interactive %}
+  <button type="button"
+          class="admin-section-tab"
+          data-admin-section="sms"
+          aria-controls="admin-sms"
+          aria-selected="false">
+    <i class="fa-solid fa-comment-sms"></i><span>SMS settings</span>
+  </button>
+  {% else %}
+  <a class="admin-section-tab admin-section-link"
+     href="{{ url_for('admin') }}#sms">
+    <i class="fa-solid fa-comment-sms"></i><span>SMS settings</span>
+  </a>
+  {% endif %}
 </nav>
