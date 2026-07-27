@@ -3199,6 +3199,23 @@ table:not(.roster) td {
   margin-top:1rem;
 }
 
+.overtime-exclusions{
+  margin-top:1rem;
+  border:1px solid var(--line);
+  border-radius:7px;
+  background:#141a21;
+}
+.overtime-exclusions summary{
+  padding:.75rem 1rem;
+  color:var(--text-muted);
+  font-weight:700;
+  cursor:pointer;
+}
+.overtime-exclusions[open] summary{
+  border-bottom:1px solid var(--line);
+  color:var(--text);
+}
+
 .alert,
 .flash {
   border-radius:6px;
