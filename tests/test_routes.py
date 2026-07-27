@@ -737,6 +737,68 @@ def test_overtime_finder_reports_an_empty_search_instead_of_looking_broken(clien
     assert b"Nobody is eligible for overtime for this date and shift" in response.data
 
 
+@pytest.mark.parametrize("rostered_code", ["OFF", "AL"])
+def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
+    client, rostered_code,
+):
+    login(client)
+    chosen_day = date(2027, 1, 15)
+    with app.app.app_context():
+        watch = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        person = Staff.query.filter_by(
+            unit_id=1, username="ian_overtime_test"
+        ).first()
+        if person is None:
+            person = Staff(
+                unit_id=1,
+                username="ian_overtime_test",
+                name="Ian Overtime Test",
+                staff_no="IAN-OT",
+                role="user",
+                watch_id=watch.id,
+                membership_status="no_login",
+                is_operational=True,
+                exclude_from_ot=False,
+                tower_ue_expiry=date(2028, 1, 1),
+                pattern_csv="OFF",
+                pattern_override=True,
+            )
+            person.set_password("password123")
+            db.session.add(person)
+            db.session.flush()
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=person.id, day=chosen_day
+        ).first()
+        if assignment is None:
+            assignment = Assignment(
+                unit_id=1,
+                staff_id=person.id,
+                day=chosen_day,
+                source="manual",
+            )
+            db.session.add(assignment)
+        assignment.code = rostered_code
+        db.session.commit()
+        person_id = person.id
+
+    token = csrf(client)
+    response = client.post(
+        "/overtime",
+        data={
+            "_csrf_token": token,
+            "action": "find",
+            "date": chosen_day.isoformat(),
+            "shift_code": "M",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert f'data-eligible-staff="{person_id}"'.encode() in response.data
+    assert b"<td>Ian Overtime Test</td>" in response.data
+    if rostered_code == "AL":
+        assert b"On AL that day" in response.data
+
+
 def test_production_operations_workflows(client):
     login(client)
     token = csrf(client)

@@ -54,7 +54,7 @@
         </thead>
         <tbody>
           {% for r in results %}
-            <tr>
+            <tr data-eligible-staff="{{ r.staff.id }}">
               <td>
                 {% if r.staff.phone_number %}
                   <label class="checkbox">
@@ -111,6 +111,27 @@
         </button>
       </div>
     </div>
+    {% endif %}
+
+    {% if excluded %}
+    <details class="overtime-exclusions">
+      <summary>Why other ATCOs were not offered overtime</summary>
+      <div class="table-scroll">
+        <table class="table">
+          <thead><tr><th>ATCO</th><th>Watch</th><th>Roster</th><th>Reason</th></tr></thead>
+          <tbody>
+            {% for row in excluded %}
+              <tr>
+                <td>{{ row.staff.name }}</td>
+                <td>{{ row.watch }}</td>
+                <td>{{ row.rostered_code }}</td>
+                <td>{{ row.reasons|join('; ') }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
     {% endif %}
   </div>
 </form>

@@ -7145,9 +7145,10 @@ def _count_ot_since_prev_april(staff_id: int, upto: date):
 
 def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: str):
     shift_code = (chosen_shift_code or "").upper().strip()
-    sh = get_shift(shift_code)
+    unit_id = _current_unit_id()
+    sh = get_shift(shift_code, unit_id)
     if not (chosen_date and sh and sh.is_working):
-        return [], "Please select a valid date and working shift."
+        return [], [], "Please select a valid date and working shift."
 
     lookahead_days = 14
     ensure_assignments_for_range(chosen_date - timedelta(days=30),
@@ -7157,8 +7158,8 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
         Staff.query
         .outerjoin(Watch, Staff.watch_id == Watch.id)
         .filter(
+            Staff.unit_id == unit_id,
             Staff.is_operational.is_(True),
-            Staff.membership_status == "active",
         )
         .order_by(Watch.order_index, Staff.name)
         .all()
@@ -7172,28 +7173,35 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
         soal_display = (info.get("label") if info else first) or first
 
     results = []
+    excluded = []
     for s in staff_members:
+        reasons = []
         if s.exclude_from_ot:
-            continue
+            reasons.append("Opted out of overtime")
 
-        if not _staff_has_shift_qualification(s, sh, chosen_date):
-            continue
+        if not reasons and not _staff_has_shift_qualification(s, sh, chosen_date):
+            qualification = (sh.required_qualification or "").strip().upper()
+            reasons.append(
+                f"Missing or expired {qualification} qualification"
+                if qualification else "Missing required shift qualification"
+            )
 
         a_today = Assignment.query.filter_by(
-            staff_id=s.id, day=chosen_date).first()
+            unit_id=unit_id, staff_id=s.id, day=chosen_date
+        ).first()
         code_today = a_today.code if a_today else "OFF"
-        sh_today = get_shift(code_today)
+        sh_today = get_shift(code_today, unit_id)
         if sh_today and sh_today.is_working:
-            continue
+            reasons.append(f"Already rostered for {code_today}")
 
         if code_today in ("SC", "SSC"):
-            continue
+            reasons.append(f"Rostered {code_today}")
 
         if not _has_in_date_ue(s, chosen_date):
-            continue
+            reasons.append("No in-date tower or radar endorsement")
 
         if _worked_like_consecutive_days(s, chosen_date - timedelta(days=1), lookback_days=6) >= 6:
-            continue
+            reasons.append("Already worked six consecutive duties")
 
         future_issues = would_create_new_fatigue_issues(
             s, chosen_date, shift_code, lookback_days=30, lookahead_days=lookahead_days
@@ -7204,7 +7212,7 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
         for _d, _lst in future_issues.items():
             keep = []
             for _f in _lst:
-                if _f.startswith("D24 rest deficit"):
+                if _f.startswith(("D24:", "D24 rest deficit")):
                     d24_warnings.append(f"{_d.isoformat()}: {_f}")
                 else:
                     keep.append(_f)
@@ -7212,6 +7220,20 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
                 blocking_issues[_d] = keep
 
         if any(blocking_issues.values()):
+            fatigue_reasons = sorted({
+                issue
+                for issues in blocking_issues.values()
+                for issue in issues
+            })
+            reasons.append("Blocking fatigue rule: " + "; ".join(fatigue_reasons))
+
+        if reasons:
+            excluded.append({
+                "staff": s,
+                "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
+                "rostered_code": code_today,
+                "reasons": reasons,
+            })
             continue
 
         count_upto = chosen_date - timedelta(days=1)
@@ -7239,7 +7261,8 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
 
     results.sort(key=lambda r: (
         r["aava_to_date"], r["soal_to_date"], r["staff"].name.lower()))
-    return results, None
+    excluded.sort(key=lambda row: row["staff"].name.lower())
+    return results, excluded, None
 
 
 @app.route("/overtime", methods=["GET", "POST"])
@@ -7260,6 +7283,7 @@ def overtime():
     shifts = ShiftType.query.filter_by(
         is_working=True).order_by(ShiftType.code).all()
     results = []
+    excluded = []
     chosen_date = None
     chosen_shift = None
     selected_staff_ids: set[str] = set()
@@ -7274,7 +7298,9 @@ def overtime():
         selected_staff_ids = {sid for sid in request.form.getlist("staff_ids")}
         sms_body = (request.form.get("message") or "").strip()
 
-        results, error_msg = _compute_overtime_candidates(chosen_date, chosen_shift)
+        results, excluded, error_msg = _compute_overtime_candidates(
+            chosen_date, chosen_shift
+        )
 
         if action == "send_sms":
             if not can_send_unit_messages(current_user):
@@ -7325,7 +7351,7 @@ def overtime():
                            chosen_date=chosen_date, chosen_shift=chosen_shift,
                            sms_body=sms_body, sms_ready=sms_ready,
                            selected_staff_ids=selected_staff_ids,
-                           searched=searched)
+                           searched=searched, excluded=excluded)
 
 
 @app.route("/messages", methods=["GET", "POST"])
