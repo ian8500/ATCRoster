@@ -1658,7 +1658,7 @@ def bootstrap_reference_data() -> None:
     Unit.__table__.create(bind=db.engine, checkfirst=True)
     AnnotationType.__table__.create(bind=db.engine, checkfirst=True)
     RosterSetting.__table__.create(bind=db.engine, checkfirst=True)
-    if not db.session.get(Unit, 1):
+    if Unit.query.count() == 0:
         db.session.add(Unit(
             id=1, code="FIRST", name="First airport unit",
             status="active",
@@ -3133,7 +3133,7 @@ def migrate_tenant_foundation_compat():
     if "unit" not in inspector.get_table_names():
         db.create_all()
         inspector = inspect(db.engine)
-    if not db.session.get(Unit, 1):
+    if Unit.query.count() == 0:
         db.session.add(Unit(id=1, code="FIRST", name="First airport unit"))
         db.session.commit()
     additions = {
@@ -7677,6 +7677,18 @@ def platform_admin():
             routing = db.session.get(DatabaseRoutingMetadata, unit_id)
             if not unit or unit.status == "platform_control" or not routing:
                 abort(404)
+            existing_invitation = SecureInvitation.query.filter_by(
+                unit_id=unit_id,
+                role="UnitAdmin",
+                active_bootstrap_key="active",
+            ).first()
+            if existing_invitation:
+                flash(
+                    "A bootstrap invitation is already active. Show that "
+                    "one-time link or use Revoke and replace.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
             active = ProvisioningJob.query.filter(
                 ProvisioningJob.unit_id == unit_id,
                 ProvisioningJob.state.in_(("queued", "running", "retry_wait")),
@@ -7827,6 +7839,138 @@ def platform_admin():
             ))
             db.session.commit()
             return redirect(url_for("platform_admin"))
+        elif action == "delete_unit":
+            unit_id = int(request.form.get("unit_id") or 0)
+            confirmation = (
+                request.form.get("confirmation_code") or ""
+            ).strip().upper()
+            database_acknowledged = (
+                request.form.get("database_retained") == "yes"
+            )
+            unit = db.session.get(Unit, unit_id)
+            if not unit or unit.status == "platform_control":
+                abort(404)
+            if confirmation != unit.code.upper():
+                flash(
+                    f"Type {unit.code} exactly to confirm airport deletion.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+            if not database_acknowledged:
+                flash(
+                    "Confirm that the separate airport database will be "
+                    "retained for deliberate backup and decommissioning.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+            active_accounts = UnitMembership.query.filter_by(
+                unit_id=unit.id, status="active"
+            ).count()
+            active_job = ProvisioningJob.query.filter(
+                ProvisioningJob.unit_id == unit.id,
+                ProvisioningJob.state.in_((
+                    "queued", "running", "retry_wait",
+                )),
+            ).first()
+            if active_accounts:
+                flash(
+                    "Suspend or remove every active airport account before "
+                    "deleting the airport.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+            if active_job:
+                flash(
+                    "Cancel and finish the active provisioning job before "
+                    "deleting the airport.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+
+            invitation_ids = [
+                row.id for row in SecureInvitation.query.filter_by(
+                    unit_id=unit.id
+                ).all()
+            ]
+            membership_ids = [
+                row.id for row in UnitMembership.query.filter_by(
+                    unit_id=unit.id
+                ).all()
+            ]
+            workflow_filters = []
+            if invitation_ids:
+                workflow_filters.append(
+                    SignupWorkflow.invitation_id.in_(invitation_ids)
+                )
+            if membership_ids:
+                workflow_filters.append(
+                    SignupWorkflow.membership_id.in_(membership_ids)
+                )
+            if workflow_filters:
+                db.session.query(SignupWorkflow).filter(
+                    db.or_(*workflow_filters)
+                ).delete(synchronize_session=False)
+
+            job_ids = [
+                row.id for row in ProvisioningJob.query.filter_by(
+                    unit_id=unit.id
+                ).all()
+            ]
+            db.session.query(SuperAdminAudit).filter_by(
+                unit_id=unit.id
+            ).update({"unit_id": None}, synchronize_session=False)
+            for model in (
+                SecureInvitation,
+                ProvisioningJob,
+                FeatureFlag,
+                PlanHistory,
+                AggregateUsageEvent,
+                DatabaseRoutingMetadata,
+                UnitMembership,
+            ):
+                db.session.query(model).filter_by(
+                    unit_id=unit.id
+                ).delete(synchronize_session=False)
+            deleted_code = unit.code
+            db.session.delete(unit)
+            db.session.add(SuperAdminAudit(
+                actor_identity_id=platform_actor.id,
+                unit_id=None,
+                action="airport_deleted",
+                safe_summary=(
+                    f"Deleted airport metadata for {deleted_code}; "
+                    "operational database retained for decommissioning."
+                ),
+            ))
+            db.session.commit()
+            if job_ids and os.environ.get("REDIS_URL"):
+                try:
+                    import redis
+
+                    cache = redis.from_url(
+                        os.environ["REDIS_URL"],
+                        socket_connect_timeout=2,
+                        socket_timeout=2,
+                        decode_responses=True,
+                    )
+                    cache.delete(*[
+                        f"atcroster:provisioning-token:{job_id}"
+                        for job_id in job_ids
+                    ])
+                except Exception:
+                    _security_event(
+                        "airport_token_cleanup_failed",
+                        unit_digest=hashlib.sha256(
+                            str(unit_id).encode()
+                        ).hexdigest()[:16],
+                    )
+            flash(
+                f"{deleted_code} airport metadata deleted. Its separate "
+                "database was retained and must be backed up or destroyed "
+                "through the database provider.",
+                "ok",
+            )
+            return redirect(url_for("platform_admin"))
         elif action == "set_feature":
             try:
                 unit_id = int(request.form.get("unit_id") or 0)
@@ -7880,6 +8024,16 @@ def platform_admin():
         latest_job = ProvisioningJob.query.filter_by(
             unit_id=unit.id
         ).order_by(ProvisioningJob.id.desc()).first()
+        if (
+            latest_job
+            and latest_job.state == "completed"
+            and latest_job.last_error_code == "bootstrap_already_issued"
+        ):
+            latest_job = ProvisioningJob.query.filter_by(
+                unit_id=unit.id,
+                state="completed",
+                last_error_code="",
+            ).order_by(ProvisioningJob.id.desc()).first()
         if not bootstrap:
             bootstrap_status = "not issued"
         elif bootstrap.accepted_at:

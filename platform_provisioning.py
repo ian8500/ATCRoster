@@ -285,6 +285,7 @@ class ProvisioningWorker:
                 active_bootstrap_key="active",
             ).first()
             raw_token = None
+            reused_invitation = invitation is not None
             if not invitation:
                 raw_token = secrets.token_urlsafe(32)
                 invitation = application.SecureInvitation(
@@ -307,7 +308,9 @@ class ProvisioningWorker:
             job.worker_id = ""
             job.lease_owner = ""
             job.lease_expires_at = None
-            job.last_error_code = ""
+            job.last_error_code = (
+                "bootstrap_already_issued" if reused_invitation else ""
+            )
             job.updated_at = application.utcnow()
             if raw_token:
                 store_one_time_token(job.id, unit.id, raw_token)
