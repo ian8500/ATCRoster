@@ -1,8 +1,0 @@
-[extend]
-useDefault = true
-
-[[allowlists]]
-description = "DPA security-control wording is not a credential"
-regexes = [
-  '''protected secrets, vulnerability/dependency management and change control''',
-]
