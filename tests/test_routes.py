@@ -777,6 +777,7 @@ def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
             person.set_password("password123")
             db.session.add(person)
             db.session.flush()
+        person.exclude_from_ot = False
         assignment = Assignment.query.filter_by(
             unit_id=1, staff_id=person.id, day=chosen_day
         ).first()
@@ -808,6 +809,41 @@ def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
     assert b"<td>Ian Overtime Test</td>" in response.data
     if rostered_code == "AL":
         assert b"On AL that day" in response.data
+
+    what_if = client.post(
+        "/overtime",
+        data={
+            "_csrf_token": token,
+            "action": "what_if",
+            "what_if_staff_id": str(person_id),
+            "date": chosen_day.isoformat(),
+            "shift_code": "M",
+        },
+        follow_redirects=True,
+    )
+    assert what_if.status_code == 200
+    assert b"Ian Overtime Test is eligible" in what_if.data
+    assert b"No exclusion rules were triggered" in what_if.data or b"Advisory information" in what_if.data
+
+    with app.app.app_context():
+        person = db.session.get(Staff, person_id)
+        person.exclude_from_ot = True
+        db.session.commit()
+
+    ineligible = client.post(
+        "/overtime",
+        data={
+            "_csrf_token": token,
+            "action": "what_if",
+            "what_if_staff_id": str(person_id),
+            "date": chosen_day.isoformat(),
+            "shift_code": "M",
+        },
+        follow_redirects=True,
+    )
+    assert ineligible.status_code == 200
+    assert b"Ian Overtime Test is not eligible" in ineligible.data
+    assert b"Opted out of overtime" in ineligible.data
 
 
 def test_production_operations_workflows(client):
