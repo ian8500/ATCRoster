@@ -796,12 +796,20 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
 .roster .cell form{ margin:0; }
 .roster .cell .shift-picker{
   display:block;
-  height:28px;
+  position:relative;
+  z-index:2;
+  height:30px;
   line-height:0;
 }
 .roster .cell .annotation-picker{
   display:block;
-  height:26px;
+  position:relative;
+  z-index:1;
+  height:29px;
+  margin-top:3px;
+  padding-top:3px;
+  border-top:1px solid rgba(108,129,168,.38);
+  box-sizing:border-box;
   line-height:0;
 }
 
@@ -835,8 +843,9 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
 #roster{overflow-x:auto; overflow-y:hidden;}
 
 .roster .cell select.code-input{
+  display:block;
   width:100%;
-  height:34px;
+  height:30px;
   border:none;
   border-radius:0;
   padding:0;
@@ -915,20 +924,27 @@ select.code-input{
   font-size:10px;
 }
 .annotation-display{
-  min-height:26px;
-  height:26px;
+  position:relative;
+  z-index:1;
+  clear:both;
+  min-height:29px;
+  height:29px;
   flex-shrink:0;
   box-sizing:border-box;
   display:flex;
   align-items:center;
   justify-content:center;
   gap:2px;
-  margin:0;
+  margin:3px 0 0;
+  padding-top:3px;
+  border-top:1px solid rgba(108,129,168,.38);
 }
 .annotation-display--shift-line{
-  min-height:28px;
-  height:28px;
+  min-height:30px;
+  height:30px;
   margin-top:0;
+  padding-top:0;
+  border-top:0;
 }
 .annotation-display--has-detail{
   background:#ffeb3b;
@@ -1838,8 +1854,8 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
    Responsive roster scaling
    ============================== */
 table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
-.roster .cell .code-input { font-size: calc(.9rem * var(--ui-scale)); height:28px; }
-.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height:26px; }
+.roster .cell .code-input { font-size: calc(.9rem * var(--ui-scale)); }
+.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height:22px; }
 .roster th, .roster td { font-size: calc(.82rem * var(--ui-scale)); }
 
 /* ==============================
