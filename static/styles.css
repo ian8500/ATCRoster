@@ -946,21 +946,12 @@ select.code-input{
   border-top:0;
 }
 .annotation-display--has-detail{
-  background:#ffeb3b;
   color:#171717;
 }
 .annotation-display--has-detail .annotation-code{
-  border-color:transparent;
-  background:transparent;
-}
-.annotation-display--has-detail .annotation-edit-button,
-.annotation-display--has-detail .annotation-remove-form button{
-  color:#2d2d2d;
-}
-.annotation-display--has-detail .annotation-edit-button:hover,
-.annotation-display--has-detail .annotation-edit-button:focus-visible{
-  background:rgba(0,0,0,.12);
-  color:#000;
+  border-color:#d6bd1a;
+  background:#ffeb3b;
+  color:#171717;
 }
 .annotation-code{
   display:block;
@@ -969,46 +960,30 @@ select.code-input{
   overflow:hidden;
   text-overflow:ellipsis;
   padding:2px 3px;
-  border:1px solid #d6bd1a;
+  border:1px solid rgba(108,129,168,.55);
   border-radius:4px;
-  background:#ffeb3b;
-  color:#171717;
+  background:rgba(0,0,0,.24);
+  color:var(--text);
   font-size:10px;
   font-weight:800;
   line-height:1.15;
   white-space:nowrap;
 }
+.annotation-code--editable{
+  appearance:none;
+  -webkit-appearance:none;
+  font-family:inherit;
+  cursor:pointer;
+}
+.annotation-code--editable:hover,
+.annotation-code--editable:focus-visible{
+  outline:2px solid rgba(83,170,255,.72);
+  outline-offset:1px;
+}
 .annotation-display--shift-line .annotation-code{
   max-width:100%;
   font-size:clamp(10px, .72rem, 12px);
   line-height:1.1;
-}
-.annotation-edit-button{
-  position:absolute;
-  top:3px;
-  right:2px;
-  width:13px;
-  height:12px;
-  display:grid;
-  place-items:center;
-  border-radius:3px;
-  border:0;
-  padding:0;
-  background:transparent;
-  color:var(--text-muted);
-  font-size:10px;
-  cursor:pointer;
-}
-.annotation-edit-button svg{
-  display:block;
-  width:9px;
-  height:9px;
-  fill:currentColor;
-}
-.annotation-edit-button:hover,
-.annotation-edit-button:focus-visible{
-  background:rgba(83,170,255,.14);
-  color:#fff;
 }
 .annotation-remove-form{
   position:absolute;

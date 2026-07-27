@@ -4,18 +4,19 @@
 {% macro annotation_badge(staff, roster_day, value, detail, editable, shift_line=false) -%}
   {% set dialog_id = 'annotation-detail-' ~ staff.id ~ '-' ~ roster_day.strftime('%Y%m%d') %}
   <div class="annotation-display{% if shift_line %} annotation-display--shift-line{% endif %}{% if detail %} annotation-display--has-detail{% endif %}">
-    <span class="annotation-code" tabindex="0"
-          {% if detail %}title="{{ detail }}"{% endif %}
-          aria-label="{{ value }}{% if detail %}: {{ detail }}{% endif %}">{{ value }}</span>
     {% if editable %}
-      <button type="button" class="annotation-edit-button"
+      <button type="button" class="annotation-code annotation-code--editable"
               data-annotation-dialog-open="{{ dialog_id }}"
-              title="{% if detail %}Edit annotation text{% else %}Add annotation text{% endif %}"
+              title="{% if detail %}{{ detail }} — click to edit{% else %}Click to add annotation text{% endif %}"
               aria-label="{% if detail %}Edit text for {{ value }}{% else %}Add text for {{ value }}{% endif %}">
-        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <path d="M11.9 1.4a1.5 1.5 0 0 1 2.1 0l.6.6a1.5 1.5 0 0 1 0 2.1L6 12.7 2.4 13.6l.9-3.6 8.6-8.6ZM4.2 10.5l-.4 1.7 1.7-.4 7.4-7.4-1.3-1.3-7.4 7.4Z"/>
-        </svg>
+        {{ value }}
       </button>
+    {% else %}
+      <span class="annotation-code" tabindex="0"
+            {% if detail %}title="{{ detail }}"{% endif %}
+            aria-label="{{ value }}{% if detail %}: {{ detail }}{% endif %}">{{ value }}</span>
+    {% endif %}
+    {% if editable %}
       <form class="annotation-remove-form" method="post"
             action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
