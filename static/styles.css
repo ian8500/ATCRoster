@@ -2681,20 +2681,29 @@ a:focus-visible { color:var(--accent-strong); }
   height:34px;
   flex:0 0 34px;
   border:1px solid #4a7775;
-  border-radius:6px;
-  background:#19302f;
-  box-shadow:none;
+  border-radius:50%;
+  background:
+    radial-gradient(circle, #b7dfdc 0 2px, transparent 3px),
+    repeating-radial-gradient(circle, transparent 0 5px, rgba(118, 181, 176, .25) 6px 7px),
+    #19302f;
+  box-shadow:0 0 0 3px rgba(118, 181, 176, .08);
   overflow:hidden;
 }
 
-.brand-mark::before,
-.brand-mark::after { display:none; }
+.brand-mark::before {
+  display:block;
+  background:linear-gradient(90deg, #8fcac6, transparent);
+  animation:radar-sweep 5s linear infinite;
+}
+
+.brand-mark::after {
+  display:block;
+  inset:4px;
+  border-color:rgba(183, 223, 220, .2);
+}
 
 .brand-mark span {
-  color:#b7dfdc;
-  font-size:.68rem;
-  font-weight:750;
-  letter-spacing:.03em;
+  display:none;
 }
 
 .logo {

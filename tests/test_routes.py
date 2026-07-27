@@ -65,7 +65,7 @@ def test_privacy_notice_identifies_operator_and_contact(client):
 def test_public_shell_uses_local_professional_branding(client):
     response = client.get("/login")
     assert response.status_code == 200
-    assert b'<span class="brand-mark" aria-hidden="true"><span>AR</span>' in response.data
+    assert b'<span class="brand-mark" aria-hidden="true"><span></span>' in response.data
     assert b"fonts.googleapis.com" not in response.data
 
 
