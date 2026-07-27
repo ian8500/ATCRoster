@@ -7281,12 +7281,22 @@ def overtime():
     ):
         abort(403)
 
+    unit_id = _current_unit_id()
     shifts = ShiftType.query.filter_by(
-        is_working=True).order_by(ShiftType.code).all()
+        unit_id=unit_id, is_working=True
+    ).order_by(ShiftType.code).all()
+    overtime_staff = (
+        Staff.query
+        .filter_by(unit_id=unit_id, is_operational=True)
+        .order_by(Staff.name)
+        .all()
+    )
     results = []
     excluded = []
+    what_if_result = None
     chosen_date = None
     chosen_shift = None
+    what_if_staff_id = None
     selected_staff_ids: set[str] = set()
     sms_body = ""
     searched = request.method == "POST"
@@ -7296,6 +7306,12 @@ def overtime():
         action = request.form.get("action", "find")
         chosen_date = _parse_date(request.form.get("date"))
         chosen_shift = (request.form.get("shift_code") or "").upper().strip()
+        raw_what_if_staff_id = request.form.get("what_if_staff_id", "")
+        what_if_staff_id = (
+            int(raw_what_if_staff_id)
+            if raw_what_if_staff_id.isdigit()
+            else None
+        )
         selected_staff_ids = {sid for sid in request.form.getlist("staff_ids")}
         sms_body = (request.form.get("message") or "").strip()
 
@@ -7303,7 +7319,51 @@ def overtime():
             chosen_date, chosen_shift
         )
 
-        if action == "send_sms":
+        if action == "what_if":
+            searched = False
+            selected_staff = next(
+                (
+                    person for person in overtime_staff
+                    if person.id == what_if_staff_id
+                ),
+                None,
+            )
+            if error_msg:
+                flash(error_msg, "error")
+            elif selected_staff is None:
+                flash("Select an ATCO to check.", "error")
+            else:
+                eligible_result = next(
+                    (
+                        row for row in results
+                        if row["staff"].id == selected_staff.id
+                    ),
+                    None,
+                )
+                excluded_result = next(
+                    (
+                        row for row in excluded
+                        if row["staff"].id == selected_staff.id
+                    ),
+                    None,
+                )
+                if eligible_result:
+                    what_if_result = {
+                        "eligible": True,
+                        "staff": selected_staff,
+                        "flags": eligible_result["flags"],
+                    }
+                else:
+                    what_if_result = {
+                        "eligible": False,
+                        "staff": selected_staff,
+                        "reasons": (
+                            excluded_result["reasons"]
+                            if excluded_result
+                            else ["Eligibility could not be determined"]
+                        ),
+                    }
+        elif action == "send_sms":
             if not can_send_unit_messages(current_user):
                 abort(403)
             if error_msg:
@@ -7349,6 +7409,9 @@ def overtime():
 
     return render_template("overtime.html",
                            shifts=shifts, results=results,
+                           overtime_staff=overtime_staff,
+                           what_if_result=what_if_result,
+                           what_if_staff_id=what_if_staff_id,
                            chosen_date=chosen_date, chosen_shift=chosen_shift,
                            sms_body=sms_body, sms_ready=sms_ready,
                            selected_staff_ids=selected_staff_ids,

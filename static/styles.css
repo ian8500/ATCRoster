@@ -3231,6 +3231,31 @@ table:not(.roster) td {
   border-bottom:1px solid var(--line);
   color:var(--text);
 }
+.what-if-result{
+  display:grid;
+  gap:.55rem;
+  margin-top:1rem;
+  padding:1rem 1.1rem;
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  background:rgba(255,255,255,.035);
+}
+.what-if-result > div{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.35rem;
+  align-items:baseline;
+}
+.what-if-result p,
+.what-if-result ul{margin:0;}
+.what-if-result--eligible{
+  border-color:rgba(84,214,150,.65);
+  background:rgba(60,190,125,.11);
+}
+.what-if-result--ineligible{
+  border-color:rgba(245,183,66,.68);
+  background:rgba(245,183,66,.1);
+}
 
 .alert,
 .flash {
