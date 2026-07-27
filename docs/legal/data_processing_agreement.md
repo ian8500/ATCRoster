@@ -39,7 +39,7 @@ shall maintain measures appropriate to risk, including:
   secrets;
 - MFA for privileged access, secure sessions, CSRF protection and rate limits;
 - audit trails for material roster, request, account and SMS activity;
-- protected secrets, vulnerability/dependency management and change control;
+- protected credentials, vulnerability/dependency management and change control;
 - resilient backups, restore testing, monitoring and incident procedures; and
 - staff access removal and periodic access review.
 
