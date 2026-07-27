@@ -3,6 +3,23 @@
 
 {% block content %}
 <div class="page-shell">
+{% if requires_acknowledgement %}
+<section class="sensitive-data-gate card" role="alertdialog" aria-labelledby="sensitive-data-title" aria-describedby="sensitive-data-description">
+  <div class="sensitive-data-gate__icon" aria-hidden="true">!</div>
+  <div>
+    <span class="admin-step">Privacy check</span>
+    <h2 id="sensitive-data-title">Sensitive information ahead</h2>
+    <p id="sensitive-data-description">
+      Reports may contain personal information about leave, sickness and staff records.
+      Check your surroundings and make sure your screen cannot be viewed by anyone who is not authorised.
+    </p>
+    <form method="post">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary" type="submit">OK, open reports</button>
+    </form>
+  </div>
+</section>
+{% else %}
 <section class="compliance-hero">
   <div><span class="admin-step">Operational insight</span><h2>Reports</h2><p>Review leave, sickness and airport-specific roster annotation totals.</p></div>
 </section>
@@ -34,5 +51,6 @@
     These reports reflect the latest roster data. Export options are available inside each report.
   </p>
 </section>
+{% endif %}
 </div>
 {% endblock %}
