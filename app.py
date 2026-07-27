@@ -8411,9 +8411,22 @@ def _run_invitation_signup(
                     "Account setup could not be started safely."
                 ) from exc
     if workflow.normalized_username != normalized:
-        raise SignupWorkflowError(
-            "This invitation already has an incomplete setup attempt."
+        retryable_username_validation = (
+            workflow.state == "failed"
+            and workflow.compensation_state == "pending"
+            and not workflow.identity_id
+            and workflow.last_error_code == "validation_failed"
         )
+        if not retryable_username_validation:
+            raise SignupWorkflowError(
+                "This invitation already has an incomplete setup attempt."
+            )
+        # No central identity or operational account exists yet. The previous
+        # username was rejected before any durable account data was created,
+        # so the same invitation can safely be corrected and retried.
+        workflow.normalized_username = normalized
+        workflow.updated_at = utcnow()
+        db.session.commit()
     if workflow.state == "completed":
         return workflow
     if workflow.state == "failed" and workflow.compensation_state:

@@ -286,3 +286,26 @@ def test_global_identity_duplicate_creates_no_operational_staff(
                     "GLOBAL.USER", "Duplicate-Password-2026!",
                 )
             assert Staff.query.count() == 0
+            workflow = SignupWorkflow.query.filter_by(
+                invitation_id=invitation.id
+            ).one()
+            assert workflow.state == "failed"
+            assert workflow.compensation_state == "pending"
+            assert workflow.identity_id is None
+
+            app._run_invitation_signup(
+                invitation,
+                unit,
+                "Duplicate Person",
+                "available.user",
+                "Duplicate-Password-2026!",
+            )
+            assert Staff.query.filter_by(
+                username="available.user"
+            ).count() == 1
+        workflow = SignupWorkflow.query.filter_by(
+            invitation_id=invitation.id
+        ).one()
+        assert workflow.state == "completed"
+        assert workflow.normalized_username == "available.user"
+        assert db.session.get(SecureInvitation, invitation.id).accepted_at
