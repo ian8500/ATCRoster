@@ -282,15 +282,17 @@ def test_favicon_is_served(client):
     assert resp.mimetype == "image/svg+xml"
 
 
-def test_compliance_centre_and_evidence_export(client):
+def test_retired_compliance_page_redirects_to_roster(client):
     login(client)
     page = client.get("/compliance-centre?ym=2025-04")
-    assert page.status_code == 200
-    assert b"Fatigue &amp; Compliance Centre" in page.data
+    assert page.status_code == 302
+    assert page.headers["Location"].endswith("/roster/2025-04")
     export = client.get("/compliance-centre/export?ym=2025-04")
-    assert export.status_code == 200
-    assert export.mimetype == "text/csv"
-    assert b"Airport,Month,ATCO" in export.data
+    assert export.status_code == 302
+    assert export.headers["Location"].endswith("/roster/2025-04")
+    roster = client.get("/roster/2025-04")
+    assert b"fatigue" in roster.data.lower()
+    assert b'href="/compliance-centre"' not in roster.data
 
 
 def test_roster_publication_is_managed_from_monthly_roster(client):
@@ -392,7 +394,6 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         "reports": "/reports",
         "metrics": "/metrics",
         "qualification": "/compliance",
-        "compliance": "/compliance-centre?ym=2025-04",
         "operations": "/operations/2025-04",
         "coverage": "/planning/coverage/2025-04",
         "scenarios": "/planning/scenarios",
@@ -415,7 +416,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "roster": 200, "requests": 200,
             "overtime": 200, "leave": 200,
             "reports": 302, "metrics": 200, "qualification": 200,
-            "compliance": 403, "operations": 403, "coverage": 200,
+            "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
         },
@@ -423,7 +424,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "roster": 200, "requests": 200,
             "overtime": 200, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
-            "compliance": 403, "operations": 403, "coverage": 200,
+            "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
         },
@@ -431,7 +432,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "roster": 200, "requests": 200,
             "overtime": 200, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
-            "compliance": 403, "operations": 403, "coverage": 200,
+            "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
         },
@@ -439,7 +440,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "roster": 200, "requests": 200,
             "overtime": 403, "leave": 403,
             "reports": 403, "metrics": 403, "qualification": 403,
-            "compliance": 403, "operations": 403, "coverage": 403,
+            "operations": 403, "coverage": 403,
             "scenarios": 403, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
         },

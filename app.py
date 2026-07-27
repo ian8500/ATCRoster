@@ -654,7 +654,6 @@ def _reset_tenant_context(_error=None):
 _LOGIN_NEXT_ENDPOINTS = {
     "/": "index",
     "/admin": "admin",
-    "/compliance-centre": "compliance_centre",
     "/leave": "leave",
     "/messages": "unit_messages",
     "/overtime": "overtime",
@@ -3157,19 +3156,12 @@ def _compliance_findings(year: int, month: int) -> dict:
 @app.route("/compliance-centre")
 @login_required
 def compliance_centre():
+    """Retired standalone view; roster cells remain the monitoring surface."""
     if not is_admin_user(current_user):
         abort(403)
     year, month = _compliance_month(request.args.get("ym"))
-    findings = _compliance_findings(year, month)
-    py, pm = _month_add(year, month, -1)
-    ny, nm = _month_add(year, month, 1)
-    return render_template(
-        "compliance_centre.html",
-        ym=f"{year:04d}-{month:02d}",
-        month_title=date(year, month, 1).strftime("%B %Y"),
-        prev_ym=f"{py:04d}-{pm:02d}",
-        next_ym=f"{ny:04d}-{nm:02d}",
-        **findings,
+    return redirect(
+        url_for("roster_month", ym=f"{year:04d}-{month:02d}")
     )
 
 
@@ -3295,43 +3287,12 @@ def admin_fatigue_rules():
 @app.route("/compliance-centre/export")
 @login_required
 def compliance_centre_export():
+    """Retired with the standalone Compliance Centre."""
     if not is_admin_user(current_user):
         abort(403)
-    if not _consume_rate_limit(
-        "compliance-export", current_user.id, limit=20,
-        window=timedelta(hours=1),
-    ):
-        abort(429)
     year, month = _compliance_month(request.args.get("ym"))
-    findings = _compliance_findings(year, month)
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "Airport", "Month", "ATCO", "Staff number", "Watch", "Date",
-        "Severity", "Rule", "Finding",
-    ])
-    unit = db.session.get(Unit, _current_unit_id())
-    for row in findings["rows"]:
-        person = row["staff"]
-        for issue in row["issues"]:
-            writer.writerow([
-                unit.code if unit else "",
-                f"{year:04d}-{month:02d}",
-                person.name,
-                person.staff_no,
-                person.watch.name if person.watch else "",
-                issue["day"].isoformat(),
-                issue["severity"],
-                issue["rule"],
-                issue["message"],
-            ])
-    return Response(
-        output.getvalue(),
-        mimetype="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition":
-                f"attachment; filename=compliance-evidence-{year:04d}-{month:02d}.csv"
-        },
+    return redirect(
+        url_for("roster_month", ym=f"{year:04d}-{month:02d}")
     )
 
 # -------------------- Migrations / seeding --------------------
@@ -8980,7 +8941,7 @@ def unit_onboarding():
         ("Operational staff added", Staff.query.filter_by(is_operational=True).count() > 0, "admin"),
         ("Staffing requirements set", Requirement.query.count() > 0, "admin"),
         ("Qualification types set", QualificationType.query.count() > 0, "qualification_compliance"),
-        ("Compliance review available", True, "compliance_centre"),
+        ("Roster warning rules available", True, "admin_fatigue_rules"),
         ("Unit Admin access active", active > 0, "unit_accounts"),
     ]
     readiness_complete = sum(1 for _, complete, _ in readiness if complete)

@@ -67,8 +67,7 @@ After signing in:
 - Use **Reports** for fatigue, sickness, leave-year, overtime, swap, and
   extension information.
 - Use **Qualification compliance** at `/compliance`.
-- Use **Compliance** at `/compliance-centre` for explainable fatigue findings
-  and the regulator/auditor evidence export.
+- Review automatic fatigue findings directly on the relevant roster cells.
 - Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
 - Use **Roster scenarios** at `/planning/scenarios`.
 - Use **Airport onboarding** at `/unit/onboarding`.
@@ -357,22 +356,14 @@ Configure warning periods per qualification type; the standard defaults are
 180, 90, 60, and 30 days. Assignment and request-application checks must use
 the current airport’s qualification records only.
 
-### Fatigue and Compliance Centre
+### Fatigue monitoring
 
-Unit Admins and roster editors open `/compliance-centre?ym=YYYY-MM` to review:
+Automatic fatigue findings remain visible on the affected roster cells, with
+the rule explanation available from the cell warning. The standalone
+Compliance Centre is not part of the application navigation.
 
-- total and critical fatigue findings;
-- affected controllers;
-- the source date, assigned shift and rule explanation;
-- findings grouped by controller and by frequent rule.
-
-The **Evidence CSV** export records airport, month, ATCO, date, severity, rule
-and the explainable finding. It is intended to support competent human review,
-not declare a roster legally compliant. Correct the roster or record an
-authorised decision through the controlled change process before publication.
-
-Unit Admins use **Compliance → Manage rules** (or
-`/admin/fatigue-rules`) to control fatigue monitoring:
+Unit Admins use **Admin → Fatigue rules** (`/admin/fatigue-rules`) to control
+roster monitoring:
 
 - review the nine system-rule families and their plain-language names;
 - edit airport-specific thresholds including duty hours, rolling periods,
@@ -387,9 +378,9 @@ Unit Admins use **Compliance → Manage rules** (or
 
 Custom rules require a name, limit and severity. Rules measured over time also
 require a review period in days. They are evaluated for every operational ATCO
-and feed both roster-cell warnings and the Compliance Centre. No code or JSON
-editing is required. Changing a rule affects future calculations; it does not
-rewrite historical roster assignments.
+and feed the roster-cell warnings. No code or JSON editing is required.
+Changing a rule affects future calculations; it does not rewrite historical
+roster assignments.
 
 Fatigue configuration is stored against the authenticated airport’s unit ID.
 An administrator cannot read or change another airport’s thresholds, names,
@@ -416,8 +407,7 @@ position is short; or when a high/unfit fatigue report remains open.
 
 The standalone in-app fatigue self-report form is not enabled. Controllers
 should use the unit’s established fit-for-duty reporting procedure and Safety
-Management System. Automatic roster warnings and the Compliance Centre remain
-available.
+Management System. Automatic roster warnings remain available.
 
 ## Coverage and scenario planning
 

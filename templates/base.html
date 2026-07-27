@@ -102,7 +102,6 @@
               <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Reports</a>
             {% endif %}
             {% if is_admin %}
-              <a href="{{ url_for('compliance_centre') }}" class="nav-link {% if request.endpoint in ('compliance_centre','compliance_centre_export') %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Compliance</a>
               <a href="{{ url_for('unit_accounts') }}" class="nav-link {% if request.endpoint == 'unit_accounts' %}active{% endif %}"><i class="fa-solid fa-users-gear" aria-hidden="true"></i> Accounts</a>
               <a href="{{ url_for('admin') }}" class="nav-link {% if request.endpoint == 'admin' %}active{% endif %}"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Admin</a>
             {% endif %}
