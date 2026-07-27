@@ -10,14 +10,14 @@
 </section>
 
 <form class="report-filter card" method="get">
-  <label for="leave-watch">Users</label>
-  <select id="leave-watch" name="watch_id" onchange="this.form.submit()">
+  <label for="leave-watch">Filter by watch</label>
+  <select id="leave-watch" name="watch_id">
     <option value="">All users</option>
     {% for watch in watches %}
       <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
     {% endfor %}
   </select>
-  <noscript><button class="btn btn-primary" type="submit">Apply</button></noscript>
+  <button class="btn btn-primary" type="submit">Apply filter</button>
 </form>
 
 <div class="table-scroll">

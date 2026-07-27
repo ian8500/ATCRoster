@@ -251,6 +251,7 @@ def test_leave_year_report_filters_by_watch(client):
     all_users = client.get("/reports/leave-year")
     assert all_users.status_code == 200
     assert b"All users" in all_users.data
+    assert b"Apply filter" in all_users.data
     assert b"<td>Admin Test</td>" in all_users.data
     assert b"<td>Duty Watch Manager Test</td>" in all_users.data
 
@@ -291,6 +292,7 @@ def test_sickness_report_filters_by_watch(client):
     all_users = client.get("/reports/sickness")
     assert all_users.status_code == 200
     assert b"All users" in all_users.data
+    assert b"Apply filter" in all_users.data
     assert b"<td>Admin Test</td>" in all_users.data
     assert b"<td>Duty Watch Manager Test</td>" in all_users.data
 
