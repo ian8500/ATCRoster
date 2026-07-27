@@ -14,6 +14,13 @@
               aria-label="{% if detail %}Edit text for {{ value }}{% else %}Add text for {{ value }}{% endif %}">
         <i class="fa-solid fa-pencil" aria-hidden="true"></i>
       </button>
+      <form class="annotation-remove-form" method="post"
+            action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" name="annotation" value="__remove__"
+                title="Remove {{ value }} annotation"
+                aria-label="Remove {{ value }} annotation">×</button>
+      </form>
       <dialog class="annotation-dialog" id="{{ dialog_id }}"
               aria-labelledby="{{ dialog_id }}-title">
         <form method="post" action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
@@ -248,6 +255,7 @@
             {% endif %}
 
             <!-- ANNOTATION -->
+            {% if not ann %}
             <form class="annotation-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
@@ -259,9 +267,6 @@
                 aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"
               >
                 <option value="" selected>—</option>
-                {% if ann %}
-                  <option value="__remove__">Remove {{ ann }}</option>
-                {% endif %}
                 {% for group, opts in annotation_groups.items() %}
                   {% if opts %}
                   <optgroup label="{{ group }}">
@@ -280,6 +285,7 @@
                      aria-label="{{ s.name }} annotation note on {{ d.strftime('%d %B %Y') }}">
               <button type="submit" class="btn btn-sm annotation-apply" hidden>Apply annotation</button>
             </form>
+            {% endif %}
             {% if ann and code %}
               {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly) }}
             {% endif %}
