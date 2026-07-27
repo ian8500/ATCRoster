@@ -552,6 +552,7 @@ def create_fresh_schema():
         sa.Column('admin_response', sa.String()),
         sa.Column('responded_by_id', sa.Integer()),
         sa.Column('responded_at', sa.DateTime()),
+        sa.Column('dismissed_by_requester_at', sa.DateTime()),
         sa.Column('status', sa.String(20)),
         sa.UniqueConstraint('staff_id', 'day', name='uniq_shift_request_staff_day'),
     )

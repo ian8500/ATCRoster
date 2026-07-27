@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Leave – {{ month_title }}{% endblock %}
 {% block content %}
-<h1><i class="fa-solid fa-plane-departure"></i> Leave — {{ month_title }}</h1>
-
-<div class="toolbar">
-  <a class="btn" href="{{ url_for('reports_index', ym=ym) }}"><i class="fa-solid fa-chevron-left"></i> Reports</a>
-  <a class="btn" href="{{ url_for('report_leave_csv', ym=ym) }}"><i class="fa-solid fa-file-csv"></i> Download CSV</a>
-</div>
+<section class="compliance-hero">
+  <div><span class="admin-step">Leave reporting</span><h2>Leave · {{ month_title }}</h2><p>Recorded leave totals by controller and leave type.</p></div>
+  <div class="compliance-actions">
+    <a class="btn" href="{{ url_for('reports_index', ym=ym) }}"><i class="fa-solid fa-chevron-left"></i> Reports</a>
+    <a class="btn" href="{{ url_for('report_leave_csv', ym=ym) }}"><i class="fa-solid fa-file-csv"></i> Download CSV</a>
+  </div>
+</section>
 
 <div class="table-scroll">
   <table class="table">

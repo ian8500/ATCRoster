@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Platform Administration{% endblock %}
 {% block content %}
-<div class="container my-4">
-  <h2>Platform Administration</h2>
-  <p class="text-muted">Create and operate airport accounts using privacy-safe metadata. Personnel and roster data are not available here.</p>
+<div class="page-shell">
+  <section class="compliance-hero">
+    <div><span class="admin-step">Platform control</span><h2>Platform administration</h2><p>Create and operate airport accounts using privacy-safe metadata. Personnel and roster data are not available here.</p></div>
+  </section>
 
   <section class="card card-body mb-4">
     <h3>Create airport account</h3>
@@ -62,7 +63,7 @@
               </form>
               {% endif %}
             {% endif %}
-            {% if row.provisioning_state != "active" %}
+            {% if not row.active_accounts and row.provisioning_state not in ("active", "invitation_issued") %}
             <form method="post" class="mt-2">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="provision_unit">
@@ -100,6 +101,32 @@
               <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
               <button class="btn btn-sm" type="submit">{{ "Restore" if row.unit.status == "suspended" else "Suspend" }}</button>
             </form>
+            <details class="mt-3">
+              <summary class="danger-text">Delete airport</summary>
+              <p class="form-text">
+                Removes platform metadata only. The separate operational
+                database is retained for backup and deliberate decommissioning.
+                Active accounts and provisioning jobs must be cleared first.
+              </p>
+              <form method="post">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="delete_unit">
+                <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
+                <label>
+                  Type <strong>{{ row.unit.code }}</strong> to confirm
+                  <input class="form-control" name="confirmation_code"
+                         autocomplete="off" required>
+                </label>
+                <label class="d-block mt-2">
+                  <input type="checkbox" name="database_retained" value="yes"
+                         required>
+                  I understand the airport database is retained separately
+                </label>
+                <button class="btn btn-danger btn-sm mt-2" type="submit">
+                  Delete airport metadata
+                </button>
+              </form>
+            </details>
           </td>
         </tr>
       {% else %}

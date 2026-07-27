@@ -25,6 +25,11 @@ pg_dump --format=custom --no-owner --file=atcroster.dump "$DATABASE_URL"
 sha256sum atcroster.dump > atcroster.dump.sha256
 ```
 
+Use a `pg_dump` client whose major version is equal to or newer than the
+database server. Railway currently provisions PostgreSQL 18 for this project;
+the official `postgres:18-alpine` image provides a reproducible recovery
+client when the operator workstation has an older client installed.
+
 ## Restore rehearsal
 
 1. Authorise an isolated PostgreSQL target and restrict network access.

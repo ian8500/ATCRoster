@@ -60,7 +60,7 @@ means server-side 403 denial.
 
 ### P1 — Platform control-plane escape
 
-The Platform Super Admin could reach roster, requests, publications,
+The Platform Super Admin could reach roster, requests, unit operational,
 qualification and coverage URLs by typing them directly, despite those links
 being hidden.
 

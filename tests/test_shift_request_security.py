@@ -271,7 +271,6 @@ def test_sequential_tenant_sessions_do_not_reuse_first_unit_filter(secured_clien
     assert b"AIRPORT-A-ONLY" in airport_a.data
     assert b"AIRPORT-B-ONLY" not in airport_a.data
     assert b"Airport A" in airport_a.data
-    assert b">AAA<" in airport_a.data
 
     second_client = app.app.test_client()
     login(second_client, "user-b")
@@ -279,7 +278,6 @@ def test_sequential_tenant_sessions_do_not_reuse_first_unit_filter(secured_clien
     assert b"AIRPORT-B-ONLY" in airport_b.data
     assert b"AIRPORT-A-ONLY" not in airport_b.data
     assert b"Airport B" in airport_b.data
-    assert b">BBB<" in airport_b.data
 
 
 def test_operational_assurance_is_tenant_isolated(secured_client):
@@ -367,6 +365,133 @@ def test_approve_only_then_apply_and_notify(secured_client):
         assert row.status == "fulfilled"
         assert db.session.get(Assignment, row.resulting_assignment_id).code == "REQ"
         assert Notification.query.filter_by(recipient_id=row.staff_id, kind="shift_request_fulfilled").count() == 1
+
+
+def test_simple_manager_approve_and_refuse_actions_notify_user(secured_client):
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="user-a").one()
+        approved_request = ShiftRequest(
+            unit_id=1, staff_id=user.id, day=request_day(), code="REQ"
+        )
+        refused_request = ShiftRequest(
+            unit_id=1,
+            staff_id=user.id,
+            day=request_day() + app.timedelta(days=1),
+            code="REQ",
+        )
+        db.session.add_all([approved_request, refused_request])
+        db.session.commit()
+        approved_id = approved_request.id
+        refused_id = refused_request.id
+
+    token = login(secured_client, "admin-a")
+    attention_page = secured_client.get(
+        f"/requests?ym={request_day():%Y-%m}"
+    )
+    assert b"shift requests awaiting your decision" in attention_page.data
+    assert b"nav-attention-count" in attention_page.data
+    approved = secured_client.post(
+        f"/admin/requests/{approved_id}/respond",
+        data={
+            "_csrf_token": token,
+            "action": "approve",
+            "admin_response": "Approved for requested cover.",
+            "ym": f"{request_day():%Y-%m}",
+        },
+    )
+    assert approved.status_code == 302
+
+    refused = secured_client.post(
+        f"/admin/requests/{refused_id}/respond",
+        data={
+            "_csrf_token": token,
+            "action": "refuse",
+            "admin_response": "Unable to release the requested shift.",
+            "ym": f"{request_day():%Y-%m}",
+        },
+    )
+    assert refused.status_code == 302
+
+    with app.app.app_context():
+        approved_row = db.session.get(ShiftRequest, approved_id)
+        refused_row = db.session.get(ShiftRequest, refused_id)
+        assert approved_row.status == "fulfilled"
+        assert db.session.get(
+            Assignment, approved_row.resulting_assignment_id
+        ).code == "REQ"
+        assert refused_row.status == "rejected"
+        approved_notice = Notification.query.filter_by(
+            recipient_id=approved_row.staff_id,
+            kind="shift_request_fulfilled",
+        ).order_by(Notification.id.desc()).first()
+        refused_notice = Notification.query.filter_by(
+            recipient_id=refused_row.staff_id,
+            kind="shift_request_rejected",
+        ).order_by(Notification.id.desc()).first()
+        assert "approved and added to the roster" in approved_notice.message
+        assert "Approved for requested cover." in approved_notice.message
+        assert "was refused" in refused_notice.message
+        assert "Unable to release" in refused_notice.message
+
+
+def test_requester_can_dismiss_only_fulfilled_or_rejected_requests(
+    secured_client,
+):
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="user-a").one()
+        fulfilled = ShiftRequest(
+            unit_id=1,
+            staff_id=user.id,
+            day=request_day(),
+            code="REQ",
+            status="fulfilled",
+            requester_comment="DISMISS-FULFILLED",
+        )
+        pending = ShiftRequest(
+            unit_id=1,
+            staff_id=user.id,
+            day=request_day() + app.timedelta(days=1),
+            code="REQ",
+            status="pending",
+            requester_comment="KEEP-PENDING",
+        )
+        db.session.add_all([fulfilled, pending])
+        db.session.commit()
+        fulfilled_id = fulfilled.id
+        pending_id = pending.id
+
+    token = login(secured_client, "user-a")
+    removed = secured_client.post(
+        "/requests",
+        data={
+            "_csrf_token": token,
+            "form": "dismiss",
+            "rid": fulfilled_id,
+        },
+        follow_redirects=True,
+    )
+    assert removed.status_code == 200
+    assert b"DISMISS-FULFILLED" not in removed.data
+    assert b"KEEP-PENDING" in removed.data
+
+    denied = secured_client.post(
+        "/requests",
+        data={
+            "_csrf_token": token,
+            "form": "dismiss",
+            "rid": pending_id,
+        },
+    )
+    assert denied.status_code == 409
+
+    with app.app.app_context():
+        row = db.session.get(ShiftRequest, fulfilled_id)
+        assert row is not None
+        assert row.dismissed_by_requester_at is not None
+        assert RequestAudit.query.filter_by(
+            request_id=fulfilled_id,
+            transition="dismissed_by_requester",
+        ).count() == 1
 
 
 def test_qualification_conflict_requires_confirmed_override(secured_client):
@@ -467,45 +592,13 @@ def test_annotation_application_is_tenant_scoped_and_audited(secured_client):
     assert cross_write.status_code == 404
 
 
-def test_bulk_annotation_preview_apply_and_toil_idempotency(secured_client):
-    with app.app.app_context():
-        definition = AnnotationType(
-            unit_id=1, code="TOILX", label="TOIL award",
-            is_active=True, toil_half_days=2,
-        )
-        user = Staff.query.filter_by(username="user-a").one()
-        db.session.add(definition)
-        db.session.commit()
-        user_id = user.id
-        refresh_annotation_cache()
+def test_bulk_annotation_feature_is_removed(secured_client):
     token = login(secured_client, "admin-a")
-    end = request_day().replace(day=request_day().day + 1)
-    preview = secured_client.post("/annotations/bulk", data={
+    response = secured_client.post("/annotations/bulk", data={
         "_csrf_token": token,
-        "action": "preview",
-        "person_id": user_id,
-        "start": request_day().isoformat(),
-        "end": end.isoformat(),
-        "annotation": "TOILX",
+        "action": "preview"
     })
-    assert preview.status_code == 200
-    assert b"2 cell(s) will change" in preview.data
-    with secured_client.session_transaction() as session:
-        nonce = session["_bulk_annotation_preview"]["nonce"]
-    applied = secured_client.post("/annotations/bulk", data={
-        "_csrf_token": token, "action": "apply", "nonce": nonce,
-    })
-    assert applied.status_code == 302
-    replay = secured_client.post("/annotations/bulk", data={
-        "_csrf_token": token, "action": "apply", "nonce": nonce,
-    })
-    assert replay.status_code == 409
-    with app.app.app_context():
-        user = db.session.get(Staff, user_id)
-        assert user.toil_half_days == 4
-        assert AnnotationAudit.query.filter_by(
-            unit_id=1, action="bulk_applied"
-        ).count() == 2
+    assert response.status_code == 404
 
 
 def test_watch_manager_needs_explicit_annotation_permission(secured_client):

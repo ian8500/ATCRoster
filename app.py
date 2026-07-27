@@ -32,7 +32,7 @@ from flask_login import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, SecurityError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from rate_limiting import (
@@ -327,16 +327,21 @@ def health_ready():
         connection = db.session.connection()
         connection.execute(text("SELECT 1"))
         from sqlalchemy import inspect
+        from alembic.config import Config as AlembicConfig
         from alembic.runtime.migration import MigrationContext
+        from alembic.script import ScriptDirectory
         from migrations.fresh_schema import CONTROL_TABLES
 
         present = set(inspect(connection).get_table_names())
         revision = MigrationContext.configure(connection).get_current_revision()
+        expected_revision = ScriptDirectory.from_config(
+            AlembicConfig("alembic.ini")
+        ).get_current_head()
         if (
             not CONTROL_TABLES.issubset(present)
             or (
                 DEPLOYMENT_ENV == "production"
-                and revision != "20260726_13"
+                and revision != expected_revision
             )
         ):
             return jsonify({"status": "not_ready"}), 503
@@ -360,6 +365,12 @@ def _internal_error(error):
 
 @app.errorhandler(400)
 def _bad_request(error):
+    if isinstance(error, SecurityError):
+        return Response(
+            "Bad Request: untrusted host.",
+            status=400,
+            content_type="text/plain; charset=utf-8",
+        )
     description = getattr(error, "description", "") or ""
     if "CSRF" in description:
         message = (
@@ -640,11 +651,49 @@ def _reset_tenant_context(_error=None):
     clear_request_context()
 
 
-def _is_safe_local_redirect(target: str | None) -> bool:
+_LOGIN_NEXT_ENDPOINTS = {
+    "/": "index",
+    "/admin": "admin",
+    "/compliance-centre": "compliance_centre",
+    "/leave": "leave",
+    "/messages": "unit_messages",
+    "/overtime": "overtime",
+    "/platform/admin": "platform_admin",
+    "/reports": "reports_index",
+    "/reports/leave-year": "report_leave_year",
+    "/reports/sickness": "report_sickness",
+    "/requests": "requests_page",
+    "/unit/accounts": "unit_accounts",
+}
+
+
+def _canonical_login_redirect(
+    target: str | None,
+    *,
+    default_endpoint: str = "index",
+    user_id: int | None = None,
+) -> str:
+    """Return only a URL generated from an explicitly permitted app route."""
     if not target:
-        return False
+        return url_for(default_endpoint)
     parsed = urllib_parse.urlsplit(target)
-    return not parsed.scheme and not parsed.netloc and target.startswith("/")
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return url_for(default_endpoint)
+    endpoint = _LOGIN_NEXT_ENDPOINTS.get(parsed.path)
+    if endpoint:
+        return url_for(endpoint)
+    roster_match = re.fullmatch(r"/roster/(\d{4}-\d{2})", parsed.path)
+    if roster_match:
+        return url_for("roster_month", ym=roster_match.group(1))
+    leave_report_match = re.fullmatch(
+        r"/reports/leave/(\d{4}-\d{2})", parsed.path
+    )
+    if leave_report_match:
+        return url_for("report_leave", ym=leave_report_match.group(1))
+    profile_match = re.fullmatch(r"/staff/(\d+)", parsed.path)
+    if profile_match and user_id and int(profile_match.group(1)) == user_id:
+        return url_for("staff_profile", sid=user_id)
+    return url_for(default_endpoint)
 
 
 # ----- SQLite performance helpers (define only; run after db exists) -----
@@ -739,6 +788,88 @@ def _twilio_credentials() -> tuple[str, str, str]:
 def _sms_service_configured() -> bool:
     account_sid, auth_token, from_number = _twilio_credentials()
     return bool(account_sid and auth_token and from_number)
+
+
+def _email_service_configured() -> bool:
+    return bool(
+        os.getenv("SMTP_HOST")
+        and os.getenv("SMTP_FROM_ADDRESS")
+    )
+
+
+def _send_account_email(to_address: str, subject: str, body: str) -> bool:
+    """Send a plain-text account email without logging its contents."""
+    if not to_address or not _email_service_configured():
+        return False
+    import smtplib
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["To"] = to_address
+    message["From"] = os.environ["SMTP_FROM_ADDRESS"]
+    message["Subject"] = subject[:160]
+    message.set_content(body)
+    host = os.environ["SMTP_HOST"]
+    port = int(os.getenv("SMTP_PORT", "587"))
+    username = os.getenv("SMTP_USERNAME", "")
+    password = os.getenv("SMTP_PASSWORD", "")
+    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in {
+        "1", "true", "yes"
+    }
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as connection:
+            if use_tls:
+                connection.starttls()
+            if username:
+                connection.login(username, password)
+            connection.send_message(message)
+        return True
+    except Exception:
+        app.logger.exception("account_email_delivery_failed")
+        return False
+
+
+def _valid_email(value: str) -> str:
+    candidate = (value or "").strip().casefold()
+    if not re.fullmatch(
+        r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+        r"[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?"
+        r"(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+",
+        candidate,
+        re.IGNORECASE,
+    ):
+        return ""
+    return candidate[:254]
+
+
+def _platform_support_emails() -> list[str]:
+    configured = _valid_email(os.getenv("ATCROSTER_SUPPORT_EMAIL", ""))
+    rows = PlatformIdentity.query.filter(
+        PlatformIdentity.public_id.like("platform-%"),
+        PlatformIdentity.email != "",
+    ).all()
+    return list(dict.fromkeys(
+        [address for address in [configured, *(row.email for row in rows)]
+         if address]
+    ))
+
+
+def _unit_admin_emails(unit_id: int) -> list[str]:
+    rows = (
+        db.session.query(PlatformIdentity)
+        .join(
+            UnitMembership,
+            UnitMembership.identity_id == PlatformIdentity.id,
+        )
+        .filter(
+            UnitMembership.unit_id == unit_id,
+            UnitMembership.status == "active",
+            UnitMembership.role == "UnitAdmin",
+            PlatformIdentity.email != "",
+        )
+        .all()
+    )
+    return list(dict.fromkeys(row.email for row in rows if row.email))
 
 
 def _send_sms_via_twilio(to_number: str, body: str,
@@ -1068,6 +1199,7 @@ class Staff(UserMixin, db.Model):
     # PlatformIdentity. This prevents ambiguous cross-unit authentication.
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(254), nullable=False, default="")
 
     # Roles: 'admin' | 'editor' | 'user'
     role = db.Column(db.String(10), nullable=False, default="user")
@@ -1251,6 +1383,7 @@ class ShiftRequest(db.Model):
     admin_response = db.Column(db.Text, default="")
     responded_by_id = db.Column(db.Integer)  # FK optional (kept simple)
     responded_at = db.Column(db.DateTime)
+    dismissed_by_requester_at = db.Column(db.DateTime)
     # pending/approved/rejected/fulfilled/cancelled
     status = db.Column(db.String(20), default="pending")
 
@@ -1325,6 +1458,7 @@ PlatformMfaCredential = SaaS.PlatformMfaCredential
 UnitMembership = SaaS.UnitMembership
 SecureInvitation = SaaS.SecureInvitation
 SignupWorkflow = SaaS.SignupWorkflow
+RecoveryRequest = SaaS.RecoveryRequest
 DatabaseRoutingMetadata = SaaS.DatabaseRoutingMetadata
 ProvisioningJob = SaaS.ProvisioningJob
 WorkerHeartbeat = SaaS.WorkerHeartbeat
@@ -1658,7 +1792,7 @@ def bootstrap_reference_data() -> None:
     Unit.__table__.create(bind=db.engine, checkfirst=True)
     AnnotationType.__table__.create(bind=db.engine, checkfirst=True)
     RosterSetting.__table__.create(bind=db.engine, checkfirst=True)
-    if not db.session.get(Unit, 1):
+    if Unit.query.count() == 0:
         db.session.add(Unit(
             id=1, code="FIRST", name="First airport unit",
             status="active",
@@ -2325,12 +2459,24 @@ def _fatigue_rule_config(unit_id: int | None = None) -> dict:
         for item in SYSTEM_FATIGUE_RULES
     }
     custom = []
+    definitions = {
+        "early_start_before": "06:30",
+        "night_period_start": "01:30",
+        "night_period_end": "05:30",
+    }
     row = RosterSetting.query.filter_by(
         unit_id=resolved_unit_id, key="fatigue_rule_config"
     ).first()
     if row and row.value:
         try:
             saved = json.loads(row.value)
+            for key in definitions:
+                candidate = str((saved.get("definitions") or {}).get(key) or "")
+                try:
+                    datetime.strptime(candidate, "%H:%M")
+                    definitions[key] = candidate
+                except ValueError:
+                    pass
             for code, overrides in (saved.get("system") or {}).items():
                 if code in system and isinstance(overrides, dict):
                     system[code].update({
@@ -2360,7 +2506,7 @@ def _fatigue_rule_config(unit_id: int | None = None) -> dict:
                     custom.append(rule)
         except (TypeError, ValueError, json.JSONDecodeError):
             pass
-    return {"system": system, "custom": custom}
+    return {"system": system, "custom": custom, "definitions": definitions}
 
 
 def _save_fatigue_rule_config(config: dict) -> None:
@@ -2387,6 +2533,7 @@ def _save_fatigue_rule_config(config: dict) -> None:
             for code, item in config["system"].items()
         },
         "custom": config["custom"],
+        "definitions": config["definitions"],
     }, sort_keys=True)
     db.session.commit()
 
@@ -2489,13 +2636,27 @@ def _is_working(sh: ShiftType) -> bool:
     return bool(sh and sh.is_working)
 
 
-def _is_night_0130_0529(start_dt: datetime, end_dt: datetime) -> bool:
-    return _overlap_window(start_dt, end_dt, 1, 30, 5, 29) > 0
+def _configured_time(value: str, fallback: time) -> time:
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except (TypeError, ValueError):
+        return fallback
 
 
-def _is_early_start(start_dt: datetime) -> Tuple[bool, bool]:
+def _is_night_duty(start_dt: datetime, end_dt: datetime, definitions: dict) -> bool:
+    start = _configured_time(definitions.get("night_period_start"), time(1, 30))
+    end = _configured_time(definitions.get("night_period_end"), time(5, 30))
+    return _overlap_window(
+        start_dt, end_dt, start.hour, start.minute, end.hour, end.minute
+    ) > 0
+
+
+def _is_early_start(start_dt: datetime, definitions: dict) -> Tuple[bool, bool]:
     hm = start_dt.time()
-    is_early = (time(5, 30) <= hm <= time(6, 29))
+    threshold = _configured_time(
+        definitions.get("early_start_before"), time(6, 30)
+    )
+    is_early = time(0, 0) <= hm < threshold
     is_pre0600 = is_early and (hm < time(6, 0))
     return is_early, is_pre0600
 
@@ -2507,6 +2668,7 @@ def _is_morning_duty(start_dt: datetime) -> bool:
 
 def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
     segs = []
+    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
     q = (Assignment.query
          .filter(Assignment.staff_id == staff.id,
                  Assignment.day >= start_day,
@@ -2527,8 +2689,8 @@ def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
         if not sdt:
             continue
 
-        night = _is_night_0130_0529(sdt, edt)
-        is_early, is_pre0600 = _is_early_start(sdt)
+        night = _is_night_duty(sdt, edt, definitions)
+        is_early, is_pre0600 = _is_early_start(sdt, definitions)
         is_morning = _is_morning_duty(sdt)
         segs.append({
             "day": a.day,
@@ -2802,14 +2964,16 @@ def would_trigger_fatigue(staff: Staff, day: date, code: str):
     start_lb = day - timedelta(days=30)
     end_day = day
     segs = _segments_for_staff(staff, start_lb, end_day)
+    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
     sdt, edt = _span(day, sh)
     if sdt:
+        is_early, is_pre0600 = _is_early_start(sdt, definitions)
         segs.append({
             "day": day, "start": sdt, "end": edt,
             "mins": int((edt - sdt).total_seconds() // 60),
-            "night": _is_night_0130_0529(sdt, edt),
-            "early": _is_early_start(sdt)[0],
-            "early_pre0600": _is_early_start(sdt)[1],
+            "night": _is_night_duty(sdt, edt, definitions),
+            "early": is_early,
+            "early_pre0600": is_pre0600,
             "morning": _is_morning_duty(sdt),
         })
     flags = _analyze_segments(segs)
@@ -2862,15 +3026,17 @@ def would_create_new_fatigue_issues(
     sdt, edt = _span(proposed_day, sh)
     if not sdt:
         return {}
+    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
+    is_early, is_pre0600 = _is_early_start(sdt, definitions)
     segs_prop = list(segs_base)
     segs_prop.append({
         "day": proposed_day,
         "start": sdt,
         "end": edt,
         "mins": int((edt - sdt).total_seconds() // 60),
-        "night": _is_night_0130_0529(sdt, edt),
-        "early": _is_early_start(sdt)[0],
-        "early_pre0600": _is_early_start(sdt)[1],
+        "night": _is_night_duty(sdt, edt, definitions),
+        "early": is_early,
+        "early_pre0600": is_pre0600,
         "morning": _is_morning_duty(sdt),
     })
     flags_prop = _analyze_segments(segs_prop)
@@ -2988,7 +3154,22 @@ def admin_fatigue_rules():
         _validate_csrf()
         action = request.form.get("action") or ""
         try:
-            if action == "update_system":
+            if action == "update_definitions":
+                definitions = {}
+                for key in (
+                    "early_start_before",
+                    "night_period_start",
+                    "night_period_end",
+                ):
+                    value = (request.form.get(key) or "").strip()
+                    datetime.strptime(value, "%H:%M")
+                    definitions[key] = value
+                if definitions["night_period_start"] == definitions["night_period_end"]:
+                    raise ValueError("The night-duty period must have a duration.")
+                config["definitions"] = definitions
+                _save_fatigue_rule_config(config)
+                flash("Duty time definitions updated for this airport.", "ok")
+            elif action == "update_system":
                 code = (request.form.get("code") or "").upper()
                 if code not in config["system"]:
                     abort(404)
@@ -3076,6 +3257,7 @@ def admin_fatigue_rules():
         "admin_fatigue_rules.html",
         system_rules=list(config["system"].values()),
         custom_rules=config["custom"],
+        definitions=config["definitions"],
         rule_types=CUSTOM_FATIGUE_RULE_TYPES,
         current_unit=db.session.get(Unit, _current_unit_id()),
     )
@@ -3133,7 +3315,7 @@ def migrate_tenant_foundation_compat():
     if "unit" not in inspector.get_table_names():
         db.create_all()
         inspector = inspect(db.engine)
-    if not db.session.get(Unit, 1):
+    if Unit.query.count() == 0:
         db.session.add(Unit(id=1, code="FIRST", name="First airport unit"))
         db.session.commit()
     additions = {
@@ -3226,6 +3408,14 @@ def migrate_add_role_and_calendar_token():
             try:
                 conn.execute(
                     text("ALTER TABLE staff ADD COLUMN calendar_token VARCHAR(64)"))
+            except Exception:
+                pass
+        if "email" not in cols:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE staff ADD COLUMN email VARCHAR(254) "
+                    "NOT NULL DEFAULT ''"
+                ))
             except Exception:
                 pass
         try:
@@ -3883,16 +4073,32 @@ def password_change():
         new2 = request.form.get("confirm_password", "")
         if not current_user.check_password(cur):
             flash("Current password is incorrect.", "error")
-            return redirect(url_for("password_change"))
+            return redirect(
+                url_for("password_change")
+                if current_user.role == "superadmin"
+                else url_for("staff_profile", sid=current_user.id) + "#security"
+            )
         if not new1 or new1 != new2:
             flash("New passwords do not match.", "error")
-            return redirect(url_for("password_change"))
+            return redirect(
+                url_for("password_change")
+                if current_user.role == "superadmin"
+                else url_for("staff_profile", sid=current_user.id) + "#security"
+            )
         if len(new1) < 12:
             flash("Use a password of at least 12 characters.", "error")
-            return redirect(url_for("password_change"))
+            return redirect(
+                url_for("password_change")
+                if current_user.role == "superadmin"
+                else url_for("staff_profile", sid=current_user.id) + "#security"
+            )
         if new1 == cur:
             flash("Choose a password different from the current password.", "error")
-            return redirect(url_for("password_change"))
+            return redirect(
+                url_for("password_change")
+                if current_user.role == "superadmin"
+                else url_for("staff_profile", sid=current_user.id) + "#security"
+            )
         if current_user.role == "superadmin":
             new_hash = generate_password_hash(new1)
             identity = PlatformIdentity.query.filter_by(
@@ -3915,7 +4121,7 @@ def password_change():
         return redirect(
             url_for("platform_admin")
             if current_user.role == "superadmin"
-            else url_for("staff_profile", sid=current_user.id)
+            else url_for("staff_profile", sid=current_user.id) + "#security"
         )
     return render_template("password.html")
 
@@ -3939,6 +4145,7 @@ def _roster_snapshot(year: int, month: int) -> dict:
     end = date(ny, nm, 1)
     assignments = (
         Assignment.query.filter(
+            Assignment.unit_id == _current_unit_id(),
             Assignment.day >= start, Assignment.day < end
         )
         .order_by(Assignment.staff_id, Assignment.day)
@@ -3958,6 +4165,54 @@ def _roster_snapshot(year: int, month: int) -> dict:
             for row in assignments
         ],
     }
+
+
+def _can_publish_roster(user) -> bool:
+    """Month publication is available to accountable operational managers."""
+    return bool(
+        is_admin_user(user)
+        or getattr(user, "is_wm", False)
+        or getattr(user, "is_dwm", False)
+    )
+
+
+def _active_roster_publication(year: int, month: int):
+    return (
+        RosterPublication.query.filter_by(
+            unit_id=_current_unit_id(),
+            year=year,
+            month=month,
+            state="published",
+        )
+        .order_by(RosterPublication.version.desc())
+        .first()
+    )
+
+
+def _publication_matches_live_roster(publication, year: int, month: int) -> bool:
+    """A changed roster returns to Draft until the new state is published."""
+    if not publication:
+        return False
+    try:
+        published_rows = json.loads(
+            publication.snapshot_json or "{}"
+        ).get("assignments", [])
+    except (TypeError, json.JSONDecodeError):
+        return False
+    live_rows = _roster_snapshot(year, month)["assignments"]
+    normalise = lambda rows: sorted(
+        (
+            int(row["staff_id"]),
+            str(row["day"]),
+            str(row.get("code") or ""),
+            str(row.get("annotation") or ""),
+        )
+        for row in rows
+    )
+    try:
+        return normalise(published_rows) == normalise(live_rows)
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _publication_preflight(year: int, month: int) -> dict:
@@ -4064,332 +4319,130 @@ def _publication_preflight(year: int, month: int) -> dict:
     }
 
 
-@app.route("/publications")
+@app.route("/roster/<ym>/publish", methods=["POST"])
 @login_required
-def publication_index():
-    today = date.today()
-    return redirect(url_for(
-        "publication_centre", ym=f"{today.year:04d}-{today.month:02d}"
-    ))
-
-
-@app.route("/publications/<ym>", methods=["GET", "POST"])
-@login_required
-def publication_centre(ym):
-    year, month = _compliance_month(ym)
-    if request.method == "POST":
-        _validate_csrf()
-        action = (request.form.get("action") or "").strip()
-        if action == "publish":
-            if not is_admin_user(current_user):
-                abort(403)
-            preflight = _publication_preflight(year, month)
-            declaration = request.form.get("release_declaration") == "yes"
-            exception_reason = (
-                request.form.get("exception_reason") or ""
-            ).strip()
-            if preflight["hard_blocks"]:
-                flash(
-                    "Publication blocked: assign every roster cell and resolve "
-                    "known competence failures first.",
-                    "error",
-                )
-                return redirect(url_for("publication_centre", ym=ym))
-            if not declaration:
-                flash(
-                    "Confirm the accountable manager release declaration before publishing.",
-                    "error",
-                )
-                return redirect(url_for("publication_centre", ym=ym))
-            if preflight["exceptions"] and len(exception_reason) < 20:
-                flash(
-                    "Record an exception rationale of at least 20 characters "
-                    "for fatigue findings or staffing shortfalls.",
-                    "error",
-                )
-                return redirect(url_for("publication_centre", ym=ym))
-            current = (
-                RosterPublication.query.filter_by(
-                    year=year, month=month, state="published"
-                )
-                .order_by(RosterPublication.version.desc())
-                .first()
-            )
-            latest_version = (
-                db.session.query(db.func.max(RosterPublication.version))
-                .filter(
-                    RosterPublication.unit_id == _current_unit_id(),
-                    RosterPublication.year == year,
-                    RosterPublication.month == month,
-                )
-                .scalar()
-                or 0
-            )
-            if current:
-                current.state = "superseded"
-                current.superseded_at = utcnow()
-            snapshot = _roster_snapshot(year, month)
-            snapshot["release_assurance"] = {
-                "declared_by_id": current_user.id,
-                "declared_at": utcnow().isoformat(),
-                "declaration": (
-                    "Coverage, competence, fatigue findings and operational "
-                    "contingencies reviewed by the accountable roster manager."
-                ),
-                "exception_reason": exception_reason,
-                "fatigue_findings": preflight["fatigue_total"],
-                "critical_fatigue_findings": preflight["fatigue_critical"],
-                "coverage_shortfalls": len(preflight["coverage_gaps"]),
-                "qualification_failures": len(preflight["qualification_gaps"]),
-                "unassigned_cells": len(preflight["unassigned"]),
-                "position_shortfalls": len(preflight["position_shortfalls"]),
-                "open_critical_fatigue_reports": len(
-                    preflight["critical_fatigue_reports"]
-                ),
-                "approved_rule_version": (
-                    preflight["approved_rule"].version
-                    if preflight["approved_rule"] else None
-                ),
-            }
-            publication = RosterPublication(
-                unit_id=_current_unit_id(),
-                year=year, month=month,
-                version=latest_version + 1,
-                state="published",
-                snapshot_json=json.dumps(snapshot),
-                published_at=utcnow(),
-            )
-            db.session.add(publication)
-            for person in Staff.query.filter_by(
-                is_operational=True, membership_status="active"
-            ).all():
-                db.session.add(Notification(
-                    unit_id=_current_unit_id(),
-                    recipient_id=person.id,
-                    kind="roster_published",
-                    message=(
-                        f"{date(year, month, 1).strftime('%B %Y')} roster "
-                        f"version {publication.version} is ready to review."
-                    ),
-                ))
-            db.session.commit()
-            log_change(
-                "RosterPublication", publication.id, "state", "draft",
-                "published", note=(
-                    f"Manager declaration recorded. Exceptions: "
-                    f"{exception_reason or 'none'}"
-                ), context_day=date(year, month, 1),
-            )
-            flash(f"Roster version {publication.version} published.", "ok")
-            return redirect(url_for("publication_centre", ym=ym))
-        if action == "acknowledge":
-            publication_id = int(request.form.get("publication_id") or 0)
-            publication = RosterPublication.query.filter_by(
-                id=publication_id, year=year, month=month, state="published"
-            ).first_or_404()
-            existing = RosterAcknowledgement.query.filter_by(
-                publication_id=publication.id, person_id=current_user.id
-            ).first()
-            if not existing:
-                db.session.add(RosterAcknowledgement(
-                    unit_id=_current_unit_id(),
-                    publication_id=publication.id,
-                    person_id=current_user.id,
-                ))
-                db.session.commit()
-            flash("Roster acknowledgement recorded.", "ok")
-            return redirect(url_for("publication_centre", ym=ym))
-        if action == "rollback":
-            if not is_admin_user(current_user):
-                abort(403)
-            try:
-                publication_id = int(
-                    request.form.get("publication_id") or 0
-                )
-            except ValueError:
-                abort(400)
-            target = RosterPublication.query.filter_by(
-                id=publication_id, year=year, month=month,
-            ).first_or_404()
-            if target.state not in {"published", "superseded"}:
-                abort(409, "Only a released roster version can be restored.")
-            try:
-                target_snapshot = json.loads(target.snapshot_json)
-                target_rows = target_snapshot["assignments"]
-                if not isinstance(target_rows, list):
-                    raise ValueError
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                abort(409, "The selected snapshot is not restorable.")
-            valid_people = {
-                row.id for row in Staff.query.filter_by(
-                    unit_id=_current_unit_id()
-                ).all()
-            }
-            restored = {}
-            for item in target_rows:
-                try:
-                    staff_id = int(item["staff_id"])
-                    target_day = date.fromisoformat(item["day"])
-                    code = str(item["code"]).strip().upper()
-                except (KeyError, TypeError, ValueError):
-                    abort(409, "The selected snapshot contains invalid data.")
-                if (
-                    staff_id not in valid_people
-                    or target_day.year != year
-                    or target_day.month != month
-                    or not code
-                ):
-                    abort(409, "The snapshot does not belong to this roster.")
-                restored[(staff_id, target_day)] = {
-                    "code": code,
-                    "annotation": str(item.get("annotation") or "")[:20],
-                }
-            start = date(year, month, 1)
-            next_year, next_month = _month_add(year, month, 1)
-            end = date(next_year, next_month, 1)
-            existing_rows = Assignment.query.filter(
-                Assignment.unit_id == _current_unit_id(),
-                Assignment.day >= start, Assignment.day < end,
-            ).all()
-            existing = {
-                (row.staff_id, row.day): row for row in existing_rows
-            }
-            for key, row in existing.items():
-                if key not in restored:
-                    db.session.delete(row)
-            for (staff_id, target_day), values in restored.items():
-                row = existing.get((staff_id, target_day))
-                if not row:
-                    row = Assignment(
-                        unit_id=_current_unit_id(),
-                        staff_id=staff_id, day=target_day,
-                    )
-                    db.session.add(row)
-                row.code = values["code"]
-                row.annotation = values["annotation"]
-                row.source = "rollback"
-                row.note = f"Restored from roster version {target.version}"
-            current = RosterPublication.query.filter_by(
-                year=year, month=month, state="published"
-            ).first()
-            if current:
-                current.state = "superseded"
-                current.superseded_at = utcnow()
-            latest_version = (
-                db.session.query(db.func.max(RosterPublication.version))
-                .filter(
-                    RosterPublication.unit_id == _current_unit_id(),
-                    RosterPublication.year == year,
-                    RosterPublication.month == month,
-                ).scalar() or 0
-            )
-            restored_snapshot = dict(target_snapshot)
-            restored_snapshot["generated_at"] = utcnow().isoformat()
-            restored_snapshot["rollback"] = {
-                "source_version": target.version,
-                "approved_by_id": current_user.id,
-                "approved_at": utcnow().isoformat(),
-            }
-            release = RosterPublication(
-                unit_id=_current_unit_id(), year=year, month=month,
-                version=latest_version + 1, state="published",
-                snapshot_json=json.dumps(restored_snapshot),
-                published_at=utcnow(),
-            )
-            db.session.add(release)
-            db.session.commit()
-            log_change(
-                "RosterPublication", release.id, "state",
-                f"version {current.version if current else 'none'}",
-                f"rollback of version {target.version}",
-                note="Controlled roster rollback",
-                context_day=start,
-            )
-            flash(
-                f"Version {target.version} restored as new version "
-                f"{release.version}.",
-                "ok",
-            )
-            return redirect(url_for("publication_centre", ym=ym))
-        abort(400)
-
-    publications = (
-        RosterPublication.query.filter_by(year=year, month=month)
-        .order_by(RosterPublication.version.desc())
-        .all()
-    )
-    active = next((row for row in publications if row.state == "published"), None)
-    active_assignments = {}
-    if active:
-        try:
-            active_assignments = {
-                (int(item["staff_id"]), item["day"]): (
-                    item.get("code"), item.get("annotation") or ""
-                )
-                for item in json.loads(active.snapshot_json).get(
-                    "assignments", []
-                )
-            }
-        except (TypeError, ValueError, KeyError, json.JSONDecodeError):
-            active_assignments = {}
-    publication_diffs = {}
-    for publication in publications:
-        try:
-            comparison = {
-                (int(item["staff_id"]), item["day"]): (
-                    item.get("code"), item.get("annotation") or ""
-                )
-                for item in json.loads(publication.snapshot_json).get(
-                    "assignments", []
-                )
-            }
-            keys = set(active_assignments) | set(comparison)
-            publication_diffs[publication.id] = sum(
-                active_assignments.get(key) != comparison.get(key)
-                for key in keys
-            )
-        except (TypeError, ValueError, KeyError, json.JSONDecodeError):
-            publication_diffs[publication.id] = None
-    preflight = _publication_preflight(year, month)
-    acknowledged = False
-    acknowledgements = []
-    expected_staff = Staff.query.filter_by(
-        is_operational=True, membership_status="active"
-    ).order_by(Staff.name).all()
-    unacknowledged_staff = []
-    release_assurance = {}
-    if active:
-        acknowledgements = RosterAcknowledgement.query.filter_by(
-            publication_id=active.id
-        ).all()
-        acknowledged = any(
-            row.person_id == current_user.id for row in acknowledgements
+def roster_month_publish(ym):
+    if not _can_publish_roster(current_user):
+        abort(403)
+    _validate_csrf()
+    year, month = parse_ym(ym)
+    unit_id = _current_unit_id()
+    if not month_has_data(year, month):
+        ensure_month_requirement(year, month)
+        generate_month(year, month)
+    active = _active_roster_publication(year, month)
+    if active and _publication_matches_live_roster(active, year, month):
+        flash(
+            f"The {date(year, month, 1).strftime('%B %Y')} roster is already published.",
+            "info",
         )
-        acknowledged_ids = {row.person_id for row in acknowledgements}
-        unacknowledged_staff = [
-            person for person in expected_staff if person.id not in acknowledged_ids
-        ]
-        try:
-            release_assurance = json.loads(
-                active.snapshot_json or "{}"
-            ).get("release_assurance", {})
-        except (TypeError, json.JSONDecodeError):
-            release_assurance = {}
-    py, pm = _month_add(year, month, -1)
-    ny, nm = _month_add(year, month, 1)
-    return render_template(
-        "publication_centre.html",
-        ym=ym, year=year, month=month,
-        month_title=date(year, month, 1).strftime("%B %Y"),
-        publications=publications, active=active,
-        publication_diffs=publication_diffs,
-        acknowledgements=acknowledgements, acknowledged=acknowledged,
-        operational_count=len(expected_staff),
-        unacknowledged_staff=unacknowledged_staff,
-        release_assurance=release_assurance,
-        preflight=preflight,
-        prev_ym=f"{py:04d}-{pm:02d}", next_ym=f"{ny:04d}-{nm:02d}",
+        return redirect(url_for("roster_month", ym=ym))
+
+    published_at = utcnow()
+    latest_version = (
+        db.session.query(db.func.max(RosterPublication.version))
+        .filter(
+            RosterPublication.unit_id == unit_id,
+            RosterPublication.year == year,
+            RosterPublication.month == month,
+        )
+        .scalar()
+        or 0
     )
+    if active:
+        active.state = "superseded"
+        active.superseded_at = published_at
+    snapshot = _roster_snapshot(year, month)
+    snapshot["published_by"] = {
+        "id": current_user.id,
+        "name": current_user.name,
+        "published_at": published_at.isoformat(),
+    }
+    publication = RosterPublication(
+        unit_id=unit_id,
+        year=year,
+        month=month,
+        version=latest_version + 1,
+        state="published",
+        snapshot_json=json.dumps(snapshot),
+        published_at=published_at,
+    )
+    db.session.add(publication)
+    for person in Staff.query.filter_by(
+        unit_id=unit_id,
+        is_operational=True,
+        membership_status="active",
+    ).all():
+        if person.id != current_user.id:
+            db.session.add(Notification(
+                unit_id=unit_id,
+                recipient_id=person.id,
+                kind="roster_published",
+                message=(
+                    f"The {date(year, month, 1).strftime('%B %Y')} roster "
+                    f"was published on {published_at.strftime('%d %B %Y')}."
+                ),
+            ))
+    db.session.commit()
+    log_change(
+        "RosterPublication",
+        publication.id,
+        "state",
+        "draft",
+        "published",
+        note=f"Published directly from the monthly roster by {current_user.name}.",
+        context_day=date(year, month, 1),
+    )
+    flash(f"{date(year, month, 1).strftime('%B %Y')} roster published.", "ok")
+    return redirect(url_for("roster_month", ym=ym))
+
+
+@app.route("/roster/<ym>/unpublish", methods=["POST"])
+@login_required
+def roster_month_unpublish(ym):
+    if not _can_publish_roster(current_user):
+        abort(403)
+    _validate_csrf()
+    year, month = parse_ym(ym)
+    unit_id = _current_unit_id()
+    publication = _active_roster_publication(year, month)
+    if not publication:
+        flash("This roster is already in Draft.", "info")
+        return redirect(url_for("roster_month", ym=ym))
+
+    publication.state = "withdrawn"
+    publication.superseded_at = utcnow()
+    for person in Staff.query.filter_by(
+        unit_id=unit_id,
+        is_operational=True,
+        membership_status="active",
+    ).all():
+        if person.id != current_user.id:
+            db.session.add(Notification(
+                unit_id=unit_id,
+                recipient_id=person.id,
+                kind="roster_unpublished",
+                message=(
+                    f"The {date(year, month, 1).strftime('%B %Y')} roster "
+                    "has returned to Draft and may be subject to change."
+                ),
+            ))
+    db.session.commit()
+    log_change(
+        "RosterPublication",
+        publication.id,
+        "state",
+        "published",
+        "withdrawn",
+        note=f"Publication undone by {current_user.name}; roster returned to Draft.",
+        context_day=date(year, month, 1),
+    )
+    flash(
+        f"{date(year, month, 1).strftime('%B %Y')} roster returned to Draft.",
+        "ok",
+    )
+    return redirect(url_for("roster_month", ym=ym))
+
 
 
 def _clamp_prev_next(year, month):
@@ -4424,9 +4477,16 @@ def inject_perms():
         primary_colour = ""
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", accent_colour):
         accent_colour = ""
+    pending_request_count = 0
+    if current_unit and au and is_admin_user(au):
+        pending_request_count = ShiftRequest.query.filter_by(
+            unit_id=current_unit.id,
+            status="pending",
+        ).count()
     return {
         "is_admin":  bool(au) and is_admin_user(au),
         "is_editor": bool(au) and is_editor_user(au),
+        "pending_request_count": pending_request_count,
         "current_unit": current_unit,
         "unit_branding": {
             "primary_colour": primary_colour,
@@ -4536,11 +4596,16 @@ def roster_month(ym):
             if grp:
                 counters[d][grp] += 1
     rag = {}
+    night_active = {d: _night_active_on(unit_id, d) for d in days}
     for d in days:
         rag[d] = {}
         for code in ("M", "D", "A", "N"):
             have = counters[d][code]
-            need = getattr(req, f"req_{code.lower()}") if req else 0
+            need = (
+                0
+                if code == "N" and not night_active[d]
+                else getattr(req, f"req_{code.lower()}") if req else 0
+            )
             # Green if we meet/beat requirement, Amber if short by 1, else Red
             rag[d][code] = (
                 "green" if have >= need
@@ -4611,8 +4676,15 @@ def roster_month(ym):
         prev_watch = cur_watch
         prev_id = s.id
 
+    active_publication = _active_roster_publication(year, month)
+    roster_publication = (
+        active_publication
+        if _publication_matches_live_roster(active_publication, year, month)
+        else None
+    )
+
     # Call Flask's render_template via the module to avoid any local name shadowing
-        import flask as _flask
+    import flask as _flask
     return _flask.render_template(
         "roster_month.html",
         ym=ym, year=year, month=month,
@@ -4639,6 +4711,9 @@ def roster_month(ym):
         show_ot_finder=True,
         display_watch_by_staff=display_watch_by_staff,
         annotation_groups=get_annotation_groups(),
+        night_active=night_active,
+        roster_publication=roster_publication,
+        can_publish_roster=_can_publish_roster(current_user),
     )
 
 
@@ -4752,174 +4827,6 @@ def assign_cell(staff_id, ym, day):
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))
-
-
-@app.route("/annotations/bulk", methods=["GET", "POST"])
-@login_required
-def bulk_annotations():
-    """Preview and transactionally apply one annotation across a date range."""
-    if not can_edit_roster(current_user) or not can_apply_annotations(current_user):
-        abort(403)
-    unit_id = _current_unit_id()
-    preview = None
-    if request.method == "POST":
-        _validate_csrf()
-        action = (request.form.get("action") or "preview").strip()
-        if action == "preview":
-            try:
-                person_id = int(request.form.get("person_id") or "")
-                start = date.fromisoformat(request.form.get("start") or "")
-                end = date.fromisoformat(request.form.get("end") or "")
-            except (TypeError, ValueError):
-                abort(400, "Invalid person or date range.")
-            if end < start or (end - start).days > 366:
-                abort(400, "Select a range of no more than 367 days.")
-            person = Staff.query.filter_by(
-                id=person_id, unit_id=unit_id
-            ).first_or_404()
-            raw_annotation = (
-                request.form.get("annotation") or ""
-            ).strip().upper()
-            parsed = parse_annotation(raw_annotation) if raw_annotation else None
-            definition = None
-            if parsed:
-                definition = AnnotationType.query.filter_by(
-                    unit_id=unit_id, code=parsed["type"], is_active=True
-                ).first()
-            if raw_annotation and (not parsed or not definition):
-                abort(400, "Select an active annotation for this airport.")
-            if definition and definition.admin_only and not is_admin_user(current_user):
-                abort(403)
-            note = (request.form.get("note") or "").strip()
-            if definition and definition.note_required and not note:
-                abort(400, f"{definition.code} requires a note.")
-            days = [
-                start + timedelta(days=offset)
-                for offset in range((end - start).days + 1)
-            ]
-            existing = {
-                row.day: row
-                for row in Assignment.query.filter(
-                    Assignment.unit_id == unit_id,
-                    Assignment.staff_id == person.id,
-                    Assignment.day >= start,
-                    Assignment.day <= end,
-                ).all()
-            }
-            changes = []
-            total_toil_delta = 0
-            for target_day in days:
-                old_value = (
-                    existing[target_day].annotation
-                    if target_day in existing else ""
-                ) or ""
-                if old_value == raw_annotation:
-                    continue
-                old_toil = _toil_accrual_half_days_from_annotation(
-                    parse_annotation(old_value)
-                )
-                new_toil = _toil_accrual_half_days_from_annotation(parsed)
-                delta = new_toil - old_toil
-                total_toil_delta += delta
-                changes.append({
-                    "day": target_day.isoformat(),
-                    "old": old_value,
-                    "new": raw_annotation,
-                    "toil_delta": delta,
-                })
-            nonce = secrets.token_urlsafe(18)
-            session["_bulk_annotation_preview"] = {
-                "nonce": nonce,
-                "unit_id": unit_id,
-                "person_id": person.id,
-                "annotation": raw_annotation,
-                "note": note[:140],
-                "changes": changes,
-            }
-            preview = {
-                "nonce": nonce,
-                "person": person,
-                "changes": changes,
-                "total_toil_delta": total_toil_delta,
-            }
-        elif action == "apply":
-            saved = session.get("_bulk_annotation_preview") or {}
-            nonce = (request.form.get("nonce") or "").strip()
-            if (
-                not nonce
-                or not secrets.compare_digest(nonce, str(saved.get("nonce") or ""))
-                or saved.get("unit_id") != unit_id
-            ):
-                abort(409, "The annotation preview has expired.")
-            person = Staff.query.filter_by(
-                id=saved.get("person_id"), unit_id=unit_id
-            ).first_or_404()
-            raw_annotation = saved.get("annotation") or ""
-            parsed = parse_annotation(raw_annotation) if raw_annotation else None
-            definition = None
-            if parsed:
-                definition = AnnotationType.query.filter_by(
-                    unit_id=unit_id, code=parsed["type"], is_active=True
-                ).first()
-            if raw_annotation and not definition:
-                abort(409, "The annotation is no longer active.")
-            if definition and definition.admin_only and not is_admin_user(current_user):
-                abort(403)
-            for change in saved.get("changes") or []:
-                target_day = date.fromisoformat(change["day"])
-                assignment = Assignment.query.filter_by(
-                    unit_id=unit_id, staff_id=person.id, day=target_day
-                ).first()
-                if not assignment:
-                    assignment = Assignment(
-                        unit_id=unit_id, staff_id=person.id,
-                        day=target_day, code="OFF",
-                    )
-                    db.session.add(assignment)
-                    db.session.flush()
-                transaction_key = f"bulk:{nonce}:{assignment.id}"[:64]
-                if AnnotationAudit.query.filter_by(
-                    unit_id=unit_id, transaction_key=transaction_key
-                ).first():
-                    continue
-                old_value = assignment.annotation or ""
-                if old_value == raw_annotation:
-                    continue
-                _apply_toil_annotation_delta(
-                    person, old_value, raw_annotation
-                )
-                assignment.annotation = raw_annotation
-                if saved.get("note"):
-                    assignment.note = saved["note"]
-                if definition:
-                    definition.has_been_used = True
-                db.session.add(AnnotationAudit(
-                    unit_id=unit_id,
-                    annotation_type_id=(
-                        definition.id if definition else None
-                    ),
-                    assignment_id=assignment.id,
-                    actor_id=current_user.id,
-                    action="bulk_applied" if raw_annotation else "bulk_removed",
-                    old_value=old_value,
-                    new_value=raw_annotation,
-                    transaction_key=transaction_key,
-                ))
-            db.session.commit()
-            session.pop("_bulk_annotation_preview", None)
-            flash("Bulk annotation changes applied.", "ok")
-            return redirect(url_for("bulk_annotations"))
-        else:
-            abort(400, "Invalid bulk annotation action.")
-    people = Staff.query.filter_by(
-        unit_id=unit_id
-    ).order_by(Staff.name).all()
-    return render_template(
-        "annotations_bulk.html",
-        people=people,
-        annotation_groups=get_annotation_groups(),
-        preview=preview,
-    )
 
 
 @app.route("/roster/<ym>/export")
@@ -5406,56 +5313,6 @@ def admin():
         shift.code: shift_counter_group(shift.code, _current_unit_id())
         for shift in shifts
     }
-    working_shifts = [shift for shift in shifts if shift.is_working and shift.is_active]
-    mapped_working_shifts = [
-        shift for shift in working_shifts if shift_counter_mapping.get(shift.code)
-    ]
-    configured_requirements = sum(
-        1 for key in months if key in requirements_by_month
-    )
-    setup_checks = [
-        {
-            "label": "Roster cycle",
-            "complete": bool(base_pattern and base_anchor),
-            "section": "roster-setup",
-            "action": "Review cycle",
-        },
-        {
-            "label": "Watches",
-            "complete": bool(watches),
-            "section": "roster-setup",
-            "action": "Add watches",
-        },
-        {
-            "label": "Operational shifts",
-            "complete": bool(working_shifts),
-            "section": "shifts",
-            "action": "Add shifts",
-        },
-        {
-            "label": "Shift totals",
-            "complete": bool(working_shifts) and (
-                len(mapped_working_shifts) == len(working_shifts)
-            ),
-            "section": "shifts",
-            "action": "Check totals",
-        },
-        {
-            "label": "People",
-            "complete": bool(staff),
-            "section": "staff",
-            "action": "Add people",
-        },
-        {
-            "label": "Staffing levels",
-            "complete": configured_requirements > 0,
-            "section": "requirements",
-            "action": "Set levels",
-        },
-    ]
-    setup_complete_count = sum(
-        1 for check in setup_checks if check["complete"]
-    )
     current_unit = db.session.get(Unit, _current_unit_id())
     return render_template("admin.html",
                            shifts=shifts, staff=staff, watches=watches,
@@ -5467,11 +5324,6 @@ def admin():
                            night_active_days=night_active_days,
                            pattern_codes=PATTERN_CODES,
                            shift_counter_mapping=shift_counter_mapping,
-                           setup_checks=setup_checks,
-                           setup_complete_count=setup_complete_count,
-                           configured_requirements=configured_requirements,
-                           mapped_working_shift_count=len(mapped_working_shifts),
-                           working_shift_count=len(working_shifts),
                            current_unit=current_unit)
 
 
@@ -5726,6 +5578,11 @@ def admin_staff_edit(sid):
         s.name = request.form.get("name", s.name).strip()
         s.staff_no = request.form.get("staff_no", s.staff_no).strip()
         s.username = request.form.get("username", s.username).strip()
+        submitted_email = request.form.get("email", s.email)
+        if submitted_email and not _valid_email(submitted_email):
+            flash("Enter a valid email address.", "error")
+            return redirect(url_for("admin_staff_edit", sid=s.id))
+        s.email = _valid_email(submitted_email)
         s.phone_number = _normalise_phone_number(
             request.form.get("phone_number", s.phone_number))
         s.watch_id = int(request.form.get("watch_id", s.watch_id or 0)) or None
@@ -5789,6 +5646,15 @@ def admin_staff_edit(sid):
             s.calendar_token = secrets.token_hex(16)
 
         try:
+            membership = UnitMembership.query.filter_by(
+                unit_id=s.unit_id, person_id=s.id, status="active"
+            ).first()
+            if membership:
+                identity = db.session.get(
+                    PlatformIdentity, membership.identity_id
+                )
+                if identity:
+                    identity.email = s.email
             db.session.commit()
             flash("Staff updated.", "ok")
         except Exception as e:
@@ -5970,6 +5836,45 @@ def change_log_page():
 
 
 # -------------------- Leave / Sickness / TOIL --------------------
+
+
+def _group_sickness_instances(assignments, month_start=None, month_end=None):
+    """Group consecutive sickness assignments into human-readable instances."""
+    instances = []
+    current = None
+    for assignment in sorted(
+        assignments, key=lambda row: (row.staff_id, row.day)
+    ):
+        continues = (
+            current
+            and current["staff_id"] == assignment.staff_id
+            and assignment.day == current["end"] + timedelta(days=1)
+        )
+        if not continues:
+            current = {
+                "staff_id": assignment.staff_id,
+                "staff": assignment.staff,
+                "start": assignment.day,
+                "end": assignment.day,
+                "days": [],
+            }
+            instances.append(current)
+        current["days"].append(assignment)
+        current["end"] = assignment.day
+    if month_start and month_end:
+        instances = [
+            instance for instance in instances
+            if instance["end"] >= month_start
+            and instance["start"] <= month_end
+        ]
+    for instance in instances:
+        instance["duration"] = (
+            instance["end"] - instance["start"]
+        ).days + 1
+        instance["codes"] = list(dict.fromkeys(
+            day.code for day in instance["days"]
+        ))
+    return instances
 
 
 @app.route("/leave", methods=["GET", "POST"])
@@ -6256,16 +6161,17 @@ def leave():
         )
     ]
     sickness = (Assignment.query
-                .filter(Assignment.code.in_(all_sickness_codes),
-                        Assignment.day >= start_of_month,
-                        Assignment.day <= end_of_month)
-                .order_by(Assignment.day.asc())
+                .filter(Assignment.code.in_(all_sickness_codes))
+                .order_by(Assignment.staff_id.asc(), Assignment.day.asc())
                 .all())
+    sickness_instances = _group_sickness_instances(
+        sickness, start_of_month, end_of_month
+    )
 
     return render_template("leave.html",
                            staff=staff,
                            leaves=leaves,
-                           sickness=sickness,
+                           sickness_instances=sickness_instances,
                            leave_types=get_absence_types("leave"),
                            sickness_types=get_absence_types("sickness"),
                            absence_types=get_absence_types(active_only=False),
@@ -6276,7 +6182,7 @@ def leave():
 # -------------------- Staff profile --------------------
 
 
-@app.route("/staff/<int:sid>")
+@app.route("/staff/<int:sid>", methods=["GET", "POST"])
 @login_required
 def staff_profile(sid):
     s = Staff.query.filter_by(
@@ -6284,7 +6190,63 @@ def staff_profile(sid):
     ).first_or_404()
     if s.id != current_user.id and not is_editor_user(current_user):
         abort(403)
+    if request.method == "POST":
+        _validate_csrf()
+        if s.id != current_user.id:
+            abort(403)
+        email = _valid_email(request.form.get("email") or "")
+        phone = _normalise_phone_number(request.form.get("phone_number"))
+        if not email:
+            flash("Enter a valid email address.", "error")
+            return redirect(url_for("staff_profile", sid=s.id) + "#contact")
+        if phone and not re.fullmatch(r"\+?[0-9]{7,15}", phone):
+            flash(
+                "Enter a valid phone number with 7–15 digits. Include the "
+                "international country code for SMS messages.",
+                "error",
+            )
+            return redirect(url_for("staff_profile", sid=s.id) + "#contact")
+        s.email = email
+        s.phone_number = phone
+        membership = UnitMembership.query.filter_by(
+            unit_id=s.unit_id, person_id=s.id, status="active"
+        ).first()
+        if membership:
+            identity = db.session.get(
+                PlatformIdentity, membership.identity_id
+            )
+            if identity:
+                identity.email = email
+        db.session.commit()
+        flash("Contact details updated.", "ok")
+        return redirect(url_for("staff_profile", sid=s.id) + "#contact")
     today = date.today()
+    mfa_enabled = False
+    mfa_secret = ""
+    mfa_provisioning_uri = ""
+    mfa_qr_data_uri = ""
+    mfa_recovery_codes = []
+    if s.id == current_user.id:
+        credential = MfaCredential.query.filter_by(
+            person_id=current_user.id
+        ).first()
+        mfa_enabled = bool(credential and credential.enabled)
+        mfa_recovery_codes = session.pop(
+            "_new_mfa_recovery_codes", []
+        )
+        if not mfa_enabled:
+            mfa_secret = session.get("_pending_mfa_secret")
+            if not mfa_secret:
+                mfa_secret = pyotp.random_base32()
+                session["_pending_mfa_secret"] = mfa_secret
+            mfa_provisioning_uri = pyotp.TOTP(
+                mfa_secret
+            ).provisioning_uri(
+                name=current_user.username, issuer_name="ATCRoster"
+            )
+            mfa_qr_data_uri = _totp_qr_data_uri(
+                mfa_provisioning_uri
+            )
 
     # ensure_month_requirement(today.year, today.month)
     # generate_month(today.year, today.month)
@@ -6346,12 +6308,6 @@ def staff_profile(sid):
         (a for a in upcoming if getattr(get_shift(a.code), "is_working", False)),
         None,
     )
-    recent_requests = (
-        ShiftRequest.query.filter_by(staff_id=s.id)
-        .order_by(ShiftRequest.updated_at.desc())
-        .limit(5)
-        .all()
-    )
     notifications = (
         Notification.query.filter_by(recipient_id=s.id)
         .order_by(Notification.created_at.desc())
@@ -6364,8 +6320,13 @@ def staff_profile(sid):
         hours_this_month=hours_this_month,
         cal_link=cal_link, apple_link=apple_link, google_link=google_link,
         upcoming=upcoming[:10], next_duty=next_duty,
-        recent_requests=recent_requests, notifications=notifications,
+        notifications=notifications,
         unread_notifications=sum(1 for item in notifications if not item.read_at),
+        mfa_enabled=mfa_enabled,
+        mfa_secret=mfa_secret,
+        mfa_provisioning_uri=mfa_provisioning_uri,
+        mfa_qr_data_uri=mfa_qr_data_uri,
+        mfa_recovery_codes=mfa_recovery_codes,
     )
 
 
@@ -6381,7 +6342,7 @@ def calendar_token_create(sid):
     staff.calendar_token = secrets.token_hex(24)
     db.session.commit()
     flash("A new private calendar subscription link was generated.", "ok")
-    return redirect(url_for("staff_profile", sid=staff.id))
+    return redirect(url_for("staff_profile", sid=staff.id) + "#calendar")
 
 
 @app.post("/notifications/read")
@@ -6393,7 +6354,9 @@ def notifications_read():
         recipient_id=current_user.id, read_at=None
     ).update({"read_at": utcnow()}, synchronize_session=False)
     db.session.commit()
-    return redirect(url_for("staff_profile", sid=current_user.id))
+    return redirect(
+        url_for("staff_profile", sid=current_user.id) + "#notifications"
+    )
 
 # -------------------- Metrics + CSV (date range; FYTD default) --------------------
 # (… unchanged metrics functions from your file …)
@@ -7260,11 +7223,22 @@ def _request_audit(req: ShiftRequest, actor_id: int, transition: str,
 def _notify_requester(req: ShiftRequest) -> None:
     if req.status not in {"pending", "approved", "rejected", "fulfilled"}:
         return
+    if req.status == "fulfilled":
+        outcome = "was approved and added to the roster"
+    elif req.status == "rejected":
+        outcome = "was refused"
+    else:
+        outcome = f"is now {req.status}"
+    comment = (req.admin_response or "").strip()
+    comment_text = f" Manager comment: {comment}" if comment else ""
     db.session.add(Notification(
         unit_id=req.unit_id,
         recipient_id=req.staff_id,
         kind=f"shift_request_{req.status}",
-        message=f"Your {req.code} request for {req.day.isoformat()} is now {req.status}.",
+        message=(
+            f"Your {req.code} shift request for "
+            f"{req.day.strftime('%d %B %Y')} {outcome}.{comment_text}"
+        ),
     ))
 
 
@@ -7419,10 +7393,38 @@ def requests_page():
             db.session.commit()
             flash("Request cancelled; its history has been preserved.", "ok")
             return redirect(url_for("requests_page"))
+        if form == "dismiss":
+            try:
+                rid = int(request.form.get("rid", ""))
+            except (TypeError, ValueError):
+                abort(400)
+            req = ShiftRequest.query.filter_by(
+                id=rid, unit_id=unit_id, staff_id=current_user.id
+            ).first_or_404()
+            if req.status not in {"fulfilled", "rejected"}:
+                abort(409, "Only fulfilled or rejected requests can be removed.")
+            if req.dismissed_by_requester_at is None:
+                req.dismissed_by_requester_at = utcnow()
+                req.updated_at = utcnow()
+                _request_audit(
+                    req,
+                    current_user.id,
+                    "dismissed_by_requester",
+                    {"visible_to_requester": True},
+                    {"visible_to_requester": False},
+                    "Removed from the requester's personal list",
+                )
+                db.session.commit()
+            flash("Completed request removed from your list.", "ok")
+            return redirect(url_for("requests_page"))
         abort(400)
 
     # ---- My requests (everyone) ----
-    my_reqs = ShiftRequest.query.filter_by(unit_id=unit_id, staff_id=current_user.id).all()
+    my_reqs = ShiftRequest.query.filter_by(
+        unit_id=unit_id,
+        staff_id=current_user.id,
+        dismissed_by_requester_at=None,
+    ).all()
     req_map = defaultdict(dict)
     for r in my_reqs:
         req_map[(r.day.year, r.day.month)][r.day] = r
@@ -7497,16 +7499,20 @@ def admin_request_respond(rid):
     unit_id = _current_unit_id()
     r = ShiftRequest.query.filter_by(id=rid, unit_id=unit_id).first_or_404()
     action = (request.form.get("action") or "status").strip()
-    if action not in {"status", "approve_only", "approve_apply"}:
+    if action not in {
+        "approve", "refuse", "status", "approve_only", "approve_apply"
+    }:
         abort(400, "Invalid request action.")
     return_month = _safe_request_admin_month(request.form.get("ym"), date.today())
     response = (request.form.get("admin_response") or "").strip()
     if len(response) > 500:
         abort(400, "Response is limited to 500 characters.")
     requested_status = (request.form.get("status") or "").strip().lower()
-    if action == "approve_only":
+    if action == "refuse":
+        requested_status = "rejected"
+    elif action == "approve_only":
         requested_status = "approved"
-    elif action == "approve_apply":
+    elif action in {"approve", "approve_apply"}:
         requested_status = "fulfilled"
     if requested_status not in REQUEST_STATUSES:
         abort(400, "Invalid request status.")
@@ -7516,7 +7522,7 @@ def admin_request_respond(rid):
         abort(409, "The requester does not belong to this airport.")
 
     old = {"status": r.status, "response": r.admin_response}
-    if action == "approve_apply":
+    if action in {"approve", "approve_apply"}:
         if r.status not in {"pending", "approved"}:
             abort(409, "Only pending or approved requests can be applied.")
         shift = ShiftType.query.filter_by(
@@ -7527,36 +7533,38 @@ def admin_request_respond(rid):
             abort(409, "The requested shift is no longer valid.")
         if _is_month_locked(r.day.year, r.day.month, unit_id=unit_id):
             abort(409, "The roster month is locked.")
-        published = RosterPublication.query.filter_by(
-            unit_id=unit_id, year=r.day.year, month=r.day.month,
-            state="published",
-        ).first()
-        if published:
-            abort(
-                409,
-                "The roster is published. Create a controlled superseding "
-                "version before applying this request.",
+        # The primary manager workflow is intentionally one step: approve and
+        # place on the roster. Existing roster fatigue warnings remain visible
+        # after the change. The legacy endpoint retains its explicit conflict
+        # confirmation for backwards-compatible API clients.
+        if action == "approve_apply":
+            conflicts = list(
+                would_create_new_fatigue_issues(
+                    r.staff, r.day, r.code
+                ).values()
             )
-        conflicts = list(would_create_new_fatigue_issues(r.staff, r.day, r.code).values())
-        if not _staff_has_shift_qualification(r.staff, shift, r.day):
-            conflicts.append(["Required qualification is missing or expired."])
-        override = request.form.get("confirm_override") == "yes"
-        if override and not can_override_roster_conflicts(current_user):
-            abort(403, "You do not have permission to override conflicts.")
-        if conflicts and override and len(response) < 10:
-            abort(400, "A reason of at least 10 characters is required.")
-        if conflicts and not override:
-            warning_text = "; ".join(
-                str(item)
-                for group in conflicts
-                for item in (group if isinstance(group, (list, tuple, set)) else [group])
-            )
-            flash(
-                "Applying this request has conflicts: "
-                f"{warning_text[:700]}. Review and confirm the permitted override.",
-                "error",
-            )
-            return redirect(url_for("requests_page", ym=return_month))
+            if not _staff_has_shift_qualification(r.staff, shift, r.day):
+                conflicts.append(["Required qualification is missing or expired."])
+            override = request.form.get("confirm_override") == "yes"
+            if override and not can_override_roster_conflicts(current_user):
+                abort(403, "You do not have permission to override conflicts.")
+            if conflicts and override and len(response) < 10:
+                abort(400, "A reason of at least 10 characters is required.")
+            if conflicts and not override:
+                warning_text = "; ".join(
+                    str(item)
+                    for group in conflicts
+                    for item in (
+                        group if isinstance(group, (list, tuple, set))
+                        else [group]
+                    )
+                )
+                flash(
+                    "Applying this request has conflicts: "
+                    f"{warning_text[:700]}. Review and confirm the permitted override.",
+                    "error",
+                )
+                return redirect(url_for("requests_page", ym=return_month))
         assignment = Assignment.query.filter_by(
             unit_id=unit_id, staff_id=r.staff_id, day=r.day
         ).first()
@@ -7580,7 +7588,7 @@ def admin_request_respond(rid):
                 f"Transition from {r.status or 'pending'} to "
                 f"{requested_status} is not permitted.",
             )
-        if r.status == "approved" and requested_status in {
+        if action != "refuse" and r.status == "approved" and requested_status in {
             "rejected", "cancelled"
         } and len(response) < 10:
             abort(400, "Changing an approved request requires an audited reason.")
@@ -7599,7 +7607,12 @@ def admin_request_respond(rid):
     if old["status"] != r.status:
         _notify_requester(r)
     db.session.commit()
-    flash("Response saved.", "ok")
+    if requested_status == "fulfilled":
+        flash("Request approved and added to the roster.", "ok")
+    elif requested_status == "rejected":
+        flash("Request refused. The ATCO has been notified.", "ok")
+    else:
+        flash("Response saved.", "ok")
     return redirect(url_for("requests_page", ym=return_month))
 
 
@@ -7677,6 +7690,29 @@ def platform_admin():
             routing = db.session.get(DatabaseRoutingMetadata, unit_id)
             if not unit or unit.status == "platform_control" or not routing:
                 abort(404)
+            active_accounts = UnitMembership.query.filter_by(
+                unit_id=unit_id, status="active"
+            ).count()
+            if active_accounts:
+                flash(
+                    "This airport already has active accounts. Manage access "
+                    "from the airport's Accounts page; bootstrap provisioning "
+                    "is only for a new airport.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+            existing_invitation = SecureInvitation.query.filter_by(
+                unit_id=unit_id,
+                role="UnitAdmin",
+                active_bootstrap_key="active",
+            ).first()
+            if existing_invitation:
+                flash(
+                    "A bootstrap invitation is already active. Show that "
+                    "one-time link or use Revoke and replace.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
             active = ProvisioningJob.query.filter(
                 ProvisioningJob.unit_id == unit_id,
                 ProvisioningJob.state.in_(("queued", "running", "retry_wait")),
@@ -7746,6 +7782,18 @@ def platform_admin():
             return redirect(url_for("platform_admin"))
         elif action == "replace_bootstrap":
             unit_id = int(request.form.get("unit_id") or 0)
+            unit = db.session.get(Unit, unit_id)
+            if not unit or unit.status == "platform_control":
+                abort(404)
+            if UnitMembership.query.filter_by(
+                unit_id=unit_id, status="active"
+            ).count():
+                flash(
+                    "This airport already has active accounts, so a bootstrap "
+                    "invitation cannot be replaced.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
             invitation = SecureInvitation.query.filter_by(
                 unit_id=unit_id, role="UnitAdmin",
                 active_bootstrap_key="active",
@@ -7827,6 +7875,138 @@ def platform_admin():
             ))
             db.session.commit()
             return redirect(url_for("platform_admin"))
+        elif action == "delete_unit":
+            unit_id = int(request.form.get("unit_id") or 0)
+            confirmation = (
+                request.form.get("confirmation_code") or ""
+            ).strip().upper()
+            database_acknowledged = (
+                request.form.get("database_retained") == "yes"
+            )
+            unit = db.session.get(Unit, unit_id)
+            if not unit or unit.status == "platform_control":
+                abort(404)
+            if confirmation != unit.code.upper():
+                flash(
+                    f"Type {unit.code} exactly to confirm airport deletion.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+            if not database_acknowledged:
+                flash(
+                    "Confirm that the separate airport database will be "
+                    "retained for deliberate backup and decommissioning.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+            active_accounts = UnitMembership.query.filter_by(
+                unit_id=unit.id, status="active"
+            ).count()
+            active_job = ProvisioningJob.query.filter(
+                ProvisioningJob.unit_id == unit.id,
+                ProvisioningJob.state.in_((
+                    "queued", "running", "retry_wait",
+                )),
+            ).first()
+            if active_accounts:
+                flash(
+                    "Suspend or remove every active airport account before "
+                    "deleting the airport.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+            if active_job:
+                flash(
+                    "Cancel and finish the active provisioning job before "
+                    "deleting the airport.",
+                    "error",
+                )
+                return redirect(url_for("platform_admin"))
+
+            invitation_ids = [
+                row.id for row in SecureInvitation.query.filter_by(
+                    unit_id=unit.id
+                ).all()
+            ]
+            membership_ids = [
+                row.id for row in UnitMembership.query.filter_by(
+                    unit_id=unit.id
+                ).all()
+            ]
+            workflow_filters = []
+            if invitation_ids:
+                workflow_filters.append(
+                    SignupWorkflow.invitation_id.in_(invitation_ids)
+                )
+            if membership_ids:
+                workflow_filters.append(
+                    SignupWorkflow.membership_id.in_(membership_ids)
+                )
+            if workflow_filters:
+                db.session.query(SignupWorkflow).filter(
+                    db.or_(*workflow_filters)
+                ).delete(synchronize_session=False)
+
+            job_ids = [
+                row.id for row in ProvisioningJob.query.filter_by(
+                    unit_id=unit.id
+                ).all()
+            ]
+            db.session.query(SuperAdminAudit).filter_by(
+                unit_id=unit.id
+            ).update({"unit_id": None}, synchronize_session=False)
+            for model in (
+                SecureInvitation,
+                ProvisioningJob,
+                FeatureFlag,
+                PlanHistory,
+                AggregateUsageEvent,
+                DatabaseRoutingMetadata,
+                UnitMembership,
+            ):
+                db.session.query(model).filter_by(
+                    unit_id=unit.id
+                ).delete(synchronize_session=False)
+            deleted_code = unit.code
+            db.session.delete(unit)
+            db.session.add(SuperAdminAudit(
+                actor_identity_id=platform_actor.id,
+                unit_id=None,
+                action="airport_deleted",
+                safe_summary=(
+                    f"Deleted airport metadata for {deleted_code}; "
+                    "operational database retained for decommissioning."
+                ),
+            ))
+            db.session.commit()
+            if job_ids and os.environ.get("REDIS_URL"):
+                try:
+                    import redis
+
+                    cache = redis.from_url(
+                        os.environ["REDIS_URL"],
+                        socket_connect_timeout=2,
+                        socket_timeout=2,
+                        decode_responses=True,
+                    )
+                    cache.delete(*[
+                        f"atcroster:provisioning-token:{job_id}"
+                        for job_id in job_ids
+                    ])
+                except Exception:
+                    _security_event(
+                        "airport_token_cleanup_failed",
+                        unit_digest=hashlib.sha256(
+                            str(unit_id).encode()
+                        ).hexdigest()[:16],
+                    )
+            flash(
+                f"{deleted_code} airport metadata deleted. Its separate "
+                "database was retained and must be backed up or destroyed "
+                "through the database provider.",
+                "ok",
+            )
+            return redirect(url_for("platform_admin"))
         elif action == "set_feature":
             try:
                 unit_id = int(request.form.get("unit_id") or 0)
@@ -7880,8 +8060,20 @@ def platform_admin():
         latest_job = ProvisioningJob.query.filter_by(
             unit_id=unit.id
         ).order_by(ProvisioningJob.id.desc()).first()
+        if (
+            latest_job
+            and latest_job.state == "completed"
+            and latest_job.last_error_code == "bootstrap_already_issued"
+        ):
+            latest_job = ProvisioningJob.query.filter_by(
+                unit_id=unit.id,
+                state="completed",
+                last_error_code="",
+            ).order_by(ProvisioningJob.id.desc()).first()
         if not bootstrap:
-            bootstrap_status = "not issued"
+            bootstrap_status = (
+                "established" if active_accounts else "not issued"
+            )
         elif bootstrap.accepted_at:
             bootstrap_status = "accepted"
         elif bootstrap.disabled_at:
@@ -8203,9 +8395,22 @@ def _normalized_login(value: str) -> str:
 
 
 def _run_invitation_signup(
-    invitation, unit, name, username, password, fail_after=None,
+    invitation, unit, name, username, password, email="", fail_after=None,
 ):
     """Resume an invitation saga without claiming cross-DB atomicity."""
+    # Every airport begins with a dependable rest-day code, even when it was
+    # provisioned after the original application seed ran.
+    off_shift = ShiftType.query.filter_by(unit_id=unit.id, code="OFF").first()
+    if not off_shift:
+        db.session.add(ShiftType(
+            unit_id=unit.id,
+            code="OFF",
+            name="Day off",
+            is_working=False,
+            is_active=True,
+            is_requestable=False,
+        ))
+        db.session.commit()
     normalized = _normalized_login(username)
     workflow = SignupWorkflow.query.filter_by(
         invitation_id=invitation.id
@@ -8232,9 +8437,22 @@ def _run_invitation_signup(
                     "Account setup could not be started safely."
                 ) from exc
     if workflow.normalized_username != normalized:
-        raise SignupWorkflowError(
-            "This invitation already has an incomplete setup attempt."
+        retryable_username_validation = (
+            workflow.state == "failed"
+            and workflow.compensation_state == "pending"
+            and not workflow.identity_id
+            and workflow.last_error_code == "validation_failed"
         )
+        if not retryable_username_validation:
+            raise SignupWorkflowError(
+                "This invitation already has an incomplete setup attempt."
+            )
+        # No central identity or operational account exists yet. The previous
+        # username was rejected before any durable account data was created,
+        # so the same invitation can safely be corrected and retried.
+        workflow.normalized_username = normalized
+        workflow.updated_at = utcnow()
+        db.session.commit()
     if workflow.state == "completed":
         return workflow
     if workflow.state == "failed" and workflow.compensation_state:
@@ -8256,6 +8474,7 @@ def _run_invitation_signup(
                 public_id=f"member-{secrets.token_hex(12)}",
                 username=normalized,
                 password_hash=generate_password_hash(password),
+                email=_valid_email(email),
             )
             db.session.add(identity)
             try:
@@ -8296,6 +8515,7 @@ def _run_invitation_signup(
                         "That login identifier is unavailable."
                     )
                 staff.username = normalized
+                staff.email = _valid_email(email) or staff.email
                 staff.role = role_map[invitation.role]
                 staff.is_wm = invitation.role == "WatchManager"
                 staff.set_password(password)
@@ -8316,6 +8536,7 @@ def _run_invitation_signup(
                     staff_no=marker, role=role_map[invitation.role],
                     is_wm=invitation.role == "WatchManager",
                     is_operational=False, membership_status="pending",
+                    email=_valid_email(email),
                 )
                 staff.set_password(password)
                 db.session.add(staff)
@@ -8476,6 +8697,7 @@ def accept_invitation(token):
             else (request.form.get("name") or "").strip()
         )
         username = (request.form.get("username") or "").strip().lower()
+        email = _valid_email(request.form.get("email") or "")
         password = request.form.get("password") or ""
         if not name or not re.fullmatch(r"[a-z0-9._-]{3,120}", username):
             flash("Enter a name and a valid username.", "error")
@@ -8485,6 +8707,12 @@ def accept_invitation(token):
             ), 400
         if len(password) < 12:
             flash("Use a password of at least 12 characters.", "error")
+            return render_template(
+                "invitation_accept.html", invitation=invitation, unit=unit,
+                target_person=target_person,
+            ), 400
+        if not email:
+            flash("Enter a valid email address.", "error")
             return render_template(
                 "invitation_accept.html", invitation=invitation, unit=unit,
                 target_person=target_person,
@@ -8501,7 +8729,8 @@ def accept_invitation(token):
                 if not locked_invitation:
                     abort(410, "This invitation has already been used.")
                 _run_invitation_signup(
-                    locked_invitation, unit, name, username, password
+                    locked_invitation, unit, name, username, password,
+                    email=email,
                 )
         except (SignupWorkflowError, ValueError) as exc:
             flash(str(exc), "error")
@@ -9544,6 +9773,234 @@ def _record_successful_login(user: Staff) -> None:
     db.session.commit()
 
 
+def _active_recovery_from_digest(
+    field_name: str, raw_token: str, expected_state: str
+):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", raw_token or ""):
+        abort(404)
+    digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    field = getattr(RecoveryRequest, field_name)
+    row = RecoveryRequest.query.filter(
+        field == digest, RecoveryRequest.state == expected_state
+    ).first_or_404()
+    comparison_now = utcnow()
+    if row.expires_at.tzinfo is None:
+        comparison_now = comparison_now.replace(tzinfo=None)
+    if row.expires_at <= comparison_now:
+        abort(410, "This recovery link has expired.")
+    return row
+
+
+@app.route("/recover", methods=["GET", "POST"])
+def account_recovery():
+    mode = (request.values.get("mode") or "password").strip()
+    if mode not in {"password", "username"}:
+        mode = "password"
+    if request.method == "POST":
+        _validate_csrf()
+        if not _consume_rate_limit(
+            "account-recovery",
+            hashlib.sha256(
+                f"{request.remote_addr}:{mode}".encode()
+            ).hexdigest(),
+            limit=8,
+            window=timedelta(hours=1),
+        ):
+            abort(429, "Too many recovery attempts. Try again later.")
+        if mode == "username":
+            email = _valid_email(request.form.get("email") or "")
+            airport_code = (
+                request.form.get("airport_code") or ""
+            ).strip().upper()
+            if email:
+                identities = PlatformIdentity.query.filter(
+                    db.func.lower(PlatformIdentity.email) == email
+                ).order_by(PlatformIdentity.username).all()
+                if identities:
+                    usernames = "\n".join(
+                        f"- {identity.username}" for identity in identities
+                    )
+                    _send_account_email(
+                        email,
+                        "Your ATCRoster username",
+                        "The username(s) registered to this email address are:\n"
+                        f"{usernames}\n\nIf you did not request this, contact "
+                        "your Unit Administrator.",
+                    )
+                elif airport_code:
+                    unit = Unit.query.filter_by(code=airport_code).first()
+                    if unit:
+                        for admin_email in _unit_admin_emails(unit.id):
+                            _send_account_email(
+                                admin_email,
+                                f"Username recovery assistance for {unit.code}",
+                                "A user requested username assistance for "
+                                f"{email}. Verify their identity using your "
+                                "approved local process before disclosing or "
+                                "updating account details.",
+                            )
+        else:
+            username = _normalized_login(
+                request.form.get("username") or ""
+            )
+            identity = PlatformIdentity.query.filter_by(
+                username=username
+            ).first()
+            if identity:
+                membership = UnitMembership.query.filter_by(
+                    identity_id=identity.id, status="active"
+                ).first()
+                unit_id = membership.unit_id if membership else None
+                approvers = (
+                    _platform_support_emails()
+                    if identity.role == "superadmin"
+                    or (membership and membership.role == "UnitAdmin")
+                    else _unit_admin_emails(unit_id)
+                )
+                if not approvers:
+                    approvers = _platform_support_emails()
+                raw_token = secrets.token_urlsafe(32)
+                row = RecoveryRequest(
+                    unit_id=unit_id,
+                    identity_id=identity.id,
+                    person_id=membership.person_id if membership else None,
+                    approval_token_digest=hashlib.sha256(
+                        raw_token.encode()
+                    ).hexdigest(),
+                    state="pending_approval",
+                    expires_at=utcnow() + timedelta(hours=24),
+                )
+                db.session.add(row)
+                db.session.commit()
+                approval_url = url_for(
+                    "approve_account_recovery",
+                    token=raw_token,
+                    _external=True,
+                )
+                for approver in approvers:
+                    _send_account_email(
+                        approver,
+                        "ATCRoster password reset approval required",
+                        f"A password reset was requested for {username}.\n\n"
+                        f"Review and approve it here:\n{approval_url}\n\n"
+                        "The link expires in 24 hours. Do not forward it.",
+                    )
+        flash(
+            "If the supplied details match an account, the recovery process "
+            "has started. Check email or contact your administrator.",
+            "ok",
+        )
+        return redirect(url_for("account_recovery", mode=mode))
+    return render_template("account_recovery.html", mode=mode)
+
+
+@app.route("/recover/approve/<token>", methods=["GET", "POST"])
+@login_required
+def approve_account_recovery(token):
+    row = _active_recovery_from_digest(
+        "approval_token_digest", token, "pending_approval"
+    )
+    permitted = (
+        getattr(current_user, "role", "") == "superadmin"
+        or (
+            is_admin_user(current_user)
+            and int(getattr(current_user, "unit_id", 0) or 0)
+            == int(row.unit_id or 0)
+        )
+    )
+    if not permitted:
+        abort(403)
+    identity = db.session.get(PlatformIdentity, row.identity_id)
+    if not identity:
+        abort(410, "The account is no longer available.")
+    if request.method == "POST":
+        _validate_csrf()
+        if not identity.email:
+            flash(
+                "This account has no registered email. Add and verify an "
+                "email address before approving the reset.",
+                "error",
+            )
+            return redirect(request.url)
+        raw_reset = secrets.token_urlsafe(32)
+        row.reset_token_digest = hashlib.sha256(
+            raw_reset.encode()
+        ).hexdigest()
+        row.state = "reset_sent"
+        row.approved_at = utcnow()
+        row.expires_at = utcnow() + timedelta(hours=1)
+        reset_url = url_for(
+            "complete_account_recovery",
+            token=raw_reset,
+            _external=True,
+        )
+        delivered = _send_account_email(
+            identity.email,
+            "Reset your ATCRoster password",
+            "Your password reset was approved.\n\n"
+            f"Choose a new password here:\n{reset_url}\n\n"
+            "The link expires in one hour and can only be used once.",
+        )
+        if not delivered:
+            db.session.rollback()
+            flash(
+                "The reset email could not be delivered. Check the SMTP "
+                "configuration and the registered email address.",
+                "error",
+            )
+            return redirect(request.url)
+        db.session.commit()
+        flash("Reset approved and emailed to the account holder.", "ok")
+        return redirect(url_for("index"))
+    return render_template(
+        "recovery_approve.html", recovery=row, identity=identity
+    )
+
+
+@app.route("/recover/reset/<token>", methods=["GET", "POST"])
+def complete_account_recovery(token):
+    row = _active_recovery_from_digest(
+        "reset_token_digest", token, "reset_sent"
+    )
+    identity = db.session.get(PlatformIdentity, row.identity_id)
+    if not identity:
+        abort(410, "The account is no longer available.")
+    if request.method == "POST":
+        _validate_csrf()
+        password = request.form.get("password") or ""
+        confirmation = request.form.get("password_confirmation") or ""
+        if len(password) < 12:
+            flash("Use a password of at least 12 characters.", "error")
+        elif password != confirmation:
+            flash("The password confirmation does not match.", "error")
+        else:
+            password_hash = generate_password_hash(password)
+            identity.password_hash = password_hash
+            membership = UnitMembership.query.filter_by(
+                identity_id=identity.id, status="active"
+            ).first()
+            if membership and membership.person_id:
+                routing = db.session.get(
+                    DatabaseRoutingMetadata, membership.unit_id
+                )
+                g.tenant_context_token = bind_authenticated_unit(
+                    membership.unit_id,
+                    routing.secret_name if routing else None,
+                )
+                person = db.session.get(Staff, membership.person_id)
+                if person:
+                    person.password_hash = password_hash
+            row.state = "completed"
+            row.completed_at = utcnow()
+            row.reset_token_digest = None
+            db.session.commit()
+            flash(
+                "Password updated. Sign in with your new password.", "ok"
+            )
+            return redirect(url_for("login"))
+    return render_template("recovery_reset.html")
+
+
 @app.route("/login", methods=["GET", "POST"], endpoint="login")
 def signin_form():   # function name can be anything; endpoint is 'login'
     if request.method == "POST":
@@ -9627,9 +10084,10 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 session["_platform_mfa_identity_id"] = identity.id
                 session["_platform_mfa_user_id"] = user.id
                 session["_platform_mfa_rate_key"] = rate_key
-                session["_platform_mfa_next"] = (
-                    request.args.get("next")
-                    if _is_safe_local_redirect(request.args.get("next")) else ""
+                session["_platform_mfa_next"] = _canonical_login_redirect(
+                    request.args.get("next"),
+                    default_endpoint="platform_admin",
+                    user_id=user.id,
                 )
                 _central_security_event(
                     "platform_password_verified", "challenge",
@@ -9647,9 +10105,9 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 session["_mfa_user_id"] = user.id
                 session["_mfa_unit_id"] = user.unit_id
                 session["_mfa_rate_key"] = rate_key
-                session["_mfa_next"] = (
-                    request.args.get("next")
-                    if _is_safe_local_redirect(request.args.get("next")) else ""
+                session["_mfa_next"] = _canonical_login_redirect(
+                    request.args.get("next"),
+                    user_id=user.id,
                 )
                 return redirect(url_for("mfa_challenge"))
             login_user(user)
@@ -9662,8 +10120,9 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             _record_successful_login(user)
             flash("Logged in successfully", "ok")
             # support ?next=... to return where user was going
-            nxt = request.args.get("next")
-            return redirect(nxt if _is_safe_local_redirect(nxt) else url_for("index"))
+            return redirect(_canonical_login_redirect(
+                request.args.get("next"), user_id=user.id,
+            ))
         if identity:
             _central_security_event(
                 "platform_login_failed", "denied", identity.id,
@@ -9717,7 +10176,11 @@ def _complete_platform_login(identity, user, recovery_used=False):
         hashlib.sha256(identity.username.lower().encode()).hexdigest()[:16],
     )
     db.session.commit()
-    return redirect(next_url or url_for("platform_admin"))
+    return redirect(_canonical_login_redirect(
+        next_url,
+        default_endpoint="platform_admin",
+        user_id=user.id,
+    ))
 
 
 def _totp_qr_data_uri(provisioning_uri: str) -> str:
@@ -9915,7 +10378,9 @@ def mfa_challenge():
             )
             _record_successful_login(user)
             db.session.commit()
-            return redirect(next_url or url_for("index"))
+            return redirect(_canonical_login_redirect(
+                next_url, user_id=user.id,
+            ))
         flash("Invalid, expired or already-used verification code.", "error")
     return render_template("mfa_challenge.html")
 
@@ -9954,7 +10419,9 @@ def mfa_setup():
         code = re.sub(r"\s", "", request.form.get("code") or "")
         if not pyotp.TOTP(pending).verify(code, valid_window=1):
             flash("The verification code is not valid.", "error")
-            return redirect(url_for("mfa_setup"))
+            return redirect(
+                url_for("staff_profile", sid=current_user.id) + "#mfa"
+            )
         recovery_codes = [
             secrets.token_hex(5).upper() for _ in range(10)
         ]
@@ -9974,8 +10441,9 @@ def mfa_setup():
         db.session.commit()
         session.pop("_pending_mfa_secret", None)
         session["_auth_stamp"] = _current_auth_stamp(current_user)
-        return render_template(
-            "mfa_setup.html", enabled=True, recovery_codes=recovery_codes
+        session["_new_mfa_recovery_codes"] = recovery_codes
+        return redirect(
+            url_for("staff_profile", sid=current_user.id) + "#mfa"
         )
     return render_template(
         "mfa_setup.html", enabled=False, secret=pending,
@@ -10164,6 +10632,21 @@ with app.app_context():
         is_sqlite = db.engine.dialect.name == "sqlite"
         if is_sqlite:
             # Legacy desktop compatibility only. Production uses Alembic.
+            from sqlalchemy import inspect
+            control_tables = set(inspect(db.engine).get_table_names())
+            if "platform_identity" in control_tables:
+                identity_columns = {
+                    column["name"]
+                    for column in inspect(db.engine).get_columns(
+                        "platform_identity"
+                    )
+                }
+                if "email" not in identity_columns:
+                    db.session.execute(text(
+                        "ALTER TABLE platform_identity ADD COLUMN email "
+                        "VARCHAR(254) NOT NULL DEFAULT ''"
+                    ))
+                    db.session.commit()
             migrate_tenant_foundation_compat()
             migrate_add_perf_indexes()
             migrate_add_met_and_assessor()
@@ -10194,6 +10677,10 @@ with app.app_context():
             _add_col("responded_by_id", "responded_by_id INTEGER")
             _add_col("responded_at", "responded_at TEXT")
             _add_col("status", "status VARCHAR(20) DEFAULT 'pending'")
+            _add_col(
+                "dismissed_by_requester_at",
+                "dismissed_by_requester_at TEXT",
+            )
 
         seed_once()
         # Reconstruct deterministic local-only database routes after a restart.
@@ -10213,6 +10700,28 @@ with app.app_context():
                             f"unit-{unit.id}-{unit.code.lower()}.db",
                         )
                     )
+                database_url = os.environ.get(routing.secret_name, "")
+                if database_url.startswith("sqlite:///"):
+                    # Local multi-database installations predate Alembic in
+                    # some workspaces. Keep each tenant schema compatible
+                    # before a remembered browser session can load its Staff.
+                    with operational_unit_context(
+                        routing.unit_id, routing.secret_name
+                    ) as operational_engine:
+                        tenant_inspector = inspect(operational_engine)
+                        if "staff" in tenant_inspector.get_table_names():
+                            tenant_columns = {
+                                column["name"]
+                                for column in tenant_inspector.get_columns(
+                                    "staff"
+                                )
+                            }
+                            if "email" not in tenant_columns:
+                                with operational_engine.begin() as connection:
+                                    connection.execute(text(
+                                        "ALTER TABLE staff ADD COLUMN email "
+                                        "VARCHAR(254) NOT NULL DEFAULT ''"
+                                    ))
         refresh_shift_cache()
 
 # Expose helpers & models needed by Jinja templates that refer to them directly

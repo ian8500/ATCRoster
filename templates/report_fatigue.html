@@ -3,24 +3,21 @@
 
 {% block extra_head %}
 <style>
-  .page-wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  .page-wrap { width:100%; }
   .actions { display:flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 16px; }
   .actions a, .actions button {
-    padding: 8px 12px; border-radius: 8px; border: 1px solid #ccc; background: #f7f7f7;
-    text-decoration: none; cursor: pointer; font-size: 14px;
+    text-decoration: none; cursor: pointer;
   }
-  .actions a:hover, .actions button:hover { background: #eee; }
-  .muted { color: #666; }
-  .table-wrap { overflow-x:auto; border:1px solid #ddd; border-radius:10px; }
+  .muted { color: var(--text-muted); }
+  .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius-md); }
   table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 960px; }
-  thead th { position: sticky; top:0; z-index:2; background:#fafafa; border-bottom:1px solid #ddd; }
-  th, td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: center; white-space: nowrap; }
-  th.sticky-left, td.sticky-left { position: sticky; left: 0; z-index: 1; background:#fff; text-align: left; }
-  tr:nth-child(even) td { background: #fcfcfc; }
-  .chip { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border:1px solid #ccd;}
-  .chip.ok { background:#eef7ee; border-color:#cfe6cf; }
-  .chip.warn { background:#fff4e5; border-color:#ffe0b3; }
-  .chip.danger { background:#fde8e8; border-color:#f5c2c2; }
+  thead th { position: sticky; top:0; z-index:2; background:var(--head); border-bottom:1px solid var(--line); }
+  th, td { padding:.5rem .65rem; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap; }
+  th.sticky-left, td.sticky-left { position:sticky; left:0; z-index:1; background:var(--card); text-align:left; }
+  .chip { display:inline-block; padding:.15rem .5rem; border-radius:999px; font-size:.75rem; border:1px solid var(--line);}
+  .chip.ok { color:#8de5b8; background:rgba(84,214,150,.1); border-color:rgba(84,214,150,.4); }
+  .chip.warn { color:#f5cf80; background:rgba(245,183,66,.1); border-color:rgba(245,183,66,.45); }
+  .chip.danger { color:#ffb3b3; background:rgba(228,100,100,.1); border-color:rgba(228,100,100,.48); }
   .cell { min-width: 36px; }
   .cell[data-has] { font-weight: 700; }
   .cell .count { display:inline-block; min-width:1.75em; }
@@ -29,7 +26,7 @@
   .controls label { display:flex; gap: 8px; align-items:center; cursor: pointer; }
   .legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; }
   .legend .chip { font-weight: 600; }
-  .sticky-summary { position: sticky; left: 0; background: #fff; }
+  .sticky-summary { position:sticky; left:0; background:var(--card); }
   @media print {
     .actions, .controls { display:none !important; }
     .page-wrap { padding: 0; }
@@ -82,12 +79,14 @@
 
 {% block content %}
 <div class="page-wrap">
-  <h1>Fatigue Findings <span class="muted">— {{ month_title }}</span></h1>
-
-  <div class="actions">
-    <a href="{{ url_for('roster_month', ym=ym) }}">← Back to roster</a>
-    <button type="button" data-command="print-fatigue">🖨 Print</button>
-  </div>
+  <section class="compliance-hero">
+    <div><span class="admin-step">Fatigue reporting</span><h2>Fatigue findings · {{ month_title }}</h2><p>Review explainable roster warnings by controller and day.</p></div>
+    <div class="compliance-actions">
+      <a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a>
+      <a class="btn" href="{{ url_for('roster_month', ym=ym) }}">Back to roster</a>
+      <button class="btn" type="button" data-command="print-fatigue">Print</button>
+    </div>
+  </section>
 
   <div class="controls">
     <label><input type="checkbox" id="hideNoIssues" data-command="fatigue-hide-clear"> Hide people with no findings</label>
@@ -118,7 +117,7 @@
           {% set flags_by_day = item.flags_by_day %}
           {% set total_flags = item.total_flags %}
           <tr>
-            <td class="sticky-left" style="max-width:240px;text-overflow:ellipsis;overflow:hidden;">
+            <td class="sticky-left fatigue-name-cell">
               <strong>{{ s.name }}</strong>
             </td>
             <td>{{ s.watch.name.replace('Watch ','') if s.watch else '-' }}</td>
@@ -142,7 +141,7 @@
 
   {% set total_people = findings|length %}
   {% set no_issue = findings|selectattr('total_flags','equalto',0)|list|length %}
-  <p class="muted" style="margin-top:10px;">
+  <p class="muted report-summary-note">
     Summary: {{ total_people - no_issue }} with ≥1 finding, {{ no_issue }} with none.
   </p>
 </div>

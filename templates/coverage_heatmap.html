@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Coverage Heatmap{% endblock %}
 {% block content %}
-<div class="container-fluid my-4"><h2>Coverage heatmap · {{ ym }}</h2>
+<div class="page-shell">
+<section class="compliance-hero">
+  <div><span class="admin-step">Staffing assurance</span><h2>Coverage heatmap</h2><p>Morning, day, afternoon and night coverage for {{ ym }}.</p></div>
+</section>
 <div class="table-responsive"><table class="table table-bordered"><thead><tr><th>Date</th><th>M</th><th>D</th><th>A</th><th>N</th></tr></thead><tbody>
-{% for day in days %}<tr><td>{{ day }}</td>{% for code in ['M','D','A','N'] %}<td class="{{ 'bg-danger' if counts[day][code] == 0 else 'bg-warning' if counts[day][code] < 2 else 'bg-success' }}">{{ counts[day][code] }}{% if competence_exclusions[day][code] %}<small class="d-block">{{ competence_exclusions[day][code] }} excluded: competence</small>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+{% for day in days %}<tr><td>{{ day }}</td>{% for code in ['M','D','A','N'] %}<td class="coverage-cell {{ 'danger' if counts[day][code] == 0 else 'warning' if counts[day][code] < 2 else 'success' }}">{{ counts[day][code] }}{% if competence_exclusions[day][code] %}<small class="d-block">{{ competence_exclusions[day][code] }} excluded: competence</small>{% endif %}</td>{% endfor %}</tr>{% endfor %}
 </tbody></table></div></div>
 {% endblock %}

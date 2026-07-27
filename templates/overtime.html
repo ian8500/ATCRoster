@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Overtime Finder{% endblock %}
 {% block content %}
-<h1><i class="fa-solid fa-user-plus"></i> Overtime Finder</h1>
+<div class="page-shell overtime-page">
+<section class="compliance-hero">
+  <div><span class="admin-step">Staffing support</span><h2>Overtime finder</h2><p>Identify eligible controllers for an uncovered operational duty.</p></div>
+</section>
 
-<div class="card" style="margin-bottom:1rem">
+<section class="card">
   <div class="card-bd">
     <form method="post" class="toolbar">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -19,7 +22,7 @@
       <button class="btn"><i class="fa-solid fa-magnifying-glass"></i> Find Eligible</button>
     </form>
   </div>
-</div>
+</section>
 
 {% if searched %}
 <form method="post" class="card">
@@ -94,7 +97,7 @@
     </div>
 
     {% if results %}
-    <div class="grid grid-2" style="gap:1rem; margin-top:1rem; align-items:start">
+    <div class="grid grid-2 overtime-message-layout">
       <label>Message
         <textarea name="message" rows="3" maxlength="480" placeholder="SMS body">{{ sms_body }}</textarea>
       </label>
@@ -112,4 +115,5 @@
   </div>
 </form>
 {% endif %}
+</div>
 {% endblock %}

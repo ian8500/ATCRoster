@@ -2,14 +2,11 @@
 {% block title %}Annotation Totals{% endblock %}
 
 {% block content %}
-<div class="container">
-  <h1 class="page-title">Annotation Totals</h1>
-
-  <p class="muted" style="margin-top:-.5rem">
-    Each column follows the annotations configured in
-    <strong>Admin → Roster codes and annotations</strong>. An annotation
-    retired during the selected period remains visible as historical data.
-  </p>
+<div class="page-shell">
+  <section class="compliance-hero">
+    <div><span class="admin-step">Roster reporting</span><h2>Annotation totals</h2><p>Each column follows this airport’s configured annotations. Retired annotations remain visible as historical data.</p></div>
+    <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>
+  </section>
 
   <form method="get" class="bar">
     <label for="start">From</label>

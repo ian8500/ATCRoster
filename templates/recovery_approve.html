@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Approve password reset{% endblock %}
+{% block content %}
+<div class="container container--xs py-5">
+  <section class="card">
+    <div class="card-hd">Approve password reset</div>
+    <div class="card-bd">
+      <p>Confirm the requester’s identity using your approved local process before continuing.</p>
+      <dl>
+        <dt>Account</dt><dd>{{ identity.username }}</dd>
+        <dt>Registered email</dt><dd>{{ identity.email or 'No email registered' }}</dd>
+        <dt>Request expires</dt><dd>{{ recovery.expires_at.strftime('%d %b %Y at %H:%M') }}</dd>
+      </dl>
+      <form method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-primary" type="submit" {% if not identity.email %}disabled{% endif %}>Approve and email reset link</button>
+      </form>
+    </div>
+  </section>
+</div>
+{% endblock %}
