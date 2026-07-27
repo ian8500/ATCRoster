@@ -4730,6 +4730,28 @@ def roster_month(ym):
         for r in reqs
         if (r.status or "pending").lower() in {"pending", "approved"}
     }
+    applied_request_map = {
+        (staff_id, request_day): {"code": request_code}
+        for staff_id, request_day, request_code in (
+            db.session.query(
+                ShiftRequest.staff_id,
+                ShiftRequest.day,
+                ShiftRequest.code,
+            )
+            .join(
+                Assignment,
+                ShiftRequest.resulting_assignment_id == Assignment.id,
+            )
+            .filter(
+                ShiftRequest.unit_id == unit_id,
+                ShiftRequest.status == "fulfilled",
+                ShiftRequest.day >= start,
+                ShiftRequest.day < month_end,
+                Assignment.code == ShiftRequest.code,
+            )
+            .all()
+        )
+    }
 
     # --- Unified editability flags ---
     can_edit = can_edit_roster(current_user)
@@ -4809,6 +4831,7 @@ def roster_month(ym):
         month_title=month_title,
         today=today,
         req_pending_map=req_pending_map,
+        applied_request_map=applied_request_map,
         show_ot_finder=True,
         display_watch_by_staff=display_watch_by_staff,
         annotation_groups=get_annotation_groups(),

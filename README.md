@@ -218,6 +218,12 @@ When a cell is changed to the exact shift requested by a pending or approved
 request, the request is retained, marked `fulfilled`, and linked to the
 assignment.
 
+A shift applied through the approval workflow has a blue outline and small
+blue corner marker on the roster. Hovering the cell identifies it as applied
+from an approved shift request. The marker remains only while the linked
+assignment still contains the requested shift code; a later manual change
+does not misleadingly retain the request highlight.
+
 ### Roster request badges
 
 - Pending requests use a warning-style badge and accessible pending label.
