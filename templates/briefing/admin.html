@@ -18,7 +18,6 @@
         <select name="kind" data-briefing-kind>
           <option value="instruction">Uploaded instruction</option>
           <option value="daily">Brief of the day</option>
-          <option value="notam">NOTAM / operational notice</option>
         </select>
       </label>
       <label data-message-type-field>Instruction message type *
@@ -32,7 +31,7 @@
           <small>Add an active message type below before creating an instruction.</small>
         {% endif %}
       </label>
-      <label>Instruction title *
+      <label>Briefing title *
         <input name="title" maxlength="160" required>
       </label>
       <label data-document-field>PDF or Word document *
@@ -73,7 +72,7 @@
         <label>Priority
           <select name="priority"><option>routine</option><option>important</option><option>critical</option></select>
         </label>
-        <label class="check-label"><input type="checkbox" name="mandatory" value="yes"> Mandatory acknowledgement</label>
+        <label class="check-label" data-mandatory-field><input type="checkbox" name="mandatory" value="yes"> Mandatory acknowledgement</label>
       </div>
       <div class="d-flex gap-2">
         <button class="btn" name="action" value="draft" type="submit">Save draft</button>
@@ -123,10 +122,13 @@
     const documentField = document.querySelector('[data-document-field]');
     const textField = document.querySelector('[data-text-field]');
     const messageTypeField = document.querySelector('[data-message-type-field]');
+    const mandatoryField = document.querySelector('[data-mandatory-field]');
     const instruction = kind.value === 'instruction';
     documentField.hidden = !instruction;
     textField.hidden = instruction;
     messageTypeField.hidden = !instruction;
+    mandatoryField.hidden = !instruction;
+    if (!instruction) mandatoryField.querySelector('input').checked = false;
     documentField.querySelector('input').required = instruction;
     textField.querySelector('textarea').required = !instruction;
     messageTypeField.querySelector('select').required = instruction;

@@ -528,7 +528,7 @@ def admin():
     roster_app = _app_models()
     if request.method == "POST":
         kind = (request.form.get("kind") or "instruction").strip()
-        if kind not in {"instruction", "daily", "notam"}:
+        if kind not in {"instruction", "daily"}:
             abort(400)
         message_type = None
         if kind == "instruction":
@@ -565,7 +565,10 @@ def admin():
             body=(request.form.get("body") or "").strip(),
             effective_at=effective_at,
             expires_at=expires_at,
-            mandatory=request.form.get("mandatory") == "yes",
+            mandatory=(
+                kind == "instruction"
+                and request.form.get("mandatory") == "yes"
+            ),
             priority=priority,
             target_json=json.dumps(_target_from_form(), sort_keys=True),
             created_by_id=current_user.id,

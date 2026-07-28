@@ -4928,6 +4928,7 @@ def inject_perms():
                     BriefingDelivery.archived_at.is_(None),
                     BriefingDelivery.deleted_at.is_(None),
                     BriefingItem.status == "published",
+                    BriefingItem.kind != "daily",
                     BriefingItem.effective_at <= briefing_now,
                     BriefingItem.expires_at >= briefing_now,
                 )

@@ -11,23 +11,28 @@
 
 <div class="briefing-list">
   {% for delivery, item in deliveries %}
-    <article
-      class="briefing-card briefing-card--{{ item.priority }} briefing-card--clickable"
-      data-briefing-card
-      data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}"
-      role="link"
-      tabindex="0"
-      aria-label="Open {{ item.title }}"
-    >
+    <article class="briefing-card briefing-card--{{ item.priority }}{% if item.kind != 'daily' %} briefing-card--clickable{% endif %}"
+      {% if item.kind != 'daily' %}data-briefing-card data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}" role="link" tabindex="0" aria-label="Open {{ item.title }}"{% endif %}>
       <div class="briefing-card__meta">
         <span class="status-chip">{{ item.message_type_name or {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
         <span>{{ item.priority|title }}</span>
         {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
       </div>
       <h3>{{ item.title }}</h3>
-      {% if item.body %}<p>{{ item.body|truncate(240) }}</p>{% endif %}
+      {% if item.body %}
+        {% if item.kind == 'daily' %}
+          <div class="briefing-daily-text" data-daily-text>{{ item.body|e|replace('\n', '<br>')|safe }}</div>
+          <button class="briefing-daily-expand" type="button" data-daily-expand hidden aria-expanded="false">
+            <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+            <span>Expand</span>
+          </button>
+        {% else %}
+          <p>{{ item.body|truncate(240) }}</p>
+        {% endif %}
+      {% endif %}
       <div class="briefing-card__footer">
         <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
+        {% if item.kind != 'daily' %}
         <div class="briefing-card__actions">
           <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
             {% if delivery.acknowledged_at %}Review again{% else %}Open{% endif %}
@@ -43,6 +48,7 @@
             </form>
           {% endif %}
         </div>
+        {% endif %}
       </div>
     </article>
   {% else %}
@@ -65,6 +71,20 @@
         event.preventDefault();
         window.location.assign(card.dataset.openUrl);
       }
+    });
+  });
+  document.querySelectorAll('[data-daily-expand]').forEach(button => {
+    const text = button.previousElementSibling;
+    if (text.scrollHeight > text.clientHeight + 1) {
+      text.classList.add('is-overflowing');
+      button.hidden = false;
+    }
+    button.addEventListener('click', () => {
+      const expanded = text.classList.toggle('is-expanded');
+      button.setAttribute('aria-expanded', String(expanded));
+      button.querySelector('span').textContent = expanded ? 'Collapse' : 'Expand';
+      button.querySelector('i').classList.toggle('fa-chevron-down', !expanded);
+      button.querySelector('i').classList.toggle('fa-chevron-up', expanded);
     });
   });
 })();

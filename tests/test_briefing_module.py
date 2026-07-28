@@ -152,6 +152,7 @@ def test_admin_configures_instruction_message_types(briefing_client):
     assert b"briefing-nav__admin-start" in publish_page.data
     assert b"data-briefing-upload-progress" in publish_page.data
     assert b"Uploading briefing" in publish_page.data
+    assert b"NOTAM / operational notice" not in publish_page.data
     assert publish_page.data.index(b"My briefing") < publish_page.data.index(
         b"Publish"
     )
@@ -288,6 +289,48 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
         assert BriefingAudit.query.filter_by(
             event_type="recipient_deleted"
         ).count() == 1
+
+
+def test_brief_of_day_is_displayed_without_open_or_acknowledgement(
+    briefing_client,
+):
+    _login(briefing_client, "brief_admin")
+    now = datetime.now()
+    response = briefing_client.post(
+        "/briefing/admin",
+        data={
+            "_csrf_token": _csrf(briefing_client),
+            "kind": "daily",
+            "title": "Today at Glasgow",
+            "body": "Operational note " * 80,
+            "effective_at": (
+                now - timedelta(hours=1)
+            ).strftime("%Y-%m-%dT%H:%M"),
+            "expires_at": (
+                now + timedelta(days=1)
+            ).strftime("%Y-%m-%dT%H:%M"),
+            "target_scope": "all",
+            "priority": "routine",
+            "mandatory": "yes",
+            "action": "publish",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    with app.app.app_context():
+        item = BriefingItem.query.one()
+        assert item.kind == "daily"
+        assert item.mandatory is False
+
+    briefing_client.get("/logout")
+    _login(briefing_client, "brief_user")
+    page = briefing_client.get("/briefing/")
+    assert b"Today at Glasgow" in page.data
+    assert b"data-daily-expand" in page.data
+    assert b'role="link"' not in page.data
+    assert b"Mandatory</span>" not in page.data
+    assert b">Open briefing" not in page.data
+    assert b"nav-attention-count" not in page.data
 
 
 def test_assurance_ignores_non_working_assignments(briefing_client):
