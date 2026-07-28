@@ -13,7 +13,7 @@
 <section class="card">
   <div class="card-hd">Create briefing</div>
   <div class="card-bd">
-    <form method="post" enctype="multipart/form-data" class="briefing-form">
+    <form method="post" enctype="multipart/form-data" class="briefing-form" data-briefing-upload-form>
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <label>Briefing type *
         <select name="kind" data-briefing-kind>
@@ -84,6 +84,22 @@
   </div>
 </section>
 
+<div class="briefing-upload-progress" data-briefing-upload-progress hidden role="status" aria-live="polite" aria-busy="true">
+  <div class="briefing-upload-progress__panel">
+    <span class="briefing-upload-progress__worker" aria-hidden="true">
+      <svg viewBox="0 0 64 64" focusable="false">
+        <path d="M18 28a14 14 0 0 1 28 0"></path>
+        <path d="M15 28h34M23 28v-7M41 28v-7"></path>
+        <circle cx="32" cy="35" r="9"></circle>
+        <path d="M15 59c2-10 8-15 17-15s15 5 17 15M25 48l7 6 7-6"></path>
+      </svg>
+    </span>
+    <strong data-briefing-progress-title>Uploading briefing…</strong>
+    <p>Please keep this page open while the document is securely stored and published.</p>
+    <span class="briefing-upload-progress__bar" aria-hidden="true"><span></span></span>
+  </div>
+</div>
+
 <section class="card mt-3">
   <div class="card-hd">Briefing register</div>
   <div class="table-responsive"><table class="table">
@@ -102,6 +118,8 @@
 (() => {
   const kind = document.querySelector('[data-briefing-kind]');
   const scope = document.querySelector('[data-target-scope]');
+  const uploadForm = document.querySelector('[data-briefing-upload-form]');
+  const uploadProgress = document.querySelector('[data-briefing-upload-progress]');
   const updateKind = () => {
     const documentField = document.querySelector('[data-document-field]');
     const textField = document.querySelector('[data-text-field]');
@@ -118,6 +136,13 @@
     field.hidden = field.dataset.targetDetail !== scope.value;
   });
   kind.addEventListener('change', updateKind); scope.addEventListener('change', updateScope);
+  uploadForm.addEventListener('submit', () => {
+    const instruction = kind.value === 'instruction';
+    uploadProgress.querySelector('[data-briefing-progress-title]').textContent =
+      instruction ? 'Uploading briefing…' : 'Saving briefing…';
+    uploadProgress.hidden = false;
+    document.body.classList.add('briefing-upload-active');
+  });
   updateKind(); updateScope();
 })();
 </script>

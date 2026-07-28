@@ -150,6 +150,8 @@ def test_admin_configures_instruction_message_types(briefing_client):
     assert b"Instruction message types</div>" not in publish_page.data
     assert b'href="/briefing/admin/reports"' in publish_page.data
     assert b"briefing-nav__admin-start" in publish_page.data
+    assert b"data-briefing-upload-progress" in publish_page.data
+    assert b"Uploading briefing" in publish_page.data
     assert publish_page.data.index(b"My briefing") < publish_page.data.index(
         b"Publish"
     )
