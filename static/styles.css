@@ -3330,9 +3330,10 @@ table:not(.roster) td {
 .module-card__icon--briefing{background:rgba(91,194,169,.14);color:#72d6bd}
 .module-card strong,.module-card small,.module-card em{display:block}
 .module-card strong{font-size:1.25rem;margin-bottom:.3rem}.module-card small{color:var(--muted, #aeb8c2)}.module-card em{color:#f7c95c;font-style:normal;margin-top:.55rem}
-.briefing-nav{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem}
-.briefing-nav a{padding:.65rem .9rem;border-radius:9px;color:inherit;text-decoration:none;border:1px solid var(--border, #39434f)}
-.briefing-nav a.active{background:var(--accent, #2676a5);border-color:transparent}
+.briefing-nav{display:flex;align-items:center;gap:.1rem;flex-wrap:wrap;margin-bottom:1.25rem;padding:.5rem 0;border-bottom:1px solid #202832}
+.briefing-nav .nav-link{min-height:34px;padding:.38rem .62rem;border:0;border-radius:5px;background:transparent;box-shadow:none;color:#aab4be;font-size:.76rem;font-weight:550;text-decoration:none}
+.briefing-nav .nav-link:hover,.briefing-nav .nav-link:focus-visible{color:#eef2f4;background:#1c232c;border:0;box-shadow:none;transform:none}
+.briefing-nav .nav-link.active{color:#e9f6f5;background:#223534;border:0;box-shadow:inset 0 -2px 0 var(--accent)}
 .briefing-nav .briefing-nav__admin-start{margin-left:auto}
 .briefing-list{display:grid;gap:1rem}
 .briefing-card{padding:1.25rem;border:1px solid var(--border, #39434f);border-left:5px solid #6f7b87;border-radius:12px;background:var(--panel, #18202a)}
