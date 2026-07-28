@@ -1418,6 +1418,10 @@ def test_weekend_and_special_date_requirements_are_available(client):
     assert b"Monday\xe2\x80\x93Friday" in page.data
     assert b"Saturday" in page.data
     assert b"Sunday" in page.data
+    assert b"requirements-day-group--weekday" in page.data
+    assert b"requirements-day-group--saturday" in page.data
+    assert b"requirements-day-group--sunday" in page.data
+    assert b"requirements-day-cell--start" in page.data
     assert page.data.count(b'name="req_sat_m"') == 24
     assert page.data.count(b'name="req_sun_n"') == 24
     assert b"Special date requirements" in page.data

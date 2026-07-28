@@ -172,10 +172,19 @@
       <div class="table-scroll admin-requirements-table">
         <table class="mini admin-table requirements-matrix">
           <thead>
-            <tr><th rowspan="2">Month</th><th colspan="4">Monday–Friday</th><th colspan="4">Saturday</th><th colspan="4">Sunday</th><th rowspan="2">Apply</th></tr>
             <tr>
-              {% for _group in range(3) %}
-                <th title="Morning">M</th><th title="Day">D</th><th title="Afternoon">A</th><th title="Night">N</th>
+              <th rowspan="2">Month</th>
+              <th colspan="4" class="requirements-day-group requirements-day-group--weekday">Monday–Friday</th>
+              <th colspan="4" class="requirements-day-group requirements-day-group--saturday">Saturday</th>
+              <th colspan="4" class="requirements-day-group requirements-day-group--sunday">Sunday</th>
+              <th rowspan="2">Apply</th>
+            </tr>
+            <tr>
+              {% for day_type in ['weekday', 'saturday', 'sunday'] %}
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }} requirements-day-cell--start" title="Morning">M</th>
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }}" title="Day">D</th>
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }}" title="Afternoon">A</th>
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }}" title="Night">N</th>
               {% endfor %}
             </tr>
           </thead>
@@ -184,10 +193,10 @@
             {% set r = requirements_by_month.get((y,m)) %}
             <tr data-requirement-row>
               <td class="table-label"><input type="hidden" name="ym" value="{{ '%04d-%02d'|format(y,m) }}">{{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }} {{ y }}</td>
-              {% for prefix, day_name in [('', 'weekday'), ('sat_', 'Saturday'), ('sun_', 'Sunday')] %}
+              {% for prefix, day_name, day_type in [('', 'weekday', 'weekday'), ('sat_', 'Saturday', 'saturday'), ('sun_', 'Sunday', 'sunday')] %}
                 {% for code, duty_name in [('m', 'Morning'), ('d', 'Day'), ('a', 'Afternoon'), ('n', 'Night')] %}
                   {% set field = 'req_' ~ prefix ~ code %}
-                  <td><input type="number" min="0" name="{{ field }}" value="{{ r|attr(field) if r else 0 }}" class="table-input" aria-label="{{ duty_name }} {{ day_name }} requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
+                  <td class="requirements-day-cell requirements-day-cell--{{ day_type }}{% if loop.first %} requirements-day-cell--start{% endif %}"><input type="number" min="0" name="{{ field }}" value="{{ r|attr(field) if r else 0 }}" class="table-input" aria-label="{{ duty_name }} {{ day_name }} requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
                 {% endfor %}
               {% endfor %}
               <td class="table-actions">

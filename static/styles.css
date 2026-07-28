@@ -1568,6 +1568,36 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
   border-bottom:1px solid var(--control-border);
 }
 .requirements-matrix .table-input{min-width:48px; max-width:58px;}
+.requirements-matrix .requirements-day-group--weekday,
+.requirements-matrix .requirements-day-cell--weekday{
+  background-color:#17212b;
+}
+.requirements-matrix .requirements-day-group--saturday,
+.requirements-matrix .requirements-day-cell--saturday{
+  background-color:#18283a;
+}
+.requirements-matrix .requirements-day-group--sunday,
+.requirements-matrix .requirements-day-cell--sunday{
+  background-color:#282137;
+}
+.requirements-matrix .requirements-day-group--weekday{
+  box-shadow:inset 0 3px 0 #607d8b;
+}
+.requirements-matrix .requirements-day-group--saturday{
+  box-shadow:inset 0 3px 0 #4f8fd8;
+}
+.requirements-matrix .requirements-day-group--sunday{
+  box-shadow:inset 0 3px 0 #9a72c7;
+}
+.requirements-matrix .requirements-day-cell--start{
+  border-left:2px solid #526170;
+}
+.requirements-matrix tbody tr:hover .requirements-day-cell--weekday{background-color:#1c2a36;}
+.requirements-matrix tbody tr:hover .requirements-day-cell--saturday{background-color:#1d3249;}
+.requirements-matrix tbody tr:hover .requirements-day-cell--sunday{background-color:#322944;}
+.requirements-matrix .requirements-day-cell .table-input{
+  background:rgba(8,13,20,.66);
+}
 .special-requirements{
   margin-top:1rem;
   padding-top:1.25rem;
