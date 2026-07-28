@@ -375,9 +375,13 @@ def test_assurance_ignores_non_working_assignments(briefing_client):
     assert b"On duty with unread mandatory messages" in response.data
     assert b"Unread instructions by user" in response.data
     assert b"Read instructions and active reading time" in response.data
-    assert response.data.count(b"briefing-report-fold") == 4
+    assert response.data.count(b"briefing-report-fold") == 5
     assert b'<details class="card mt-3 briefing-report-fold">' in response.data
     assert b'<summary class="card-hd">' in response.data
+    assert b"Previous reports" in response.data
+    assert b"users checked" in response.data
+    assert b"login/roster difference" in response.data
+    assert b"on-duty exception" in response.data
     assert b"No on-duty users have unread mandatory messages" in response.data
     with app.app.app_context():
         saved = json.loads(BriefingAssuranceRun.query.one().result_json)
@@ -387,6 +391,20 @@ def test_assurance_ignores_non_working_assignments(briefing_client):
             "read_profiles",
             "unread_profiles",
         }
+        run_id = BriefingAssuranceRun.query.one().id
+
+    delete_response = briefing_client.post(
+        f"/briefing/admin/reports/{run_id}/delete",
+        data={"_csrf_token": _csrf(briefing_client)},
+        follow_redirects=True,
+    )
+    assert delete_response.status_code == 200
+    assert b"Previous briefing report deleted" in delete_response.data
+    with app.app.app_context():
+        assert BriefingAssuranceRun.query.count() == 0
+        assert BriefingAudit.query.filter_by(
+            event_type="report_deleted"
+        ).count() == 1
 
 
 def test_assurance_reports_on_duty_and_profile_unread_items(

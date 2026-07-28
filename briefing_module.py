@@ -978,10 +978,58 @@ def assurance():
     previous_runs = BriefingAssuranceRun.query.filter_by(
         unit_id=current_user.unit_id
     ).order_by(BriefingAssuranceRun.run_at.desc()).limit(20).all()
+    previous_reports = []
+    for previous in previous_runs:
+        try:
+            previous_result = json.loads(previous.result_json or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            previous_result = {}
+        login_rows = previous_result.get("login_roster") or []
+        unread_profiles = previous_result.get("unread_profiles") or []
+        read_profiles = previous_result.get("read_profiles") or []
+        previous_reports.append({
+            "run": previous,
+            "users_checked": len(login_rows),
+            "login_roster_differences": sum(
+                1 for row in login_rows if row.get("different")
+            ),
+            "on_duty_exceptions": len(
+                previous_result.get("on_duty_mandatory") or []
+            ),
+            "unread_instructions": sum(
+                profile.get("count", 0) for profile in unread_profiles
+            ),
+            "read_instructions": sum(
+                profile.get("count", 0) for profile in read_profiles
+            ),
+            "reading_seconds": sum(
+                profile.get("total_active_view_seconds", 0)
+                for profile in read_profiles
+            ),
+        })
     return render_template(
         "briefing/assurance.html", selected_date=selected_date,
-        results=results, run=run, previous_runs=previous_runs,
+        results=results, run=run, previous_reports=previous_reports,
     )
+
+
+@briefing_blueprint.post("/admin/reports/<int:run_id>/delete")
+@login_required
+def delete_assurance_report(run_id: int):
+    _require_admin()
+    report = BriefingAssuranceRun.query.filter_by(
+        id=run_id, unit_id=current_user.unit_id
+    ).first_or_404()
+    _audit(
+        "report_deleted", None, run_id=report.id,
+        operational_date=report.operational_date,
+        original_run_at=report.run_at,
+        original_run_by=report.run_by_name,
+    )
+    db.session.delete(report)
+    db.session.commit()
+    flash("Previous briefing report deleted.", "ok")
+    return redirect(url_for("briefing.assurance"))
 
 
 @briefing_blueprint.get("/admin/assurance")

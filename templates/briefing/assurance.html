@@ -107,7 +107,30 @@
   </div>
 </details>
 {% endif %}
-<section class="card mt-3"><div class="card-hd">Previous reports</div><div class="card-bd">
-  {% for previous in previous_runs %}<p><strong>{{ previous.operational_date.strftime('%d %b %Y') }}</strong> · {{ previous.run_at.strftime('%d %b %Y %H:%M') }} · {{ previous.run_by_name }}</p>{% else %}<p>No checks have been run.</p>{% endfor %}
-</div></section>
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Previous reports</span><small>{{ previous_reports|length }} saved</small></summary>
+  <div class="card-bd briefing-previous-reports">
+    {% for previous in previous_reports %}
+      <article class="briefing-previous-report">
+        <div class="briefing-previous-report__title">
+          <strong>{{ previous.run.operational_date.strftime('%d %b %Y') }}</strong>
+          <small>Run {{ previous.run.run_at.strftime('%d %b %Y %H:%M') }} by {{ previous.run.run_by_name }}</small>
+        </div>
+        <div class="briefing-previous-report__findings">
+          <span>{{ previous.users_checked }} users checked</span>
+          <span>{{ previous.login_roster_differences }} login/roster difference{{ '' if previous.login_roster_differences == 1 else 's' }}</span>
+          <span>{{ previous.on_duty_exceptions }} on-duty exception{{ '' if previous.on_duty_exceptions == 1 else 's' }}</span>
+          <span>{{ previous.unread_instructions }} unread</span>
+          <span>{{ previous.read_instructions }} read · {{ previous.reading_seconds // 60 }}m {{ previous.reading_seconds % 60 }}s</span>
+        </div>
+        <form method="post" action="{{ url_for('briefing.delete_assurance_report', run_id=previous.run.id) }}" data-confirm="Delete this saved briefing report? This cannot be undone.">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm" type="submit"><i class="fa-solid fa-trash" aria-hidden="true"></i> Delete</button>
+        </form>
+      </article>
+    {% else %}
+      <p>No checks have been run.</p>
+    {% endfor %}
+  </div>
+</details>
 {% endblock %}
