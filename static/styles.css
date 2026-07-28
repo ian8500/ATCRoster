@@ -1078,6 +1078,11 @@ select.code-input{
 
 tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
 .totcell{font-size:.7rem; line-height:1.2;}
+.totcell .daily-total{
+  display:block;
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
 
 .rag.green{color:#2ecc71;}
 .rag.amber{color:#f1c40f;}

@@ -308,7 +308,7 @@
         {% set n = counters[d]["N"] %}
         {% set total = m + dday + a + (n if night_active[d] else 0) %}
         <td class="totcell{% if d == today %} is-today{% endif %}">
-          <div><strong>Total {{ total }}</strong></div>
+          <div class="daily-total"><strong>Total {{ total }}</strong></div>
           <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ req_by_day[d]['M'] }}</div>
           <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ req_by_day[d]['D'] }}</div>
           <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ req_by_day[d]['A'] }}</div>
