@@ -84,6 +84,7 @@
   const fullscreenButton = document.querySelector('[data-pdf-fullscreen]');
   const fullscreenIcon = document.querySelector('[data-pdf-fullscreen-icon]');
   const fullscreenLabel = document.querySelector('[data-pdf-fullscreen-label]');
+  const secondsDisplay = document.querySelector('[data-view-seconds]');
   if (frame && loading) {
     frame.addEventListener('load', () => loading.hidden = true);
   }
@@ -110,6 +111,7 @@
   }
   let active = !document.hidden;
   let last = Date.now();
+  let displayedSeconds = Number(secondsDisplay?.textContent || 0);
   const token = {{ csrf_token()|tojson }};
   const send = () => {
     const now = Date.now();
@@ -120,12 +122,30 @@
     fetch(reader.dataset.heartbeatUrl, {method: 'POST', body, credentials: 'same-origin'})
       .then(response => response.ok ? response.json() : null)
       .then(data => {
-        if (data) document.querySelector('[data-view-seconds]').textContent = data.active_view_seconds;
+        if (data) {
+          displayedSeconds = data.active_view_seconds;
+          secondsDisplay.textContent = displayedSeconds;
+        }
       });
   };
+  const flushOnLeave = () => {
+    const now = Date.now();
+    const seconds = active ? Math.min(30, Math.floor((now - last) / 1000)) : 0;
+    last = now;
+    if (!seconds || !navigator.sendBeacon) return;
+    const body = new URLSearchParams({seconds: String(seconds), _csrf_token: token});
+    navigator.sendBeacon(reader.dataset.heartbeatUrl, body);
+  };
+  setInterval(() => {
+    if (active) {
+      displayedSeconds += 1;
+      secondsDisplay.textContent = displayedSeconds;
+    }
+  }, 1000);
   document.addEventListener('visibilitychange', () => { send(); active = !document.hidden; });
   window.addEventListener('blur', () => { send(); active = false; });
   window.addEventListener('focus', () => { active = true; last = Date.now(); });
+  window.addEventListener('pagehide', flushOnLeave);
   setInterval(send, 15000);
 })();
 </script>

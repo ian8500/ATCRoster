@@ -72,6 +72,41 @@
     {% endfor %}
   </div>
 </section>
+
+<section class="card mt-3">
+  <div class="card-hd">Read instructions and active reading time</div>
+  <div class="card-bd assurance-profiles">
+    {% for profile in results.read_profiles %}
+      <details class="assurance-profile">
+        <summary>
+          <strong>{{ profile.name }}</strong>
+          <span>
+            {{ profile.count }} read instruction{{ '' if profile.count == 1 else 's' }}
+            · {{ profile.total_active_view_seconds // 60 }}m {{ profile.total_active_view_seconds % 60 }}s active reading
+          </span>
+        </summary>
+        {% if profile.instructions %}
+          <div class="table-responsive"><table class="table">
+            <thead><tr><th>Instruction</th><th>Type</th><th>Version read</th><th>Acknowledged</th><th>Active reading time</th></tr></thead>
+            <tbody>{% for item in profile.instructions %}
+              <tr>
+                <td><strong>{{ item.title }}</strong></td>
+                <td>{{ item.message_type }}</td>
+                <td>{{ item.version }}</td>
+                <td>{{ item.acknowledged_at[:16]|replace('T', ' ') }}</td>
+                <td>{{ item.active_view_seconds // 60 }}m {{ item.active_view_seconds % 60 }}s</td>
+              </tr>
+            {% endfor %}</tbody>
+          </table></div>
+        {% else %}
+          <p>No acknowledged instructions.</p>
+        {% endif %}
+      </details>
+    {% else %}
+      <p>No active users.</p>
+    {% endfor %}
+  </div>
+</section>
 {% endif %}
 <section class="card mt-3"><div class="card-hd">Previous reports</div><div class="card-bd">
   {% for previous in previous_runs %}<p><strong>{{ previous.operational_date.strftime('%d %b %Y') }}</strong> · {{ previous.run_at.strftime('%d %b %Y %H:%M') }} · {{ previous.run_by_name }}</p>{% else %}<p>No checks have been run.</p>{% endfor %}

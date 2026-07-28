@@ -231,6 +231,8 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     assert b"Full screen" in page.data
     assert b"Exit full screen" in page.data
     assert b"webkitExitFullscreen" in page.data
+    assert b"displayedSeconds += 1" in page.data
+    assert b"navigator.sendBeacon" in page.data
     assert b"Pop out" in page.data
     assert b"Download" in page.data
     assert b"data-pdf-frame" in page.data
@@ -324,12 +326,14 @@ def test_assurance_ignores_non_working_assignments(briefing_client):
     assert b"Login and roster activity" in response.data
     assert b"On duty with unread mandatory messages" in response.data
     assert b"Unread instructions by user" in response.data
+    assert b"Read instructions and active reading time" in response.data
     assert b"No on-duty users have unread mandatory messages" in response.data
     with app.app.app_context():
         saved = json.loads(BriefingAssuranceRun.query.one().result_json)
         assert set(saved) == {
             "login_roster",
             "on_duty_mandatory",
+            "read_profiles",
             "unread_profiles",
         }
 

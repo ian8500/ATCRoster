@@ -898,10 +898,51 @@ def assurance():
             "instructions": unread_by_staff.get(person.id, []),
         } for person in people]
 
+        read_rows = (
+            db.session.query(BriefingDelivery, BriefingItem)
+            .join(
+                BriefingItem,
+                BriefingItem.id == BriefingDelivery.briefing_id,
+            )
+            .filter(
+                BriefingDelivery.unit_id == current_user.unit_id,
+                BriefingDelivery.recipient_id.in_(list(people_by_id)),
+                BriefingDelivery.acknowledged_at.is_not(None),
+                BriefingItem.kind == "instruction",
+            )
+            .order_by(
+                BriefingDelivery.recipient_id,
+                BriefingDelivery.acknowledged_at.desc(),
+            )
+            .all()
+        )
+        read_by_staff = {person.id: [] for person in people}
+        for delivery, item in read_rows:
+            read_by_staff.setdefault(delivery.recipient_id, []).append({
+                "title": item.title,
+                "message_type": (
+                    item.message_type_name or "Uncategorised instruction"
+                ),
+                "acknowledged_at": delivery.acknowledged_at.isoformat(),
+                "active_view_seconds": delivery.active_view_seconds,
+                "version": delivery.acknowledged_version or item.version,
+            })
+        read_profiles = [{
+            "staff_id": person.id,
+            "name": person.name,
+            "count": len(read_by_staff.get(person.id, [])),
+            "total_active_view_seconds": sum(
+                item["active_view_seconds"]
+                for item in read_by_staff.get(person.id, [])
+            ),
+            "instructions": read_by_staff.get(person.id, []),
+        } for person in people]
+
         results = {
             "login_roster": login_roster,
             "on_duty_mandatory": on_duty_mandatory,
             "unread_profiles": unread_profiles,
+            "read_profiles": read_profiles,
         }
         run = BriefingAssuranceRun(
             unit_id=current_user.unit_id,
@@ -917,6 +958,7 @@ def assurance():
             result_count=len(people), run_id=run.id,
             on_duty_exception_count=len(on_duty_mandatory),
             unread_instruction_count=len(unread_rows),
+            read_instruction_count=len(read_rows),
             roster_publication_id=publication.id,
             roster_version=publication.version,
         )
