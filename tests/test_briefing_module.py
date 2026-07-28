@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timedelta
 import os
 import sys
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -11,6 +12,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 import app
+from briefing_module import briefing_local_now
 from app import (
     Assignment, BriefingAudit, BriefingDelivery, BriefingItem, FeatureFlag,
     RosterPublication, ShiftType, Staff, Unit, Watch, db,
@@ -24,6 +26,22 @@ def test_briefing_tables_are_routed_to_the_operational_database():
         "briefing_audit",
         "briefing_assurance_run",
     }.issubset(app.OPERATIONAL_TABLE_NAMES)
+
+
+def test_briefing_uses_airport_local_time():
+    with app.app.app_context():
+        unit = Unit(
+            id=99,
+            code="TZT",
+            name="Timezone Test",
+            timezone="Europe/London",
+        )
+        db.session.add(unit)
+        db.session.flush()
+        expected = datetime.now(ZoneInfo("Europe/London")).replace(tzinfo=None)
+        actual = briefing_local_now(unit.id)
+        assert abs((actual - expected).total_seconds()) < 2
+        db.session.rollback()
 
 
 @pytest.fixture()

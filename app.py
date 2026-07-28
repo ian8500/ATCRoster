@@ -1701,7 +1701,7 @@ MfaCredential = SaaS.MfaCredential
 
 from briefing_module import (
     BriefingAssuranceRun, BriefingAudit, BriefingDelivery, BriefingItem,
-    briefing_blueprint, briefing_enabled,
+    briefing_blueprint, briefing_enabled, briefing_local_now,
 )
 
 # Enforce the authenticated airport on all legacy operational SELECTs and
@@ -4912,7 +4912,7 @@ def inject_perms():
                 )
             )
         ):
-            briefing_now = datetime.now()
+            briefing_now = briefing_local_now(current_unit.id)
             unread_briefing_count = (
                 db.session.query(BriefingDelivery.id)
                 .join(

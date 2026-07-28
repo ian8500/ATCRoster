@@ -12,6 +12,7 @@ import io
 import json
 import re
 import secrets
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import (
     Blueprint, abort, current_app, flash, jsonify, redirect, render_template,
@@ -202,6 +203,24 @@ def _parse_local_datetime(value: str, label: str) -> datetime:
     return parsed
 
 
+def briefing_local_now(unit_id: int | None = None) -> datetime:
+    """Return naive wall-clock time for the airport's configured timezone."""
+    roster_app = _app_models()
+    resolved = int(unit_id or getattr(current_user, "unit_id", 0) or 0)
+    unit = roster_app.db.session.get(roster_app.Unit, resolved) if resolved else None
+    timezone_name = (getattr(unit, "timezone", "") or "Europe/London").strip()
+    try:
+        local_zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        current_app.logger.error(
+            "invalid_airport_timezone unit_id=%s timezone=%s",
+            resolved,
+            timezone_name,
+        )
+        local_zone = ZoneInfo("Europe/London")
+    return datetime.now(local_zone).replace(tzinfo=None)
+
+
 def _audit(
     event_type: str, item: BriefingItem | None = None,
     delivery: BriefingDelivery | None = None, **detail,
@@ -279,7 +298,7 @@ def _module_boundary():
 @briefing_blueprint.get("/")
 @login_required
 def home():
-    current_time = datetime.now()
+    current_time = briefing_local_now()
     deliveries = (
         db.session.query(BriefingDelivery, BriefingItem)
         .join(BriefingItem, BriefingItem.id == BriefingDelivery.briefing_id)
