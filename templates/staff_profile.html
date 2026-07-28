@@ -75,7 +75,7 @@
       {% if unread_notifications %}
         <form method="post" action="{{ url_for('notifications_read') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm" type="submit">Mark read</button>
+          <button class="btn btn-sm" type="submit">Mark all as read</button>
         </form>
       {% endif %}
     </div>
@@ -87,12 +87,19 @@
             <p>{{ item.message }}</p>
             <small>{{ item.created_at.strftime('%d %b %Y %H:%M') }}</small>
           </div>
-          {% if item.read_at %}
-          <form method="post" action="{{ url_for('notification_delete', notification_id=item.id) }}" data-confirm="Delete this notification?">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm profile-notification-delete" type="submit">Delete</button>
-          </form>
-          {% endif %}
+          <div class="profile-notification-actions">
+            {% if not item.read_at %}
+              <form method="post" action="{{ url_for('notification_read', notification_id=item.id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm" type="submit">Mark as read</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('notification_delete', notification_id=item.id) }}" data-confirm="Delete this notification?">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm profile-notification-delete" type="submit">Delete</button>
+              </form>
+            {% endif %}
+          </div>
         </article>
       {% else %}
         <p>No notifications.</p>

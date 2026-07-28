@@ -2111,6 +2111,51 @@ def test_users_can_delete_only_their_own_read_notifications(client):
         assert db.session.get(app.Notification, other_id) is not None
 
 
+def test_users_can_mark_their_notifications_read_individually(client):
+    login(client)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username="admin_test").one()
+        other = Staff.query.filter_by(username="staff_test").one()
+        app.Notification.query.filter_by(
+            unit_id=1, recipient_id=admin.id
+        ).delete()
+        first = app.Notification(
+            unit_id=1, recipient_id=admin.id,
+            kind="test", message="First unread notification",
+        )
+        second = app.Notification(
+            unit_id=1, recipient_id=admin.id,
+            kind="test", message="Second unread notification",
+        )
+        private = app.Notification(
+            unit_id=1, recipient_id=other.id,
+            kind="test", message="Another user's notification",
+        )
+        db.session.add_all([first, second, private])
+        db.session.commit()
+        first_id, second_id, private_id = first.id, second.id, private.id
+
+    marked = client.post(
+        f"/notifications/{first_id}/read",
+        data={"_csrf_token": csrf(client)},
+        follow_redirects=True,
+    )
+    assert marked.status_code == 200
+    assert b"Notification marked as read." in marked.data
+    assert b"1 new" in marked.data
+    with app.app.app_context():
+        assert db.session.get(app.Notification, first_id).read_at is not None
+        assert db.session.get(app.Notification, second_id).read_at is None
+
+    forbidden = client.post(
+        f"/notifications/{private_id}/read",
+        data={"_csrf_token": csrf(client)},
+    )
+    assert forbidden.status_code == 404
+    with app.app.app_context():
+        assert db.session.get(app.Notification, private_id).read_at is None
+
+
 def test_primary_navigation_matches_role_permissions():
     editor_client = app.app.test_client()
     editor_client.post(

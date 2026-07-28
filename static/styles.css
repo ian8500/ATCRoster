@@ -2029,6 +2029,8 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
 .profile-notifications article { padding:.7rem; border-left:3px solid transparent; display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
 .profile-notifications article.unread { border-color:#58aef5; background:rgba(88,174,245,.07); }
 .profile-notification-copy { min-width:0; flex:1; }
+.profile-notification-actions { display:flex; flex:0 0 auto; }
+.profile-notification-actions form { margin:0; }
 .profile-notification-delete { padding:.2rem .5rem; font-size:.72rem; }
 .profile-notifications p { margin:.25rem 0; }
 .profile-notifications small { color:var(--muted,#aab7c4); }
