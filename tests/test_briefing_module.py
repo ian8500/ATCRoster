@@ -225,6 +225,8 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     assert page.status_code == 200
     assert b"Runway inspection procedure" in page.data
     assert b"Full screen" in page.data
+    assert b"Exit full screen" in page.data
+    assert b"webkitExitFullscreen" in page.data
     assert b"Pop out" in page.data
     assert b"Download" in page.data
     assert b"data-pdf-frame" in page.data

@@ -27,7 +27,8 @@
           </div>
           <div class="briefing-document-viewer__actions">
             <button class="btn" type="button" data-pdf-fullscreen>
-              <i class="fa-solid fa-expand" aria-hidden="true"></i> Full screen
+              <i class="fa-solid fa-expand" aria-hidden="true" data-pdf-fullscreen-icon></i>
+              <span data-pdf-fullscreen-label>Full screen</span>
             </button>
             <a class="btn" target="_blank" rel="noopener" href="{{ document_url }}">
               <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> Pop out
@@ -81,14 +82,31 @@
   const frame = document.querySelector('[data-pdf-frame]');
   const loading = document.querySelector('[data-pdf-loading]');
   const fullscreenButton = document.querySelector('[data-pdf-fullscreen]');
+  const fullscreenIcon = document.querySelector('[data-pdf-fullscreen-icon]');
+  const fullscreenLabel = document.querySelector('[data-pdf-fullscreen-label]');
   if (frame && loading) {
     frame.addEventListener('load', () => loading.hidden = true);
   }
   if (viewer && fullscreenButton) {
+    const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+    const updateFullscreenControl = () => {
+      const expanded = fullscreenElement() === viewer;
+      fullscreenLabel.textContent = expanded ? 'Exit full screen' : 'Full screen';
+      fullscreenIcon.classList.toggle('fa-expand', !expanded);
+      fullscreenIcon.classList.toggle('fa-compress', expanded);
+      fullscreenButton.setAttribute('aria-label', expanded ? 'Exit full screen' : 'View PDF full screen');
+    };
     fullscreenButton.addEventListener('click', () => {
-      const enterFullscreen = viewer.requestFullscreen || viewer.webkitRequestFullscreen;
-      if (enterFullscreen) enterFullscreen.call(viewer);
+      if (fullscreenElement()) {
+        const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exitFullscreen) exitFullscreen.call(document);
+      } else {
+        const enterFullscreen = viewer.requestFullscreen || viewer.webkitRequestFullscreen;
+        if (enterFullscreen) enterFullscreen.call(viewer);
+      }
     });
+    document.addEventListener('fullscreenchange', updateFullscreenControl);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenControl);
   }
   let active = !document.hidden;
   let last = Date.now();
