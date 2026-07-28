@@ -81,17 +81,42 @@ def _login(client, username):
 
 
 def _csrf(client):
-    client.get("/modules")
+    client.get("/briefing/admin")
     with client.session_transaction() as session:
         return session["_csrf_token"]
 
 
 def test_feature_flag_exposes_module_selector(briefing_client):
-    _login(briefing_client, "brief_user")
+    response = briefing_client.post(
+        "/login",
+        data={"username": "brief_user", "password": "password123"},
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/modules")
     response = briefing_client.get("/modules")
     assert response.status_code == 200
     assert b"Roster" in response.data
     assert b"Briefing" in response.data
+
+
+def test_module_navigation_keeps_roster_and_briefing_separate(
+    briefing_client,
+):
+    _login(briefing_client, "brief_user")
+    today = datetime.now()
+
+    roster = briefing_client.get(
+        f"/roster/{today.year}-{today.month:02d}"
+    )
+    assert roster.status_code == 200
+    assert b'href="/modules"' in roster.data
+    assert b'href="/briefing/"' not in roster.data
+
+    briefing = briefing_client.get("/briefing/")
+    assert briefing.status_code == 200
+    assert b'href="/modules"' in briefing.data
+    assert b'href="/briefing/"' in briefing.data
+    assert b'href="/roster/' not in briefing.data
 
 
 def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):

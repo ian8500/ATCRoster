@@ -744,6 +744,16 @@ def _canonical_login_redirect(
     return url_for(default_endpoint)
 
 
+def _airport_login_endpoint(user) -> str:
+    """Land multi-module airport users on the module launcher."""
+    enabled = FeatureFlag.query.filter_by(
+        unit_id=user.unit_id,
+        key="briefing_module",
+        enabled=True,
+    ).first()
+    return "module_home" if enabled else "index"
+
+
 # ----- SQLite performance helpers (define only; run after db exists) -----
 def _enable_sqlite_fast_mode():
     """Enable WAL and other pragmas when using SQLite."""
@@ -4892,7 +4902,16 @@ def inject_perms():
             read_at=None,
         ).count()
         has_briefing_module = briefing_enabled(current_unit.id)
-        if has_briefing_module:
+        if (
+            has_briefing_module
+            and (
+                request.endpoint == "module_home"
+                or (
+                    request.endpoint
+                    and request.endpoint.startswith("briefing.")
+                )
+            )
+        ):
             briefing_now = datetime.now()
             unread_briefing_count = (
                 db.session.query(BriefingDelivery.id)
@@ -11129,6 +11148,7 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 session["_mfa_rate_key"] = rate_key
                 session["_mfa_next"] = _canonical_login_redirect(
                     request.args.get("next"),
+                    default_endpoint=_airport_login_endpoint(user),
                     user_id=user.id,
                 )
                 return redirect(url_for("mfa_challenge"))
@@ -11143,7 +11163,9 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             flash("Logged in successfully", "ok")
             # support ?next=... to return where user was going
             return redirect(_canonical_login_redirect(
-                request.args.get("next"), user_id=user.id,
+                request.args.get("next"),
+                default_endpoint=_airport_login_endpoint(user),
+                user_id=user.id,
             ))
         if identity:
             _central_security_event(
