@@ -10790,17 +10790,6 @@ def _record_successful_login(user: Staff) -> None:
         db.session.add(AggregateUsageEvent(
             unit_id=user.unit_id, event_type="login", count=1,
         ))
-        if briefing_enabled(user.unit_id):
-            db.session.add(BriefingAudit(
-                unit_id=user.unit_id,
-                actor_id=user.id,
-                actor_name=user.name,
-                event_type="login",
-                occurred_at=now,
-                detail_json=json.dumps({
-                    "session_id": session.get("_session_nonce", "")[:48],
-                }, sort_keys=True),
-            ))
     db.session.commit()
 
 
