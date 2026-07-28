@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Briefing audit{% endblock %}
+{% block content %}
+{% include "briefing/_nav.html" %}
+<section class="compliance-hero"><div><span class="admin-step">Append-only evidence</span><h2>Briefing audit</h2><p>Publication, access, acknowledgement and assurance activity.</p></div></section>
+<section class="card"><div class="table-responsive"><table class="table">
+  <thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Briefing</th><th>Detail</th></tr></thead>
+  <tbody>{% for event in events %}<tr><td>{{ event.occurred_at.strftime('%d %b %Y %H:%M:%S') }}</td><td>{{ event.actor_name }}</td><td>{{ event.event_type|replace('_',' ')|title }}</td><td>{{ event.briefing_id or '—' }}</td><td><code>{{ event.detail_json }}</code></td></tr>{% else %}<tr><td colspan="5">No audit events.</td></tr>{% endfor %}</tbody>
+</table></div></section>
+{% endblock %}

@@ -256,7 +256,7 @@ REQUEST_TRANSITIONS = {
 }
 PLATFORM_FEATURE_FLAGS = frozenset({
     "advanced_coverage", "scenario_planning", "calendar_exports",
-    "fatigue_reporting", "custom_branding",
+    "fatigue_reporting", "custom_branding", "briefing_module",
 })
 
 
@@ -698,6 +698,8 @@ def _reset_tenant_context(_error=None):
 
 _LOGIN_NEXT_ENDPOINTS = {
     "/": "index",
+    "/modules": "module_home",
+    "/briefing/": "briefing.home",
     "/admin": "admin",
     "/leave": "leave",
     "/messages": "unit_messages",
@@ -1685,6 +1687,11 @@ FatigueReport = SaaS.FatigueReport
 RosterRuleVersion = SaaS.RosterRuleVersion
 MfaCredential = SaaS.MfaCredential
 
+from briefing_module import (
+    BriefingAssuranceRun, BriefingAudit, BriefingDelivery, BriefingItem,
+    briefing_blueprint, briefing_enabled,
+)
+
 # Enforce the authenticated airport on all legacy operational SELECTs and
 # stamp new rows. This protects older routes while they move to repositories.
 from sqlalchemy import event
@@ -1700,7 +1707,8 @@ TENANT_OPERATIONAL_MODELS = (
     RosterPublication, RosterAcknowledgement, Scenario,
     OperationalPosition, PositionEndorsement, PositionRequirement, BreakPlan,
     AchievedDuty, FatigueReport, RosterRuleVersion,
-    MfaCredential,
+    MfaCredential, BriefingItem, BriefingDelivery, BriefingAudit,
+    BriefingAssuranceRun,
 )
 
 
@@ -4862,6 +4870,8 @@ def inject_perms():
         accent_colour = ""
     pending_request_count = 0
     unread_notification_count = 0
+    unread_briefing_count = 0
+    has_briefing_module = False
     active_admin_count = 0
     if current_unit and au and is_admin_user(au):
         active_admin_count = Staff.query.filter(
@@ -4879,11 +4889,32 @@ def inject_perms():
             recipient_id=au.id,
             read_at=None,
         ).count()
+        has_briefing_module = briefing_enabled(current_unit.id)
+        if has_briefing_module:
+            briefing_now = datetime.now()
+            unread_briefing_count = (
+                db.session.query(BriefingDelivery.id)
+                .join(
+                    BriefingItem,
+                    BriefingItem.id == BriefingDelivery.briefing_id,
+                )
+                .filter(
+                    BriefingDelivery.unit_id == current_unit.id,
+                    BriefingDelivery.recipient_id == au.id,
+                    BriefingDelivery.acknowledged_at.is_(None),
+                    BriefingItem.status == "published",
+                    BriefingItem.effective_at <= briefing_now,
+                    BriefingItem.expires_at >= briefing_now,
+                )
+                .count()
+            )
     return {
         "is_admin":  bool(au) and is_admin_user(au),
         "is_editor": bool(au) and is_editor_user(au),
         "pending_request_count": pending_request_count,
         "unread_notification_count": unread_notification_count,
+        "unread_briefing_count": unread_briefing_count,
+        "has_briefing_module": has_briefing_module,
         "active_admin_count": active_admin_count,
         "current_unit": current_unit,
         "unit_branding": {
@@ -4896,6 +4927,17 @@ def inject_perms():
             )[:120],
         },
     }
+
+
+@app.get("/modules")
+@login_required
+def module_home():
+    """Select between subscribed airport modules after authentication."""
+    if current_user.role == "superadmin":
+        return redirect(url_for("platform_admin"))
+    if not briefing_enabled(current_user.unit_id):
+        return redirect(url_for("index"))
+    return render_template("module_home.html")
 
 
 @app.route("/roster/<ym>")
@@ -10748,6 +10790,17 @@ def _record_successful_login(user: Staff) -> None:
         db.session.add(AggregateUsageEvent(
             unit_id=user.unit_id, event_type="login", count=1,
         ))
+        if briefing_enabled(user.unit_id):
+            db.session.add(BriefingAudit(
+                unit_id=user.unit_id,
+                actor_id=user.id,
+                actor_name=user.name,
+                event_type="login",
+                occurred_at=now,
+                detail_json=json.dumps({
+                    "session_id": session.get("_session_nonce", "")[:48],
+                }, sort_keys=True),
+            ))
     db.session.commit()
 
 
@@ -11708,6 +11761,7 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 # -------------------- Run --------------------
 
+app.register_blueprint(briefing_blueprint)
 
 # -------------------- WSGI entry point --------------------
 # PythonAnywhere’s WSGI file imports "application"

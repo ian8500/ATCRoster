@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }}{% endblock %}
+{% block content %}
+{% include "briefing/_nav.html" %}
+<article class="briefing-reader" data-briefing-reader data-heartbeat-url="{{ url_for('briefing.heartbeat', item_id=item.id) }}">
+  <header>
+    <a href="{{ url_for('briefing.home') }}"><i class="fa-solid fa-arrow-left"></i> My briefing</a>
+    <div class="briefing-card__meta">
+      <span class="status-chip">{{ item.kind|title }}</span>
+      <span>{{ item.priority|title }}</span>
+      {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
+    </div>
+    <h2>{{ item.title }}</h2>
+    <p>Version {{ item.version }} · Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</p>
+  </header>
+  {% if item.body %}<section class="briefing-reader__text">{{ item.body|e|replace('\n', '<br>')|safe }}</section>{% endif %}
+  {% if item.stored_filename %}
+    {% if item.content_type == 'application/pdf' %}
+      <iframe class="briefing-document" title="{{ item.title }}" src="{{ url_for('briefing.document', item_id=item.id) }}"></iframe>
+    {% else %}
+      <section class="card"><div class="card-bd">
+        <p>This Word instruction opens in your device’s document viewer.</p>
+        <a class="btn btn-primary" target="_blank" rel="noopener" href="{{ url_for('briefing.document', item_id=item.id) }}">Open {{ item.original_filename }}</a>
+      </div></section>
+    {% endif %}
+  {% endif %}
+  <footer class="briefing-reader__ack">
+    <div>
+      <strong>Active reading time: <span data-view-seconds>{{ delivery.active_view_seconds }}</span> seconds</strong>
+      <small>Timing pauses when this page is not active.</small>
+    </div>
+    {% if not delivery.acknowledged_at %}
+      <form method="post" action="{{ url_for('briefing.acknowledge', item_id=item.id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <label><input type="checkbox" name="confirmation" value="yes" required> I confirm I have read and understood this briefing.</label>
+        <button class="btn btn-primary" type="submit">Acknowledge</button>
+      </form>
+    {% else %}
+      <span class="assurance-ok"><i class="fa-solid fa-circle-check"></i> Acknowledged {{ delivery.acknowledged_at.strftime('%d %b %Y %H:%M') }}</span>
+    {% endif %}
+  </footer>
+</article>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const reader = document.querySelector('[data-briefing-reader]');
+  if (!reader) return;
+  let active = !document.hidden;
+  let last = Date.now();
+  const token = {{ csrf_token()|tojson }};
+  const send = () => {
+    const now = Date.now();
+    const seconds = active ? Math.min(30, Math.floor((now - last) / 1000)) : 0;
+    last = now;
+    if (!seconds) return;
+    const body = new URLSearchParams({seconds: String(seconds), _csrf_token: token});
+    fetch(reader.dataset.heartbeatUrl, {method: 'POST', body, credentials: 'same-origin'})
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (data) document.querySelector('[data-view-seconds]').textContent = data.active_view_seconds;
+      });
+  };
+  document.addEventListener('visibilitychange', () => { send(); active = !document.hidden; });
+  window.addEventListener('blur', () => { send(); active = false; });
+  window.addEventListener('focus', () => { active = true; last = Date.now(); });
+  setInterval(send, 15000);
+})();
+</script>
+{% endblock %}

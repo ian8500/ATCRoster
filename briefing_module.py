@@ -1,0 +1,604 @@
+"""Optional airport briefing module.
+
+The module is deliberately isolated behind the ``briefing_module`` feature
+flag.  Its tables can be downgraded without changing roster records.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime, time
+import hashlib
+import io
+import json
+import re
+import secrets
+
+from flask import (
+    Blueprint, abort, current_app, flash, jsonify, redirect, render_template,
+    request, send_file, url_for,
+)
+from flask_login import current_user, login_required
+from werkzeug.utils import secure_filename
+
+from app import db, utcnow
+from briefing_storage import (
+    BriefingStorageError, configured_briefing_storage,
+)
+
+
+briefing_blueprint = Blueprint("briefing", __name__, url_prefix="/briefing")
+
+ALLOWED_DOCUMENTS = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+MAX_ACTIVE_VIEW_SECONDS_PER_HEARTBEAT = 30
+
+
+class BriefingItem(db.Model):
+    __tablename__ = "briefing_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, nullable=False, index=True)
+    kind = db.Column(db.String(20), nullable=False)  # instruction | daily | notam
+    title = db.Column(db.String(160), nullable=False)
+    body = db.Column(db.Text, nullable=False, default="")
+    effective_at = db.Column(db.DateTime, nullable=False, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    mandatory = db.Column(db.Boolean, nullable=False, default=False)
+    priority = db.Column(db.String(20), nullable=False, default="routine")
+    status = db.Column(db.String(20), nullable=False, default="draft", index=True)
+    target_json = db.Column(db.Text, nullable=False, default='{"scope":"all"}')
+    version = db.Column(db.Integer, nullable=False, default=1)
+    original_filename = db.Column(db.String(255), nullable=False, default="")
+    stored_filename = db.Column(db.String(255), nullable=False, default="")
+    content_type = db.Column(db.String(120), nullable=False, default="")
+    content_sha256 = db.Column(db.String(64), nullable=False, default="")
+    created_by_id = db.Column(db.Integer, nullable=False)
+    created_by_name = db.Column(db.String(80), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    published_at = db.Column(db.DateTime)
+    withdrawn_at = db.Column(db.DateTime)
+
+
+class BriefingDelivery(db.Model):
+    __tablename__ = "briefing_delivery"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, nullable=False, index=True)
+    briefing_id = db.Column(
+        db.Integer, db.ForeignKey("briefing_item.id"),
+        nullable=False, index=True,
+    )
+    recipient_id = db.Column(db.Integer, nullable=False, index=True)
+    recipient_name = db.Column(db.String(80), nullable=False)
+    delivered_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    first_opened_at = db.Column(db.DateTime)
+    last_opened_at = db.Column(db.DateTime)
+    active_view_seconds = db.Column(db.Integer, nullable=False, default=0)
+    acknowledged_at = db.Column(db.DateTime)
+    acknowledged_version = db.Column(db.Integer)
+    __table_args__ = (
+        db.UniqueConstraint(
+            "unit_id", "briefing_id", "recipient_id",
+            name="uq_briefing_delivery_recipient",
+        ),
+    )
+
+
+class BriefingAudit(db.Model):
+    __tablename__ = "briefing_audit"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, nullable=False, index=True)
+    briefing_id = db.Column(db.Integer, index=True)
+    delivery_id = db.Column(db.Integer, index=True)
+    actor_id = db.Column(db.Integer, nullable=False)
+    actor_name = db.Column(db.String(80), nullable=False)
+    event_type = db.Column(db.String(40), nullable=False, index=True)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow, index=True)
+    detail_json = db.Column(db.Text, nullable=False, default="{}")
+
+
+class BriefingAssuranceRun(db.Model):
+    __tablename__ = "briefing_assurance_run"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, nullable=False, index=True)
+    operational_date = db.Column(db.Date, nullable=False, index=True)
+    run_by_id = db.Column(db.Integer, nullable=False)
+    run_by_name = db.Column(db.String(80), nullable=False)
+    run_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    result_json = db.Column(db.Text, nullable=False)
+
+
+def _app_models():
+    # Imported lazily to avoid a circular import while app.py registers models.
+    import app as roster_app
+    return roster_app
+
+
+def briefing_enabled(unit_id: int | None = None) -> bool:
+    roster_app = _app_models()
+    resolved = int(unit_id or getattr(current_user, "unit_id", 0) or 0)
+    if not resolved:
+        return False
+    row = roster_app.FeatureFlag.query.filter_by(
+        unit_id=resolved, key="briefing_module", enabled=True
+    ).first()
+    return bool(row)
+
+
+def _require_module() -> None:
+    if not briefing_enabled():
+        abort(404)
+
+
+def _require_admin() -> None:
+    _require_module()
+    if not _app_models().is_admin_user(current_user):
+        abort(403)
+
+
+def _target(item: BriefingItem) -> dict:
+    try:
+        value = json.loads(item.target_json or "{}")
+    except (TypeError, ValueError):
+        value = {}
+    return value if isinstance(value, dict) else {}
+
+
+def _matches_target(person, target: dict) -> bool:
+    scope = target.get("scope", "all")
+    if scope == "all":
+        return True
+    if scope == "operational":
+        return bool(person.is_operational)
+    if scope == "watch":
+        return str(person.watch_id or "") in {
+            str(value) for value in target.get("watch_ids", [])
+        }
+    if scope == "role":
+        return person.role in target.get("roles", [])
+    if scope == "individual":
+        return str(person.id) in {
+            str(value) for value in target.get("staff_ids", [])
+        }
+    return False
+
+
+def _target_from_form() -> dict:
+    scope = (request.form.get("target_scope") or "all").strip()
+    if scope not in {"all", "operational", "watch", "role", "individual"}:
+        abort(400, "Unknown briefing audience.")
+    target = {"scope": scope}
+    if scope == "watch":
+        target["watch_ids"] = [
+            int(value) for value in request.form.getlist("watch_ids")
+            if value.isdigit()
+        ]
+    elif scope == "role":
+        allowed = {"admin", "editor", "user"}
+        target["roles"] = [
+            value for value in request.form.getlist("roles")
+            if value in allowed
+        ]
+    elif scope == "individual":
+        target["staff_ids"] = [
+            int(value) for value in request.form.getlist("staff_ids")
+            if value.isdigit()
+        ]
+    if scope not in {"all", "operational"} and len(target) == 1:
+        abort(400, "Choose at least one recipient group.")
+    return target
+
+
+def _parse_local_datetime(value: str, label: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        abort(400, f"Enter a valid {label}.")
+    # Existing operational timestamps are stored without timezone conversion.
+    return parsed
+
+
+def _audit(
+    event_type: str, item: BriefingItem | None = None,
+    delivery: BriefingDelivery | None = None, **detail,
+) -> None:
+    db.session.add(BriefingAudit(
+        unit_id=current_user.unit_id,
+        briefing_id=item.id if item else None,
+        delivery_id=delivery.id if delivery else None,
+        actor_id=current_user.id,
+        actor_name=current_user.name,
+        event_type=event_type,
+        detail_json=json.dumps(detail, default=str, sort_keys=True),
+    ))
+
+
+def _storage():
+    return configured_briefing_storage(current_app.instance_path)
+
+
+def _store_document(upload, unit_id: int) -> tuple[str, str, str, str]:
+    original = secure_filename(upload.filename or "")
+    extension = original.rsplit(".", 1)[-1].lower() if "." in original else ""
+    if extension not in ALLOWED_DOCUMENTS:
+        abort(400, "Upload a PDF or DOCX document.")
+    content = upload.read()
+    if not content:
+        abort(400, "The uploaded document is empty.")
+    if extension == "pdf" and not content.startswith(b"%PDF-"):
+        abort(400, "The selected file is not a valid PDF.")
+    if extension == "docx" and not content.startswith(b"PK"):
+        abort(400, "The selected file is not a valid DOCX package.")
+    digest = hashlib.sha256(content).hexdigest()
+    stored = (
+        f"airports/{unit_id}/controlled-documents/"
+        f"{secrets.token_hex(24)}.{extension}"
+    )
+    try:
+        _storage().put(stored, content, ALLOWED_DOCUMENTS[extension], digest)
+    except BriefingStorageError as exc:
+        current_app.logger.exception("briefing_document_storage_failed")
+        abort(503, str(exc))
+    return original[:255], stored, ALLOWED_DOCUMENTS[extension], digest
+
+
+def _publish(item: BriefingItem) -> int:
+    roster_app = _app_models()
+    people = roster_app.Staff.query.filter_by(
+        unit_id=current_user.unit_id, membership_status="active"
+    ).order_by(roster_app.Staff.name).all()
+    target = _target(item)
+    recipients = [person for person in people if _matches_target(person, target)]
+    if not recipients:
+        abort(400, "The selected audience contains no active users.")
+    now = utcnow()
+    for person in recipients:
+        db.session.add(BriefingDelivery(
+            unit_id=current_user.unit_id,
+            briefing_id=item.id,
+            recipient_id=person.id,
+            recipient_name=person.name,
+            delivered_at=now,
+        ))
+    item.status = "published"
+    item.published_at = now
+    _audit("published", item, recipient_count=len(recipients))
+    return len(recipients)
+
+
+@briefing_blueprint.before_request
+def _module_boundary():
+    if current_user.is_authenticated:
+        _require_module()
+
+
+@briefing_blueprint.get("/")
+@login_required
+def home():
+    current_time = datetime.now()
+    deliveries = (
+        db.session.query(BriefingDelivery, BriefingItem)
+        .join(BriefingItem, BriefingItem.id == BriefingDelivery.briefing_id)
+        .filter(
+            BriefingDelivery.recipient_id == current_user.id,
+            BriefingItem.status == "published",
+            BriefingItem.effective_at <= current_time,
+            BriefingItem.expires_at >= current_time,
+        )
+        .order_by(BriefingItem.priority.desc(), BriefingItem.effective_at.desc())
+        .all()
+    )
+    return render_template(
+        "briefing/home.html", deliveries=deliveries,
+        briefing_current_time=current_time,
+    )
+
+
+@briefing_blueprint.get("/item/<int:item_id>")
+@login_required
+def view_item(item_id: int):
+    item = BriefingItem.query.filter_by(
+        id=item_id, unit_id=current_user.unit_id, status="published"
+    ).first_or_404()
+    delivery = BriefingDelivery.query.filter_by(
+        unit_id=current_user.unit_id,
+        briefing_id=item.id,
+        recipient_id=current_user.id,
+    ).first_or_404()
+    now = utcnow()
+    if delivery.first_opened_at is None:
+        delivery.first_opened_at = now
+        _audit("first_opened", item, delivery, version=item.version)
+    else:
+        _audit("opened", item, delivery, version=item.version)
+    delivery.last_opened_at = now
+    db.session.commit()
+    return render_template("briefing/item.html", item=item, delivery=delivery)
+
+
+@briefing_blueprint.post("/item/<int:item_id>/heartbeat")
+@login_required
+def heartbeat(item_id: int):
+    delivery = BriefingDelivery.query.filter_by(
+        unit_id=current_user.unit_id,
+        briefing_id=item_id,
+        recipient_id=current_user.id,
+    ).first_or_404()
+    try:
+        seconds = int(request.form.get("seconds") or 0)
+    except ValueError:
+        abort(400)
+    seconds = max(0, min(seconds, MAX_ACTIVE_VIEW_SECONDS_PER_HEARTBEAT))
+    delivery.active_view_seconds += seconds
+    delivery.last_opened_at = utcnow()
+    db.session.commit()
+    return jsonify({"active_view_seconds": delivery.active_view_seconds})
+
+
+@briefing_blueprint.post("/item/<int:item_id>/acknowledge")
+@login_required
+def acknowledge(item_id: int):
+    item = BriefingItem.query.filter_by(
+        id=item_id, unit_id=current_user.unit_id, status="published"
+    ).first_or_404()
+    delivery = BriefingDelivery.query.filter_by(
+        unit_id=current_user.unit_id,
+        briefing_id=item.id,
+        recipient_id=current_user.id,
+    ).first_or_404()
+    if request.form.get("confirmation") != "yes":
+        abort(400, "Confirm that you have read and understood the briefing.")
+    delivery.acknowledged_at = utcnow()
+    delivery.acknowledged_version = item.version
+    _audit("acknowledged", item, delivery, version=item.version)
+    db.session.commit()
+    flash("Briefing acknowledged.", "ok")
+    return redirect(url_for("briefing.home"))
+
+
+@briefing_blueprint.get("/item/<int:item_id>/document")
+@login_required
+def document(item_id: int):
+    item = BriefingItem.query.filter_by(
+        id=item_id, unit_id=current_user.unit_id
+    ).first_or_404()
+    if not _app_models().is_admin_user(current_user):
+        BriefingDelivery.query.filter_by(
+            unit_id=current_user.unit_id,
+            briefing_id=item.id,
+            recipient_id=current_user.id,
+        ).first_or_404()
+    if not item.stored_filename:
+        abort(404)
+    try:
+        content = _storage().get(item.stored_filename)
+    except BriefingStorageError:
+        current_app.logger.exception("briefing_document_read_failed")
+        abort(404)
+    return send_file(
+        io.BytesIO(content),
+        mimetype=item.content_type, download_name=item.original_filename,
+        as_attachment=item.content_type != "application/pdf", conditional=True,
+    )
+
+
+@briefing_blueprint.route("/admin", methods=["GET", "POST"])
+@login_required
+def admin():
+    _require_admin()
+    roster_app = _app_models()
+    if request.method == "POST":
+        kind = (request.form.get("kind") or "instruction").strip()
+        if kind not in {"instruction", "daily", "notam"}:
+            abort(400)
+        title = (request.form.get("title") or "").strip()[:160]
+        if not title:
+            abort(400, "Instruction title is required.")
+        effective_at = _parse_local_datetime(
+            request.form.get("effective_at") or "", "effective date"
+        )
+        expires_at = _parse_local_datetime(
+            request.form.get("expires_at") or "", "expiry date"
+        )
+        if expires_at <= effective_at:
+            abort(400, "Expiry must be after the effective date.")
+        priority = (request.form.get("priority") or "routine").strip()
+        if priority not in {"routine", "important", "critical"}:
+            abort(400)
+        item = BriefingItem(
+            unit_id=current_user.unit_id,
+            kind=kind,
+            title=title,
+            body=(request.form.get("body") or "").strip(),
+            effective_at=effective_at,
+            expires_at=expires_at,
+            mandatory=request.form.get("mandatory") == "yes",
+            priority=priority,
+            target_json=json.dumps(_target_from_form(), sort_keys=True),
+            created_by_id=current_user.id,
+            created_by_name=current_user.name,
+        )
+        upload = request.files.get("document")
+        if kind == "instruction":
+            if not upload or not upload.filename:
+                abort(400, "Choose a PDF or DOCX instruction.")
+            (
+                item.original_filename, item.stored_filename,
+                item.content_type, item.content_sha256,
+            ) = _store_document(upload, current_user.unit_id)
+        elif not item.body:
+            abort(400, "Enter the briefing text.")
+        db.session.add(item)
+        db.session.flush()
+        _audit("created", item, version=item.version, kind=item.kind)
+        recipient_count = 0
+        if request.form.get("action") == "publish":
+            recipient_count = _publish(item)
+        db.session.commit()
+        flash(
+            f"Briefing published to {recipient_count} users."
+            if recipient_count else "Briefing saved as a draft.",
+            "ok",
+        )
+        return redirect(url_for("briefing.admin"))
+    items = BriefingItem.query.filter_by(
+        unit_id=current_user.unit_id
+    ).order_by(BriefingItem.created_at.desc()).all()
+    watches = roster_app.Watch.query.order_by(
+        roster_app.Watch.order_index, roster_app.Watch.name
+    ).all()
+    people = roster_app.Staff.query.filter_by(
+        membership_status="active"
+    ).order_by(roster_app.Staff.name).all()
+    try:
+        storage_ok, storage_message = _storage().health()
+    except BriefingStorageError as exc:
+        storage_ok, storage_message = False, str(exc)
+    return render_template(
+        "briefing/admin.html", items=items, watches=watches, people=people,
+        storage_ok=storage_ok, storage_message=storage_message,
+    )
+
+
+@briefing_blueprint.post("/admin/<int:item_id>/publish")
+@login_required
+def publish(item_id: int):
+    _require_admin()
+    item = BriefingItem.query.filter_by(
+        id=item_id, unit_id=current_user.unit_id, status="draft"
+    ).first_or_404()
+    count = _publish(item)
+    db.session.commit()
+    flash(f"Briefing published to {count} users.", "ok")
+    return redirect(url_for("briefing.admin"))
+
+
+@briefing_blueprint.post("/admin/<int:item_id>/withdraw")
+@login_required
+def withdraw(item_id: int):
+    _require_admin()
+    item = BriefingItem.query.filter_by(
+        id=item_id, unit_id=current_user.unit_id, status="published"
+    ).first_or_404()
+    item.status = "withdrawn"
+    item.withdrawn_at = utcnow()
+    _audit("withdrawn", item)
+    db.session.commit()
+    flash("Briefing withdrawn. Its audit history has been retained.", "ok")
+    return redirect(url_for("briefing.admin"))
+
+
+def _duty_start(assignment, shift) -> datetime:
+    return datetime.combine(assignment.day, shift.start_time or time.min)
+
+
+@briefing_blueprint.route("/admin/assurance", methods=["GET", "POST"])
+@login_required
+def assurance():
+    _require_admin()
+    roster_app = _app_models()
+    selected_date = date.today()
+    results = None
+    run = None
+    if request.method == "POST":
+        try:
+            selected_date = date.fromisoformat(request.form.get("date") or "")
+        except ValueError:
+            abort(400, "Choose a valid operational date.")
+        publication = roster_app._active_roster_publication(
+            selected_date.year, selected_date.month
+        )
+        if not publication:
+            abort(
+                409,
+                "Briefing assurance requires an active published roster.",
+            )
+        assignments = roster_app.Assignment.query.filter_by(
+            day=selected_date
+        ).order_by(roster_app.Assignment.staff_id).all()
+        shift_map = {
+            row.code: row for row in roster_app.ShiftType.query.all()
+        }
+        results = []
+        for assignment in assignments:
+            shift = shift_map.get(assignment.code)
+            if not shift or not shift.is_working:
+                continue
+            person = roster_app.Staff.query.filter_by(
+                id=assignment.staff_id, membership_status="active"
+            ).first()
+            if not person:
+                continue
+            duty_start = _duty_start(assignment, shift)
+            rows = (
+                db.session.query(BriefingDelivery, BriefingItem)
+                .join(
+                    BriefingItem,
+                    BriefingItem.id == BriefingDelivery.briefing_id,
+                )
+                .filter(
+                    BriefingDelivery.recipient_id == person.id,
+                    BriefingItem.status == "published",
+                    BriefingItem.mandatory.is_(True),
+                    BriefingItem.effective_at <= duty_start,
+                    BriefingItem.expires_at >= duty_start,
+                )
+                .all()
+            )
+            outstanding = []
+            for delivery, item in rows:
+                if (
+                    not delivery.acknowledged_at
+                    or delivery.acknowledged_at.replace(tzinfo=None) > duty_start
+                    or delivery.acknowledged_version != item.version
+                ):
+                    outstanding.append({
+                        "title": item.title,
+                        "opened": bool(delivery.first_opened_at),
+                    })
+            results.append({
+                "staff_id": person.id,
+                "name": person.name,
+                "shift": assignment.code,
+                "duty_start": duty_start.isoformat(),
+                "required": len(rows),
+                "outstanding": outstanding,
+                "status": "exception" if outstanding else "compliant",
+            })
+        run = BriefingAssuranceRun(
+            unit_id=current_user.unit_id,
+            operational_date=selected_date,
+            run_by_id=current_user.id,
+            run_by_name=current_user.name,
+            result_json=json.dumps(results, sort_keys=True),
+        )
+        db.session.add(run)
+        db.session.flush()
+        _audit(
+            "assurance_run", None, operational_date=selected_date,
+            result_count=len(results), run_id=run.id,
+            roster_publication_id=publication.id,
+            roster_version=publication.version,
+        )
+        db.session.commit()
+    previous_runs = BriefingAssuranceRun.query.filter_by(
+        unit_id=current_user.unit_id
+    ).order_by(BriefingAssuranceRun.run_at.desc()).limit(20).all()
+    return render_template(
+        "briefing/assurance.html", selected_date=selected_date,
+        results=results, run=run, previous_runs=previous_runs,
+    )
+
+
+@briefing_blueprint.get("/admin/audit")
+@login_required
+def audit():
+    _require_admin()
+    events = BriefingAudit.query.filter_by(
+        unit_id=current_user.unit_id
+    ).order_by(BriefingAudit.occurred_at.desc()).limit(500).all()
+    return render_template("briefing/audit.html", events=events)

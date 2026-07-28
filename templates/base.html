@@ -77,7 +77,18 @@
           {% if current_user.role == 'superadmin' %}
             <a href="{{ url_for('platform_admin') }}" {% if request.endpoint == 'platform_admin' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'platform_admin' %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Platform Admin</a>
           {% else %}
+            {% if has_briefing_module %}
+              <a href="{{ url_for('module_home') }}" class="nav-link {% if request.endpoint == 'module_home' %}active{% endif %}"><i class="fa-solid fa-grid-2" aria-hidden="true"></i> Modules</a>
+            {% endif %}
             <a href="{{ url_for('index') }}" {% if request.endpoint == 'roster_month' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}"><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Roster</a>
+            {% if has_briefing_module %}
+              <a href="{{ url_for('briefing.home') }}"
+                 class="nav-link {% if request.endpoint and request.endpoint.startswith('briefing.') %}active{% endif %}{% if unread_briefing_count %} nav-link--attention{% endif %}">
+                <i class="fa-solid fa-file-shield" aria-hidden="true"></i>
+                Briefing
+                {% if unread_briefing_count %}<span class="nav-attention-count">{{ unread_briefing_count }}</span>{% endif %}
+              </a>
+            {% endif %}
             <a href="{{ url_for('requests_page') }}"
                class="nav-link {% if request.endpoint == 'requests_page' %}active{% endif %}{% if pending_request_count %} nav-link--attention{% endif %}"
                {% if pending_request_count %}aria-label="Requests, {{ pending_request_count }} awaiting decision"{% endif %}>

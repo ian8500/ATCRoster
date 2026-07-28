@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Briefing administration{% endblock %}
+{% block content %}
+{% include "briefing/_nav.html" %}
+<section class="compliance-hero">
+  <div><span class="admin-step">Briefing administration</span><h2>Publish briefing material</h2><p>Upload controlled instructions or issue a temporary brief of the day.</p></div>
+</section>
+<div class="alert {{ 'alert-success' if storage_ok else 'alert-warning' }}">
+  <strong>Document storage:</strong> {{ storage_message }}.
+  {% if not storage_ok %}Instruction uploads are unavailable until storage is restored.{% endif %}
+</div>
+
+<section class="card">
+  <div class="card-hd">Create briefing</div>
+  <div class="card-bd">
+    <form method="post" enctype="multipart/form-data" class="briefing-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Briefing type *
+        <select name="kind" data-briefing-kind>
+          <option value="instruction">Uploaded instruction</option>
+          <option value="daily">Brief of the day</option>
+          <option value="notam">NOTAM / operational notice</option>
+        </select>
+      </label>
+      <label>Instruction title *
+        <input name="title" maxlength="160" required>
+      </label>
+      <label data-document-field>PDF or Word document *
+        <input type="file" name="document" accept=".pdf,.docx">
+      </label>
+      <label data-text-field hidden>Brief text *
+        <textarea name="body" rows="6" maxlength="4000"></textarea>
+      </label>
+      <div class="briefing-form__dates">
+        <label>Effective date and time *
+          <input type="datetime-local" name="effective_at" required>
+        </label>
+        <label>Expiry date and time *
+          <input type="datetime-local" name="expires_at" required>
+        </label>
+      </div>
+      <label>User group *
+        <select name="target_scope" data-target-scope>
+          <option value="all">Everyone</option>
+          <option value="operational">All operational staff</option>
+          <option value="watch">Selected watches</option>
+          <option value="role">Selected roles</option>
+          <option value="individual">Named individuals</option>
+        </select>
+      </label>
+      <fieldset data-target-detail="watch" hidden><legend>Watches</legend>
+        {% for watch in watches %}<label><input type="checkbox" name="watch_ids" value="{{ watch.id }}"> {{ watch.name }}</label>{% endfor %}
+      </fieldset>
+      <fieldset data-target-detail="role" hidden><legend>Roles</legend>
+        <label><input type="checkbox" name="roles" value="admin"> Administrators</label>
+        <label><input type="checkbox" name="roles" value="editor"> Roster editors</label>
+        <label><input type="checkbox" name="roles" value="user"> Operational users</label>
+      </fieldset>
+      <fieldset data-target-detail="individual" hidden><legend>Individuals</legend>
+        <div class="briefing-recipient-grid">{% for person in people %}<label><input type="checkbox" name="staff_ids" value="{{ person.id }}"> {{ person.name }}</label>{% endfor %}</div>
+      </fieldset>
+      <div class="briefing-form__dates">
+        <label>Priority
+          <select name="priority"><option>routine</option><option>important</option><option>critical</option></select>
+        </label>
+        <label class="check-label"><input type="checkbox" name="mandatory" value="yes"> Mandatory acknowledgement</label>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn" name="action" value="draft" type="submit">Save draft</button>
+        <button class="btn btn-primary" name="action" value="publish" type="submit">Publish now</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="card mt-3">
+  <div class="card-hd">Briefing register</div>
+  <div class="table-responsive"><table class="table">
+    <thead><tr><th>Title</th><th>Type</th><th>Effective</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr><td><strong>{{ item.title }}</strong><br><small>v{{ item.version }} · {{ item.created_by_name }}</small></td><td>{{ item.kind|title }}</td><td>{{ item.effective_at.strftime('%d %b %Y %H:%M') }}<br><small>to {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small></td><td>{{ item.status|title }}</td><td>
+        {% if item.status == 'draft' %}<form method="post" action="{{ url_for('briefing.publish', item_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Publish</button></form>{% endif %}
+        {% if item.status == 'published' %}<form method="post" action="{{ url_for('briefing.withdraw', item_id=item.id) }}" data-confirm="Withdraw this briefing? The audit history will be retained."><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Withdraw</button></form>{% endif %}
+      </td></tr>
+    {% else %}<tr><td colspan="5">No briefing items have been created.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const kind = document.querySelector('[data-briefing-kind]');
+  const scope = document.querySelector('[data-target-scope]');
+  const updateKind = () => {
+    const documentField = document.querySelector('[data-document-field]');
+    const textField = document.querySelector('[data-text-field]');
+    const instruction = kind.value === 'instruction';
+    documentField.hidden = !instruction;
+    textField.hidden = instruction;
+    documentField.querySelector('input').required = instruction;
+    textField.querySelector('textarea').required = !instruction;
+  };
+  const updateScope = () => document.querySelectorAll('[data-target-detail]').forEach(field => {
+    field.hidden = field.dataset.targetDetail !== scope.value;
+  });
+  kind.addEventListener('change', updateKind); scope.addEventListener('change', updateScope);
+  updateKind(); updateScope();
+})();
+</script>
+{% endblock %}

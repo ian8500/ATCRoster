@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}My briefing{% endblock %}
+{% block content %}
+{% include "briefing/_nav.html" %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Operational briefing</span>
+    <h2>My briefing</h2>
+    <p>Current instructions and temporary briefs selected for you.</p>
+  </div>
+  <a class="btn" href="{{ url_for('module_home') }}"><i class="fa-solid fa-grid-2"></i> Modules</a>
+</section>
+
+<div class="briefing-list">
+  {% for delivery, item in deliveries %}
+    <article class="briefing-card briefing-card--{{ item.priority }}">
+      <div class="briefing-card__meta">
+        <span class="status-chip">{{ {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
+        <span>{{ item.priority|title }}</span>
+        {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
+      </div>
+      <h3>{{ item.title }}</h3>
+      {% if item.body %}<p>{{ item.body|truncate(240) }}</p>{% endif %}
+      <div class="briefing-card__footer">
+        <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
+        <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
+          {% if delivery.acknowledged_at %}Review again{% else %}Open briefing{% endif %}
+        </a>
+      </div>
+    </article>
+  {% else %}
+    <section class="card"><div class="card-bd empty-state">
+      <i class="fa-solid fa-circle-check"></i>
+      <h3>You are up to date</h3>
+      <p>There are no current briefing items assigned to you.</p>
+    </div></section>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -75,13 +75,21 @@
           <td>{{ row.active_accounts }} / {{ row.unit.active_user_limit }}</td>
           <td>
             {% for key in feature_keys %}
+              {% set feature_label = {
+                'advanced_coverage': 'Advanced coverage',
+                'briefing_module': 'Briefing module',
+                'calendar_exports': 'Calendar exports',
+                'custom_branding': 'Custom branding',
+                'fatigue_reporting': 'Fatigue reporting',
+                'scenario_planning': 'Scenario planning'
+              }.get(key, key|replace('_', ' ')|title) %}
               <form method="post" class="d-flex gap-1 mb-1">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="set_feature">
                 <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
                 <input type="hidden" name="key" value="{{ key }}">
                 <input type="hidden" name="enabled" value="{{ 'no' if row.flags.get(key) else 'yes' }}">
-                <button class="btn btn-sm" type="submit" aria-pressed="{{ 'true' if row.flags.get(key) else 'false' }}">{{ '✓' if row.flags.get(key) else '○' }} {{ key }}</button>
+                <button class="btn btn-sm" type="submit" aria-pressed="{{ 'true' if row.flags.get(key) else 'false' }}">{{ '✓' if row.flags.get(key) else '○' }} {{ feature_label }}</button>
               </form>
             {% endfor %}
           </td>
