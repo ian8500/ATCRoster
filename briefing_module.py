@@ -79,6 +79,8 @@ class BriefingDelivery(db.Model):
     active_view_seconds = db.Column(db.Integer, nullable=False, default=0)
     acknowledged_at = db.Column(db.DateTime)
     acknowledged_version = db.Column(db.Integer)
+    archived_at = db.Column(db.DateTime)
+    deleted_at = db.Column(db.DateTime)
     __table_args__ = (
         db.UniqueConstraint(
             "unit_id", "briefing_id", "recipient_id",
@@ -304,6 +306,8 @@ def home():
         .join(BriefingItem, BriefingItem.id == BriefingDelivery.briefing_id)
         .filter(
             BriefingDelivery.recipient_id == current_user.id,
+            BriefingDelivery.archived_at.is_(None),
+            BriefingDelivery.deleted_at.is_(None),
             BriefingItem.status == "published",
             BriefingItem.effective_at <= current_time,
             BriefingItem.expires_at >= current_time,
@@ -317,6 +321,75 @@ def home():
     )
 
 
+@briefing_blueprint.get("/archive")
+@login_required
+def archive():
+    rows = (
+        db.session.query(BriefingDelivery, BriefingItem)
+        .join(BriefingItem, BriefingItem.id == BriefingDelivery.briefing_id)
+        .filter(
+            BriefingDelivery.recipient_id == current_user.id,
+            BriefingDelivery.archived_at.is_not(None),
+            BriefingDelivery.deleted_at.is_(None),
+        )
+        .order_by(BriefingItem.kind, BriefingDelivery.archived_at.desc())
+        .all()
+    )
+    groups = {"instruction": [], "daily": [], "notam": []}
+    for delivery, item in rows:
+        groups.setdefault(item.kind, []).append((delivery, item))
+    return render_template("briefing/archive.html", archive_groups=groups)
+
+
+def _personal_delivery(item_id: int) -> tuple[BriefingDelivery, BriefingItem]:
+    row = (
+        db.session.query(BriefingDelivery, BriefingItem)
+        .join(BriefingItem, BriefingItem.id == BriefingDelivery.briefing_id)
+        .filter(
+            BriefingDelivery.unit_id == current_user.unit_id,
+            BriefingDelivery.recipient_id == current_user.id,
+            BriefingDelivery.briefing_id == item_id,
+            BriefingDelivery.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not row:
+        abort(404)
+    return row
+
+
+@briefing_blueprint.post("/item/<int:item_id>/archive")
+@login_required
+def archive_item(item_id: int):
+    delivery, item = _personal_delivery(item_id)
+    if delivery.acknowledged_at is None:
+        abort(409, "A briefing must be acknowledged before it can be archived.")
+    delivery.archived_at = utcnow()
+    _audit("recipient_archived", item, delivery)
+    db.session.commit()
+    flash("Briefing moved to your archive.", "ok")
+    return redirect(url_for("briefing.home"))
+
+
+@briefing_blueprint.post("/item/<int:item_id>/delete")
+@login_required
+def delete_item(item_id: int):
+    delivery, item = _personal_delivery(item_id)
+    if delivery.acknowledged_at is None:
+        abort(409, "A briefing must be acknowledged before it can be removed.")
+    delivery.deleted_at = utcnow()
+    _audit(
+        "recipient_deleted", item, delivery,
+        previously_archived=bool(delivery.archived_at),
+    )
+    db.session.commit()
+    flash("Briefing removed from your personal view.", "ok")
+    destination = (
+        "briefing.archive" if delivery.archived_at else "briefing.home"
+    )
+    return redirect(url_for(destination))
+
+
 @briefing_blueprint.get("/item/<int:item_id>")
 @login_required
 def view_item(item_id: int):
@@ -327,6 +400,7 @@ def view_item(item_id: int):
         unit_id=current_user.unit_id,
         briefing_id=item.id,
         recipient_id=current_user.id,
+        deleted_at=None,
     ).first_or_404()
     now = utcnow()
     if delivery.first_opened_at is None:
@@ -346,6 +420,7 @@ def heartbeat(item_id: int):
         unit_id=current_user.unit_id,
         briefing_id=item_id,
         recipient_id=current_user.id,
+        deleted_at=None,
     ).first_or_404()
     try:
         seconds = int(request.form.get("seconds") or 0)
@@ -368,6 +443,7 @@ def acknowledge(item_id: int):
         unit_id=current_user.unit_id,
         briefing_id=item.id,
         recipient_id=current_user.id,
+        deleted_at=None,
     ).first_or_404()
     if request.form.get("confirmation") != "yes":
         abort(400, "Confirm that you have read and understood the briefing.")
@@ -390,6 +466,7 @@ def document(item_id: int):
             unit_id=current_user.unit_id,
             briefing_id=item.id,
             recipient_id=current_user.id,
+            deleted_at=None,
         ).first_or_404()
     if not item.stored_filename:
         abort(404)

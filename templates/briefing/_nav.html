@@ -2,6 +2,9 @@
   <a href="{{ url_for('briefing.home') }}" class="{% if request.endpoint == 'briefing.home' %}active{% endif %}">
     <i class="fa-solid fa-file-shield"></i> My briefing
   </a>
+  <a href="{{ url_for('briefing.archive') }}" class="{% if request.endpoint == 'briefing.archive' %}active{% endif %}">
+    <i class="fa-solid fa-box-archive"></i> Archive
+  </a>
   {% if is_admin %}
     <a href="{{ url_for('briefing.admin') }}" class="{% if request.endpoint == 'briefing.admin' %}active{% endif %}">
       <i class="fa-solid fa-pen-to-square"></i> Publish

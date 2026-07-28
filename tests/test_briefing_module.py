@@ -181,6 +181,36 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
         assert BriefingDelivery.query.one().acknowledged_at is not None
         assert BriefingAudit.query.filter_by(event_type="acknowledged").count() == 1
 
+    response = briefing_client.post(
+        f"/briefing/item/{item_id}/archive",
+        data={"_csrf_token": _csrf(briefing_client)},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Runway inspection procedure" not in response.data
+    archive = briefing_client.get("/briefing/archive")
+    assert archive.status_code == 200
+    assert b"Instructions" in archive.data
+    assert b"Runway inspection procedure" in archive.data
+
+    response = briefing_client.post(
+        f"/briefing/item/{item_id}/delete",
+        data={"_csrf_token": _csrf(briefing_client)},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Runway inspection procedure" not in response.data
+    with app.app.app_context():
+        delivery = BriefingDelivery.query.one()
+        assert delivery.archived_at is not None
+        assert delivery.deleted_at is not None
+        assert BriefingAudit.query.filter_by(
+            event_type="recipient_archived"
+        ).count() == 1
+        assert BriefingAudit.query.filter_by(
+            event_type="recipient_deleted"
+        ).count() == 1
+
 
 def test_assurance_ignores_non_working_assignments(briefing_client):
     _login(briefing_client, "brief_admin")

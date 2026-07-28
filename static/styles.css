@@ -3335,6 +3335,7 @@ table:not(.roster) td {
 .briefing-card--important{border-left-color:#f7c95c}.briefing-card--critical{border-left-color:#ef6b73}
 .briefing-card__meta{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;color:var(--muted, #aeb8c2);font-size:.85rem}
 .briefing-card__footer{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-top:1rem}
+.briefing-card__actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}.briefing-card__actions form,.briefing-card__footer form{margin:0}
 .status-chip{display:inline-block;padding:.2rem .55rem;border-radius:999px;background:rgba(255,255,255,.08)}
 .status-chip--attention{background:rgba(239,107,115,.18);color:#ffadb3}
 .empty-state{text-align:center;padding:3rem}.empty-state>i{font-size:2rem;color:#62c494}

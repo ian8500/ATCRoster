@@ -4923,6 +4923,8 @@ def inject_perms():
                     BriefingDelivery.unit_id == current_unit.id,
                     BriefingDelivery.recipient_id == au.id,
                     BriefingDelivery.acknowledged_at.is_(None),
+                    BriefingDelivery.archived_at.is_(None),
+                    BriefingDelivery.deleted_at.is_(None),
                     BriefingItem.status == "published",
                     BriefingItem.effective_at <= briefing_now,
                     BriefingItem.expires_at >= briefing_now,

@@ -22,9 +22,21 @@
       {% if item.body %}<p>{{ item.body|truncate(240) }}</p>{% endif %}
       <div class="briefing-card__footer">
         <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
-        <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
-          {% if delivery.acknowledged_at %}Review again{% else %}Open briefing{% endif %}
-        </a>
+        <div class="briefing-card__actions">
+          <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
+            {% if delivery.acknowledged_at %}Review again{% else %}Open briefing{% endif %}
+          </a>
+          {% if delivery.acknowledged_at %}
+            <form method="post" action="{{ url_for('briefing.archive_item', item_id=item.id) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button class="btn" type="submit"><i class="fa-solid fa-box-archive"></i> Archive</button>
+            </form>
+            <form method="post" action="{{ url_for('briefing.delete_item', item_id=item.id) }}" data-confirm="Remove this briefing from your personal view? The audit record will be retained.">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button class="btn" type="submit"><i class="fa-solid fa-trash"></i> Delete</button>
+            </form>
+          {% endif %}
+        </div>
       </div>
     </article>
   {% else %}

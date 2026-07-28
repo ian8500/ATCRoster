@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Briefing archive{% endblock %}
+{% block content %}
+{% include "briefing/_nav.html" %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Personal records</span>
+    <h2>Briefing archive</h2>
+    <p>Your acknowledged briefings, grouped by message type.</p>
+  </div>
+</section>
+
+{% set labels = {'instruction':'Instructions', 'daily':'Briefs of the day', 'notam':'NOTAMs'} %}
+{% for kind in ('instruction', 'daily', 'notam') %}
+  <section class="card mt-3">
+    <div class="card-hd">{{ labels[kind] }}</div>
+    <div class="card-bd briefing-list">
+      {% for delivery, item in archive_groups[kind] %}
+        <article class="briefing-card briefing-card--{{ item.priority }}">
+          <div class="briefing-card__meta">
+            <span>Archived {{ delivery.archived_at.strftime('%d %b %Y %H:%M') }}</span>
+            <span>Acknowledged {{ delivery.acknowledged_at.strftime('%d %b %Y %H:%M') }}</span>
+          </div>
+          <h3>{{ item.title }}</h3>
+          <div class="briefing-card__footer">
+            <a class="btn" href="{{ url_for('briefing.view_item', item_id=item.id) }}">Review</a>
+            <form method="post" action="{{ url_for('briefing.delete_item', item_id=item.id) }}" data-confirm="Remove this briefing from your personal archive? The audit record will be retained.">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button class="btn" type="submit"><i class="fa-solid fa-trash"></i> Delete</button>
+            </form>
+          </div>
+        </article>
+      {% else %}
+        <p class="empty-state">No archived {{ labels[kind]|lower }}.</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endfor %}
+{% endblock %}
