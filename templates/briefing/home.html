@@ -1,46 +1,50 @@
 {% extends "base.html" %}
 {% block title %}My briefing{% endblock %}
 {% macro briefing_card(delivery, item) %}
-  <article class="briefing-card briefing-card--{{ item.priority }}{% if item.kind != 'daily' %} briefing-card--clickable{% endif %}"
-    {% if item.kind != 'daily' %}data-briefing-card data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}" role="link" tabindex="0" aria-label="Open {{ item.title }}"{% endif %}>
-    <div class="briefing-card__meta">
-      <span class="status-chip">{{ item.message_type_name or {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
-      <span>{{ item.priority|title }}</span>
-      {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
-    </div>
-    <h3>{{ item.title }}</h3>
-    {% if item.body %}
-      {% if item.kind == 'daily' %}
+  {% if item.kind == 'daily' %}
+    <article class="briefing-card briefing-card--{{ item.priority }}">
+      <div class="briefing-card__meta">
+        <span class="status-chip">Brief of the day</span>
+        <span>{{ item.priority|title }}</span>
+      </div>
+      <h3>{{ item.title }}</h3>
+      {% if item.body %}
         <div class="briefing-daily-text" data-daily-text>{{ item.body|e|replace('\n', '<br>')|safe }}</div>
         <button class="briefing-daily-expand" type="button" data-daily-expand hidden aria-expanded="false">
           <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
           <span>Expand</span>
         </button>
-      {% else %}
-        <p>{{ item.body|truncate(240) }}</p>
       {% endif %}
-    {% endif %}
-    <div class="briefing-card__footer">
-      <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
-      {% if item.kind != 'daily' %}
-      <div class="briefing-card__actions">
-        <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
-          {% if delivery.acknowledged_at %}Review again{% else %}Open{% endif %}
-        </a>
+      <div class="briefing-card__footer">
+        <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
+      </div>
+    </article>
+  {% else %}
+    <article class="briefing-card briefing-card--compact briefing-card--{{ item.priority }} briefing-card--clickable"
+      data-briefing-card data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}" role="link" tabindex="0" aria-label="Open {{ item.title }}">
+      <div class="briefing-card__compact-copy">
+        <h3>{{ item.title }}</h3>
+        <small>
+          Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }}
+          <span aria-hidden="true">→</span>
+          Ends {{ item.expires_at.strftime('%d %b %Y %H:%M') }}
+        </small>
+      </div>
+      <div class="briefing-card__compact-actions">
         {% if delivery.acknowledged_at %}
           <form method="post" action="{{ url_for('briefing.archive_item', item_id=item.id) }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn" type="submit"><i class="fa-solid fa-box-archive"></i> Archive</button>
+            <button class="btn btn-sm" type="submit" title="Archive" aria-label="Archive {{ item.title }}"><i class="fa-solid fa-box-archive"></i></button>
           </form>
           <form method="post" action="{{ url_for('briefing.delete_item', item_id=item.id) }}" data-confirm="Remove this briefing from your personal view? The audit record will be retained.">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn" type="submit"><i class="fa-solid fa-trash"></i> Delete</button>
+            <button class="btn btn-sm" type="submit" title="Delete" aria-label="Delete {{ item.title }}"><i class="fa-solid fa-trash"></i></button>
           </form>
         {% endif %}
+        <i class="fa-solid fa-chevron-right briefing-card__open-indicator" aria-hidden="true"></i>
       </div>
-      {% endif %}
-    </div>
-  </article>
+    </article>
+  {% endif %}
 {% endmacro %}
 {% block content %}
 <section class="compliance-hero">

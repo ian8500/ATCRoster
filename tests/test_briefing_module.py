@@ -224,6 +224,7 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     _login(briefing_client, "brief_user")
     briefing_home = briefing_client.get("/briefing/")
     assert b"data-briefing-card" in briefing_home.data
+    assert b"briefing-card--compact" in briefing_home.data
     assert b'role="link"' in briefing_home.data
     assert b"Open briefing" not in briefing_home.data
     page = briefing_client.get(f"/briefing/item/{item_id}")
