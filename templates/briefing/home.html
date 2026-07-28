@@ -11,7 +11,14 @@
 
 <div class="briefing-list">
   {% for delivery, item in deliveries %}
-    <article class="briefing-card briefing-card--{{ item.priority }}">
+    <article
+      class="briefing-card briefing-card--{{ item.priority }} briefing-card--clickable"
+      data-briefing-card
+      data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}"
+      role="link"
+      tabindex="0"
+      aria-label="Open {{ item.title }}"
+    >
       <div class="briefing-card__meta">
         <span class="status-chip">{{ item.message_type_name or {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
         <span>{{ item.priority|title }}</span>
@@ -23,7 +30,7 @@
         <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
         <div class="briefing-card__actions">
           <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
-            {% if delivery.acknowledged_at %}Review again{% else %}Open briefing{% endif %}
+            {% if delivery.acknowledged_at %}Review again{% else %}Open{% endif %}
           </a>
           {% if delivery.acknowledged_at %}
             <form method="post" action="{{ url_for('briefing.archive_item', item_id=item.id) }}">
@@ -46,4 +53,20 @@
     </div></section>
   {% endfor %}
 </div>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const isControl = target => target.closest('a, button, input, select, textarea, form, label');
+  document.querySelectorAll('[data-briefing-card]').forEach(card => {
+    card.addEventListener('click', event => {
+      if (!isControl(event.target)) window.location.assign(card.dataset.openUrl);
+    });
+    card.addEventListener('keydown', event => {
+      if ((event.key === 'Enter' || event.key === ' ') && !isControl(event.target)) {
+        event.preventDefault();
+        window.location.assign(card.dataset.openUrl);
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}
