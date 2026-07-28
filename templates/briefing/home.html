@@ -2,10 +2,9 @@
 {% block title %}My briefing{% endblock %}
 {% macro briefing_card(delivery, item) %}
   {% if item.kind == 'daily' %}
-    <article class="briefing-card briefing-card--{{ item.priority }}">
+    <article class="briefing-card">
       <div class="briefing-card__meta">
         <span class="status-chip">Brief of the day</span>
-        <span>{{ item.priority|title }}</span>
       </div>
       <h3>{{ item.title }}</h3>
       {% if item.body %}
@@ -20,7 +19,7 @@
       </div>
     </article>
   {% else %}
-    <article class="briefing-card briefing-card--compact briefing-card--{{ item.priority }} briefing-card--clickable"
+    <article class="briefing-card briefing-card--compact{% if item.mandatory %} briefing-card--mandatory{% endif %} briefing-card--clickable"
       data-briefing-card data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}" role="link" tabindex="0" aria-label="Open {{ item.title }}">
       <div class="briefing-card__compact-copy">
         <h3>{{ item.title }}</h3>

@@ -153,6 +153,7 @@ def test_admin_configures_instruction_message_types(briefing_client):
     assert b"data-briefing-upload-progress" in publish_page.data
     assert b"Uploading briefing" in publish_page.data
     assert b"NOTAM / operational notice" not in publish_page.data
+    assert b'name="priority"' not in publish_page.data
     assert publish_page.data.index(b"My briefing") < publish_page.data.index(
         b"Publish"
     )

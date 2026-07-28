@@ -6,7 +6,6 @@
     <a href="{{ url_for('briefing.home') }}"><i class="fa-solid fa-arrow-left"></i> My briefing</a>
     <div class="briefing-card__meta">
       <span class="status-chip">{{ item.message_type_name or item.kind|title }}</span>
-      <span>{{ item.priority|title }}</span>
       {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
     </div>
     <h2>{{ item.title }}</h2>

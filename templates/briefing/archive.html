@@ -14,7 +14,7 @@
     <div class="card-hd">{{ group.label }}</div>
     <div class="card-bd briefing-list">
       {% for delivery, item in group.rows %}
-        <article class="briefing-card briefing-card--{{ item.priority }}">
+        <article class="briefing-card{% if item.mandatory %} briefing-card--mandatory{% endif %}">
           <div class="briefing-card__meta">
             <span>Archived {{ delivery.archived_at.strftime('%d %b %Y %H:%M') }}</span>
             <span>Acknowledged {{ delivery.acknowledged_at.strftime('%d %b %Y %H:%M') }}</span>

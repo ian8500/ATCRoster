@@ -68,12 +68,7 @@
       <fieldset data-target-detail="individual" hidden><legend>Individuals</legend>
         <div class="briefing-recipient-grid">{% for person in people %}<label><input type="checkbox" name="staff_ids" value="{{ person.id }}"> {{ person.name }}</label>{% endfor %}</div>
       </fieldset>
-      <div class="briefing-form__dates">
-        <label>Priority
-          <select name="priority"><option>routine</option><option>important</option><option>critical</option></select>
-        </label>
-        <label class="check-label" data-mandatory-field><input type="checkbox" name="mandatory" value="yes"> Mandatory acknowledgement</label>
-      </div>
+      <label class="check-label" data-mandatory-field><input type="checkbox" name="mandatory" value="yes"> Mandatory acknowledgement</label>
       <div class="d-flex gap-2">
         <button class="btn" name="action" value="draft" type="submit">Save draft</button>
         <button class="btn btn-primary" name="action" value="publish" type="submit">Publish now</button>

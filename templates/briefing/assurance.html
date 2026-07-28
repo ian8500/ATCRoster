@@ -52,12 +52,11 @@
         </summary>
         {% if profile.instructions %}
           <div class="table-responsive"><table class="table">
-            <thead><tr><th>Instruction</th><th>Type</th><th>Priority</th><th>Reading status</th><th>Effective period</th></tr></thead>
+            <thead><tr><th>Instruction</th><th>Type</th><th>Reading status</th><th>Effective period</th></tr></thead>
             <tbody>{% for item in profile.instructions %}
               <tr>
                 <td><strong>{{ item.title }}</strong>{% if item.mandatory %}<br><small>Mandatory</small>{% endif %}</td>
                 <td>{{ item.message_type }}</td>
-                <td>{{ item.priority|title }}</td>
                 <td>{{ 'Opened, not acknowledged' if item.opened else 'Not opened' }}</td>
                 <td>{{ item.effective_at[:16]|replace('T', ' ') }} to {{ item.expires_at[:16]|replace('T', ' ') }}</td>
               </tr>

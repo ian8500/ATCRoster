@@ -331,7 +331,7 @@ def home():
             BriefingItem.effective_at <= current_time,
             BriefingItem.expires_at >= current_time,
         )
-        .order_by(BriefingItem.priority.desc(), BriefingItem.effective_at.desc())
+        .order_by(BriefingItem.effective_at.desc())
         .all()
     )
     daily_deliveries = [
@@ -567,9 +567,6 @@ def admin():
         )
         if expires_at <= effective_at:
             abort(400, "Expiry must be after the effective date.")
-        priority = (request.form.get("priority") or "routine").strip()
-        if priority not in {"routine", "important", "critical"}:
-            abort(400)
         item = BriefingItem(
             unit_id=current_user.unit_id,
             kind=kind,
@@ -583,7 +580,7 @@ def admin():
                 kind == "instruction"
                 and request.form.get("mandatory") == "yes"
             ),
-            priority=priority,
+            priority="routine",
             target_json=json.dumps(_target_from_form(), sort_keys=True),
             created_by_id=current_user.id,
             created_by_name=current_user.name,
@@ -886,7 +883,6 @@ def assurance():
             )
             .order_by(
                 BriefingDelivery.recipient_id,
-                BriefingItem.priority.desc(),
                 BriefingItem.effective_at,
             )
             .all()
@@ -899,7 +895,6 @@ def assurance():
                     item.message_type_name or "Uncategorised instruction"
                 ),
                 "mandatory": item.mandatory,
-                "priority": item.priority,
                 "opened": bool(delivery.first_opened_at),
                 "effective_at": item.effective_at.isoformat(),
                 "expires_at": item.expires_at.isoformat(),
