@@ -82,12 +82,7 @@
               <a href="{{ url_for('module_home') }}" class="nav-link {% if request.endpoint == 'module_home' %}active{% endif %}"><i class="fa-solid fa-house" aria-hidden="true"></i> Home</a>
             {% endif %}
             {% if in_briefing_module %}
-              <a href="{{ url_for('briefing.home') }}"
-                 class="nav-link active{% if unread_briefing_count %} nav-link--attention{% endif %}">
-                <i class="fa-solid fa-file-shield" aria-hidden="true"></i>
-                Briefing
-                {% if unread_briefing_count %}<span class="nav-attention-count">{{ unread_briefing_count }}</span>{% endif %}
-              </a>
+              {% include "briefing/_nav_links.html" %}
             {% elif request.endpoint != 'module_home' %}
             <a href="{{ url_for('index') }}" {% if request.endpoint == 'roster_month' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'roster_month' %}active{% endif %}"><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Roster</a>
             <a href="{{ url_for('requests_page') }}"

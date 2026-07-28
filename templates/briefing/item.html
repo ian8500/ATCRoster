@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ item.title }}{% endblock %}
 {% block content %}
-{% include "briefing/_nav.html" %}
 <article class="briefing-reader" data-briefing-reader data-heartbeat-url="{{ url_for('briefing.heartbeat', item_id=item.id) }}">
   <header>
     <a href="{{ url_for('briefing.home') }}"><i class="fa-solid fa-arrow-left"></i> My briefing</a>
