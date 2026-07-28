@@ -609,61 +609,46 @@ def admin():
     )
 
 
-@briefing_blueprint.post("/admin/message-types")
+@briefing_blueprint.post("/admin/message-types/configure")
 @login_required
-def create_message_type():
+def configure_message_types():
     _require_admin()
-    name = (request.form.get("name") or "").strip()[:80]
-    if not name:
-        abort(400, "Enter a message type name.")
-    duplicate = BriefingMessageType.query.filter(
-        db.func.lower(BriefingMessageType.name) == name.lower()
-    ).first()
-    if duplicate:
-        abort(409, "That message type already exists.")
-    highest = db.session.query(
-        db.func.max(BriefingMessageType.display_order)
-    ).scalar() or 0
-    row = BriefingMessageType(
-        unit_id=current_user.unit_id,
-        name=name,
-        display_order=highest + 10,
-    )
-    db.session.add(row)
-    _audit("message_type_created", name=name)
-    db.session.commit()
-    flash("Message type added.", "ok")
-    return redirect(url_for("briefing.admin"))
+    names = []
+    seen = set()
+    for raw_name in (request.form.get("message_types") or "").splitlines():
+        name = raw_name.strip()[:80]
+        key = name.casefold()
+        if name and key not in seen:
+            names.append(name)
+            seen.add(key)
+    if not names:
+        abort(400, "Enter at least one instruction message type.")
 
-
-@briefing_blueprint.post("/admin/message-types/<int:type_id>")
-@login_required
-def update_message_type(type_id: int):
-    _require_admin()
-    row = BriefingMessageType.query.filter_by(
-        id=type_id, unit_id=current_user.unit_id
-    ).first_or_404()
-    name = (request.form.get("name") or "").strip()[:80]
-    if not name:
-        abort(400, "Enter a message type name.")
-    duplicate = BriefingMessageType.query.filter(
-        BriefingMessageType.id != row.id,
-        db.func.lower(BriefingMessageType.name) == name.lower(),
-    ).first()
-    if duplicate:
-        abort(409, "That message type already exists.")
-    previous = {"name": row.name, "active": row.active}
-    row.name = name
-    row.active = request.form.get("active") == "yes"
-    row.updated_at = utcnow()
-    _audit(
-        "message_type_updated",
-        message_type_id=row.id,
-        previous=previous,
-        current={"name": row.name, "active": row.active},
-    )
+    existing = BriefingMessageType.query.order_by(
+        BriefingMessageType.display_order,
+        BriefingMessageType.name,
+    ).all()
+    existing_by_name = {row.name.casefold(): row for row in existing}
+    now = utcnow()
+    for order, name in enumerate(names, start=1):
+        row = existing_by_name.get(name.casefold())
+        if row is None:
+            row = BriefingMessageType(
+                unit_id=current_user.unit_id,
+                name=name,
+                created_at=now,
+            )
+            db.session.add(row)
+        row.active = True
+        row.display_order = order * 10
+        row.updated_at = now
+    for row in existing:
+        if row.name.casefold() not in seen:
+            row.active = False
+            row.updated_at = now
+    _audit("message_types_configured", active_names=names)
     db.session.commit()
-    flash("Message type updated.", "ok")
+    flash("Instruction message types updated.", "ok")
     return redirect(url_for("briefing.admin"))
 
 

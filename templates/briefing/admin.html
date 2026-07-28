@@ -87,31 +87,15 @@
 <section class="card mt-3">
   <div class="card-hd">Instruction message types</div>
   <div class="card-bd">
-    <p>These airport-specific types appear in the instruction dropdown and organise users’ archived instructions.</p>
-    <form method="post" action="{{ url_for('briefing.create_message_type') }}" class="d-flex gap-2 flex-wrap align-items-end">
+    <p>Enter one type per line. These appear in the instruction dropdown and organise users’ archived instructions.</p>
+    <form method="post" action="{{ url_for('briefing.configure_message_types') }}" class="briefing-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <label class="flex-grow-1">New message type
-        <input name="name" maxlength="80" required placeholder="For example: Safety instruction">
+      <label>Message types
+        <textarea name="message_types" rows="4" required>{% for message_type in message_types if message_type.active %}{{ message_type.name }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
       </label>
-      <button class="btn btn-primary" type="submit">Add type</button>
+      <div><button class="btn" type="submit">Save message types</button></div>
     </form>
-    <div class="table-responsive mt-3"><table class="table">
-      <thead><tr><th>Name</th><th>Available</th><th>Action</th></tr></thead>
-      <tbody>
-      {% for message_type in message_types %}
-        <tr><td colspan="3">
-          <form method="post" action="{{ url_for('briefing.update_message_type', type_id=message_type.id) }}" class="d-flex gap-2 flex-wrap align-items-center">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <input class="flex-grow-1" name="name" maxlength="80" required value="{{ message_type.name }}" aria-label="Message type name">
-            <label class="check-label"><input type="checkbox" name="active" value="yes" {% if message_type.active %}checked{% endif %}> Active</label>
-            <button class="btn btn-sm" type="submit">Save</button>
-          </form>
-        </td></tr>
-      {% else %}
-        <tr><td colspan="3">No message types configured.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
   </div>
 </section>
 

@@ -145,36 +145,31 @@ def test_module_navigation_keeps_roster_and_briefing_separate(
 def test_admin_configures_instruction_message_types(briefing_client):
     _login(briefing_client, "brief_admin")
     response = briefing_client.post(
-        "/briefing/admin/message-types",
+        "/briefing/admin/message-types/configure",
         data={
             "_csrf_token": _csrf(briefing_client),
-            "name": "Technical instruction",
+            "message_types": (
+                "Safety instruction\nTechnical instruction\n"
+                "Operational notice"
+            ),
         },
         follow_redirects=True,
     )
     assert response.status_code == 200
     assert b"Technical instruction" in response.data
+    assert b"<th>Available</th>" not in response.data
+    assert b'name="message_types"' in response.data
     with app.app.app_context():
-        message_type = BriefingMessageType.query.filter_by(
-            name="Technical instruction"
-        ).one()
-        message_type_id = message_type.id
-
-    response = briefing_client.post(
-        f"/briefing/admin/message-types/{message_type_id}",
-        data={
-            "_csrf_token": _csrf(briefing_client),
-            "name": "Technical notices",
-        },
-        follow_redirects=True,
-    )
-    assert response.status_code == 200
-    with app.app.app_context():
-        message_type = db.session.get(
-            BriefingMessageType, message_type_id
-        )
-        assert message_type.name == "Technical notices"
-        assert message_type.active is False
+        active_names = {
+            row.name for row in BriefingMessageType.query.filter_by(
+                active=True
+            ).all()
+        }
+        assert active_names == {
+            "Safety instruction",
+            "Technical instruction",
+            "Operational notice",
+        }
 
 
 def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
