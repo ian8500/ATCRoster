@@ -785,6 +785,9 @@ def test_overtime_finder_reports_an_empty_search_instead_of_looking_broken(clien
     assert response.status_code == 200
     assert b"Eligibility result" in response.data
     assert b"Nobody is eligible for overtime for this date and shift" in response.data
+    assert response.data.index(b"Eligibility result") < response.data.index(
+        b"What if?"
+    )
 
 
 @pytest.mark.parametrize("rostered_code", ["OFF", "AL"])
