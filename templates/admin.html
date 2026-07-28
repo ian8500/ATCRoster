@@ -277,29 +277,6 @@
       </form>
     </div>
 
-    <details class="card card-body counter-mapping-card">
-      <summary><span><strong>Which shifts count toward staffing?</strong><small>Required for accurate daily totals and coverage warnings</small></span></summary>
-      <form method="post" class="advanced-panel__content">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="form" value="counter_mapping">
-        <p class="text-muted">For each working shift, choose the staffing total it should increase. Choose “Does not count” for leave, training, standby, office and support duties.</p>
-        <div class="counter-mapping-grid">
-          {% for shift in shifts %}
-          <label>
-            <span><strong>{{ shift.code }}</strong><small>{{ shift.name }}</small></span>
-            <select name="counter_group_{{ shift.id }}">
-              <option value="" {% if not shift_counter_mapping.get(shift.code) %}selected{% endif %}>Does not count</option>
-              {% for group, label in [('M','Morning'),('D','Day'),('A','Afternoon'),('N','Night')] %}
-                <option value="{{ group }}" {% if shift_counter_mapping.get(shift.code) == group %}selected{% endif %}>{{ label }} ({{ group }})</option>
-              {% endfor %}
-            </select>
-          </label>
-          {% endfor %}
-        </div>
-        <div class="form-actions"><button class="btn btn-primary" type="submit">Save staffing totals</button></div>
-      </form>
-    </details>
-
     <div class="admin-shift-list">
       {% for sh in shifts %}
       <details class="admin-shift-row">
@@ -335,6 +312,29 @@
       </details>
       {% endfor %}
     </div>
+
+    <details class="card card-body counter-mapping-card">
+      <summary><span><strong>Which shifts count toward staffing?</strong></span></summary>
+      <form method="post" class="advanced-panel__content">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form" value="counter_mapping">
+        <p class="text-muted">For each working shift, choose the staffing total it should increase. Choose “Does not count” for leave, training, standby, office and support duties.</p>
+        <div class="counter-mapping-grid">
+          {% for shift in shifts %}
+          <label>
+            <span><strong>{{ shift.code }}</strong><small>{{ shift.name }}</small></span>
+            <select name="counter_group_{{ shift.id }}">
+              <option value="" {% if not shift_counter_mapping.get(shift.code) %}selected{% endif %}>Does not count</option>
+              {% for group, label in [('M','Morning'),('D','Day'),('A','Afternoon'),('N','Night')] %}
+                <option value="{{ group }}" {% if shift_counter_mapping.get(shift.code) == group %}selected{% endif %}>{{ label }} ({{ group }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Save staffing totals</button></div>
+      </form>
+    </details>
   </section>
 
   <section id="admin-staff" class="admin-panel" data-admin-panel="staff" hidden>

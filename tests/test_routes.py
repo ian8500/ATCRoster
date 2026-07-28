@@ -1007,6 +1007,16 @@ def test_admin_pages_accessible(client):
             assert b"Working shift codes" in resp.data
 
 
+def test_shift_staffing_mapping_follows_shift_type_tool(client):
+    login(client)
+    response = client.get("/admin")
+    assert response.status_code == 200
+    assert b"Required for accurate daily totals and coverage warnings" not in response.data
+    assert response.data.index(b"admin-shift-list") < response.data.index(
+        b"Which shifts count toward staffing?"
+    )
+
+
 def test_operations_workspace_is_hidden_from_primary_navigation(client):
     login(client)
     roster = client.get("/roster/2025-04")
