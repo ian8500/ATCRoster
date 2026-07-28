@@ -14,8 +14,9 @@ if REPO_ROOT not in sys.path:
 import app
 from briefing_module import briefing_local_now
 from app import (
-    Assignment, BriefingAudit, BriefingDelivery, BriefingItem, FeatureFlag,
-    RosterPublication, ShiftType, Staff, Unit, Watch, db,
+    Assignment, BriefingAudit, BriefingDelivery, BriefingItem,
+    BriefingMessageType, FeatureFlag, RosterPublication, ShiftType, Staff,
+    Unit, Watch, db,
 )
 
 
@@ -25,6 +26,7 @@ def test_briefing_tables_are_routed_to_the_operational_database():
         "briefing_delivery",
         "briefing_audit",
         "briefing_assurance_run",
+        "briefing_message_type",
     }.issubset(app.OPERATIONAL_TABLE_NAMES)
 
 
@@ -71,6 +73,9 @@ def briefing_client():
         db.session.add_all([
             admin, user,
             FeatureFlag(unit_id=1, key="briefing_module", enabled=True),
+            BriefingMessageType(
+                unit_id=1, name="Safety instruction", display_order=10,
+            ),
             ShiftType(
                 unit_id=1, code="M", name="Morning",
                 start_time=datetime.strptime("07:00", "%H:%M").time(),
@@ -137,6 +142,41 @@ def test_module_navigation_keeps_roster_and_briefing_separate(
     assert b'href="/roster/' not in briefing.data
 
 
+def test_admin_configures_instruction_message_types(briefing_client):
+    _login(briefing_client, "brief_admin")
+    response = briefing_client.post(
+        "/briefing/admin/message-types",
+        data={
+            "_csrf_token": _csrf(briefing_client),
+            "name": "Technical instruction",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Technical instruction" in response.data
+    with app.app.app_context():
+        message_type = BriefingMessageType.query.filter_by(
+            name="Technical instruction"
+        ).one()
+        message_type_id = message_type.id
+
+    response = briefing_client.post(
+        f"/briefing/admin/message-types/{message_type_id}",
+        data={
+            "_csrf_token": _csrf(briefing_client),
+            "name": "Technical notices",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    with app.app.app_context():
+        message_type = db.session.get(
+            BriefingMessageType, message_type_id
+        )
+        assert message_type.name == "Technical notices"
+        assert message_type.active is False
+
+
 def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     _login(briefing_client, "brief_admin")
     now = datetime.now()
@@ -145,6 +185,7 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
         data={
             "_csrf_token": _csrf(briefing_client),
             "kind": "instruction",
+            "message_type_id": "1",
             "title": "Runway inspection procedure",
             "effective_at": (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
             "expires_at": (now + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M"),
@@ -190,7 +231,7 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     assert b"Runway inspection procedure" not in response.data
     archive = briefing_client.get("/briefing/archive")
     assert archive.status_code == 200
-    assert b"Instructions" in archive.data
+    assert b"Safety instruction" in archive.data
     assert b"Runway inspection procedure" in archive.data
 
     response = briefing_client.post(

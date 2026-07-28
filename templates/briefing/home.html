@@ -14,7 +14,7 @@
   {% for delivery, item in deliveries %}
     <article class="briefing-card briefing-card--{{ item.priority }}">
       <div class="briefing-card__meta">
-        <span class="status-chip">{{ {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
+        <span class="status-chip">{{ item.message_type_name or {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
         <span>{{ item.priority|title }}</span>
         {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
       </div>

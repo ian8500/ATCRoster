@@ -10,12 +10,11 @@
   </div>
 </section>
 
-{% set labels = {'instruction':'Instructions', 'daily':'Briefs of the day', 'notam':'NOTAMs'} %}
-{% for kind in ('instruction', 'daily', 'notam') %}
+{% for group in archive_groups %}
   <section class="card mt-3">
-    <div class="card-hd">{{ labels[kind] }}</div>
+    <div class="card-hd">{{ group.label }}</div>
     <div class="card-bd briefing-list">
-      {% for delivery, item in archive_groups[kind] %}
+      {% for delivery, item in group.rows %}
         <article class="briefing-card briefing-card--{{ item.priority }}">
           <div class="briefing-card__meta">
             <span>Archived {{ delivery.archived_at.strftime('%d %b %Y %H:%M') }}</span>
@@ -30,10 +29,14 @@
             </form>
           </div>
         </article>
-      {% else %}
-        <p class="empty-state">No archived {{ labels[kind]|lower }}.</p>
       {% endfor %}
     </div>
   </section>
+{% else %}
+  <section class="card"><div class="card-bd empty-state">
+    <i class="fa-solid fa-box-open"></i>
+    <h3>Your archive is empty</h3>
+    <p>Acknowledged briefings you archive will be grouped here by message type.</p>
+  </div></section>
 {% endfor %}
 {% endblock %}

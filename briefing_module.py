@@ -36,6 +36,23 @@ ALLOWED_DOCUMENTS = {
 MAX_ACTIVE_VIEW_SECONDS_PER_HEARTBEAT = 30
 
 
+class BriefingMessageType(db.Model):
+    __tablename__ = "briefing_message_type"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    display_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    __table_args__ = (
+        db.UniqueConstraint(
+            "unit_id", "name", name="uq_briefing_message_type_name",
+        ),
+    )
+
+
 class BriefingItem(db.Model):
     __tablename__ = "briefing_item"
 
@@ -43,6 +60,8 @@ class BriefingItem(db.Model):
     unit_id = db.Column(db.Integer, nullable=False, index=True)
     kind = db.Column(db.String(20), nullable=False)  # instruction | daily | notam
     title = db.Column(db.String(160), nullable=False)
+    message_type_id = db.Column(db.Integer, index=True)
+    message_type_name = db.Column(db.String(80), nullable=False, default="")
     body = db.Column(db.Text, nullable=False, default="")
     effective_at = db.Column(db.DateTime, nullable=False, index=True)
     expires_at = db.Column(db.DateTime, nullable=False, index=True)
@@ -335,9 +354,19 @@ def archive():
         .order_by(BriefingItem.kind, BriefingDelivery.archived_at.desc())
         .all()
     )
-    groups = {"instruction": [], "daily": [], "notam": []}
+    grouped = {}
     for delivery, item in rows:
-        groups.setdefault(item.kind, []).append((delivery, item))
+        if item.kind == "instruction":
+            label = item.message_type_name or "Uncategorised instructions"
+        elif item.kind == "daily":
+            label = "Briefs of the day"
+        else:
+            label = "NOTAMs"
+        grouped.setdefault(label, []).append((delivery, item))
+    groups = [
+        {"label": label, "rows": grouped[label]}
+        for label in sorted(grouped, key=str.casefold)
+    ]
     return render_template("briefing/archive.html", archive_groups=groups)
 
 
@@ -491,6 +520,18 @@ def admin():
         kind = (request.form.get("kind") or "instruction").strip()
         if kind not in {"instruction", "daily", "notam"}:
             abort(400)
+        message_type = None
+        if kind == "instruction":
+            raw_message_type_id = request.form.get("message_type_id") or ""
+            if not raw_message_type_id.isdigit():
+                abort(400, "Choose an instruction message type.")
+            message_type = BriefingMessageType.query.filter_by(
+                id=int(raw_message_type_id),
+                unit_id=current_user.unit_id,
+                active=True,
+            ).first()
+            if not message_type:
+                abort(400, "Choose an active instruction message type.")
         title = (request.form.get("title") or "").strip()[:160]
         if not title:
             abort(400, "Instruction title is required.")
@@ -509,6 +550,8 @@ def admin():
             unit_id=current_user.unit_id,
             kind=kind,
             title=title,
+            message_type_id=message_type.id if message_type else None,
+            message_type_name=message_type.name if message_type else "",
             body=(request.form.get("body") or "").strip(),
             effective_at=effective_at,
             expires_at=expires_at,
@@ -550,14 +593,78 @@ def admin():
     people = roster_app.Staff.query.filter_by(
         membership_status="active"
     ).order_by(roster_app.Staff.name).all()
+    message_types = BriefingMessageType.query.order_by(
+        BriefingMessageType.active.desc(),
+        BriefingMessageType.display_order,
+        BriefingMessageType.name,
+    ).all()
     try:
         storage_ok, storage_message = _storage().health()
     except BriefingStorageError as exc:
         storage_ok, storage_message = False, str(exc)
     return render_template(
         "briefing/admin.html", items=items, watches=watches, people=people,
+        message_types=message_types,
         storage_ok=storage_ok, storage_message=storage_message,
     )
+
+
+@briefing_blueprint.post("/admin/message-types")
+@login_required
+def create_message_type():
+    _require_admin()
+    name = (request.form.get("name") or "").strip()[:80]
+    if not name:
+        abort(400, "Enter a message type name.")
+    duplicate = BriefingMessageType.query.filter(
+        db.func.lower(BriefingMessageType.name) == name.lower()
+    ).first()
+    if duplicate:
+        abort(409, "That message type already exists.")
+    highest = db.session.query(
+        db.func.max(BriefingMessageType.display_order)
+    ).scalar() or 0
+    row = BriefingMessageType(
+        unit_id=current_user.unit_id,
+        name=name,
+        display_order=highest + 10,
+    )
+    db.session.add(row)
+    _audit("message_type_created", name=name)
+    db.session.commit()
+    flash("Message type added.", "ok")
+    return redirect(url_for("briefing.admin"))
+
+
+@briefing_blueprint.post("/admin/message-types/<int:type_id>")
+@login_required
+def update_message_type(type_id: int):
+    _require_admin()
+    row = BriefingMessageType.query.filter_by(
+        id=type_id, unit_id=current_user.unit_id
+    ).first_or_404()
+    name = (request.form.get("name") or "").strip()[:80]
+    if not name:
+        abort(400, "Enter a message type name.")
+    duplicate = BriefingMessageType.query.filter(
+        BriefingMessageType.id != row.id,
+        db.func.lower(BriefingMessageType.name) == name.lower(),
+    ).first()
+    if duplicate:
+        abort(409, "That message type already exists.")
+    previous = {"name": row.name, "active": row.active}
+    row.name = name
+    row.active = request.form.get("active") == "yes"
+    row.updated_at = utcnow()
+    _audit(
+        "message_type_updated",
+        message_type_id=row.id,
+        previous=previous,
+        current={"name": row.name, "active": row.active},
+    )
+    db.session.commit()
+    flash("Message type updated.", "ok")
+    return redirect(url_for("briefing.admin"))
 
 
 @briefing_blueprint.post("/admin/<int:item_id>/publish")

@@ -22,6 +22,17 @@
           <option value="notam">NOTAM / operational notice</option>
         </select>
       </label>
+      <label data-message-type-field>Instruction message type *
+        <select name="message_type_id">
+          <option value="">Choose a message type</option>
+          {% for message_type in message_types if message_type.active %}
+            <option value="{{ message_type.id }}">{{ message_type.name }}</option>
+          {% endfor %}
+        </select>
+        {% if not message_types|selectattr('active')|list %}
+          <small>Add an active message type below before creating an instruction.</small>
+        {% endif %}
+      </label>
       <label>Instruction title *
         <input name="title" maxlength="160" required>
       </label>
@@ -74,12 +85,43 @@
 </section>
 
 <section class="card mt-3">
+  <div class="card-hd">Instruction message types</div>
+  <div class="card-bd">
+    <p>These airport-specific types appear in the instruction dropdown and organise users’ archived instructions.</p>
+    <form method="post" action="{{ url_for('briefing.create_message_type') }}" class="d-flex gap-2 flex-wrap align-items-end">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label class="flex-grow-1">New message type
+        <input name="name" maxlength="80" required placeholder="For example: Safety instruction">
+      </label>
+      <button class="btn btn-primary" type="submit">Add type</button>
+    </form>
+    <div class="table-responsive mt-3"><table class="table">
+      <thead><tr><th>Name</th><th>Available</th><th>Action</th></tr></thead>
+      <tbody>
+      {% for message_type in message_types %}
+        <tr><td colspan="3">
+          <form method="post" action="{{ url_for('briefing.update_message_type', type_id=message_type.id) }}" class="d-flex gap-2 flex-wrap align-items-center">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input class="flex-grow-1" name="name" maxlength="80" required value="{{ message_type.name }}" aria-label="Message type name">
+            <label class="check-label"><input type="checkbox" name="active" value="yes" {% if message_type.active %}checked{% endif %}> Active</label>
+            <button class="btn btn-sm" type="submit">Save</button>
+          </form>
+        </td></tr>
+      {% else %}
+        <tr><td colspan="3">No message types configured.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="card mt-3">
   <div class="card-hd">Briefing register</div>
   <div class="table-responsive"><table class="table">
     <thead><tr><th>Title</th><th>Type</th><th>Effective</th><th>Status</th><th>Action</th></tr></thead>
     <tbody>
     {% for item in items %}
-      <tr><td><strong>{{ item.title }}</strong><br><small>v{{ item.version }} · {{ item.created_by_name }}</small></td><td>{{ item.kind|title }}</td><td>{{ item.effective_at.strftime('%d %b %Y %H:%M') }}<br><small>to {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small></td><td>{{ item.status|title }}</td><td>
+      <tr><td><strong>{{ item.title }}</strong><br><small>v{{ item.version }} · {{ item.created_by_name }}</small></td><td>{{ item.message_type_name or item.kind|title }}</td><td>{{ item.effective_at.strftime('%d %b %Y %H:%M') }}<br><small>to {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small></td><td>{{ item.status|title }}</td><td>
         {% if item.status == 'draft' %}<form method="post" action="{{ url_for('briefing.publish', item_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Publish</button></form>{% endif %}
         {% if item.status == 'published' %}<form method="post" action="{{ url_for('briefing.withdraw', item_id=item.id) }}" data-confirm="Withdraw this briefing? The audit history will be retained."><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Withdraw</button></form>{% endif %}
       </td></tr>
@@ -94,11 +136,14 @@
   const updateKind = () => {
     const documentField = document.querySelector('[data-document-field]');
     const textField = document.querySelector('[data-text-field]');
+    const messageTypeField = document.querySelector('[data-message-type-field]');
     const instruction = kind.value === 'instruction';
     documentField.hidden = !instruction;
     textField.hidden = instruction;
+    messageTypeField.hidden = !instruction;
     documentField.querySelector('input').required = instruction;
     textField.querySelector('textarea').required = !instruction;
+    messageTypeField.querySelector('select').required = instruction;
   };
   const updateScope = () => document.querySelectorAll('[data-target-detail]').forEach(field => {
     field.hidden = field.dataset.targetDetail !== scope.value;

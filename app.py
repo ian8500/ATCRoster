@@ -491,7 +491,7 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "break_plan", "achieved_duty", "fatigue_report",
     "roster_rule_version", "mfa_credential",
     "briefing_item", "briefing_delivery", "briefing_audit",
-    "briefing_assurance_run",
+    "briefing_assurance_run", "briefing_message_type",
 })
 
 
@@ -1701,7 +1701,8 @@ MfaCredential = SaaS.MfaCredential
 
 from briefing_module import (
     BriefingAssuranceRun, BriefingAudit, BriefingDelivery, BriefingItem,
-    briefing_blueprint, briefing_enabled, briefing_local_now,
+    BriefingMessageType, briefing_blueprint, briefing_enabled,
+    briefing_local_now,
 )
 
 # Enforce the authenticated airport on all legacy operational SELECTs and
@@ -1719,7 +1720,8 @@ TENANT_OPERATIONAL_MODELS = (
     RosterPublication, RosterAcknowledgement, Scenario,
     OperationalPosition, PositionEndorsement, PositionRequirement, BreakPlan,
     AchievedDuty, FatigueReport, RosterRuleVersion,
-    MfaCredential, BriefingItem, BriefingDelivery, BriefingAudit,
+    MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
+    BriefingAudit,
     BriefingAssuranceRun,
 )
 
