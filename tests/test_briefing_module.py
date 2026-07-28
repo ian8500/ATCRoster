@@ -17,6 +17,15 @@ from app import (
 )
 
 
+def test_briefing_tables_are_routed_to_the_operational_database():
+    assert {
+        "briefing_item",
+        "briefing_delivery",
+        "briefing_audit",
+        "briefing_assurance_run",
+    }.issubset(app.OPERATIONAL_TABLE_NAMES)
+
+
 @pytest.fixture()
 def briefing_client():
     with app.app.app_context():

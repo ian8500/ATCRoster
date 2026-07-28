@@ -490,6 +490,8 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "operational_position", "position_endorsement", "position_requirement",
     "break_plan", "achieved_duty", "fatigue_report",
     "roster_rule_version", "mfa_credential",
+    "briefing_item", "briefing_delivery", "briefing_audit",
+    "briefing_assurance_run",
 })
 
 
