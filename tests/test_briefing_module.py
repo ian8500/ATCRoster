@@ -240,6 +240,7 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     assert document.mimetype == "application/pdf"
     assert document.headers["X-Frame-Options"] == "SAMEORIGIN"
     assert "frame-ancestors 'self'" in document.headers["Content-Security-Policy"]
+    assert "sandbox" not in document.headers["Content-Security-Policy"]
     assert "inline" in document.headers["Content-Disposition"]
     download = briefing_client.get(
         f"/briefing/item/{item_id}/document?download=1"

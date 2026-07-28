@@ -515,9 +515,9 @@ def document(item_id: int):
         # The application defaults to denying all framing. This private endpoint
         # is the single exception so its PDF can be shown by our own reader.
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; frame-ancestors 'self'; sandbox"
-        )
+        # Do not sandbox the response: Safari's native PDF renderer will open a
+        # sandboxed PDF in a tab but may leave the embedded frame blank.
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     return response
 
 
