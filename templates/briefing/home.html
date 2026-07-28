@@ -1,5 +1,47 @@
 {% extends "base.html" %}
 {% block title %}My briefing{% endblock %}
+{% macro briefing_card(delivery, item) %}
+  <article class="briefing-card briefing-card--{{ item.priority }}{% if item.kind != 'daily' %} briefing-card--clickable{% endif %}"
+    {% if item.kind != 'daily' %}data-briefing-card data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}" role="link" tabindex="0" aria-label="Open {{ item.title }}"{% endif %}>
+    <div class="briefing-card__meta">
+      <span class="status-chip">{{ item.message_type_name or {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
+      <span>{{ item.priority|title }}</span>
+      {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
+    </div>
+    <h3>{{ item.title }}</h3>
+    {% if item.body %}
+      {% if item.kind == 'daily' %}
+        <div class="briefing-daily-text" data-daily-text>{{ item.body|e|replace('\n', '<br>')|safe }}</div>
+        <button class="briefing-daily-expand" type="button" data-daily-expand hidden aria-expanded="false">
+          <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+          <span>Expand</span>
+        </button>
+      {% else %}
+        <p>{{ item.body|truncate(240) }}</p>
+      {% endif %}
+    {% endif %}
+    <div class="briefing-card__footer">
+      <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
+      {% if item.kind != 'daily' %}
+      <div class="briefing-card__actions">
+        <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
+          {% if delivery.acknowledged_at %}Review again{% else %}Open{% endif %}
+        </a>
+        {% if delivery.acknowledged_at %}
+          <form method="post" action="{{ url_for('briefing.archive_item', item_id=item.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn" type="submit"><i class="fa-solid fa-box-archive"></i> Archive</button>
+          </form>
+          <form method="post" action="{{ url_for('briefing.delete_item', item_id=item.id) }}" data-confirm="Remove this briefing from your personal view? The audit record will be retained.">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn" type="submit"><i class="fa-solid fa-trash"></i> Delete</button>
+          </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </article>
+{% endmacro %}
 {% block content %}
 <section class="compliance-hero">
   <div>
@@ -9,54 +51,25 @@
   </div>
 </section>
 
-<div class="briefing-list">
-  {% for delivery, item in deliveries %}
-    <article class="briefing-card briefing-card--{{ item.priority }}{% if item.kind != 'daily' %} briefing-card--clickable{% endif %}"
-      {% if item.kind != 'daily' %}data-briefing-card data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}" role="link" tabindex="0" aria-label="Open {{ item.title }}"{% endif %}>
-      <div class="briefing-card__meta">
-        <span class="status-chip">{{ item.message_type_name or {'daily':'Brief of the day','instruction':'Instruction','notam':'NOTAM'}.get(item.kind, item.kind|title) }}</span>
-        <span>{{ item.priority|title }}</span>
-        {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
-      </div>
-      <h3>{{ item.title }}</h3>
-      {% if item.body %}
-        {% if item.kind == 'daily' %}
-          <div class="briefing-daily-text" data-daily-text>{{ item.body|e|replace('\n', '<br>')|safe }}</div>
-          <button class="briefing-daily-expand" type="button" data-daily-expand hidden aria-expanded="false">
-            <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
-            <span>Expand</span>
-          </button>
+<div class="briefing-sections">
+  {% for section in (
+    {'title': 'Briefs of the Day', 'icon': 'fa-bullhorn', 'rows': daily_deliveries, 'empty': 'No Briefs of the Day are active.'},
+    {'title': 'Mandatory Messages', 'icon': 'fa-triangle-exclamation', 'rows': mandatory_deliveries, 'empty': 'You have no current mandatory messages.'},
+    {'title': 'Other Messages', 'icon': 'fa-inbox', 'rows': other_deliveries, 'empty': 'You have no other current messages.'}
+  ) %}
+    <section class="briefing-section">
+      <header class="briefing-section__header">
+        <h3><i class="fa-solid {{ section.icon }}" aria-hidden="true"></i> {{ section.title }}</h3>
+        <span>{{ section.rows|length }}</span>
+      </header>
+      <div class="briefing-list">
+        {% for delivery, item in section.rows %}
+          {{ briefing_card(delivery, item) }}
         {% else %}
-          <p>{{ item.body|truncate(240) }}</p>
-        {% endif %}
-      {% endif %}
-      <div class="briefing-card__footer">
-        <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
-        {% if item.kind != 'daily' %}
-        <div class="briefing-card__actions">
-          <a class="btn {% if not delivery.acknowledged_at %}btn-primary{% endif %}" href="{{ url_for('briefing.view_item', item_id=item.id) }}">
-            {% if delivery.acknowledged_at %}Review again{% else %}Open{% endif %}
-          </a>
-          {% if delivery.acknowledged_at %}
-            <form method="post" action="{{ url_for('briefing.archive_item', item_id=item.id) }}">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <button class="btn" type="submit"><i class="fa-solid fa-box-archive"></i> Archive</button>
-            </form>
-            <form method="post" action="{{ url_for('briefing.delete_item', item_id=item.id) }}" data-confirm="Remove this briefing from your personal view? The audit record will be retained.">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <button class="btn" type="submit"><i class="fa-solid fa-trash"></i> Delete</button>
-            </form>
-          {% endif %}
-        </div>
-        {% endif %}
+          <div class="briefing-section__empty"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> {{ section.empty }}</div>
+        {% endfor %}
       </div>
-    </article>
-  {% else %}
-    <section class="card"><div class="card-bd empty-state">
-      <i class="fa-solid fa-circle-check"></i>
-      <h3>You are up to date</h3>
-      <p>There are no current briefing items assigned to you.</p>
-    </div></section>
+    </section>
   {% endfor %}
 </div>
 <script nonce="{{ csp_nonce() }}">

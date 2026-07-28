@@ -334,8 +334,22 @@ def home():
         .order_by(BriefingItem.priority.desc(), BriefingItem.effective_at.desc())
         .all()
     )
+    daily_deliveries = [
+        row for row in deliveries if row[1].kind == "daily"
+    ]
+    mandatory_deliveries = [
+        row for row in deliveries
+        if row[1].kind != "daily" and row[1].mandatory
+    ]
+    other_deliveries = [
+        row for row in deliveries
+        if row[1].kind != "daily" and not row[1].mandatory
+    ]
     return render_template(
         "briefing/home.html", deliveries=deliveries,
+        daily_deliveries=daily_deliveries,
+        mandatory_deliveries=mandatory_deliveries,
+        other_deliveries=other_deliveries,
         briefing_current_time=current_time,
     )
 
