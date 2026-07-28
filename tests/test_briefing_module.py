@@ -224,9 +224,22 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     page = briefing_client.get(f"/briefing/item/{item_id}")
     assert page.status_code == 200
     assert b"Runway inspection procedure" in page.data
+    assert b"Full screen" in page.data
+    assert b"Pop out" in page.data
+    assert b"Download" in page.data
+    assert b"data-pdf-frame" in page.data
     document = briefing_client.get(f"/briefing/item/{item_id}/document")
     assert document.status_code == 200
     assert document.data.startswith(b"%PDF-")
+    assert document.mimetype == "application/pdf"
+    assert document.headers["X-Frame-Options"] == "SAMEORIGIN"
+    assert "frame-ancestors 'self'" in document.headers["Content-Security-Policy"]
+    assert "inline" in document.headers["Content-Disposition"]
+    download = briefing_client.get(
+        f"/briefing/item/{item_id}/document?download=1"
+    )
+    assert download.status_code == 200
+    assert "attachment" in download.headers["Content-Disposition"]
     response = briefing_client.post(
         f"/briefing/item/{item_id}/acknowledge",
         data={"_csrf_token": _csrf(briefing_client), "confirmation": "yes"},

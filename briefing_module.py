@@ -504,11 +504,21 @@ def document(item_id: int):
     except BriefingStorageError:
         current_app.logger.exception("briefing_document_read_failed")
         abort(404)
-    return send_file(
+    download = request.args.get("download") == "1"
+    response = send_file(
         io.BytesIO(content),
         mimetype=item.content_type, download_name=item.original_filename,
-        as_attachment=item.content_type != "application/pdf", conditional=True,
+        as_attachment=download or item.content_type != "application/pdf",
+        conditional=True,
     )
+    if item.content_type == "application/pdf" and not download:
+        # The application defaults to denying all framing. This private endpoint
+        # is the single exception so its PDF can be shown by our own reader.
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; frame-ancestors 'self'; sandbox"
+        )
+    return response
 
 
 @briefing_blueprint.route("/admin", methods=["GET", "POST"])

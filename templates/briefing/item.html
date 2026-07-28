@@ -16,7 +16,41 @@
   {% if item.body %}<section class="briefing-reader__text">{{ item.body|e|replace('\n', '<br>')|safe }}</section>{% endif %}
   {% if item.stored_filename %}
     {% if item.content_type == 'application/pdf' %}
-      <iframe class="briefing-document" title="{{ item.title }}" src="{{ url_for('briefing.document', item_id=item.id) }}"></iframe>
+      {% set document_url = url_for('briefing.document', item_id=item.id) %}
+      <section class="briefing-document-viewer" data-pdf-viewer>
+        <div class="briefing-document-viewer__toolbar">
+          <div class="briefing-document-viewer__identity">
+            <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+            <span>
+              <strong>{{ item.original_filename }}</strong>
+              <small>PDF document</small>
+            </span>
+          </div>
+          <div class="briefing-document-viewer__actions">
+            <button class="btn" type="button" data-pdf-fullscreen>
+              <i class="fa-solid fa-expand" aria-hidden="true"></i> Full screen
+            </button>
+            <a class="btn" target="_blank" rel="noopener" href="{{ document_url }}">
+              <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> Pop out
+            </a>
+            <a class="btn" href="{{ document_url }}?download=1">
+              <i class="fa-solid fa-download" aria-hidden="true"></i> Download
+            </a>
+          </div>
+        </div>
+        <div class="briefing-document-viewer__stage">
+          <div class="briefing-document-viewer__loading" data-pdf-loading>
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <span>Loading PDF…</span>
+          </div>
+          <iframe
+            class="briefing-document"
+            title="{{ item.title }}"
+            src="{{ document_url }}#view=FitH&toolbar=1&navpanes=1"
+            data-pdf-frame
+          ></iframe>
+        </div>
+      </section>
     {% else %}
       <section class="card"><div class="card-bd">
         <p>This Word instruction opens in your device’s document viewer.</p>
@@ -44,6 +78,19 @@
 (() => {
   const reader = document.querySelector('[data-briefing-reader]');
   if (!reader) return;
+  const viewer = document.querySelector('[data-pdf-viewer]');
+  const frame = document.querySelector('[data-pdf-frame]');
+  const loading = document.querySelector('[data-pdf-loading]');
+  const fullscreenButton = document.querySelector('[data-pdf-fullscreen]');
+  if (frame && loading) {
+    frame.addEventListener('load', () => loading.hidden = true);
+  }
+  if (viewer && fullscreenButton) {
+    fullscreenButton.addEventListener('click', () => {
+      const enterFullscreen = viewer.requestFullscreen || viewer.webkitRequestFullscreen;
+      if (enterFullscreen) enterFullscreen.call(viewer);
+    });
+  }
   let active = !document.hidden;
   let last = Date.now();
   const token = {{ csrf_token()|tojson }};
