@@ -110,7 +110,7 @@
               <a href="{{ url_for('overtime') }}" class="nav-link {% if request.endpoint == 'overtime' %}active{% endif %}"><i class="fa-solid fa-satellite-dish" aria-hidden="true"></i> Overtime Finder</a>
             {% endif %}
             {% if is_admin or is_editor %}
-              <a href="{{ url_for('leave') }}" class="nav-link {% if request.endpoint == 'leave' %}active{% endif %}"><i class="fa-solid fa-user-clock" aria-hidden="true"></i> Leave / Sickness</a>
+              <a href="{{ url_for('leave') }}" class="nav-link roster-nav__admin-start {% if request.endpoint == 'leave' %}active{% endif %}"><i class="fa-solid fa-user-clock" aria-hidden="true"></i> Leave / Sickness</a>
               <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Reports</a>
             {% endif %}
             {% if is_admin %}
@@ -119,7 +119,7 @@
             {% endif %}
             {% endif %}
           {% endif %}
-          <a href="{{ url_for('logout') }}" class="nav-link nav-link--quiet"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Logout</a>
+          <a href="{{ url_for('logout') }}" class="nav-link nav-link--quiet {% if current_user.role != 'superadmin' and ((in_briefing_module and not is_admin) or (not in_briefing_module and not is_admin and not is_editor)) %}nav-link--push-right{% endif %}"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Logout</a>
         {% else %}
           <a href="{{ url_for('login') }}" class="nav-link {% if request.endpoint == 'login' %}active{% endif %}"><i class="fa-solid fa-lock" aria-hidden="true"></i> Login</a>
         {% endif %}
