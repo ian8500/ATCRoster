@@ -6,7 +6,7 @@ flag.  Its tables can be downgraded without changing roster records.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 import hashlib
 import io
 import json
@@ -704,7 +704,7 @@ def _duty_start(assignment, shift) -> datetime:
 def assurance():
     _require_admin()
     roster_app = _app_models()
-    selected_date = date.today()
+    selected_date = briefing_local_now().date()
     results = None
     run = None
     if request.method == "POST":
@@ -720,20 +720,85 @@ def assurance():
                 409,
                 "Briefing assurance requires an active published roster.",
             )
-        assignments = roster_app.Assignment.query.filter_by(
-            day=selected_date
-        ).order_by(roster_app.Assignment.staff_id).all()
         shift_map = {
             row.code: row for row in roster_app.ShiftType.query.all()
         }
-        results = []
+        working_codes = {
+            code for code, shift in shift_map.items() if shift.is_working
+        }
+        people = roster_app.Staff.query.filter_by(
+            membership_status="active"
+        ).order_by(roster_app.Staff.name).all()
+        people_by_id = {person.id: person for person in people}
+
+        identities = roster_app.PlatformIdentity.query.filter(
+            roster_app.db.func.lower(
+                roster_app.PlatformIdentity.username
+            ).in_([person.username.lower() for person in people])
+        ).all()
+        identities_by_username = {
+            identity.username.lower(): identity for identity in identities
+        }
+        unit = roster_app.db.session.get(
+            roster_app.Unit, current_user.unit_id
+        )
+        try:
+            airport_zone = ZoneInfo(
+                (getattr(unit, "timezone", "") or "Europe/London").strip()
+            )
+        except ZoneInfoNotFoundError:
+            airport_zone = ZoneInfo("Europe/London")
+
+        last_rostered = {}
+        working_assignments = (
+            roster_app.Assignment.query
+            .filter(
+                roster_app.Assignment.day <= selected_date,
+                roster_app.Assignment.code.in_(working_codes),
+            )
+            .order_by(
+                roster_app.Assignment.staff_id,
+                roster_app.Assignment.day.desc(),
+            )
+            .all()
+        )
+        for assignment in working_assignments:
+            last_rostered.setdefault(assignment.staff_id, assignment.day)
+
+        login_roster = []
+        for person in people:
+            identity = identities_by_username.get(person.username.lower())
+            last_login_at = getattr(identity, "last_active_at", None)
+            if last_login_at:
+                if last_login_at.tzinfo is None:
+                    last_login_at = last_login_at.replace(tzinfo=timezone.utc)
+                last_login_date = last_login_at.astimezone(
+                    airport_zone
+                ).date()
+            else:
+                last_login_date = None
+            rostered_date = last_rostered.get(person.id)
+            login_roster.append({
+                "staff_id": person.id,
+                "name": person.name,
+                "last_login_date": (
+                    last_login_date.isoformat() if last_login_date else None
+                ),
+                "last_rostered_date": (
+                    rostered_date.isoformat() if rostered_date else None
+                ),
+                "different": last_login_date != rostered_date,
+            })
+
+        assignments = roster_app.Assignment.query.filter_by(
+            day=selected_date
+        ).order_by(roster_app.Assignment.staff_id).all()
+        on_duty_mandatory = []
         for assignment in assignments:
             shift = shift_map.get(assignment.code)
             if not shift or not shift.is_working:
                 continue
-            person = roster_app.Staff.query.filter_by(
-                id=assignment.staff_id, membership_status="active"
-            ).first()
+            person = people_by_id.get(assignment.staff_id)
             if not person:
                 continue
             duty_start = _duty_start(assignment, shift)
@@ -763,15 +828,71 @@ def assurance():
                         "title": item.title,
                         "opened": bool(delivery.first_opened_at),
                     })
-            results.append({
-                "staff_id": person.id,
-                "name": person.name,
-                "shift": assignment.code,
-                "duty_start": duty_start.isoformat(),
-                "required": len(rows),
-                "outstanding": outstanding,
-                "status": "exception" if outstanding else "compliant",
+            if outstanding:
+                on_duty_mandatory.append({
+                    "staff_id": person.id,
+                    "name": person.name,
+                    "shift": assignment.code,
+                    "duty_start": duty_start.isoformat(),
+                    "outstanding": outstanding,
+                })
+
+        briefing_now = briefing_local_now()
+        unread_rows = (
+            db.session.query(BriefingDelivery, BriefingItem)
+            .join(
+                BriefingItem,
+                BriefingItem.id == BriefingDelivery.briefing_id,
+            )
+            .filter(
+                BriefingDelivery.recipient_id.in_(list(people_by_id)),
+                BriefingDelivery.deleted_at.is_(None),
+                BriefingItem.kind == "instruction",
+                BriefingItem.status == "published",
+                BriefingItem.effective_at <= briefing_now,
+                BriefingItem.expires_at >= briefing_now,
+                db.or_(
+                    BriefingDelivery.acknowledged_at.is_(None),
+                    BriefingDelivery.acknowledged_version
+                    != BriefingItem.version,
+                ),
+            )
+            .order_by(
+                BriefingDelivery.recipient_id,
+                BriefingItem.priority.desc(),
+                BriefingItem.effective_at,
+            )
+            .all()
+        )
+        unread_by_staff = {person.id: [] for person in people}
+        for delivery, item in unread_rows:
+            unread_by_staff.setdefault(delivery.recipient_id, []).append({
+                "title": item.title,
+                "message_type": (
+                    item.message_type_name or "Uncategorised instruction"
+                ),
+                "mandatory": item.mandatory,
+                "priority": item.priority,
+                "opened": bool(delivery.first_opened_at),
+                "effective_at": item.effective_at.isoformat(),
+                "expires_at": item.expires_at.isoformat(),
             })
+        unread_profiles = [{
+            "staff_id": person.id,
+            "name": person.name,
+            "count": len(unread_by_staff.get(person.id, [])),
+            "mandatory_count": sum(
+                1 for item in unread_by_staff.get(person.id, [])
+                if item["mandatory"]
+            ),
+            "instructions": unread_by_staff.get(person.id, []),
+        } for person in people]
+
+        results = {
+            "login_roster": login_roster,
+            "on_duty_mandatory": on_duty_mandatory,
+            "unread_profiles": unread_profiles,
+        }
         run = BriefingAssuranceRun(
             unit_id=current_user.unit_id,
             operational_date=selected_date,
@@ -783,7 +904,9 @@ def assurance():
         db.session.flush()
         _audit(
             "assurance_run", None, operational_date=selected_date,
-            result_count=len(results), run_id=run.id,
+            result_count=len(people), run_id=run.id,
+            on_duty_exception_count=len(on_duty_mandatory),
+            unread_instruction_count=len(unread_rows),
             roster_publication_id=publication.id,
             roster_version=publication.version,
         )

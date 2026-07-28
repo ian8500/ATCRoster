@@ -14,9 +14,9 @@ if REPO_ROOT not in sys.path:
 import app
 from briefing_module import briefing_local_now
 from app import (
-    Assignment, BriefingAudit, BriefingDelivery, BriefingItem,
-    BriefingMessageType, FeatureFlag, RosterPublication, ShiftType, Staff,
-    Unit, Watch, db,
+    Assignment, BriefingAssuranceRun, BriefingAudit, BriefingDelivery,
+    BriefingItem, BriefingMessageType, FeatureFlag, RosterPublication,
+    ShiftType, Staff, Unit, Watch, db,
 )
 
 
@@ -289,4 +289,76 @@ def test_assurance_ignores_non_working_assignments(briefing_client):
         },
     )
     assert response.status_code == 200
-    assert b"No working duties found for this date" in response.data
+    assert b"Login and roster activity" in response.data
+    assert b"On duty with unread mandatory messages" in response.data
+    assert b"Unread instructions by user" in response.data
+    assert b"No on-duty users have unread mandatory messages" in response.data
+    with app.app.app_context():
+        saved = json.loads(BriefingAssuranceRun.query.one().result_json)
+        assert set(saved) == {
+            "login_roster",
+            "on_duty_mandatory",
+            "unread_profiles",
+        }
+
+
+def test_assurance_reports_on_duty_and_profile_unread_items(
+    briefing_client,
+):
+    _login(briefing_client, "brief_admin")
+    today = datetime.now().date()
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="brief_user").one()
+        db.session.add(Assignment(
+            unit_id=1,
+            staff_id=user.id,
+            day=today,
+            code="M",
+            source="manual",
+        ))
+        db.session.flush()
+        db.session.add(RosterPublication(
+            unit_id=1,
+            year=today.year,
+            month=today.month,
+            version=1,
+            state="published",
+            snapshot_json=json.dumps(app._roster_snapshot(
+                today.year, today.month
+            )),
+            published_at=datetime.now(),
+        ))
+        item = BriefingItem(
+            unit_id=1,
+            kind="instruction",
+            title="Mandatory safety update",
+            message_type_name="Safety instruction",
+            effective_at=datetime.now() - timedelta(hours=1),
+            expires_at=datetime.now() + timedelta(days=1),
+            mandatory=True,
+            priority="critical",
+            status="published",
+            created_by_id=1,
+            created_by_name="Brief Admin",
+        )
+        db.session.add(item)
+        db.session.flush()
+        db.session.add(BriefingDelivery(
+            unit_id=1,
+            briefing_id=item.id,
+            recipient_id=user.id,
+            recipient_name=user.name,
+        ))
+        db.session.commit()
+
+    response = briefing_client.post(
+        "/briefing/admin/assurance",
+        data={
+            "_csrf_token": _csrf(briefing_client),
+            "date": today.isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    assert b"Mandatory safety update" in response.data
+    assert b"1 unread instruction" in response.data
+    assert b"Different" in response.data

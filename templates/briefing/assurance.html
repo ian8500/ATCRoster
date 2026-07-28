@@ -14,17 +14,64 @@
 </div></section>
 {% if results is not none %}
 <section class="card mt-3">
-  <div class="card-hd">Results <small>Run {{ run.run_at.strftime('%d %b %Y %H:%M:%S') }} by {{ run.run_by_name }}</small></div>
+  <div class="card-hd">Login and roster activity <small>Run {{ run.run_at.strftime('%d %b %Y %H:%M:%S') }} by {{ run.run_by_name }}</small></div>
   <div class="table-responsive"><table class="table">
-    <thead><tr><th>User</th><th>Duty</th><th>Required</th><th>Status</th><th>Outstanding</th></tr></thead>
-    <tbody>{% for row in results %}
-      <tr class="{% if row.status == 'exception' %}assurance-exception{% endif %}">
-        <td>{{ row.name }}</td><td>{{ row.shift }} · {{ row.duty_start[11:16] }}</td><td>{{ row.required }}</td>
-        <td>{% if row.status == 'compliant' %}<span class="assurance-ok">Compliant</span>{% else %}<span class="assurance-fail">Exception</span>{% endif %}</td>
-        <td>{% for item in row.outstanding %}<div>{{ item.title }} · {{ 'opened, not acknowledged' if item.opened else 'not opened' }}</div>{% else %}—{% endfor %}</td>
+    <thead><tr><th>User</th><th>Last login</th><th>Last rostered working day</th><th>Comparison</th></tr></thead>
+    <tbody>{% for row in results.login_roster %}
+      <tr class="{% if row.different %}assurance-exception{% endif %}">
+        <td>{{ row.name }}</td>
+        <td>{{ row.last_login_date or 'No login recorded' }}</td>
+        <td>{{ row.last_rostered_date or 'No working duty recorded' }}</td>
+        <td>{% if row.different %}<span class="assurance-fail">Different</span>{% else %}<span class="assurance-ok">Match</span>{% endif %}</td>
       </tr>
-    {% else %}<tr><td colspan="5">No working duties found for this date.</td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="4">No active users.</td></tr>{% endfor %}</tbody>
   </table></div>
+</section>
+
+<section class="card mt-3">
+  <div class="card-hd">On duty with unread mandatory messages</div>
+  <div class="table-responsive"><table class="table">
+    <thead><tr><th>User</th><th>Duty</th><th>Unread mandatory messages</th></tr></thead>
+    <tbody>{% for row in results.on_duty_mandatory %}
+      <tr class="assurance-exception">
+        <td>{{ row.name }}</td>
+        <td>{{ row.shift }} · {{ row.duty_start[11:16] }}</td>
+        <td>{% for item in row.outstanding %}<div><strong>{{ item.title }}</strong> · {{ 'opened, not acknowledged' if item.opened else 'not opened' }}</div>{% endfor %}</td>
+      </tr>
+    {% else %}<tr><td colspan="3"><span class="assurance-ok">No on-duty users have unread mandatory messages.</span></td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section class="card mt-3">
+  <div class="card-hd">Unread instructions by user</div>
+  <div class="card-bd assurance-profiles">
+    {% for profile in results.unread_profiles %}
+      <details class="assurance-profile {% if profile.count %}assurance-profile--attention{% endif %}">
+        <summary>
+          <strong>{{ profile.name }}</strong>
+          <span>{{ profile.count }} unread instruction{{ '' if profile.count == 1 else 's' }}{% if profile.mandatory_count %} · {{ profile.mandatory_count }} mandatory{% endif %}</span>
+        </summary>
+        {% if profile.instructions %}
+          <div class="table-responsive"><table class="table">
+            <thead><tr><th>Instruction</th><th>Type</th><th>Priority</th><th>Reading status</th><th>Effective period</th></tr></thead>
+            <tbody>{% for item in profile.instructions %}
+              <tr>
+                <td><strong>{{ item.title }}</strong>{% if item.mandatory %}<br><small>Mandatory</small>{% endif %}</td>
+                <td>{{ item.message_type }}</td>
+                <td>{{ item.priority|title }}</td>
+                <td>{{ 'Opened, not acknowledged' if item.opened else 'Not opened' }}</td>
+                <td>{{ item.effective_at[:16]|replace('T', ' ') }} to {{ item.expires_at[:16]|replace('T', ' ') }}</td>
+              </tr>
+            {% endfor %}</tbody>
+          </table></div>
+        {% else %}
+          <p class="assurance-ok">No unread instructions.</p>
+        {% endif %}
+      </details>
+    {% else %}
+      <p>No active users.</p>
+    {% endfor %}
+  </div>
 </section>
 {% endif %}
 <section class="card mt-3"><div class="card-hd">Previous checks</div><div class="card-bd">
