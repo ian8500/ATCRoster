@@ -6965,6 +6965,24 @@ def notifications_read():
     )
 
 
+@app.post("/notifications/<int:notification_id>/read")
+@login_required
+def notification_read(notification_id):
+    _validate_csrf()
+    item = Notification.query.filter_by(
+        id=notification_id,
+        unit_id=_current_unit_id(),
+        recipient_id=current_user.id,
+    ).first_or_404()
+    if not item.read_at:
+        item.read_at = utcnow()
+        db.session.commit()
+        flash("Notification marked as read.", "ok")
+    return redirect(
+        url_for("staff_profile", sid=current_user.id) + "#notifications"
+    )
+
+
 @app.post("/notifications/<int:notification_id>/delete")
 @login_required
 def notification_delete(notification_id):
