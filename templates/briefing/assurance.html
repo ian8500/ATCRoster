@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Briefing assurance{% endblock %}
+{% block title %}Briefing reports{% endblock %}
 {% block content %}
 {% include "briefing/_nav.html" %}
 <section class="compliance-hero">
-  <div><span class="admin-step">Real-time roster check</span><h2>Briefing assurance</h2><p>Compare mandatory acknowledgements with the active roster as it stands now.</p></div>
+  <div><span class="admin-step">Real-time briefing oversight</span><h2>Reports</h2><p>Review logins, roster activity and outstanding briefing instructions.</p></div>
 </section>
 <section class="card"><div class="card-bd">
   <form method="post" class="assurance-run-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label>Operational date <input type="date" name="date" value="{{ selected_date.isoformat() }}" required></label>
-    <button class="btn btn-primary" type="submit"><i class="fa-solid fa-play"></i> Run assurance check</button>
+    <button class="btn btn-primary" type="submit"><i class="fa-solid fa-play"></i> Run report</button>
   </form>
 </div></section>
 {% if results is not none %}
@@ -74,7 +74,7 @@
   </div>
 </section>
 {% endif %}
-<section class="card mt-3"><div class="card-hd">Previous checks</div><div class="card-bd">
+<section class="card mt-3"><div class="card-hd">Previous reports</div><div class="card-bd">
   {% for previous in previous_runs %}<p><strong>{{ previous.operational_date.strftime('%d %b %Y') }}</strong> · {{ previous.run_at.strftime('%d %b %Y %H:%M') }} · {{ previous.run_by_name }}</p>{% else %}<p>No checks have been run.</p>{% endfor %}
 </div></section>
 {% endblock %}

@@ -699,7 +699,7 @@ def _duty_start(assignment, shift) -> datetime:
     return datetime.combine(assignment.day, shift.start_time or time.min)
 
 
-@briefing_blueprint.route("/admin/assurance", methods=["GET", "POST"])
+@briefing_blueprint.route("/admin/reports", methods=["GET", "POST"])
 @login_required
 def assurance():
     _require_admin()
@@ -718,7 +718,7 @@ def assurance():
         if not publication:
             abort(
                 409,
-                "Briefing assurance requires an active published roster.",
+                "Briefing reports require an active published roster.",
             )
         shift_map = {
             row.code: row for row in roster_app.ShiftType.query.all()
@@ -903,7 +903,7 @@ def assurance():
         db.session.add(run)
         db.session.flush()
         _audit(
-            "assurance_run", None, operational_date=selected_date,
+            "report_run", None, operational_date=selected_date,
             result_count=len(people), run_id=run.id,
             on_duty_exception_count=len(on_duty_mandatory),
             unread_instruction_count=len(unread_rows),
@@ -918,6 +918,13 @@ def assurance():
         "briefing/assurance.html", selected_date=selected_date,
         results=results, run=run, previous_runs=previous_runs,
     )
+
+
+@briefing_blueprint.get("/admin/assurance")
+@login_required
+def legacy_assurance():
+    _require_admin()
+    return redirect(url_for("briefing.assurance"), code=308)
 
 
 @briefing_blueprint.get("/admin/audit")

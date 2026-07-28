@@ -148,6 +148,11 @@ def test_admin_configures_instruction_message_types(briefing_client):
     publish_page = briefing_client.get("/briefing/admin")
     assert publish_page.status_code == 200
     assert b"Instruction message types</div>" not in publish_page.data
+    assert b'href="/briefing/admin/reports"' in publish_page.data
+
+    legacy = briefing_client.get("/briefing/admin/assurance")
+    assert legacy.status_code == 308
+    assert legacy.headers["Location"].endswith("/briefing/admin/reports")
 
     settings_page = briefing_client.get("/briefing/admin/settings")
     assert settings_page.status_code == 200
@@ -283,7 +288,7 @@ def test_assurance_ignores_non_working_assignments(briefing_client):
         ))
         db.session.commit()
     response = briefing_client.post(
-        "/briefing/admin/assurance",
+        "/briefing/admin/reports",
         data={
             "_csrf_token": _csrf(briefing_client),
             "date": datetime.now().date().isoformat(),
@@ -353,7 +358,7 @@ def test_assurance_reports_on_duty_and_profile_unread_items(
         db.session.commit()
 
     response = briefing_client.post(
-        "/briefing/admin/assurance",
+        "/briefing/admin/reports",
         data={
             "_csrf_token": _csrf(briefing_client),
             "date": today.isoformat(),
