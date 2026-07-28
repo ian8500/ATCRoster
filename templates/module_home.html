@@ -8,12 +8,22 @@
   </div>
   <div class="module-launcher__grid">
     <a class="module-card" href="{{ url_for('index') }}">
-      <span class="module-card__icon module-card__icon--roster" aria-hidden="true"><i class="fa-solid fa-calendar-check"></i></span>
+      <span class="module-card__icon module-card__icon--roster" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+          <path d="M8 3v4M16 3v4M3 10h18M8 15l2.5 2.5L16 12"></path>
+        </svg>
+      </span>
       <span><strong>Roster</strong></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
     <a class="module-card module-card--briefing" href="{{ url_for('briefing.home') }}">
-      <span class="module-card__icon module-card__icon--briefing" aria-hidden="true"><i class="fa-solid fa-clipboard-list"></i></span>
+      <span class="module-card__icon module-card__icon--briefing" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d="M9 5V3h6v2M9 5h6v3H9z"></path>
+          <path d="M8 5H6a2 2 0 0 0-2 2v13h16V7a2 2 0 0 0-2-2h-2M8 12h1M12 12h5M8 16h1M12 16h5"></path>
+        </svg>
+      </span>
       <span><strong>Briefing</strong></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>

@@ -120,6 +120,7 @@ def test_feature_flag_exposes_module_selector(briefing_client):
     assert response.status_code == 200
     assert b"Roster" in response.data
     assert b"Briefing" in response.data
+    assert response.data.count(b"<svg") >= 2
 
 
 def test_module_navigation_keeps_roster_and_briefing_separate(
