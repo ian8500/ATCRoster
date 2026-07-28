@@ -649,7 +649,22 @@ def configure_message_types():
     _audit("message_types_configured", active_names=names)
     db.session.commit()
     flash("Instruction message types updated.", "ok")
-    return redirect(url_for("briefing.admin"))
+    return redirect(url_for("briefing.settings"))
+
+
+@briefing_blueprint.get("/admin/settings")
+@login_required
+def settings():
+    _require_admin()
+    message_types = BriefingMessageType.query.order_by(
+        BriefingMessageType.active.desc(),
+        BriefingMessageType.display_order,
+        BriefingMessageType.name,
+    ).all()
+    return render_template(
+        "briefing/settings.html",
+        message_types=message_types,
+    )
 
 
 @briefing_blueprint.post("/admin/<int:item_id>/publish")

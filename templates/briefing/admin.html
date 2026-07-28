@@ -85,21 +85,6 @@
 </section>
 
 <section class="card mt-3">
-  <div class="card-hd">Instruction message types</div>
-  <div class="card-bd">
-    <p>Enter one type per line. These appear in the instruction dropdown and organise users’ archived instructions.</p>
-    <form method="post" action="{{ url_for('briefing.configure_message_types') }}" class="briefing-form">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <label>Message types
-        <textarea name="message_types" rows="4" required>{% for message_type in message_types if message_type.active %}{{ message_type.name }}{% if not loop.last %}
-{% endif %}{% endfor %}</textarea>
-      </label>
-      <div><button class="btn" type="submit">Save message types</button></div>
-    </form>
-  </div>
-</section>
-
-<section class="card mt-3">
   <div class="card-hd">Briefing register</div>
   <div class="table-responsive"><table class="table">
     <thead><tr><th>Title</th><th>Type</th><th>Effective</th><th>Status</th><th>Action</th></tr></thead>

@@ -144,6 +144,14 @@ def test_module_navigation_keeps_roster_and_briefing_separate(
 
 def test_admin_configures_instruction_message_types(briefing_client):
     _login(briefing_client, "brief_admin")
+    publish_page = briefing_client.get("/briefing/admin")
+    assert publish_page.status_code == 200
+    assert b"Instruction message types</div>" not in publish_page.data
+
+    settings_page = briefing_client.get("/briefing/admin/settings")
+    assert settings_page.status_code == 200
+    assert b"Instruction message types" in settings_page.data
+
     response = briefing_client.post(
         "/briefing/admin/message-types/configure",
         data={

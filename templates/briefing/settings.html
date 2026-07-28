@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Briefing settings{% endblock %}
+{% block content %}
+{% include "briefing/_nav.html" %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Briefing administration</span>
+    <h2>Settings</h2>
+    <p>Configure the options used when publishing briefing material.</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-hd">Instruction message types</div>
+  <div class="card-bd">
+    <p>Enter one type per line. These appear in the instruction dropdown and organise users’ archived instructions.</p>
+    <form method="post" action="{{ url_for('briefing.configure_message_types') }}" class="briefing-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Message types
+        <textarea name="message_types" rows="5" required>{% for message_type in message_types if message_type.active %}{{ message_type.name }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+      </label>
+      <div><button class="btn btn-primary" type="submit">Save message types</button></div>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -15,5 +15,8 @@
     <a href="{{ url_for('briefing.audit') }}" class="{% if request.endpoint == 'briefing.audit' %}active{% endif %}">
       <i class="fa-solid fa-clock-rotate-left"></i> Audit
     </a>
+    <a href="{{ url_for('briefing.settings') }}" class="{% if request.endpoint == 'briefing.settings' %}active{% endif %}">
+      <i class="fa-solid fa-gear"></i> Settings
+    </a>
   {% endif %}
 </nav>
