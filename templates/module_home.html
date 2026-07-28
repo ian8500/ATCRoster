@@ -9,18 +9,12 @@
   <div class="module-launcher__grid">
     <a class="module-card" href="{{ url_for('index') }}">
       <span class="module-card__icon module-card__icon--roster" aria-hidden="true"><i class="fa-solid fa-calendar-check"></i></span>
-      <span><strong>Roster</strong><small>Shifts, requests, leave and operational coverage</small></span>
+      <span><strong>Roster</strong></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
     <a class="module-card module-card--briefing" href="{{ url_for('briefing.home') }}">
       <span class="module-card__icon module-card__icon--briefing" aria-hidden="true"><i class="fa-solid fa-clipboard-list"></i></span>
-      <span>
-        <strong>Briefing</strong>
-        <small>Instructions, brief of the day and operational assurance</small>
-        {% if unread_briefing_count %}
-          <em>{{ unread_briefing_count }} item{{ '' if unread_briefing_count == 1 else 's' }} awaiting acknowledgement</em>
-        {% endif %}
-      </span>
+      <span><strong>Briefing</strong></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
   </div>
