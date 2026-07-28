@@ -443,6 +443,7 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
     draft = client.get("/roster/2025-04")
     assert b"Draft roster" in draft.data
     assert b"Publish roster" in draft.data
+    assert b'class="daily-total"><strong>Total ' in draft.data
     token = csrf(client)
     published = client.post(
         "/roster/2025-04/publish",
