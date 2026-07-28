@@ -58,60 +58,56 @@
 
     <details class="collapsible-card">
       <summary class="collapsible-title">Review or edit existing annotations <span class="status-pill">{{ annotations|length }}</span></summary>
-      <div class="table-scroll">
-        <table class="mini admin-table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Label</th>
-              <th>Category</th>
-              <th>Colour</th>
-              <th>Description</th>
-              <th>Tags</th>
-              <th>Allow suffix</th>
-              <th>Suffixes</th>
-              <th>TOIL ½ days</th>
-              <th>Sort</th>
-              <th>Active</th>
-              <th>Note required</th>
-              <th>Admin only</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for ann in annotations %}
-            <tr>
-              <td><input form="ann-form-{{ ann.id }}" name="code" aria-label="Code for {{ ann.label }}" value="{{ ann.code }}" class="input-sm"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="label" aria-label="Label for {{ ann.code }}" value="{{ ann.label }}" class="input-xl"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="category" aria-label="Category for {{ ann.code }}" value="{{ ann.category }}" class="input-lg"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="colour" type="color" aria-label="Colour for {{ ann.code }}" value="{{ ann.colour or '#6c757d' }}"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="description" aria-label="Description for {{ ann.code }}" value="{{ ann.description or '' }}" class="input-xl"></td>
-              <td><input form="ann-form-{{ ann.id }}" name="tags" aria-label="Tags for {{ ann.code }}" value="{{ ann.tags }}" class="input-xl" placeholder="Comma-separated"></td>
-              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="allow_suffix" aria-label="Allow suffix for {{ ann.code }}" {% if ann.allow_suffix %}checked{% endif %}></td>
-              <td><input form="ann-form-{{ ann.id }}" name="suffixes" aria-label="Suffixes for {{ ann.code }}" value="{{ ann.suffixes }}" class="input-sm"></td>
-              <td><input form="ann-form-{{ ann.id }}" type="number" name="toil_half_days" aria-label="TOIL half-days for {{ ann.code }}" value="{{ ann.toil_half_days }}" class="input-xs"></td>
-              <td><input form="ann-form-{{ ann.id }}" type="number" name="sort_order" aria-label="Sort order for {{ ann.code }}" value="{{ ann.sort_order or 0 }}" class="input-xs"></td>
-              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="is_active" aria-label="Active state for {{ ann.code }}" {% if ann.is_active %}checked{% endif %}></td>
-              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="note_required" aria-label="Note required for {{ ann.code }}" {% if ann.note_required %}checked{% endif %}></td>
-              <td class="center"><input form="ann-form-{{ ann.id }}" type="checkbox" name="admin_only" aria-label="Unit Admin only for {{ ann.code }}" {% if ann.admin_only %}checked{% endif %}></td>
-              <td class="table-actions">
-                <form method="post" id="ann-form-{{ ann.id }}" class="inline-form inline-form--tight">
-                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="form" value="annotation_edit">
-                  <input type="hidden" name="annotation_id" value="{{ ann.id }}">
-                  <button class="btn" type="submit">Save</button>
-                </form>
-                <form method="post" class="inline-form" data-confirm="Remove annotation {{ ann.code }}?">
-                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="form" value="annotation_delete">
-                  <input type="hidden" name="annotation_id" value="{{ ann.id }}">
-                  <button class="btn" type="submit">Deactivate</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="annotation-edit-list">
+        {% for ann in annotations %}
+        <details class="annotation-edit-row">
+          <summary>
+            <span class="annotation-colour-dot" style="--annotation-colour:{{ ann.colour or '#6c757d' }}" aria-hidden="true"></span>
+            <strong>{{ ann.code }}</strong>
+            <span>{{ ann.label }}</span>
+            <small>{{ ann.category }}</small>
+            <span class="status-pill">{{ 'Active' if ann.is_active else 'Inactive' }}</span>
+          </summary>
+          <div class="annotation-edit-row__body">
+            <form method="post" id="ann-form-{{ ann.id }}" class="annotation-compact-form">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form" value="annotation_edit">
+              <input type="hidden" name="annotation_id" value="{{ ann.id }}">
+              <div class="annotation-basics">
+                <label>Code<input name="code" value="{{ ann.code }}" maxlength="10" required></label>
+                <label>Name<input name="label" value="{{ ann.label }}" required></label>
+                <label>Group<input name="category" value="{{ ann.category }}"></label>
+                <label>Colour<input name="colour" type="color" value="{{ ann.colour or '#6c757d' }}"></label>
+                <label class="annotation-description">Description<input name="description" value="{{ ann.description or '' }}"></label>
+              </div>
+              <details class="advanced-panel">
+                <summary><span><strong>Advanced behaviour</strong><small>Suffix, TOIL, ordering and permission controls</small></span></summary>
+                <div class="advanced-panel__content annotation-advanced-grid">
+                  <label>System tags<input name="tags" value="{{ ann.tags }}" placeholder="Comma-separated"></label>
+                  <label>Allowed suffixes<input name="suffixes" value="{{ ann.suffixes }}"></label>
+                  <label>TOIL half-days<input type="number" name="toil_half_days" min="-200" max="200" value="{{ ann.toil_half_days }}"></label>
+                  <label>Sort order<input type="number" name="sort_order" value="{{ ann.sort_order or 0 }}"></label>
+                  <label class="checkbox"><input type="checkbox" name="allow_suffix" {% if ann.allow_suffix %}checked{% endif %}> Allow a suffix</label>
+                  <label class="checkbox"><input type="checkbox" name="is_active" {% if ann.is_active %}checked{% endif %}> Active</label>
+                  <label class="checkbox"><input type="checkbox" name="note_required" {% if ann.note_required %}checked{% endif %}> Require a note</label>
+                  <label class="checkbox"><input type="checkbox" name="admin_only" {% if ann.admin_only %}checked{% endif %}> Unit Admin only</label>
+                </div>
+              </details>
+              <div class="form-actions"><button class="btn btn-primary" type="submit">Save changes</button></div>
+            </form>
+            {% if ann.is_active %}
+            <form method="post" class="annotation-deactivate-form" data-confirm="Deactivate annotation {{ ann.code }}?">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form" value="annotation_delete">
+              <input type="hidden" name="annotation_id" value="{{ ann.id }}">
+              <button class="btn btn-sm" type="submit">Deactivate</button>
+            </form>
+            {% endif %}
+          </div>
+        </details>
+        {% else %}
+          <p class="empty-state">No annotations have been configured.</p>
+        {% endfor %}
       </div>
     </details>
   </div>

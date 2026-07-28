@@ -988,6 +988,7 @@ def test_admin_pages_accessible(client):
     acknowledge_reports(client)
     endpoints = [
         "/admin",
+        "/admin/reference",
         "/leave",
         "/metrics",
         "/reports",
@@ -999,6 +1000,11 @@ def test_admin_pages_accessible(client):
     for url in endpoints:
         resp = client.get(url)
         assert resp.status_code == 200, f"Endpoint {url} returned {resp.status_code}"
+        if url == "/admin/reference":
+            assert b"annotation-edit-list" in resp.data
+            assert b"<table" not in resp.data
+            assert b"Leave codes" not in resp.data
+            assert b"Working shift codes" in resp.data
 
 
 def test_operations_workspace_is_hidden_from_primary_navigation(client):

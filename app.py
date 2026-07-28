@@ -1120,7 +1120,6 @@ MIN_MONTH = date(2025, 4, 1)   # Start app from April 2025
 
 # Reference defaults (used if DB rows missing)
 DEFAULT_WORKING_CODES = ["M", "D", "A", "N", "SC", "SSC", "SBY"]
-DEFAULT_LEAVE_CODES = ["AL", "PL", "SPL"]
 DEFAULT_BANNED_ROSTER_CODES = ["SIC", "SC", "SSC", "AL", "SP", "SPL", "PL", "TOU8", "TOUI"]
 DEFAULT_EXCLUDE_FROM_COUNTERS = ["OSS"]
 DEFAULT_NON_WORKING_CODES = [
@@ -1253,7 +1252,6 @@ DEFAULT_ANNOTATION_TYPES = [
 
 DEFAULT_ROSTER_SETTINGS = {
     "working_codes": DEFAULT_WORKING_CODES,
-    "leave_codes": DEFAULT_LEAVE_CODES,
     "banned_codes": DEFAULT_BANNED_ROSTER_CODES,
     "exclude_from_counters": DEFAULT_EXCLUDE_FROM_COUNTERS,
     "non_working_codes": DEFAULT_NON_WORKING_CODES,
@@ -1799,12 +1797,6 @@ def _load_codes_setting(
 
 def get_working_codes() -> set[str]:
     return _load_codes_setting("working_codes", DEFAULT_WORKING_CODES)
-
-
-def get_leave_codes() -> set[str]:
-    return {
-        item["code"] for item in get_absence_types("leave", active_only=True)
-    }
 
 
 def get_absence_types(
@@ -6013,10 +6005,6 @@ def admin_reference():
             "label": "Working shift codes",
             "help": "Codes treated as working when checking fatigue and consecutive days.",
         },
-        "leave_codes": {
-            "label": "Leave codes",
-            "help": "Codes considered leave-like in automatic logic and reports.",
-        },
         "banned_codes": {
             "label": "Roster grid exclusions",
             "help": "Codes that cannot be set directly from the roster grid (must use dedicated forms).",
@@ -6218,7 +6206,6 @@ def admin_reference():
     settings_view = []
     current_values = {
         "working_codes": sorted(get_working_codes()),
-        "leave_codes": sorted(get_leave_codes()),
         "banned_codes": sorted(get_banned_roster_codes()),
         "exclude_from_counters": sorted(get_exclude_from_counters()),
         "non_working_codes": sorted(get_non_working_codes()),
