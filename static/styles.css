@@ -3324,7 +3324,9 @@ table:not(.roster) td {
 .module-launcher__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
 .module-card{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:1rem;padding:1.5rem;border:1px solid var(--border, #39434f);border-radius:16px;background:var(--panel, #18202a);color:inherit;text-decoration:none;transition:.15s ease}
 .module-card:hover{transform:translateY(-2px);border-color:var(--accent, #56b4e9)}
-.module-card__icon{display:grid;place-items:center;width:54px;height:54px;border-radius:14px;background:rgba(86,180,233,.12);font-size:1.4rem}
+.module-card__icon{display:grid;place-items:center;width:62px;height:62px;border-radius:16px;font-size:1.65rem}
+.module-card__icon--roster{background:rgba(86,180,233,.14);color:#71c7f5}
+.module-card__icon--briefing{background:rgba(91,194,169,.14);color:#72d6bd}
 .module-card strong,.module-card small,.module-card em{display:block}
 .module-card strong{font-size:1.25rem;margin-bottom:.3rem}.module-card small{color:var(--muted, #aeb8c2)}.module-card em{color:#f7c95c;font-style:normal;margin-top:.55rem}
 .briefing-nav{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem}
