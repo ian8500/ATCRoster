@@ -6,7 +6,7 @@
     <i class="fa-solid fa-box-archive"></i> Archive
   </a>
   {% if is_admin %}
-    <a href="{{ url_for('briefing.admin') }}" class="{% if request.endpoint == 'briefing.admin' %}active{% endif %}">
+    <a href="{{ url_for('briefing.admin') }}" class="briefing-nav__admin-start {% if request.endpoint == 'briefing.admin' %}active{% endif %}">
       <i class="fa-solid fa-pen-to-square"></i> Publish
     </a>
     <a href="{{ url_for('briefing.assurance') }}" class="{% if request.endpoint == 'briefing.assurance' %}active{% endif %}">

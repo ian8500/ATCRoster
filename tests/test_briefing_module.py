@@ -149,6 +149,10 @@ def test_admin_configures_instruction_message_types(briefing_client):
     assert publish_page.status_code == 200
     assert b"Instruction message types</div>" not in publish_page.data
     assert b'href="/briefing/admin/reports"' in publish_page.data
+    assert b"briefing-nav__admin-start" in publish_page.data
+    assert publish_page.data.index(b"My briefing") < publish_page.data.index(
+        b"Publish"
+    )
 
     legacy = briefing_client.get("/briefing/admin/assurance")
     assert legacy.status_code == 308
