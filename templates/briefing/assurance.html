@@ -12,8 +12,8 @@
   </form>
 </div></section>
 {% if results is not none %}
-<section class="card mt-3">
-  <div class="card-hd">Login and roster activity <small>Run {{ run.run_at.strftime('%d %b %Y %H:%M:%S') }} by {{ run.run_by_name }}</small></div>
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Login and roster activity</span><small>Run {{ run.run_at.strftime('%d %b %Y %H:%M:%S') }} by {{ run.run_by_name }}</small></summary>
   <div class="table-responsive"><table class="table">
     <thead><tr><th>User</th><th>Last login</th><th>Last rostered working day</th><th>Comparison</th></tr></thead>
     <tbody>{% for row in results.login_roster %}
@@ -25,10 +25,10 @@
       </tr>
     {% else %}<tr><td colspan="4">No active users.</td></tr>{% endfor %}</tbody>
   </table></div>
-</section>
+</details>
 
-<section class="card mt-3">
-  <div class="card-hd">On duty with unread mandatory messages</div>
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>On duty with unread mandatory messages</span><small>{{ results.on_duty_mandatory|length }} exception{{ '' if results.on_duty_mandatory|length == 1 else 's' }}</small></summary>
   <div class="table-responsive"><table class="table">
     <thead><tr><th>User</th><th>Duty</th><th>Unread mandatory messages</th></tr></thead>
     <tbody>{% for row in results.on_duty_mandatory %}
@@ -39,10 +39,10 @@
       </tr>
     {% else %}<tr><td colspan="3"><span class="assurance-ok">No on-duty users have unread mandatory messages.</span></td></tr>{% endfor %}</tbody>
   </table></div>
-</section>
+</details>
 
-<section class="card mt-3">
-  <div class="card-hd">Unread instructions by user</div>
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Unread instructions by user</span><small>Expand to review individual users</small></summary>
   <div class="card-bd assurance-profiles">
     {% for profile in results.unread_profiles %}
       <details class="assurance-profile {% if profile.count %}assurance-profile--attention{% endif %}">
@@ -70,10 +70,10 @@
       <p>No active users.</p>
     {% endfor %}
   </div>
-</section>
+</details>
 
-<section class="card mt-3">
-  <div class="card-hd">Read instructions and active reading time</div>
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Read instructions and active reading time</span><small>Expand to review individual users</small></summary>
   <div class="card-bd assurance-profiles">
     {% for profile in results.read_profiles %}
       <details class="assurance-profile">
@@ -105,7 +105,7 @@
       <p>No active users.</p>
     {% endfor %}
   </div>
-</section>
+</details>
 {% endif %}
 <section class="card mt-3"><div class="card-hd">Previous reports</div><div class="card-bd">
   {% for previous in previous_runs %}<p><strong>{{ previous.operational_date.strftime('%d %b %Y') }}</strong> · {{ previous.run_at.strftime('%d %b %Y %H:%M') }} · {{ previous.run_by_name }}</p>{% else %}<p>No checks have been run.</p>{% endfor %}

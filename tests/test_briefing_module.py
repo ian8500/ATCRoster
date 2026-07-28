@@ -375,6 +375,8 @@ def test_assurance_ignores_non_working_assignments(briefing_client):
     assert b"On duty with unread mandatory messages" in response.data
     assert b"Unread instructions by user" in response.data
     assert b"Read instructions and active reading time" in response.data
+    assert response.data.count(b"briefing-report-fold") == 4
+    assert b'<details class="card mt-3 briefing-report-fold">' in response.data
     assert b"No on-duty users have unread mandatory messages" in response.data
     with app.app.app_context():
         saved = json.loads(BriefingAssuranceRun.query.one().result_json)
