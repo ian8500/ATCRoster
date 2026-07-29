@@ -103,6 +103,13 @@
                 <span class="nav-notification-count" aria-hidden="true">{{ unread_notification_count }}</span>
               {% endif %}
             </a>
+            {% if has_training_module %}
+            <a href="{{ url_for('training_profile', sid=current_user.id) }}"
+               class="nav-link {% if request.endpoint and request.endpoint.startswith('training_') %}active{% endif %}">
+              <i class="fa-solid fa-graduation-cap" aria-hidden="true"></i>
+              {{ 'Training' if current_user.is_trainee or current_user.tower_ut or current_user.radar_ut or current_user.met_ut else 'Competency' }}
+            </a>
+            {% endif %}
             {% if is_admin or current_user.is_wm or current_user.is_dwm %}
               <a href="{{ url_for('unit_messages') }}" class="nav-link {% if request.endpoint == 'unit_messages' %}active{% endif %}"><i class="fa-solid fa-message" aria-hidden="true"></i> Messages</a>
             {% endif %}

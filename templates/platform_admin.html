@@ -81,7 +81,8 @@
                 'calendar_exports': 'Calendar exports',
                 'custom_branding': 'Custom branding',
                 'fatigue_reporting': 'Fatigue reporting',
-                'scenario_planning': 'Scenario planning'
+                'scenario_planning': 'Scenario planning',
+                'training_module': 'Training & competency module'
               }.get(key, key|replace('_', ' ')|title) %}
               <form method="post" class="d-flex gap-1 mb-1">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

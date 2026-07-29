@@ -257,6 +257,7 @@ REQUEST_TRANSITIONS = {
 PLATFORM_FEATURE_FLAGS = frozenset({
     "advanced_coverage", "scenario_planning", "calendar_exports",
     "fatigue_reporting", "custom_branding", "briefing_module",
+    "training_module",
 })
 
 
@@ -746,10 +747,10 @@ def _canonical_login_redirect(
 
 def _airport_login_endpoint(user) -> str:
     """Land multi-module airport users on the module launcher."""
-    enabled = FeatureFlag.query.filter_by(
-        unit_id=user.unit_id,
-        key="briefing_module",
-        enabled=True,
+    enabled = FeatureFlag.query.filter(
+        FeatureFlag.unit_id == user.unit_id,
+        FeatureFlag.key.in_(("briefing_module", "training_module")),
+        FeatureFlag.enabled.is_(True),
     ).first()
     return "module_home" if enabled else "index"
 
@@ -1392,6 +1393,7 @@ class Staff(UserMixin, db.Model):
     # Identity / roster fields
     name = db.Column(db.String(80), nullable=False)
     staff_no = db.Column(db.String(20), nullable=False)
+    caa_license_number = db.Column(db.String(40), nullable=False, default="")
 
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"))
     watch = db.relationship("Watch", backref="members")
@@ -1434,6 +1436,61 @@ class Staff(UserMixin, db.Model):
     )
 
 
+class TrainingLevel(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=100)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    __table_args__ = (
+        db.UniqueConstraint("unit_id", "name", name="uq_training_level_unit_name"),
+    )
+
+
+class TrainingObjective(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    level_id = db.Column(db.Integer, db.ForeignKey("training_level.id"), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    level = db.relationship("TrainingLevel", backref="objectives")
+    __table_args__ = (
+        db.UniqueConstraint("level_id", "position", name="uq_training_objective_position"),
+    )
+
+
+class TrainingSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    trainee_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    ojti_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    level_id = db.Column(db.Integer, db.ForeignKey("training_level.id"), nullable=False, index=True)
+    training_date = db.Column(db.Date, nullable=False, index=True)
+    duration_minutes = db.Column(db.Integer, nullable=False)
+    summary = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    trainee = db.relationship("Staff", foreign_keys=[trainee_id])
+    ojti = db.relationship("Staff", foreign_keys=[ojti_id])
+    level = db.relationship("TrainingLevel")
+
+
+class TrainingScore(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("training_session.id"), nullable=False, index=True)
+    objective_id = db.Column(db.Integer, db.ForeignKey("training_objective.id"), nullable=False, index=True)
+    attainment = db.Column(db.Integer, nullable=False)
+    assistance = db.Column(db.Integer, nullable=False)
+    safety_critical = db.Column(db.Boolean, nullable=False, default=False)
+    note = db.Column(db.Text, nullable=False, default="")
+    session = db.relationship("TrainingSession", backref=db.backref("scores", cascade="all, delete-orphan"))
+    objective = db.relationship("TrainingObjective")
+    __table_args__ = (
+        db.UniqueConstraint("session_id", "objective_id", name="uq_training_score_objective"),
+    )
+
+
 def migrate_add_met_and_assessor():
     """Idempotent: add MET/Assessor columns to staff if missing."""
     with app.app_context():
@@ -1455,6 +1512,10 @@ def migrate_add_met_and_assessor():
         if "has_assessor" not in cols:
             alters.append(
                 "ALTER TABLE staff ADD COLUMN has_assessor BOOLEAN DEFAULT 0")
+        if "caa_license_number" not in cols:
+            alters.append(
+                "ALTER TABLE staff ADD COLUMN caa_license_number VARCHAR(40) "
+                "NOT NULL DEFAULT ''")
 
         from sqlalchemy import text  # keep this at top of the function if not already there
         for sql in alters:
@@ -1721,6 +1782,7 @@ TENANT_OPERATIONAL_MODELS = (
     MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
     BriefingAudit,
     BriefingAssuranceRun,
+    TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
 )
 
 
@@ -2274,6 +2336,35 @@ def user_permissions(u) -> dict[str, bool]:
 
 def has_unit_permission(u, permission: str) -> bool:
     return bool(user_permissions(u).get(permission, False))
+
+
+def is_under_training(person) -> bool:
+    return bool(
+        getattr(person, "is_trainee", False)
+        or getattr(person, "tower_ut", False)
+        or getattr(person, "radar_ut", False)
+        or getattr(person, "met_ut", False)
+    )
+
+
+def can_record_training(u) -> bool:
+    return bool(
+        is_admin_user(u) or getattr(u, "has_ojti", False)
+        or getattr(u, "has_assessor", False)
+    )
+
+
+def can_manage_training(u) -> bool:
+    return bool(
+        is_admin_user(u) or getattr(u, "has_assessor", False)
+        or getattr(u, "is_wm", False) or getattr(u, "is_dwm", False)
+    )
+
+
+def training_enabled(unit_id: int) -> bool:
+    return bool(FeatureFlag.query.filter_by(
+        unit_id=unit_id, key="training_module", enabled=True
+    ).first())
 
 
 def can_edit_roster(u) -> bool:
@@ -4878,6 +4969,7 @@ def inject_perms():
     unread_notification_count = 0
     unread_briefing_count = 0
     has_briefing_module = False
+    has_training_module = False
     active_admin_count = 0
     if current_unit and au and is_admin_user(au):
         active_admin_count = Staff.query.filter(
@@ -4896,6 +4988,7 @@ def inject_perms():
             read_at=None,
         ).count()
         has_briefing_module = briefing_enabled(current_unit.id)
+        has_training_module = training_enabled(current_unit.id)
         if (
             has_briefing_module
             and (
@@ -4933,6 +5026,7 @@ def inject_perms():
         "unread_notification_count": unread_notification_count,
         "unread_briefing_count": unread_briefing_count,
         "has_briefing_module": has_briefing_module,
+        "has_training_module": has_training_module,
         "active_admin_count": active_admin_count,
         "current_unit": current_unit,
         "unit_branding": {
@@ -4953,9 +5047,16 @@ def module_home():
     """Select between subscribed airport modules after authentication."""
     if current_user.role == "superadmin":
         return redirect(url_for("platform_admin"))
-    if not briefing_enabled(current_user.unit_id):
+    if not (
+        briefing_enabled(current_user.unit_id)
+        or training_enabled(current_user.unit_id)
+    ):
         return redirect(url_for("index"))
-    return render_template("module_home.html")
+    return render_template(
+        "module_home.html",
+        show_briefing=briefing_enabled(current_user.unit_id),
+        show_training=training_enabled(current_user.unit_id),
+    )
 
 
 @app.route("/roster/<ym>")
@@ -6238,6 +6339,9 @@ def admin_staff_edit(sid):
     if request.method == "POST":
         s.name = request.form.get("name", s.name).strip()
         s.staff_no = request.form.get("staff_no", s.staff_no).strip()
+        s.caa_license_number = (
+            request.form.get("caa_license_number") or s.caa_license_number or ""
+        ).strip()[:40]
         s.username = request.form.get("username", s.username).strip()
         submitted_email = request.form.get("email", s.email)
         if submitted_email and not _valid_email(submitted_email):
@@ -6285,6 +6389,30 @@ def admin_staff_edit(sid):
         s.tower_ue_expiry = _parse_date(request.form.get("tower_ue_expiry"))
         s.radar_ue_expiry = _parse_date(request.form.get("radar_ue_expiry"))
         s.met_ue_expiry = _parse_date(request.form.get("met_ue_expiry"))
+        for code, expiry in {
+            "MEDICAL": s.medical_expiry, "ADI": s.tower_ue_expiry,
+            "APS": s.radar_ue_expiry, "MET": s.met_ue_expiry,
+        }.items():
+            qtype = QualificationType.query.filter_by(
+                unit_id=s.unit_id, code=code
+            ).first()
+            if not qtype:
+                continue
+            qualification = PersonQualification.query.filter_by(
+                unit_id=s.unit_id, person_id=s.id,
+                qualification_type_id=qtype.id,
+            ).first()
+            if not qualification and expiry:
+                qualification = PersonQualification(
+                    unit_id=s.unit_id, person_id=s.id,
+                    qualification_type_id=qtype.id, status="valid",
+                )
+                db.session.add(qualification)
+                db.session.flush()
+            if qualification:
+                qualification.expires_on = expiry
+                qualification.updated_at = utcnow()
+                _record_qualification_history(qualification, "roster_profile_updated")
 
         s.tower_ut = bool(request.form.get("tower_ut"))
         s.radar_ut = bool(request.form.get("radar_ut"))
@@ -6841,6 +6969,209 @@ def leave():
                            prev_ym=prev_ym, next_ym=next_ym)
 
 # -------------------- Staff profile --------------------
+
+
+def _training_profile_allowed(person):
+    return bool(
+        person.id == current_user.id
+        or is_editor_user(current_user)
+        or can_manage_training(current_user)
+        or can_record_training(current_user)
+    )
+
+
+@app.route("/training/<int:sid>", methods=["GET", "POST"])
+@login_required
+def training_profile(sid):
+    unit_id = _current_unit_id()
+    if not training_enabled(unit_id):
+        abort(404)
+    person = Staff.query.filter_by(id=sid, unit_id=unit_id).first_or_404()
+    if not _training_profile_allowed(person):
+        abort(403)
+    if request.method == "POST":
+        _validate_csrf()
+        action = request.form.get("action") or "record_session"
+        if action == "update_profile":
+            if not (is_admin_user(current_user) or getattr(current_user, "has_assessor", False)):
+                abort(403)
+            person.caa_license_number = (
+                request.form.get("caa_license_number") or ""
+            ).strip()[:40]
+            for qtype in QualificationType.query.filter_by(
+                unit_id=unit_id, is_active=True
+            ).all():
+                raw = (request.form.get(f"expiry_{qtype.id}") or "").strip()
+                expires_on = date.fromisoformat(raw) if raw else None
+                record = PersonQualification.query.filter_by(
+                    unit_id=unit_id, person_id=person.id,
+                    qualification_type_id=qtype.id,
+                ).first()
+                if not record and expires_on:
+                    record = PersonQualification(
+                        unit_id=unit_id, person_id=person.id,
+                        qualification_type_id=qtype.id, status="valid",
+                    )
+                    db.session.add(record)
+                    db.session.flush()
+                if record:
+                    record.expires_on = expires_on
+                    record.updated_at = utcnow()
+                    _record_qualification_history(record, "profile_updated")
+                legacy_fields = {
+                    "MEDICAL": "medical_expiry", "ADI": "tower_ue_expiry",
+                    "APS": "radar_ue_expiry", "MET": "met_ue_expiry",
+                }
+                if qtype.code in legacy_fields:
+                    setattr(person, legacy_fields[qtype.code], expires_on)
+            db.session.commit()
+            flash("Licence and competency dates updated everywhere.", "ok")
+            return redirect(url_for("training_profile", sid=person.id))
+        if not can_record_training(current_user) or not is_under_training(person):
+            abort(403)
+        level = TrainingLevel.query.filter_by(
+            id=int(request.form.get("level_id") or 0), unit_id=unit_id,
+            is_active=True,
+        ).first_or_404()
+        try:
+            training_date = date.fromisoformat(request.form.get("training_date") or "")
+            duration_minutes = int(request.form.get("duration_minutes") or 0)
+        except (TypeError, ValueError):
+            abort(400, "Enter a valid training date and duration.")
+        if not 1 <= duration_minutes <= 1440:
+            abort(400, "Training duration must be between 1 and 1,440 minutes.")
+        session_row = TrainingSession(
+            unit_id=unit_id, trainee_id=person.id, ojti_id=current_user.id,
+            level_id=level.id, training_date=training_date,
+            duration_minutes=duration_minutes,
+            summary=(request.form.get("summary") or "").strip()[:4000],
+        )
+        db.session.add(session_row)
+        db.session.flush()
+        for objective in sorted(level.objectives, key=lambda row: row.position)[:15]:
+            raw_attainment = request.form.get(f"attainment_{objective.id}")
+            raw_assistance = request.form.get(f"assistance_{objective.id}")
+            if not raw_attainment and not raw_assistance:
+                continue
+            try:
+                attainment = int(raw_attainment or 0)
+                assistance = int(raw_assistance or 0)
+            except ValueError:
+                abort(400, "Objective scores must be whole numbers.")
+            if attainment not in {1, 2, 3, 4} or assistance not in {1, 2, 3, 4}:
+                abort(400, "Objective scores must be between 1 and 4.")
+            db.session.add(TrainingScore(
+                unit_id=unit_id, session_id=session_row.id,
+                objective_id=objective.id, attainment=attainment,
+                assistance=assistance,
+                safety_critical=bool(request.form.get(f"safety_{objective.id}")),
+                note=(request.form.get(f"note_{objective.id}") or "").strip()[:4000],
+            ))
+        db.session.commit()
+        flash("Training report saved.", "ok")
+        return redirect(url_for("training_profile", sid=person.id, level=level.id))
+
+    levels = TrainingLevel.query.filter_by(
+        unit_id=unit_id, is_active=True
+    ).order_by(TrainingLevel.sort_order, TrainingLevel.name).all()
+    selected_id = request.args.get("level", type=int)
+    selected = next((row for row in levels if row.id == selected_id), levels[0] if levels else None)
+    sessions = []
+    if selected:
+        sessions = TrainingSession.query.filter_by(
+            unit_id=unit_id, trainee_id=person.id, level_id=selected.id
+        ).order_by(TrainingSession.training_date.desc(), TrainingSession.id.desc()).all()
+    total_minutes = sum(row.duration_minutes for row in TrainingSession.query.filter_by(
+        unit_id=unit_id, trainee_id=person.id
+    ).all())
+    qualification_types = QualificationType.query.filter_by(
+        unit_id=unit_id, is_active=True
+    ).order_by(QualificationType.label).all()
+    qualification_rows = PersonQualification.query.filter_by(
+        unit_id=unit_id, person_id=person.id
+    ).all()
+    qualifications = {row.qualification_type_id: row for row in qualification_rows}
+    return render_template(
+        "training_profile.html", person=person, levels=levels,
+        selected_level=selected, sessions=sessions, total_minutes=total_minutes,
+        qualification_types=qualification_types, qualifications=qualifications,
+        under_training=is_under_training(person),
+        can_record=can_record_training(current_user),
+        can_edit_profile=bool(
+            is_admin_user(current_user)
+            or getattr(current_user, "has_assessor", False)
+        ),
+    )
+
+
+@app.route("/training/admin", methods=["GET", "POST"])
+@login_required
+def training_admin():
+    if not training_enabled(_current_unit_id()):
+        abort(404)
+    if not is_admin_user(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    if request.method == "POST":
+        _validate_csrf()
+        action = request.form.get("action")
+        if action == "create_level":
+            name = (request.form.get("name") or "").strip()
+            if not name:
+                abort(400, "Enter a level name.")
+            level = TrainingLevel(unit_id=unit_id, name=name[:80])
+            db.session.add(level)
+            db.session.flush()
+            for position in range(1, 16):
+                db.session.add(TrainingObjective(
+                    unit_id=unit_id, level_id=level.id, position=position,
+                    title=f"Objective {position}", description="Configure this objective.",
+                ))
+        elif action == "save_objectives":
+            level = TrainingLevel.query.filter_by(
+                id=int(request.form.get("level_id") or 0), unit_id=unit_id
+            ).first_or_404()
+            for objective in level.objectives:
+                objective.title = (request.form.get(f"title_{objective.id}") or objective.title).strip()[:100]
+                objective.description = (request.form.get(f"description_{objective.id}") or "").strip()[:4000]
+        else:
+            abort(400, "Unknown training administration action.")
+        db.session.commit()
+        flash("Training configuration saved.", "ok")
+        return redirect(url_for("training_admin"))
+    levels = TrainingLevel.query.filter_by(unit_id=unit_id).order_by(
+        TrainingLevel.sort_order, TrainingLevel.name
+    ).all()
+    return render_template("training_admin.html", levels=levels)
+
+
+@app.get("/training/analytics")
+@login_required
+def training_analytics():
+    if not training_enabled(_current_unit_id()):
+        abort(404)
+    if not can_manage_training(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    sessions = TrainingSession.query.filter_by(unit_id=unit_id).order_by(
+        TrainingSession.training_date
+    ).all()
+    scores = TrainingScore.query.filter_by(unit_id=unit_id).all()
+    objective_totals = defaultdict(list)
+    for score in scores:
+        objective_totals[score.objective].append(score.attainment)
+    objective_analytics = sorted((
+        {"objective": objective, "average": round(sum(values) / len(values), 2), "count": len(values)}
+        for objective, values in objective_totals.items()
+    ), key=lambda row: (row["objective"].level_id, row["objective"].position))
+    ojti_minutes = defaultdict(int)
+    for row in sessions:
+        ojti_minutes[row.ojti] += row.duration_minutes
+    return render_template(
+        "training_analytics.html", sessions=sessions,
+        objective_analytics=objective_analytics,
+        ojti_hours=sorted(ojti_minutes.items(), key=lambda item: item[0].name),
+    )
 
 
 @app.route("/staff/<int:sid>", methods=["GET", "POST"])
@@ -9976,6 +10307,17 @@ def _record_qualification_history(
     ))
 
 
+def _sync_qualification_to_roster_profile(
+    person: Staff, qtype: QualificationType, expires_on: date | None
+) -> None:
+    legacy_field = {
+        "MEDICAL": "medical_expiry", "ADI": "tower_ue_expiry",
+        "APS": "radar_ue_expiry", "MET": "met_ue_expiry",
+    }.get(qtype.code)
+    if legacy_field:
+        setattr(person, legacy_field, expires_on)
+
+
 @app.route("/compliance", methods=["GET", "POST"])
 @login_required
 def qualification_compliance():
@@ -10072,6 +10414,9 @@ def qualification_compliance():
             record.expires_on = expires_on
             record.status = status
             record.updated_at = utcnow()
+            _sync_qualification_to_roster_profile(
+                person, qtype, expires_on
+            )
             _record_qualification_history(record, action_name)
             db.session.commit()
             flash("Person qualification saved.", "ok")
@@ -10162,6 +10507,15 @@ def qualification_compliance():
                     )
                 record.status = row["status"]
                 record.updated_at = utcnow()
+                person = Staff.query.filter_by(
+                    unit_id=unit_id, id=row["person_id"]
+                ).first_or_404()
+                qtype = QualificationType.query.filter_by(
+                    unit_id=unit_id, id=row["type_id"]
+                ).first_or_404()
+                _sync_qualification_to_roster_profile(
+                    person, qtype, record.expires_on
+                )
                 _record_qualification_history(record, "imported")
             db.session.commit()
             session.pop("_qualification_import_preview", None)

@@ -17,6 +17,7 @@
       <span><strong>Roster</strong></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
+    {% if show_briefing %}
     <a class="module-card module-card--briefing" href="{{ url_for('briefing.home') }}">
       <span class="module-card__icon module-card__icon--briefing" aria-hidden="true">
         <svg viewBox="0 0 24 24" focusable="false">
@@ -27,6 +28,16 @@
       <span><strong>Briefing</strong></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
+    {% endif %}
+    {% if show_training %}
+    <a class="module-card module-card--training" href="{{ url_for('training_profile', sid=current_user.id) }}">
+      <span class="module-card__icon module-card__icon--training" aria-hidden="true">
+        <i class="fa-solid fa-graduation-cap"></i>
+      </span>
+      <span><strong>Training &amp; Competency</strong></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
+    {% endif %}
   </div>
 </section>
 {% endblock %}
