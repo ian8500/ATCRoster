@@ -180,6 +180,30 @@
       }
     });
     document.addEventListener('click', (event) => {
+      const scoreSummary = event.target.closest('.training-score > summary');
+      if (scoreSummary) {
+        event.preventDefault();
+        const selectedScore = scoreSummary.parentElement;
+        const shouldOpen = !selectedScore.open;
+        document.querySelectorAll('.training-score[open]').forEach((score) => {
+          score.open = false;
+          score.querySelector('summary')?.setAttribute('aria-expanded', 'false');
+        });
+        selectedScore.open = shouldOpen;
+        scoreSummary.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+        return;
+      }
+      const scoreBubble = event.target.closest('.training-score > div');
+      if (scoreBubble) {
+        const selectedScore = scoreBubble.parentElement;
+        selectedScore.open = false;
+        selectedScore.querySelector('summary')?.setAttribute('aria-expanded', 'false');
+        return;
+      }
+      document.querySelectorAll('.training-score[open]').forEach((score) => {
+        score.open = false;
+        score.querySelector('summary')?.setAttribute('aria-expanded', 'false');
+      });
       const target = event.target.closest('[data-command], [data-roster-zoom]');
       if (!target) return;
       if (target.dataset.confirm && !window.confirm(target.dataset.confirm)) {
@@ -218,6 +242,12 @@
       });
     }
     document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        document.querySelectorAll('.training-score[open]').forEach((score) => {
+          score.open = false;
+          score.querySelector('summary')?.setAttribute('aria-expanded', 'false');
+        });
+      }
       if (event.key === 'Escape' && navToggle && primaryNavigation) {
         navToggle.setAttribute('aria-expanded', 'false');
         primaryNavigation.classList.remove('is-open');

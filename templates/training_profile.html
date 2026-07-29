@@ -32,7 +32,7 @@
             {% if found.score %}
             <td>
               <details class="training-score score-{{ found.score.attainment }} {% if found.score.safety_critical %}safety-critical{% endif %}">
-                <summary aria-label="{{ objective.title }}: attainment {{ found.score.attainment }}, assistance {{ found.score.assistance }}">{{ found.score.attainment }}{% if found.score.safety_critical %}<i class="fa-solid fa-triangle-exclamation"></i>{% endif %}</summary>
+                <summary aria-expanded="false" aria-label="{{ objective.title }}: attainment {{ found.score.attainment }}, assistance {{ found.score.assistance }}">{{ found.score.attainment }}{% if found.score.safety_critical %}<i class="fa-solid fa-triangle-exclamation"></i>{% endif %}</summary>
                 <div><strong>{{ objective.title }}</strong><p>{{ objective.description }}</p><span>Attainment {{ found.score.attainment }}/4 · Assistance {{ found.score.assistance }}/4</span>{% if found.score.note %}<p>{{ found.score.note }}</p>{% endif %}</div>
               </details>
             </td>
