@@ -34,7 +34,16 @@
       <span class="module-card__icon module-card__icon--training" aria-hidden="true">
         <i class="fa-solid fa-graduation-cap"></i>
       </span>
-      <span><strong>Training &amp; Competency</strong></span>
+      <span><strong>Training</strong></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
+    {% endif %}
+    {% if show_competency %}
+    <a class="module-card module-card--competency" href="{{ url_for('competency_home') }}">
+      <span class="module-card__icon module-card__icon--competency" aria-hidden="true">
+        <i class="fa-solid fa-certificate"></i>
+      </span>
+      <span><strong>Competency</strong></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
     {% endif %}

@@ -1,35 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Training & competency · {{ person.name }}{% endblock %}
+{% block title %}Training · {{ person.name }}{% endblock %}
 {% block content %}
 <section class="training-hero">
   <div>
-    <span class="admin-step">{{ "Active training record" if under_training else "Competency profile" }}</span>
+    <span class="admin-step">Active training record</span>
     <h2>{{ person.name }}</h2>
-    <p>{{ person.staff_no }} · CAA {{ person.caa_license_number or "not recorded" }}{% if person.watch %} · {{ person.watch.name }}{% endif %}</p>
+    <p>{{ person.staff_no }}{% if person.watch %} · {{ person.watch.name }}{% endif %}</p>
   </div>
   <div class="training-total"><span>Cumulative training</span><strong>{{ "%.1f"|format(total_minutes / 60) }} h</strong></div>
 </section>
 
-<section class="card">
-  <div class="card-hd">Licence, medical & endorsements <span class="training-sync">Shared live profile</span></div>
-  <div class="card-bd">
-    <form method="post" class="training-profile-fields">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="update_profile">
-      <label>Staff number<input value="{{ person.staff_no }}" disabled></label>
-      <label>CAA licence number<input name="caa_license_number" value="{{ person.caa_license_number or '' }}" {% if not can_edit_profile %}disabled{% endif %}></label>
-      {% for qtype in qualification_types %}
-        {% set qual = qualifications.get(qtype.id) %}
-        <label>{{ qtype.label }}
-          <input type="date" name="expiry_{{ qtype.id }}" value="{{ qual.expires_on.isoformat() if qual and qual.expires_on else '' }}" {% if not can_edit_profile %}disabled{% endif %}>
-        </label>
-      {% endfor %}
-      {% if can_edit_profile %}<button class="btn btn-primary" type="submit">Update shared profile</button>{% endif %}
-    </form>
-  </div>
-</section>
-
-{% if under_training %}
 <nav class="training-level-tabs" aria-label="Training levels">
   {% for level in levels %}
     <a href="{{ url_for('training_profile', sid=person.id, level=level.id) }}" class="{% if selected_level and level.id == selected_level.id %}active{% endif %}">{{ level.name }}</a>
@@ -95,6 +75,5 @@
 {% endif %}
 {% else %}
 <section class="card"><div class="card-bd empty-state">No training levels have been configured yet.</div></section>
-{% endif %}
 {% endif %}
 {% endblock %}

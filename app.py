@@ -257,7 +257,7 @@ REQUEST_TRANSITIONS = {
 PLATFORM_FEATURE_FLAGS = frozenset({
     "advanced_coverage", "scenario_planning", "calendar_exports",
     "fatigue_reporting", "custom_branding", "briefing_module",
-    "training_module",
+    "training_module", "competency_module",
 })
 
 
@@ -706,6 +706,7 @@ _LOGIN_NEXT_ENDPOINTS = {
     "/modules": "module_home",
     "/briefing/": "briefing.home",
     "/training/": "training_home",
+    "/competency/": "competency_home",
     "/admin": "admin",
     "/leave": "leave",
     "/messages": "unit_messages",
@@ -752,7 +753,9 @@ def _airport_login_endpoint(user) -> str:
     """Land multi-module airport users on the module launcher."""
     enabled = FeatureFlag.query.filter(
         FeatureFlag.unit_id == user.unit_id,
-        FeatureFlag.key.in_(("briefing_module", "training_module")),
+        FeatureFlag.key.in_((
+            "briefing_module", "training_module", "competency_module"
+        )),
         FeatureFlag.enabled.is_(True),
     ).first()
     return "module_home" if enabled else "index"
@@ -2368,6 +2371,15 @@ def training_enabled(unit_id: int) -> bool:
     return bool(FeatureFlag.query.filter_by(
         unit_id=unit_id, key="training_module", enabled=True
     ).first())
+
+
+def competency_enabled(unit_id: int) -> bool:
+    row = FeatureFlag.query.filter_by(
+        unit_id=unit_id, key="competency_module"
+    ).first()
+    # Existing airports inherit their current combined-module entitlement
+    # until Super Admin explicitly chooses a separate competency setting.
+    return bool(row.enabled) if row else training_enabled(unit_id)
 
 
 def can_edit_roster(u) -> bool:
@@ -4973,6 +4985,7 @@ def inject_perms():
     unread_briefing_count = 0
     has_briefing_module = False
     has_training_module = False
+    has_competency_module = False
     active_admin_count = 0
     if current_unit and au and is_admin_user(au):
         active_admin_count = Staff.query.filter(
@@ -4992,6 +5005,7 @@ def inject_perms():
         ).count()
         has_briefing_module = briefing_enabled(current_unit.id)
         has_training_module = training_enabled(current_unit.id)
+        has_competency_module = competency_enabled(current_unit.id)
         if (
             has_briefing_module
             and (
@@ -5030,6 +5044,7 @@ def inject_perms():
         "unread_briefing_count": unread_briefing_count,
         "has_briefing_module": has_briefing_module,
         "has_training_module": has_training_module,
+        "has_competency_module": has_competency_module,
         "active_admin_count": active_admin_count,
         "current_unit": current_unit,
         "unit_branding": {
@@ -5053,12 +5068,14 @@ def module_home():
     if not (
         briefing_enabled(current_user.unit_id)
         or training_enabled(current_user.unit_id)
+        or competency_enabled(current_user.unit_id)
     ):
         return redirect(url_for("index"))
     return render_template(
         "module_home.html",
         show_briefing=briefing_enabled(current_user.unit_id),
         show_training=training_enabled(current_user.unit_id),
+        show_competency=competency_enabled(current_user.unit_id),
     )
 
 
@@ -7003,11 +7020,13 @@ def training_home():
         people = Staff.query.filter_by(
             unit_id=unit_id, is_operational=True
         ).order_by(Staff.name).all()
+        people = [person for person in people if is_under_training(person)]
     trainee_count = sum(1 for person in people if is_under_training(person))
     return render_template(
         "training_home.html", people=people,
         own_minutes=own_minutes, can_view_people=can_view_people,
         trainee_count=trainee_count,
+        own_under_training=is_under_training(current_user),
     )
 
 
@@ -7020,44 +7039,10 @@ def training_profile(sid):
     person = Staff.query.filter_by(id=sid, unit_id=unit_id).first_or_404()
     if not _training_profile_allowed(person):
         abort(403)
+    if not is_under_training(person):
+        abort(404)
     if request.method == "POST":
         _validate_csrf()
-        action = request.form.get("action") or "record_session"
-        if action == "update_profile":
-            if not (is_admin_user(current_user) or getattr(current_user, "has_assessor", False)):
-                abort(403)
-            person.caa_license_number = (
-                request.form.get("caa_license_number") or ""
-            ).strip()[:40]
-            for qtype in QualificationType.query.filter_by(
-                unit_id=unit_id, is_active=True
-            ).all():
-                raw = (request.form.get(f"expiry_{qtype.id}") or "").strip()
-                expires_on = date.fromisoformat(raw) if raw else None
-                record = PersonQualification.query.filter_by(
-                    unit_id=unit_id, person_id=person.id,
-                    qualification_type_id=qtype.id,
-                ).first()
-                if not record and expires_on:
-                    record = PersonQualification(
-                        unit_id=unit_id, person_id=person.id,
-                        qualification_type_id=qtype.id, status="valid",
-                    )
-                    db.session.add(record)
-                    db.session.flush()
-                if record:
-                    record.expires_on = expires_on
-                    record.updated_at = utcnow()
-                    _record_qualification_history(record, "profile_updated")
-                legacy_fields = {
-                    "MEDICAL": "medical_expiry", "ADI": "tower_ue_expiry",
-                    "APS": "radar_ue_expiry", "MET": "met_ue_expiry",
-                }
-                if qtype.code in legacy_fields:
-                    setattr(person, legacy_fields[qtype.code], expires_on)
-            db.session.commit()
-            flash("Licence and competency dates updated everywhere.", "ok")
-            return redirect(url_for("training_profile", sid=person.id))
         if not can_record_training(current_user) or not is_under_training(person):
             abort(403)
         level = TrainingLevel.query.filter_by(
@@ -7115,23 +7100,93 @@ def training_profile(sid):
     total_minutes = sum(row.duration_minutes for row in TrainingSession.query.filter_by(
         unit_id=unit_id, trainee_id=person.id
     ).all())
-    qualification_types = QualificationType.query.filter_by(
-        unit_id=unit_id, is_active=True
-    ).order_by(QualificationType.label).all()
-    qualification_rows = PersonQualification.query.filter_by(
-        unit_id=unit_id, person_id=person.id
-    ).all()
-    qualifications = {row.qualification_type_id: row for row in qualification_rows}
     return render_template(
         "training_profile.html", person=person, levels=levels,
         selected_level=selected, sessions=sessions, total_minutes=total_minutes,
-        qualification_types=qualification_types, qualifications=qualifications,
         under_training=is_under_training(person),
         can_record=can_record_training(current_user),
-        can_edit_profile=bool(
-            is_admin_user(current_user)
-            or getattr(current_user, "has_assessor", False)
-        ),
+    )
+
+
+@app.get("/competency/")
+@login_required
+def competency_home():
+    unit_id = _current_unit_id()
+    if not competency_enabled(unit_id):
+        abort(404)
+    can_view_people = bool(
+        is_editor_user(current_user) or can_manage_training(current_user)
+        or can_record_training(current_user)
+    )
+    people = []
+    if can_view_people:
+        people = Staff.query.filter_by(
+            unit_id=unit_id, is_operational=True
+        ).order_by(Staff.name).all()
+    return render_template(
+        "competency_home.html", people=people,
+        can_view_people=can_view_people,
+    )
+
+
+@app.route("/competency/<int:sid>", methods=["GET", "POST"])
+@login_required
+def competency_profile(sid):
+    unit_id = _current_unit_id()
+    if not competency_enabled(unit_id):
+        abort(404)
+    person = Staff.query.filter_by(id=sid, unit_id=unit_id).first_or_404()
+    if not _training_profile_allowed(person):
+        abort(403)
+    can_edit = bool(
+        is_admin_user(current_user)
+        or getattr(current_user, "has_assessor", False)
+    )
+    qualification_types = QualificationType.query.filter_by(
+        unit_id=unit_id, is_active=True
+    ).order_by(QualificationType.label).all()
+    if request.method == "POST":
+        _validate_csrf()
+        if not can_edit:
+            abort(403)
+        person.caa_license_number = (
+            request.form.get("caa_license_number") or ""
+        ).strip()[:40]
+        for qtype in qualification_types:
+            raw = (request.form.get(f"expiry_{qtype.id}") or "").strip()
+            try:
+                expires_on = date.fromisoformat(raw) if raw else None
+            except ValueError:
+                abort(400, "Enter valid competency expiry dates.")
+            record = PersonQualification.query.filter_by(
+                unit_id=unit_id, person_id=person.id,
+                qualification_type_id=qtype.id,
+            ).first()
+            if not record and expires_on:
+                record = PersonQualification(
+                    unit_id=unit_id, person_id=person.id,
+                    qualification_type_id=qtype.id, status="valid",
+                )
+                db.session.add(record)
+                db.session.flush()
+            if record:
+                record.expires_on = expires_on
+                record.updated_at = utcnow()
+                _record_qualification_history(record, "competency_updated")
+            _sync_qualification_to_roster_profile(person, qtype, expires_on)
+        db.session.commit()
+        flash("Competency profile updated everywhere.", "ok")
+        return redirect(url_for("competency_profile", sid=person.id))
+    qualification_rows = PersonQualification.query.filter_by(
+        unit_id=unit_id, person_id=person.id
+    ).all()
+    return render_template(
+        "competency_profile.html", person=person,
+        qualification_types=qualification_types,
+        qualifications={
+            row.qualification_type_id: row for row in qualification_rows
+        },
+        can_edit=can_edit,
     )
 
 
@@ -9415,6 +9470,8 @@ def platform_admin():
             row.key: row.enabled
             for row in FeatureFlag.query.filter_by(unit_id=unit.id).all()
         }
+        if "competency_module" not in flags:
+            flags["competency_module"] = bool(flags.get("training_module"))
         routing = db.session.get(DatabaseRoutingMetadata, unit.id)
         activity = db.session.query(
             db.func.coalesce(db.func.sum(AggregateUsageEvent.count), 0)

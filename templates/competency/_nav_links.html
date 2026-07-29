@@ -1,0 +1,11 @@
+<a href="{{ url_for('competency_home') }}" class="nav-link {% if request.endpoint == 'competency_home' %}active{% endif %}">
+  <i class="fa-solid fa-house" aria-hidden="true"></i> Competency home
+</a>
+<a href="{{ url_for('competency_profile', sid=current_user.id) }}" class="nav-link {% if request.endpoint == 'competency_profile' and request.view_args.get('sid') == current_user.id %}active{% endif %}">
+  <i class="fa-solid fa-certificate" aria-hidden="true"></i> My competency
+</a>
+{% if is_admin or is_editor or current_user.is_wm or current_user.is_dwm or current_user.has_ojti or current_user.has_assessor %}
+<a href="{{ url_for('competency_home') }}#people" class="nav-link">
+  <i class="fa-solid fa-users" aria-hidden="true"></i> People
+</a>
+{% endif %}

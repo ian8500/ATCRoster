@@ -3,10 +3,12 @@
    {% if request.endpoint == 'training_home' %}aria-current="page"{% endif %}>
   <i class="fa-solid fa-house" aria-hidden="true"></i> Training home
 </a>
+{% if current_user.is_trainee or current_user.tower_ut or current_user.radar_ut or current_user.met_ut %}
 <a href="{{ url_for('training_profile', sid=current_user.id) }}"
    class="nav-link {% if request.endpoint == 'training_profile' and request.view_args.get('sid') == current_user.id %}active{% endif %}">
-  <i class="fa-solid fa-id-card" aria-hidden="true"></i> My competency
+  <i class="fa-solid fa-chart-simple" aria-hidden="true"></i> My training
 </a>
+{% endif %}
 {% if is_admin or is_editor or current_user.is_wm or current_user.is_dwm or current_user.has_ojti or current_user.has_assessor %}
   <a href="{{ url_for('training_home') }}#people"
      class="nav-link">
