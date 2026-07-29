@@ -144,6 +144,11 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     assert "unit" not in airport_a_tables
     assert "special_requirement" in app.OPERATIONAL_TABLE_NAMES
     assert "sms_audit" in app.OPERATIONAL_TABLE_NAMES
+    for table in (
+        "training_level", "training_objective",
+        "training_session", "training_score",
+    ):
+        assert table in app.OPERATIONAL_TABLE_NAMES
 
     # Two independent workers use separate PostgreSQL sessions. The second
     # cannot claim or migrate the airport while the first owns its lease.

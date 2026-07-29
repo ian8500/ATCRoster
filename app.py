@@ -493,6 +493,8 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_rule_version", "mfa_credential",
     "briefing_item", "briefing_delivery", "briefing_audit",
     "briefing_assurance_run", "briefing_message_type",
+    "training_level", "training_objective", "training_session",
+    "training_score",
 })
 
 
