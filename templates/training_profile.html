@@ -34,8 +34,6 @@
   {% for level in levels %}
     <a href="{{ url_for('training_profile', sid=person.id, level=level.id) }}" class="{% if selected_level and level.id == selected_level.id %}active{% endif %}">{{ level.name }}</a>
   {% endfor %}
-  {% if current_user.is_admin_role %}<a href="{{ url_for('training_admin') }}">Configure</a>{% endif %}
-  {% if current_user.is_admin_role or current_user.is_wm or current_user.is_dwm or current_user.has_assessor %}<a href="{{ url_for('training_analytics') }}">Analytics</a>{% endif %}
 </nav>
 
 {% if selected_level %}

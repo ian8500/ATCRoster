@@ -705,6 +705,7 @@ _LOGIN_NEXT_ENDPOINTS = {
     "/": "index",
     "/modules": "module_home",
     "/briefing/": "briefing.home",
+    "/training/": "training_home",
     "/admin": "admin",
     "/leave": "leave",
     "/messages": "unit_messages",
@@ -6979,6 +6980,34 @@ def _training_profile_allowed(person):
         or is_editor_user(current_user)
         or can_manage_training(current_user)
         or can_record_training(current_user)
+    )
+
+
+@app.get("/training/")
+@login_required
+def training_home():
+    unit_id = _current_unit_id()
+    if not training_enabled(unit_id):
+        abort(404)
+    own_sessions = TrainingSession.query.filter_by(
+        unit_id=unit_id, trainee_id=current_user.id
+    ).all()
+    own_minutes = sum(row.duration_minutes for row in own_sessions)
+    can_view_people = bool(
+        is_editor_user(current_user)
+        or can_manage_training(current_user)
+        or can_record_training(current_user)
+    )
+    people = []
+    if can_view_people:
+        people = Staff.query.filter_by(
+            unit_id=unit_id, is_operational=True
+        ).order_by(Staff.name).all()
+    trainee_count = sum(1 for person in people if is_under_training(person))
+    return render_template(
+        "training_home.html", people=people,
+        own_minutes=own_minutes, can_view_people=can_view_people,
+        trainee_count=trainee_count,
     )
 
 
