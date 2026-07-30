@@ -19,6 +19,7 @@ venv/
 htmlcov/
 *.sqlite3
 *.db
+app for website
 1 Version to deploy/
 2 Working Version/
 3 Last Known Working/

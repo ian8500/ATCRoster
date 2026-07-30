@@ -34,7 +34,9 @@ def main() -> None:
             return
 
     server = ThreadingHTTPServer(
-        ("0.0.0.0", int(os.environ.get("PORT", "8080"))),
+        # Railway must reach this health-only listener from outside the
+        # container; it exposes no operational or administrative routes.
+        ("0.0.0.0", int(os.environ.get("PORT", "8080"))),  # nosec B104
         HealthHandler,
     )
 

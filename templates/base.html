@@ -31,7 +31,7 @@
   {# allow pages to add their own head content (CSS/JS) #}
   {% block extra_head %}{% endblock %}
 </head>
-<body class="app-body">
+<body class="app-body{% if request.endpoint == 'login' %} login-shell{% endif %}">
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="site-header">
     <div class="nav-container">
@@ -125,7 +125,13 @@
             {% endif %}
             {% endif %}
           {% endif %}
-          <a href="{{ url_for('logout') }}" class="nav-link nav-link--quiet {% if current_user.role != 'superadmin' and (((in_briefing_module or in_training_module or in_competency_module) and not is_admin) or (not in_briefing_module and not in_training_module and not in_competency_module and not is_admin and not is_editor)) %}nav-link--push-right{% endif %}"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Logout</a>
+          <form method="post" action="{{ url_for('logout') }}"
+                class="nav-logout-form {% if current_user.role != 'superadmin' and (((in_briefing_module or in_training_module or in_competency_module) and not is_admin) or (not in_briefing_module and not in_training_module and not in_competency_module and not is_admin and not is_editor)) %}nav-link--push-right{% endif %}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="nav-link nav-link--quiet">
+              <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Logout
+            </button>
+          </form>
         {% else %}
           <a href="{{ url_for('login') }}" class="nav-link {% if request.endpoint == 'login' %}active{% endif %}"><i class="fa-solid fa-lock" aria-hidden="true"></i> Login</a>
         {% endif %}

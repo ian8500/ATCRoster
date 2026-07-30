@@ -302,12 +302,14 @@ def _start_request_tenant_boundary():
 
 
 @app.before_request
-def _enforce_authenticated_csrf():
-    """Apply one default-deny CSRF boundary to every authenticated mutation."""
-    if (
-        request.method in {"POST", "PUT", "PATCH", "DELETE"}
-        and current_user.is_authenticated
-    ):
+def _enforce_csrf():
+    """Apply a default-deny CSRF boundary to every browser mutation.
+
+    There are currently no exempt unsafe routes. New machine-to-machine
+    endpoints must use a separate authenticated blueprint and document any
+    exemption explicitly rather than weakening this browser boundary.
+    """
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         _validate_csrf()
 
 
@@ -1054,7 +1056,8 @@ def _send_sms_via_twilio(
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
 
     try:
-        with urllib_request.urlopen(req, timeout=10) as resp:
+        # The destination is the fixed HTTPS Twilio API origin above.
+        with urllib_request.urlopen(req, timeout=10) as resp:  # nosec B310
             data = resp.read().decode("utf-8")
             if 200 <= resp.status < 300:
                 try:
@@ -5664,16 +5667,6 @@ def roster_export_csv(ym):
 @login_required
 def roster_print_view(ym):
     return redirect(url_for("roster_month", ym=ym))
-
-
-@app.route("/logout", methods=["GET"], endpoint="logout")
-@login_required
-def logout():
-    session.pop("reports_sensitive_data_ack", None)
-    session.pop("reports_sensitive_data_hub_entry", None)
-    logout_user()
-    flash("Logged out", "ok")
-    return redirect(url_for("login"))
 
 
 # -------------------- Admin --------------------
@@ -11567,142 +11560,6 @@ def complete_account_recovery(token):
     return render_template("recovery_reset.html")
 
 
-@app.route("/login", methods=["GET", "POST"], endpoint="login")
-def signin_form():   # function name can be anything; endpoint is 'login'
-    if request.method == "POST":
-        username = _normalized_login(
-            request.form.get("username") or ""
-        )
-        password = (request.form.get("password") or "").strip()
-        rate_key = _login_rate_key(username)
-        if not _consume_rate_limit("password-login", username):
-            _security_event("login_rate_limited", principal=rate_key[-16:])
-            abort(429, "Too many login attempts. Try again later.")
-        identity = PlatformIdentity.query.filter_by(username=username).first()
-        user = None
-        platform_login = False
-        credentials_valid = False
-        if identity:
-            credentials_valid = check_password_hash(
-                identity.password_hash, password
-            )
-            if credentials_valid:
-                membership = UnitMembership.query.filter_by(
-                    identity_id=identity.id, status="active"
-                ).first()
-                if membership and membership.person_id:
-                    routing = db.session.get(
-                        DatabaseRoutingMetadata, membership.unit_id
-                    )
-                    if DEPLOYMENT_ENV == "production" and not routing:
-                        _security_event(
-                            "operational_route_missing",
-                            unit_id=membership.unit_id,
-                        )
-                        abort(503, "Operational database routing is unavailable.")
-                    g.tenant_context_token = bind_authenticated_unit(
-                        membership.unit_id,
-                        routing.secret_name if routing else None,
-                    )
-                    user = db.session.get(Staff, membership.person_id)
-                else:
-                    user = identity
-                    platform_login = identity.public_id.startswith(
-                        "platform-"
-                    )
-        elif DEPLOYMENT_ENV != "production":
-            user = Staff.query.filter_by(username=username).first()
-            credentials_valid = bool(
-                user and user.check_password(password)
-            )
-        else:
-            # Production authentication always begins in the control plane.
-            # Do not query operational databases for unknown principals.
-            credentials_valid = False
-        if (
-            identity and credentials_valid and not user
-            and not identity.public_id.startswith("platform-")
-        ):
-            credentials_valid = False
-        if user and credentials_valid:
-            _reset_rate_limit("password-login", username)
-            if user.membership_status != "active":
-                flash("This account is not active.", "error")
-                return render_template("login.html"), 403
-            login_unit = db.session.get(Unit, user.unit_id)
-            if (
-                user.role != "superadmin"
-                and (not login_unit or login_unit.status != "active")
-            ):
-                _security_event(
-                    "suspended_unit_login_blocked",
-                    principal=rate_key[-16:],
-                    unit_id=user.unit_id,
-                )
-                flash("This airport account is not active.", "error")
-                return render_template("login.html"), 403
-            session.clear()
-            if platform_login:
-                credential = PlatformMfaCredential.query.filter_by(
-                    identity_id=identity.id, enabled=True,
-                    reset_required=False,
-                ).first()
-                session["_platform_mfa_identity_id"] = identity.id
-                session["_platform_mfa_user_id"] = user.id
-                session["_platform_mfa_rate_key"] = rate_key
-                session["_platform_mfa_next"] = _canonical_login_redirect(
-                    request.args.get("next"),
-                    default_endpoint="platform_admin",
-                    user_id=user.id,
-                )
-                _central_security_event(
-                    "platform_password_verified", "challenge",
-                    identity.id, rate_key[-16:],
-                )
-                db.session.commit()
-                return redirect(url_for(
-                    "platform_mfa_challenge"
-                    if credential else "platform_mfa_setup"
-                ))
-            credential = MfaCredential.query.filter_by(
-                person_id=user.id, enabled=True
-            ).first()
-            if credential:
-                session["_mfa_user_id"] = user.id
-                session["_mfa_unit_id"] = user.unit_id
-                session["_mfa_rate_key"] = rate_key
-                session["_mfa_next"] = _canonical_login_redirect(
-                    request.args.get("next"),
-                    default_endpoint=_airport_login_endpoint(user),
-                    user_id=user.id,
-                )
-                return redirect(url_for("mfa_challenge"))
-            login_user(user)
-            _initialize_authenticated_session(user)
-            _security_event(
-                "login_succeeded",
-                principal=rate_key[-16:],
-                unit_id=user.unit_id,
-            )
-            _record_successful_login(user)
-            flash("Logged in successfully", "ok")
-            # support ?next=... to return where user was going
-            return redirect(_canonical_login_redirect(
-                request.args.get("next"),
-                default_endpoint=_airport_login_endpoint(user),
-                user_id=user.id,
-            ))
-        if identity:
-            _central_security_event(
-                "platform_login_failed", "denied", identity.id,
-                rate_key[-16:],
-            )
-            db.session.commit()
-        _security_event("login_failed", principal=rate_key[-16:])
-        flash("Invalid username or password.", "error")
-    return render_template("login.html")
-
-
 def _decrypt_mfa_secret(credential) -> str:
     try:
         return _decrypt_field(credential.encrypted_secret)
@@ -12299,6 +12156,9 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 # -------------------- Run --------------------
 
+from auth_blueprint import create_auth_blueprint
+
+app.register_blueprint(create_auth_blueprint(__import__(__name__)))
 app.register_blueprint(briefing_blueprint)
 
 # -------------------- WSGI entry point --------------------

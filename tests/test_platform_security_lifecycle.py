@@ -62,7 +62,11 @@ def test_superadmin_requires_central_mfa_before_platform_access():
     with app.app.app_context():
         _platform_account()
     client = app.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        login_token = session["_csrf_token"]
     password = client.post("/login", data={
+        "_csrf_token": login_token,
         "username": "security.platform",
         "password": "Platform-Security-2026!",
     })

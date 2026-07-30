@@ -3113,6 +3113,84 @@ textarea::placeholder { color:#687582; }
   border-radius:0 6px 6px 0;
 }
 
+/* Public login shell only: keep compact authentication controls usable and
+   contained without changing dense authenticated forms or roster layouts. */
+.login-page,
+.login-page .card,
+.login-page .card-bd,
+.login-page form,
+.login-page label,
+.login-page .password-field {
+  min-width:0;
+  max-width:100%;
+}
+
+.login-page {
+  width:min(100%, 520px);
+  margin-inline:auto;
+}
+
+.login-page input {
+  width:100%;
+  min-width:0;
+  min-height:44px;
+}
+
+.login-page .password-toggle,
+.login-page .btn,
+.login-page .login-recovery a,
+.login-shell .site-footer__links a {
+  min-height:44px;
+}
+
+.login-page .login-recovery {
+  display:grid;
+  gap:.25rem;
+}
+
+.login-page .login-recovery a,
+.login-shell .site-footer__links a {
+  display:inline-flex;
+  align-items:center;
+  padding:.55rem .25rem;
+}
+
+.nav-logout-form {
+  display:flex;
+  margin:0;
+}
+
+.nav-logout-form.nav-link--push-right {
+  margin-left:auto;
+}
+
+.nav-logout-form .nav-link {
+  width:100%;
+}
+
+@media (max-width:520px) {
+  .login-page {
+    padding-top:1rem !important;
+    padding-bottom:1rem !important;
+  }
+
+  .login-page .card {
+    padding:1rem;
+  }
+
+  .login-page .password-toggle {
+    flex:0 0 72px;
+  }
+
+  .login-page .btn-primary {
+    width:100%;
+  }
+
+  .login-shell .site-footer__links {
+    justify-content:center;
+  }
+}
+
 .admin-section-nav {
   top:86px;
   gap:.3rem;
