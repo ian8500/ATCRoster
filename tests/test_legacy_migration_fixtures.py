@@ -119,7 +119,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(
         inspector = inspect(connection)
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == "20260729_26"
+        ).scalar_one() == "20260730_27"
         for table, count in before.items():
             assert connection.execute(
                 text(f'SELECT COUNT(*) FROM "{table}"')
