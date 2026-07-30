@@ -190,17 +190,34 @@ def client():
 
 
 def login(client):
-    response = client.post(
-        "/login",
-        data={"username": ADMIN_CREDENTIALS["username"], "password": ADMIN_CREDENTIALS["password"]},
+    return login_as(
+        client,
+        ADMIN_CREDENTIALS["username"],
+        ADMIN_CREDENTIALS["password"],
         follow_redirects=True,
     )
-    assert response.status_code == 200
+
+
+def login_as(client, username, password="password123", **kwargs):
+    client.get("/login")
+    with client.session_transaction() as sess:
+        token = sess["_csrf_token"]
+    response = client.post(
+        "/login",
+        data={
+            "_csrf_token": token,
+            "username": username,
+            "password": password,
+        },
+        **kwargs,
+    )
+    expected_status = 200 if kwargs.get("follow_redirects") else 302
+    assert response.status_code == expected_status
     return response
 
 
 def csrf(client):
-    client.get("/roster/2025-04")
+    client.get("/login")
     with client.session_transaction() as sess:
         return sess["_csrf_token"]
 
@@ -347,6 +364,62 @@ def test_login_page_loads(client):
     assert b"Skip to main content" in resp.data
     assert b'class="nav-toggle"' in resp.data
     assert b'data-password-toggle="login-password"' in resp.data
+    assert b'name="_csrf_token"' in resp.data
+    assert b'class="container container--xs py-5 login-page"' in resp.data
+
+
+def test_login_rejects_missing_and_invalid_csrf_tokens(client):
+    missing = client.post("/login", data=ADMIN_CREDENTIALS)
+    assert missing.status_code == 400
+
+    client.get("/login")
+    invalid = client.post(
+        "/login",
+        data={"_csrf_token": "invalid", **ADMIN_CREDENTIALS},
+    )
+    assert invalid.status_code == 400
+
+
+def test_login_and_logout_require_valid_csrf_tokens(client):
+    signed_in = login_as(
+        client,
+        ADMIN_CREDENTIALS["username"],
+        ADMIN_CREDENTIALS["password"],
+        follow_redirects=False,
+    )
+    assert signed_in.status_code == 302
+
+    assert client.get("/logout").status_code == 405
+    assert client.post("/logout").status_code == 400
+    assert client.post(
+        "/logout", data={"_csrf_token": "invalid"}
+    ).status_code == 400
+
+    token = csrf(client)
+    signed_out = client.post(
+        "/logout", data={"_csrf_token": token}, follow_redirects=False
+    )
+    assert signed_out.status_code == 302
+    assert signed_out.headers["Location"].endswith("/login")
+    assert client.get("/").status_code == 302
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/login",
+        "/recover",
+        "/recover/approve/not-a-token",
+        "/recover/reset/not-a-token",
+        "/invite/not-a-token",
+        "/login/mfa",
+        "/login/platform-mfa",
+        "/login/platform-mfa/setup",
+    ],
+)
+def test_anonymous_browser_posts_default_deny_missing_csrf(client, path):
+    response = client.post(path)
+    assert response.status_code == 400
 
 
 def test_user_can_update_own_profile_contact_details(client):
@@ -476,8 +549,12 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         ).order_by(app.RosterPublication.version.desc()).first()
         assert publication.state == "withdrawn"
 
-    client.get("/logout")
+    client.post("/logout", data={"_csrf_token": csrf(client)})
+    client.get("/login")
+    with client.session_transaction() as sess:
+        login_token = sess["_csrf_token"]
     client.post("/login", data={
+        "_csrf_token": login_token,
         "username": "staff_test", "password": "password123",
     })
     denied = client.post(
@@ -495,8 +572,12 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         ("watch_manager_test", "2025-05"),
         ("duty_watch_manager_test", "2025-06"),
     ):
-        client.get("/logout")
+        client.post("/logout", data={"_csrf_token": csrf(client)})
+        client.get("/login")
+        with client.session_transaction() as sess:
+            login_token = sess["_csrf_token"]
         client.post("/login", data={
+            "_csrf_token": login_token,
             "username": username, "password": "password123",
         })
         response = client.post(
@@ -631,10 +712,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
     clients = {}
     for role, username in credentials.items():
         role_client = app.app.test_client()
-        response = role_client.post(
-            "/login",
-            data={"username": username, "password": "password123"},
-        )
+        response = login_as(role_client, username, follow_redirects=False)
         assert response.status_code == 302
         if role == "superadmin":
             protected = role_client.get("/platform/admin")
@@ -728,9 +806,12 @@ def test_health_endpoints_report_ready(client):
 
 
 def test_login_next_uses_canonical_allowlisted_internal_route(client):
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
     response = client.post(
         "/login?next=/requests%3Fview%3Dpending",
-        data=ADMIN_CREDENTIALS,
+        data={"_csrf_token": token, **ADMIN_CREDENTIALS},
     )
     assert response.status_code == 302
     assert response.headers["Location"] == "/requests"
@@ -748,10 +829,13 @@ def test_login_next_uses_canonical_allowlisted_internal_route(client):
 def test_login_next_rejects_external_or_unapproved_destinations(
     client, target,
 ):
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
     response = client.post(
         "/login",
         query_string={"next": target},
-        data=ADMIN_CREDENTIALS,
+        data={"_csrf_token": token, **ADMIN_CREDENTIALS},
     )
     assert response.status_code == 302
     assert response.headers["Location"] == "/"
@@ -1909,7 +1993,7 @@ def test_unit_watch_and_personal_pattern_inheritance(client):
 
 
 def test_mfa_challenge_completes_login(client):
-    client.get("/logout")
+    client.post("/logout", data={"_csrf_token": csrf(client)})
     secret = pyotp.random_base32()
     with app.app.app_context():
         admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
@@ -1923,7 +2007,9 @@ def test_mfa_challenge_completes_login(client):
         ))
         db.session.commit()
     password_step = client.post(
-        "/login", data=ADMIN_CREDENTIALS, follow_redirects=False
+        "/login",
+        data={"_csrf_token": csrf(client), **ADMIN_CREDENTIALS},
+        follow_redirects=False,
     )
     assert password_step.status_code == 302
     assert "/login/mfa" in password_step.headers["Location"]
@@ -1981,7 +2067,7 @@ def test_airport_absence_catalogue_and_calendar_token(client):
     with app.app.app_context():
         app.MfaCredential.query.delete()
         db.session.commit()
-    client.get("/logout")
+    client.post("/logout", data={"_csrf_token": csrf(client)})
     login(client)
     added = client.post(
         "/leave?ym=2026-07",
@@ -2018,22 +2104,16 @@ def test_airport_absence_catalogue_and_calendar_token(client):
 
 
 def test_unit_messages_permission_boundary(client):
-    client.get("/logout")
+    client.post("/logout", data={"_csrf_token": csrf(client)})
     login(client)
     assert client.get("/messages").status_code == 200
 
     staff_client = app.app.test_client()
-    staff_client.post(
-        "/login",
-        data={"username": "staff_test", "password": "password123"},
-    )
+    login_as(staff_client, "staff_test")
     assert staff_client.get("/messages").status_code == 403
 
     wm_client = app.app.test_client()
-    wm_client.post(
-        "/login",
-        data={"username": "watch_manager_test", "password": "password123"},
-    )
+    login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
 
 
@@ -2152,10 +2232,7 @@ def test_sms_audit_is_unit_admin_only(client):
     assert b"Admin Test" in page.data
 
     wm_client = app.app.test_client()
-    wm_client.post(
-        "/login",
-        data={"username": "watch_manager_test", "password": "password123"},
-    )
+    login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
     assert wm_client.get("/admin/sms-audit").status_code == 403
 
@@ -2257,10 +2334,7 @@ def test_users_can_mark_their_notifications_read_individually(client):
 
 def test_primary_navigation_matches_role_permissions():
     editor_client = app.app.test_client()
-    editor_client.post(
-        "/login",
-        data={"username": "editor_test", "password": "password123"},
-    )
+    login_as(editor_client, "editor_test")
     editor_page = editor_client.get("/")
     assert editor_page.status_code == 302
     editor_page = editor_client.get(editor_page.headers["Location"])
@@ -2268,19 +2342,13 @@ def test_primary_navigation_matches_role_permissions():
     assert editor_client.get("/compliance-centre").status_code == 403
 
     wm_client = app.app.test_client()
-    wm_client.post(
-        "/login",
-        data={"username": "watch_manager_test", "password": "password123"},
-    )
+    login_as(wm_client, "watch_manager_test")
     wm_page = wm_client.get("/roster/2025-04")
     assert wm_page.status_code == 200
     assert b"Secure session \xc2\xb7 Watch Manager" in wm_page.data
 
     dwm_client = app.app.test_client()
-    dwm_client.post(
-        "/login",
-        data={"username": "duty_watch_manager_test", "password": "password123"},
-    )
+    login_as(dwm_client, "duty_watch_manager_test")
     dwm_page = dwm_client.get("/roster/2025-04")
     assert dwm_page.status_code == 200
     assert b"Secure session \xc2\xb7 Duty Watch Manager" in dwm_page.data

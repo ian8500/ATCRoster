@@ -161,9 +161,16 @@ def test_assign_cell_keeps_request_pending_until_approve_and_apply():
         db.session.commit()
 
     client = app.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
     login_resp = client.post(
         "/login",
-        data={"username": "admin_req_test", "password": "password123"},
+        data={
+            "_csrf_token": token,
+            "username": "admin_req_test",
+            "password": "password123",
+        },
         follow_redirects=True,
     )
     assert login_resp.status_code == 200

@@ -106,10 +106,18 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
         db.session.commit()
     client_a = app.app.test_client()
     client_b = app.app.test_client()
+    client_a.get("/login")
+    client_b.get("/login")
+    with client_a.session_transaction() as session:
+        token_a = session["_csrf_token"]
+    with client_b.session_transaction() as session:
+        token_b = session["_csrf_token"]
     assert client_a.post("/login", data={
+        "_csrf_token": token_a,
         "username": "postgres-a", "password": "Physical-Test-2026!",
     }).status_code == 302
     assert client_b.post("/login", data={
+        "_csrf_token": token_b,
         "username": "postgres-b", "password": "Physical-Test-2026!",
     }).status_code == 302
     page_a = client_a.get("/requests")

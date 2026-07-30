@@ -96,12 +96,20 @@ def briefing_client():
 
 
 def _login(client, username):
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
     response = client.post(
         "/login",
-        data={"username": username, "password": "password123"},
+        data={
+            "_csrf_token": token,
+            "username": username,
+            "password": "password123",
+        },
         follow_redirects=True,
     )
     assert response.status_code == 200
+    return response
 
 
 def _csrf(client):
@@ -111,12 +119,8 @@ def _csrf(client):
 
 
 def test_feature_flag_exposes_module_selector(briefing_client):
-    response = briefing_client.post(
-        "/login",
-        data={"username": "brief_user", "password": "password123"},
-    )
-    assert response.status_code == 302
-    assert response.headers["Location"].endswith("/modules")
+    response = _login(briefing_client, "brief_user")
+    assert response.status_code == 200
     response = briefing_client.get("/modules")
     assert response.status_code == 200
     assert b"Roster" in response.data
@@ -225,7 +229,9 @@ def test_reports_tolerate_legacy_history_and_keep_errors_in_briefing(
     assert reports.status_code == 200
     assert b"Previous reports" in reports.data
 
-    briefing_client.get("/logout")
+    briefing_client.post(
+        "/logout", data={"_csrf_token": _csrf(briefing_client)}
+    )
     _login(briefing_client, "brief_user")
     forbidden = briefing_client.get("/briefing/admin/reports")
     assert forbidden.status_code == 403
@@ -313,7 +319,9 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
         item_id = BriefingItem.query.one().id
         assert BriefingDelivery.query.one().recipient_name == "Brief User"
 
-    briefing_client.get("/logout")
+    briefing_client.post(
+        "/logout", data={"_csrf_token": _csrf(briefing_client)}
+    )
     _login(briefing_client, "brief_user")
     briefing_home = briefing_client.get("/briefing/")
     assert b"data-briefing-card" in briefing_home.data
@@ -428,7 +436,9 @@ def test_brief_of_day_is_displayed_without_open_or_acknowledgement(
         assert item.kind == "daily"
         assert item.mandatory is False
 
-    briefing_client.get("/logout")
+    briefing_client.post(
+        "/logout", data={"_csrf_token": _csrf(briefing_client)}
+    )
     _login(briefing_client, "brief_user")
     page = briefing_client.get("/briefing/")
     assert b"Today at Glasgow" in page.data

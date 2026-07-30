@@ -62,7 +62,14 @@ def secured_client():
 
 
 def login(client, username="user-a"):
-    response = client.post("/login", data={"username": username, "password": "password123"})
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    response = client.post("/login", data={
+        "_csrf_token": token,
+        "username": username,
+        "password": "password123",
+    })
     assert response.status_code == 302
     response = client.get("/requests")
     assert response.status_code == 200
