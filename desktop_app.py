@@ -33,7 +33,8 @@ def _wait_for_server(url: str, timeout: float = 20.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urlopen(url, timeout=1.5):
+            # Callers construct this URL from a fixed loopback origin.
+            with urlopen(url, timeout=1.5):  # nosec B310
                 return True
         except Exception:
             time.sleep(0.2)
