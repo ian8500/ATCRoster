@@ -12,21 +12,20 @@ routes. Roster behaviour and data are unchanged.
 ## Code and schema rollback
 
 1. Back up the airport operational database and inventory the private briefing
-   bucket.
+   object store or durable mounted directory.
 2. Disable `briefing_module`.
-3. Downgrade Alembic from `20260728_21` to `20260727_20`.
-4. Deploy the earlier application revision.
+3. Prefer a schema-compatible application rollback. Do not run an improvised
+   Alembic downgrade: later migrations contain briefing schema and data changes
+   beyond the original module tables.
+4. If schema rollback is required, restore the control and all airport
+   databases from the same verified pre-deployment recovery set, then deploy
+   the matching earlier application revision as described in the database
+   migration runbook.
 
-The downgrade removes only:
-
-- `briefing_item`
-- `briefing_delivery`
-- `briefing_audit`
-- `briefing_assurance_run`
-
-Uploaded objects are intentionally retained during database downgrade so an
-accidental rollback does not destroy controlled documents. After confirming
-that the module will not be restored, the airport prefix in the configured
-private bucket may be archived or deliberately removed under the approved
-retention process. Local development uses the directory beneath
-`ATCROSTER_BRIEFING_UPLOAD_DIR`.
+Briefing objects are outside the database backup. Retain and inventory them
+through rollback so controlled documents are not silently lost. After
+confirming that the module will not be restored, the airport prefix may be
+archived or deliberately removed only under the approved retention process.
+Development may use `ATCROSTER_BRIEFING_UPLOAD_DIR`; production requires
+complete private S3-compatible configuration or
+`ATCROSTER_BRIEFING_DURABLE_DIR` on an explicitly provisioned durable mount.

@@ -1,6 +1,6 @@
 # Database migration runbook
 
-The current head is `20260726_09`. Production migration must use
+The current head is `20260730_28`. Production migration must use
 `scripts/migrate_all_databases.py`, which applies the `control` schema role to
 the control database and the `operational` role separately to every configured
 airport database. It is safe to rerun and does not create control-plane tables
@@ -41,8 +41,8 @@ application image.
 3. Run `python scripts/migrate_all_databases.py` once. It upgrades control
    first, then every route in unit order and fails closed for missing,
    malformed or control-equal secrets.
-4. Confirm `alembic current` reports `20260725_08` (or the later approved
-   release revision).
+4. Confirm `alembic current` reports the exact approved release head
+   (`20260730_28` for this release).
 5. Check `/health/live` and `/health/ready`.
 6. Smoke-test login, one unit-scoped roster, requests, annotations, publication
    history and Super Admin aggregate view.

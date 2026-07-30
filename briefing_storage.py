@@ -150,11 +150,29 @@ class S3BriefingStorage(BriefingStorage):
 
 def configured_briefing_storage(instance_path: str) -> BriefingStorage:
     provider = os.environ.get("BRIEFING_STORAGE_PROVIDER", "local").strip().lower()
-    if provider == "local":
-        root = os.environ.get(
-            "ATCROSTER_BRIEFING_UPLOAD_DIR",
-            os.path.join(instance_path, "briefing_uploads"),
-        )
+    production = (
+        os.environ.get("ATCROSTER_ENVIRONMENT", "development").strip().lower()
+        == "production"
+    )
+    if provider in {"local", "mounted"}:
+        if production:
+            root = os.environ.get(
+                "ATCROSTER_BRIEFING_DURABLE_DIR", ""
+            ).strip()
+            if not root:
+                raise BriefingStorageError(
+                    "Production local briefing storage requires an explicit "
+                    "ATCROSTER_BRIEFING_DURABLE_DIR mounted on durable storage."
+                )
+            if not Path(root).is_absolute():
+                raise BriefingStorageError(
+                    "ATCROSTER_BRIEFING_DURABLE_DIR must be an absolute path."
+                )
+        else:
+            root = os.environ.get(
+                "ATCROSTER_BRIEFING_UPLOAD_DIR",
+                os.path.join(instance_path, "briefing_uploads"),
+            )
         return LocalBriefingStorage(Path(root))
     if provider == "s3":
         return S3BriefingStorage(

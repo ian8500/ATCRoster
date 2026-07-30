@@ -10,7 +10,6 @@ from datetime import date, datetime, time, timezone
 import hashlib
 import io
 import json
-import re
 import secrets
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -518,6 +517,16 @@ def document(item_id: int):
     except BriefingStorageError:
         current_app.logger.exception("briefing_document_read_failed")
         abort(404)
+    if not secrets.compare_digest(
+        hashlib.sha256(content).hexdigest(),
+        item.content_sha256 or "",
+    ):
+        current_app.logger.error(
+            "briefing_document_checksum_failed unit_id=%s briefing_id=%s",
+            current_user.unit_id,
+            item.id,
+        )
+        abort(503)
     download = request.args.get("download") == "1"
     response = send_file(
         io.BytesIO(content),

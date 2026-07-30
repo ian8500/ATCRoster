@@ -7,6 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /srv/atcroster
 
 RUN addgroup --system atcroster && adduser --system --ingroup atcroster atcroster
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes libpq5 \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-prod.txt .
 RUN pip install --no-cache-dir -r requirements-prod.txt

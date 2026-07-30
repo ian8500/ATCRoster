@@ -38,6 +38,7 @@ from sqlalchemy.exc import IntegrityError
 from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
+from briefing_storage import configured_briefing_storage
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -155,6 +156,10 @@ if DEPLOYMENT_ENV == "production":
         FIELD_ENCRYPTION_KEYS = f"legacy:{FIELD_ENCRYPTION_KEY}"
     if not os.environ.get("REDIS_URL"):
         raise RuntimeError("Production requires REDIS_URL.")
+    # Validate controlled-document storage during process startup. Production
+    # must never fall back to the application's potentially ephemeral instance
+    # directory.
+    configured_briefing_storage(app.instance_path)
 else:
     FIELD_ENCRYPTION_KEY = base64.urlsafe_b64encode(
         hashlib.sha256(str(app.config["SECRET_KEY"]).encode()).digest()
