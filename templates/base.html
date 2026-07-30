@@ -81,7 +81,7 @@
             <a href="{{ url_for('platform_admin') }}" {% if request.endpoint == 'platform_admin' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'platform_admin' %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Platform Admin</a>
           {% else %}
             {% if has_briefing_module or has_training_module or has_competency_module %}
-              <a href="{{ url_for('module_home') }}" class="nav-link {% if request.endpoint == 'module_home' %}active{% endif %}"><i class="fa-solid fa-table-cells-large" aria-hidden="true"></i> Modules</a>
+              <a href="{{ url_for('module_home') }}" class="nav-link {% if request.endpoint == 'module_home' %}active{% endif %}"><i class="fa-solid fa-house" aria-hidden="true"></i> Home</a>
             {% endif %}
             {% if in_briefing_module %}
               {% include "briefing/_nav_links.html" %}
