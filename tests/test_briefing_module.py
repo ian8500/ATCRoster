@@ -328,7 +328,7 @@ def test_brief_of_day_is_displayed_without_open_or_acknowledgement(
     _login(briefing_client, "brief_user")
     page = briefing_client.get("/briefing/")
     assert b"Today at Glasgow" in page.data
-    assert b"Briefs of the Day" in page.data
+    assert b"Brief of the Day." in page.data
     assert b"Mandatory Messages" in page.data
     assert b"Other Messages" in page.data
     assert b"data-daily-expand" in page.data
