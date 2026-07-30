@@ -5,17 +5,20 @@ production release.
 
 ## Automated evidence
 
-- [x] Full test suite passes: 67 tests on 25 July 2026.
+- [x] Full test suite passes: 152 passed and 2 intentionally skipped on
+  30 July 2026.
 - [x] Tenant-isolation and cross-unit IDOR tests pass.
 - [x] Super Admin privacy tests pass.
 - [x] Account-limit, request, annotation and publication tests pass.
-- [x] Clean SQLite fixtures and PostgreSQL 16 reach Alembic `20260725_08`.
+- [x] Fresh control, operational and combined SQLite and PostgreSQL 16
+  databases reach Alembic `20260730_28`.
 - [x] `pip-audit -r requirements-prod.txt` reports no known vulnerabilities.
 - [x] Changed-file and correctness/security lint checks pass; remaining legacy
   style debt is recorded as non-blocking.
 - [x] 30-airport/108,000-assignment smoke test passes locally.
-- [x] Production container builds and production configuration validation
-  passes.
+- [x] Production container builds, has no fixed HIGH/CRITICAL Trivy findings,
+  and production-style PostgreSQL/Redis/private-storage configuration
+  validation passes.
 
 ## Production controls
 

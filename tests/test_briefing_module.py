@@ -2,6 +2,7 @@ import io
 import json
 from datetime import datetime, timedelta
 import os
+from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
 
@@ -343,6 +344,18 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     )
     assert download.status_code == 200
     assert "attachment" in download.headers["Content-Disposition"]
+    with app.app.app_context():
+        item = db.session.get(BriefingItem, item_id)
+        stored_path = (
+            Path(app.app.instance_path)
+            / "briefing_uploads"
+            / item.stored_filename
+        )
+        original_content = stored_path.read_bytes()
+        stored_path.write_bytes(b"%PDF-1.4 altered after storage")
+    corrupted = briefing_client.get(f"/briefing/item/{item_id}/document")
+    assert corrupted.status_code == 503
+    stored_path.write_bytes(original_content)
     response = briefing_client.post(
         f"/briefing/item/{item_id}/acknowledge",
         data={"_csrf_token": _csrf(briefing_client), "confirmation": "yes"},

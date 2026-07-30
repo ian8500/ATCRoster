@@ -97,6 +97,11 @@ receive the same encrypted variables:
   `ATCROSTER_DB_STATEMENT_TIMEOUT_MS`, `ATCROSTER_DB_POOL_TIMEOUT_SECONDS`,
   `ATCROSTER_OPERATIONAL_POOL_SIZE` and
   `ATCROSTER_OPERATIONAL_MAX_OVERFLOW`
+- controlled briefing storage using either complete private S3-compatible
+  `BRIEFING_STORAGE_PROVIDER=s3`, bucket, endpoint, access-key and secret-key
+  configuration, or `BRIEFING_STORAGE_PROVIDER=mounted` with
+  `ATCROSTER_BRIEFING_DURABLE_DIR` set to the absolute path of an explicitly
+  provisioned durable volume
 
 The web service uses the repository `railway.toml`. Configure the worker
 service start command as `python scripts/run_provisioning_worker.py` and no
@@ -104,6 +109,11 @@ public endpoint. The pre-deploy command upgrades control first and then all
 configured operational databases. After the first healthy deployment, run
 `flask --app app bootstrap-platform` once with a unique administrator
 password. Do not upload acceptance data or local environment files.
+Confirm storage credentials are private, public object/container access is
+disabled, and an uploaded briefing remains retrievable after a service
+restart. Startup rejects incomplete S3 configuration and implicit local
+instance storage, but cannot prove that an operator-supplied directory is
+backed by a durable mount.
 
 For field-key rotation, prepend the new version, retain previous decrypt keys,
 take verified backups, and run:
