@@ -38,7 +38,7 @@
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><span></span></span>
         <div class="brand-copy">
-          <h1 class="logo">{% if in_competency_module %}ATC Competency{% elif in_training_module %}ATC Training{% else %}{{ unit_branding.display_name if unit_branding and unit_branding.display_name else ('ATC Briefing' if in_briefing_module else 'ATC Roster') }}{% endif %}</h1>
+          <h1 class="logo">{{ unit_branding.display_name if unit_branding and unit_branding.display_name else (current_unit.name if current_unit else 'ATC Roster') }}</h1>
         </div>
       </div>
       {% if current_user.is_authenticated %}
