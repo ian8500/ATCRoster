@@ -175,7 +175,7 @@
                 <option value="{{ item.code }}" {% if a.code == item.code %}selected{% endif %}>{{ item.label }} ({{ item.code }})</option>
                 {% endfor %}
               </select>
-              <button class="btn btn-sm btn-secondary" type="submit">Save</button>
+              <button class="btn btn-sm btn-secondary" type="submit">Update</button>
             </form>
             <form method="post" data-confirm="Remove {{ a.day.strftime('%d %B %Y') }} from this sickness instance?">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -183,7 +183,7 @@
               <input type="hidden" name="staff_id" value="{{ a.staff_id }}">
               <input type="hidden" name="start" value="{{ a.day }}">
               <input type="hidden" name="end" value="{{ a.day }}">
-              <button class="btn btn-sm btn-danger" type="submit">Remove day</button>
+              <button class="btn btn-sm btn-danger" type="submit">Delete</button>
             </form>
           </div>
           {% endfor %}
@@ -225,7 +225,7 @@
                 <input type="hidden" name="leave_type" value="{{ lv.leave_type }}">
                 <input type="date" aria-label="Leave start date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block compact-date-input" name="start" value="{{ lv.start }}">
                 <input type="date" aria-label="Leave end date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block compact-date-input" name="end" value="{{ lv.end }}">
-                <button class="btn btn-sm btn-secondary" type="submit">Save</button>
+                <button class="btn btn-sm btn-secondary" type="submit">Update</button>
               </form>
               <form class="d-inline ms-1" method="post"
                     data-confirm="Delete this leave record?">

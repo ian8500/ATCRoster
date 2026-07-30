@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Training analytics{% endblock %}
+{% block content %}
+<section class="training-hero"><div><span class="admin-step">Management insight</span><h2>Training analytics</h2><p>Attainment trends, objective coverage and instructor hours.</p></div><div class="training-total"><span>Reports</span><strong>{{ sessions|length }}</strong></div></section>
+<section class="analytics-layout">
+  <article class="card"><div class="card-hd">Attainment by objective</div><div class="card-bd analytics-bars">
+  {% for row in objective_analytics %}<div><span>{{ row.objective.level.name }} · {{ row.objective.position }} {{ row.objective.title }}</span><div class="analytics-track"><i style="width:{{ row.average / 4 * 100 }}%"></i></div><strong>{{ row.average }}/4</strong></div>{% else %}<p>No scored objectives yet.</p>{% endfor %}
+  </div></article>
+  <article class="card"><div class="card-hd">OJTI training hours</div><div class="card-bd"><table class="table"><thead><tr><th>OJTI</th><th>Hours</th></tr></thead><tbody>{% for ojti, minutes in ojti_hours %}<tr><td>{{ ojti.name }}</td><td>{{ "%.1f"|format(minutes / 60) }}</td></tr>{% else %}<tr><td colspan="2">No hours recorded.</td></tr>{% endfor %}</tbody></table></div></article>
+</section>
+{% endblock %}

@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }}{% endblock %}
+{% block content %}
+<article class="briefing-reader" data-briefing-reader data-heartbeat-url="{{ url_for('briefing.heartbeat', item_id=item.id) }}">
+  <header>
+    <a href="{{ url_for('briefing.home') }}"><i class="fa-solid fa-arrow-left"></i> My briefing</a>
+    <div class="briefing-card__meta">
+      <span class="status-chip">{{ item.message_type_name or item.kind|title }}</span>
+      {% if item.mandatory %}<span class="status-chip status-chip--attention">Mandatory</span>{% endif %}
+    </div>
+    <h2>{{ item.title }}</h2>
+    <p>Version {{ item.version }} · Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</p>
+  </header>
+  {% if item.body %}<section class="briefing-reader__text">{{ item.body|e|replace('\n', '<br>')|safe }}</section>{% endif %}
+  {% if item.stored_filename %}
+    {% if item.content_type == 'application/pdf' %}
+      {% set document_url = url_for('briefing.document', item_id=item.id) %}
+      <section class="briefing-document-viewer" data-pdf-viewer>
+        <div class="briefing-document-viewer__toolbar">
+          <div class="briefing-document-viewer__identity">
+            <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+            <span>
+              <strong>{{ item.original_filename }}</strong>
+              <small>PDF document</small>
+            </span>
+          </div>
+          <div class="briefing-document-viewer__actions">
+            <button class="btn" type="button" data-pdf-fullscreen>
+              <i class="fa-solid fa-expand" aria-hidden="true" data-pdf-fullscreen-icon></i>
+              <span data-pdf-fullscreen-label>Full screen</span>
+            </button>
+            <a class="btn" target="_blank" rel="noopener" href="{{ document_url }}">
+              <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i> Pop out
+            </a>
+            <a class="btn" href="{{ document_url }}?download=1">
+              <i class="fa-solid fa-download" aria-hidden="true"></i> Download
+            </a>
+          </div>
+        </div>
+        <div class="briefing-document-viewer__stage">
+          <div class="briefing-document-viewer__loading" data-pdf-loading>
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <span>Loading PDF…</span>
+          </div>
+          <iframe
+            class="briefing-document"
+            title="{{ item.title }}"
+            src="{{ document_url }}#view=FitH&toolbar=1&navpanes=1"
+            data-pdf-frame
+          ></iframe>
+        </div>
+      </section>
+    {% else %}
+      <section class="card"><div class="card-bd">
+        <p>This Word instruction opens in your device’s document viewer.</p>
+        <a class="btn btn-primary" target="_blank" rel="noopener" href="{{ url_for('briefing.document', item_id=item.id) }}">Open {{ item.original_filename }}</a>
+      </div></section>
+    {% endif %}
+  {% endif %}
+  <footer class="briefing-reader__ack">
+    <div>
+      <strong>Active reading time: <span data-view-seconds>{{ delivery.active_view_seconds }}</span> seconds</strong>
+      <small>Timing pauses when this page is not active.</small>
+    </div>
+    {% if not delivery.acknowledged_at %}
+      <form method="post" action="{{ url_for('briefing.acknowledge', item_id=item.id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <label><input type="checkbox" name="confirmation" value="yes" required> I confirm I have read and understood this briefing.</label>
+        <button class="btn btn-primary" type="submit">Acknowledge</button>
+      </form>
+    {% else %}
+      <span class="assurance-ok"><i class="fa-solid fa-circle-check"></i> Acknowledged {{ delivery.acknowledged_at.strftime('%d %b %Y %H:%M') }}</span>
+    {% endif %}
+  </footer>
+</article>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const reader = document.querySelector('[data-briefing-reader]');
+  if (!reader) return;
+  const viewer = document.querySelector('[data-pdf-viewer]');
+  const frame = document.querySelector('[data-pdf-frame]');
+  const loading = document.querySelector('[data-pdf-loading]');
+  const fullscreenButton = document.querySelector('[data-pdf-fullscreen]');
+  const fullscreenIcon = document.querySelector('[data-pdf-fullscreen-icon]');
+  const fullscreenLabel = document.querySelector('[data-pdf-fullscreen-label]');
+  const secondsDisplay = document.querySelector('[data-view-seconds]');
+  if (frame && loading) {
+    frame.addEventListener('load', () => loading.hidden = true);
+  }
+  if (viewer && fullscreenButton) {
+    const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+    const updateFullscreenControl = () => {
+      const expanded = fullscreenElement() === viewer;
+      fullscreenLabel.textContent = expanded ? 'Exit full screen' : 'Full screen';
+      fullscreenIcon.classList.toggle('fa-expand', !expanded);
+      fullscreenIcon.classList.toggle('fa-compress', expanded);
+      fullscreenButton.setAttribute('aria-label', expanded ? 'Exit full screen' : 'View PDF full screen');
+    };
+    fullscreenButton.addEventListener('click', () => {
+      if (fullscreenElement()) {
+        const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exitFullscreen) exitFullscreen.call(document);
+      } else {
+        const enterFullscreen = viewer.requestFullscreen || viewer.webkitRequestFullscreen;
+        if (enterFullscreen) enterFullscreen.call(viewer);
+      }
+    });
+    document.addEventListener('fullscreenchange', updateFullscreenControl);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenControl);
+  }
+  let active = !document.hidden;
+  let last = Date.now();
+  let displayedSeconds = Number(secondsDisplay?.textContent || 0);
+  const token = {{ csrf_token()|tojson }};
+  const send = () => {
+    const now = Date.now();
+    const seconds = active ? Math.min(30, Math.floor((now - last) / 1000)) : 0;
+    last = now;
+    if (!seconds) return;
+    const body = new URLSearchParams({seconds: String(seconds), _csrf_token: token});
+    fetch(reader.dataset.heartbeatUrl, {method: 'POST', body, credentials: 'same-origin'})
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (data) {
+          displayedSeconds = data.active_view_seconds;
+          secondsDisplay.textContent = displayedSeconds;
+        }
+      });
+  };
+  const flushOnLeave = () => {
+    const now = Date.now();
+    const seconds = active ? Math.min(30, Math.floor((now - last) / 1000)) : 0;
+    last = now;
+    if (!seconds || !navigator.sendBeacon) return;
+    const body = new URLSearchParams({seconds: String(seconds), _csrf_token: token});
+    navigator.sendBeacon(reader.dataset.heartbeatUrl, body);
+  };
+  setInterval(() => {
+    if (active) {
+      displayedSeconds += 1;
+      secondsDisplay.textContent = displayedSeconds;
+    }
+  }, 1000);
+  document.addEventListener('visibilitychange', () => { send(); active = !document.hidden; });
+  window.addEventListener('blur', () => { send(); active = false; });
+  window.addEventListener('focus', () => { active = true; last = Date.now(); });
+  window.addEventListener('pagehide', flushOnLeave);
+  setInterval(send, 15000);
+})();
+</script>
+{% endblock %}

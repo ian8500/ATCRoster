@@ -256,7 +256,8 @@ REQUEST_TRANSITIONS = {
 }
 PLATFORM_FEATURE_FLAGS = frozenset({
     "advanced_coverage", "scenario_planning", "calendar_exports",
-    "fatigue_reporting", "custom_branding",
+    "fatigue_reporting", "custom_branding", "briefing_module",
+    "training_module", "competency_module",
 })
 
 
@@ -404,7 +405,31 @@ def _internal_error(error):
         "unhandled_request_error request_id=%s path=%s",
         getattr(g, "request_id", ""), request.path, exc_info=error,
     )
-    return render_template("error.html", request_id=getattr(g, "request_id", "")), 500
+    module_context = _module_error_navigation()
+    return render_template(
+        "error.html", request_id=getattr(g, "request_id", ""),
+        **module_context,
+    ), 500
+
+
+def _module_error_navigation() -> dict[str, str]:
+    """Keep module errors inside the module instead of linking to Roster."""
+    if request.path.startswith("/briefing"):
+        return {
+            "home_url": url_for("briefing.home"),
+            "home_label": "Return to briefing",
+        }
+    if request.path.startswith("/training"):
+        return {
+            "home_url": url_for("training_home"),
+            "home_label": "Return to training",
+        }
+    if request.path.startswith("/competency"):
+        return {
+            "home_url": url_for("competency_home"),
+            "home_label": "Return to competency",
+        }
+    return {}
 
 
 @app.errorhandler(400)
@@ -435,6 +460,7 @@ def _bad_request(error):
         error_title="We could not validate that request",
         error_message=message,
         request_id=getattr(g, "request_id", ""),
+        **_module_error_navigation(),
     ), 400
 
 
@@ -444,6 +470,7 @@ def _forbidden(_error):
         getattr(current_user, "is_authenticated", False)
         and getattr(current_user, "role", "") == "superadmin"
     )
+    module_context = _module_error_navigation()
     return render_template(
         "error.html",
         status_code=403,
@@ -453,15 +480,18 @@ def _forbidden(_error):
             "operational roster data. Return to Platform Administration."
             if is_platform_admin
             else (
-                "Your account role does not permit this action. Return to the "
-                "roster or ask your Unit Administrator for access."
+                "Your account role does not permit this action. Ask your Unit "
+                "Administrator for access."
             )
         ),
-        home_url=url_for("platform_admin") if is_platform_admin else url_for("index"),
+        home_url=(
+            url_for("platform_admin") if is_platform_admin
+            else module_context.get("home_url", url_for("index"))
+        ),
         home_label=(
             "Return to Platform Administration"
             if is_platform_admin
-            else "Return to roster"
+            else module_context.get("home_label", "Return to roster")
         ),
         request_id=getattr(g, "request_id", ""),
     ), 403
@@ -477,6 +507,7 @@ def _not_found(_error):
             "It may have moved, been removed, or belong to a different airport."
         ),
         request_id=getattr(g, "request_id", ""),
+        **_module_error_navigation(),
     ), 404
 
 OPERATIONAL_TABLE_NAMES = frozenset({
@@ -490,6 +521,10 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "operational_position", "position_endorsement", "position_requirement",
     "break_plan", "achieved_duty", "fatigue_report",
     "roster_rule_version", "mfa_credential",
+    "briefing_item", "briefing_delivery", "briefing_audit",
+    "briefing_assurance_run", "briefing_message_type",
+    "training_level", "training_objective", "training_session",
+    "training_score",
 })
 
 
@@ -698,6 +733,10 @@ def _reset_tenant_context(_error=None):
 
 _LOGIN_NEXT_ENDPOINTS = {
     "/": "index",
+    "/modules": "module_home",
+    "/briefing/": "briefing.home",
+    "/training/": "training_home",
+    "/competency/": "competency_home",
     "/admin": "admin",
     "/leave": "leave",
     "/messages": "unit_messages",
@@ -738,6 +777,18 @@ def _canonical_login_redirect(
     if profile_match and user_id and int(profile_match.group(1)) == user_id:
         return url_for("staff_profile", sid=user_id)
     return url_for(default_endpoint)
+
+
+def _airport_login_endpoint(user) -> str:
+    """Land multi-module airport users on the module launcher."""
+    enabled = FeatureFlag.query.filter(
+        FeatureFlag.unit_id == user.unit_id,
+        FeatureFlag.key.in_((
+            "briefing_module", "training_module", "competency_module"
+        )),
+        FeatureFlag.enabled.is_(True),
+    ).first()
+    return "module_home" if enabled else "index"
 
 
 # ----- SQLite performance helpers (define only; run after db exists) -----
@@ -1106,7 +1157,6 @@ MIN_MONTH = date(2025, 4, 1)   # Start app from April 2025
 
 # Reference defaults (used if DB rows missing)
 DEFAULT_WORKING_CODES = ["M", "D", "A", "N", "SC", "SSC", "SBY"]
-DEFAULT_LEAVE_CODES = ["AL", "PL", "SPL"]
 DEFAULT_BANNED_ROSTER_CODES = ["SIC", "SC", "SSC", "AL", "SP", "SPL", "PL", "TOU8", "TOUI"]
 DEFAULT_EXCLUDE_FROM_COUNTERS = ["OSS"]
 DEFAULT_NON_WORKING_CODES = [
@@ -1239,7 +1289,6 @@ DEFAULT_ANNOTATION_TYPES = [
 
 DEFAULT_ROSTER_SETTINGS = {
     "working_codes": DEFAULT_WORKING_CODES,
-    "leave_codes": DEFAULT_LEAVE_CODES,
     "banned_codes": DEFAULT_BANNED_ROSTER_CODES,
     "exclude_from_counters": DEFAULT_EXCLUDE_FROM_COUNTERS,
     "non_working_codes": DEFAULT_NON_WORKING_CODES,
@@ -1380,6 +1429,7 @@ class Staff(UserMixin, db.Model):
     # Identity / roster fields
     name = db.Column(db.String(80), nullable=False)
     staff_no = db.Column(db.String(20), nullable=False)
+    caa_license_number = db.Column(db.String(40), nullable=False, default="")
 
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"))
     watch = db.relationship("Watch", backref="members")
@@ -1422,6 +1472,61 @@ class Staff(UserMixin, db.Model):
     )
 
 
+class TrainingLevel(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=100)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    __table_args__ = (
+        db.UniqueConstraint("unit_id", "name", name="uq_training_level_unit_name"),
+    )
+
+
+class TrainingObjective(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    level_id = db.Column(db.Integer, db.ForeignKey("training_level.id"), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    level = db.relationship("TrainingLevel", backref="objectives")
+    __table_args__ = (
+        db.UniqueConstraint("level_id", "position", name="uq_training_objective_position"),
+    )
+
+
+class TrainingSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    trainee_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    ojti_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    level_id = db.Column(db.Integer, db.ForeignKey("training_level.id"), nullable=False, index=True)
+    training_date = db.Column(db.Date, nullable=False, index=True)
+    duration_minutes = db.Column(db.Integer, nullable=False)
+    summary = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    trainee = db.relationship("Staff", foreign_keys=[trainee_id])
+    ojti = db.relationship("Staff", foreign_keys=[ojti_id])
+    level = db.relationship("TrainingLevel")
+
+
+class TrainingScore(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("training_session.id"), nullable=False, index=True)
+    objective_id = db.Column(db.Integer, db.ForeignKey("training_objective.id"), nullable=False, index=True)
+    attainment = db.Column(db.Integer, nullable=False)
+    assistance = db.Column(db.Integer, nullable=False)
+    safety_critical = db.Column(db.Boolean, nullable=False, default=False)
+    note = db.Column(db.Text, nullable=False, default="")
+    session = db.relationship("TrainingSession", backref=db.backref("scores", cascade="all, delete-orphan"))
+    objective = db.relationship("TrainingObjective")
+    __table_args__ = (
+        db.UniqueConstraint("session_id", "objective_id", name="uq_training_score_objective"),
+    )
+
+
 def migrate_add_met_and_assessor():
     """Idempotent: add MET/Assessor columns to staff if missing."""
     with app.app_context():
@@ -1443,6 +1548,10 @@ def migrate_add_met_and_assessor():
         if "has_assessor" not in cols:
             alters.append(
                 "ALTER TABLE staff ADD COLUMN has_assessor BOOLEAN DEFAULT 0")
+        if "caa_license_number" not in cols:
+            alters.append(
+                "ALTER TABLE staff ADD COLUMN caa_license_number VARCHAR(40) "
+                "NOT NULL DEFAULT ''")
 
         from sqlalchemy import text  # keep this at top of the function if not already there
         for sql in alters:
@@ -1685,6 +1794,12 @@ FatigueReport = SaaS.FatigueReport
 RosterRuleVersion = SaaS.RosterRuleVersion
 MfaCredential = SaaS.MfaCredential
 
+from briefing_module import (
+    BriefingAssuranceRun, BriefingAudit, BriefingDelivery, BriefingItem,
+    BriefingMessageType, briefing_blueprint, briefing_enabled,
+    briefing_local_now,
+)
+
 # Enforce the authenticated airport on all legacy operational SELECTs and
 # stamp new rows. This protects older routes while they move to repositories.
 from sqlalchemy import event
@@ -1700,7 +1815,10 @@ TENANT_OPERATIONAL_MODELS = (
     RosterPublication, RosterAcknowledgement, Scenario,
     OperationalPosition, PositionEndorsement, PositionRequirement, BreakPlan,
     AchievedDuty, FatigueReport, RosterRuleVersion,
-    MfaCredential,
+    MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
+    BriefingAudit,
+    BriefingAssuranceRun,
+    TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
 )
 
 
@@ -1767,22 +1885,24 @@ def _load_codes_setting(
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
     raw = _roster_settings_snapshot(resolved_unit_id).get(key)
     if not raw:
-        return set(_normalise_codes(default))
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return set(_normalise_codes(default))
-    return set(_normalise_codes(parsed))
+        parsed = default
+    else:
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = default
+    configured = set(_normalise_codes(parsed))
+    existing = {
+        str(code or "").strip().upper()
+        for (code,) in db.session.query(ShiftType.code).filter_by(
+            unit_id=resolved_unit_id
+        ).all()
+    }
+    return configured & existing
 
 
 def get_working_codes() -> set[str]:
     return _load_codes_setting("working_codes", DEFAULT_WORKING_CODES)
-
-
-def get_leave_codes() -> set[str]:
-    return {
-        item["code"] for item in get_absence_types("leave", active_only=True)
-    }
 
 
 def get_absence_types(
@@ -1907,7 +2027,7 @@ def shift_counter_group_for_day(
 def _annotation_snapshot(unit_id: int) -> dict[str, object]:
     rows = (AnnotationType.query
             .filter(AnnotationType.unit_id == unit_id)
-            .order_by(AnnotationType.sort_order, AnnotationType.code)
+            .order_by(AnnotationType.code)
             .all())
     items = []
     for row in rows:
@@ -2002,6 +2122,36 @@ def _save_codes_setting(key: str, values: list[str]) -> None:
         row.value = payload
     db.session.commit()
     refresh_roster_settings_cache()
+
+
+def _prune_roster_code_settings(unit_id: int) -> int:
+    """Remove list entries that have no ShiftType in this airport."""
+    valid_codes = {
+        str(code or "").strip().upper()
+        for (code,) in db.session.query(ShiftType.code).filter_by(
+            unit_id=unit_id
+        ).all()
+    }
+    changed = 0
+    rows = RosterSetting.query.filter(
+        RosterSetting.unit_id == unit_id,
+        RosterSetting.key.in_(DEFAULT_ROSTER_SETTINGS),
+    ).all()
+    for row in rows:
+        try:
+            values = json.loads(row.value or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            values = []
+        if not isinstance(values, list):
+            values = []
+        normalised = _normalise_codes(values)
+        cleaned = [code for code in normalised if code in valid_codes]
+        if cleaned != normalised:
+            row.value = json.dumps(cleaned)
+            changed += 1
+    if changed:
+        refresh_roster_settings_cache()
+    return changed
 
 
 def _save_roster_setting(key: str, value: str) -> None:
@@ -2260,6 +2410,44 @@ def user_permissions(u) -> dict[str, bool]:
 
 def has_unit_permission(u, permission: str) -> bool:
     return bool(user_permissions(u).get(permission, False))
+
+
+def is_under_training(person) -> bool:
+    return bool(
+        getattr(person, "is_trainee", False)
+        or getattr(person, "tower_ut", False)
+        or getattr(person, "radar_ut", False)
+        or getattr(person, "met_ut", False)
+    )
+
+
+def can_record_training(u) -> bool:
+    return bool(
+        is_admin_user(u) or getattr(u, "has_ojti", False)
+        or getattr(u, "has_assessor", False)
+    )
+
+
+def can_manage_training(u) -> bool:
+    return bool(
+        is_admin_user(u) or getattr(u, "has_assessor", False)
+        or getattr(u, "is_wm", False) or getattr(u, "is_dwm", False)
+    )
+
+
+def training_enabled(unit_id: int) -> bool:
+    return bool(FeatureFlag.query.filter_by(
+        unit_id=unit_id, key="training_module", enabled=True
+    ).first())
+
+
+def competency_enabled(unit_id: int) -> bool:
+    row = FeatureFlag.query.filter_by(
+        unit_id=unit_id, key="competency_module"
+    ).first()
+    # Existing airports inherit their current combined-module entitlement
+    # until Super Admin explicitly chooses a separate competency setting.
+    return bool(row.enabled) if row else training_enabled(unit_id)
 
 
 def can_edit_roster(u) -> bool:
@@ -3017,7 +3205,7 @@ def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
     return segs
 
 
-def _analyze_segments(segs, rule_config=None):
+def _analyze_segments(segs, rule_config=None, observation_start=None):
     segs = sorted(segs, key=lambda x: x["start"])
     flags = {}
     if not segs:
@@ -3037,8 +3225,6 @@ def _analyze_segments(segs, rule_config=None):
     win30 = deque()
     duty_30 = 0
     reduced_intervals_30 = deque()
-    rest_gaps_30 = deque()
-
     night_block_count = 0
     last_night_end = None
 
@@ -3101,19 +3287,32 @@ def _analyze_segments(segs, rule_config=None):
                         f"(D22: {int(gap.total_seconds()//3600)}h)"
                     )
 
-            rest_gaps_30.append((start, gap))
-            while rest_gaps_30 and (
-                end - rest_gaps_30[0][0]
-            ) > d24_window:
-                rest_gaps_30.popleft()
-
         qualifying_rest = parameter("D24", "qualifying_rest_hours")
         required_rest = parameter("D24", "required_rest_hours")
+        rest_window_start = start - d24_window
+        has_complete_rest_window = (
+            observation_start is not None
+            and observation_start <= rest_window_start
+        )
         qual_hours = 0.0
-        for _, g in rest_gaps_30:
-            if g >= timedelta(hours=qualifying_rest):
-                qual_hours += g.total_seconds() / 3600.0
-        if qual_hours < required_rest:
+        if has_complete_rest_window:
+            rest_start = rest_window_start
+            for prior in segs:
+                if prior["start"] >= start:
+                    break
+                if prior["end"] <= rest_window_start:
+                    continue
+                duty_start = max(prior["start"], rest_window_start)
+                if duty_start > rest_start:
+                    rest = duty_start - rest_start
+                    if rest >= timedelta(hours=qualifying_rest):
+                        qual_hours += rest.total_seconds() / 3600.0
+                rest_start = max(rest_start, prior["end"])
+            if start > rest_start:
+                rest = start - rest_start
+                if rest >= timedelta(hours=qualifying_rest):
+                    qual_hours += rest.total_seconds() / 3600.0
+        if has_complete_rest_window and qual_hours < required_rest:
             flags.setdefault(the_day, []).append(
                 f"D24: qualifying rest {int(round(qual_hours))}h "
                 f"(<{required_rest:g}h) in last "
@@ -3244,7 +3443,9 @@ def fatigue_flags_for_range(staff: Staff, day_list, lookback_days=30):
     end_day = day_list[-1]
     segs = _segments_for_staff(staff, start_lb, end_day)
     config = _fatigue_rule_config(staff.unit_id)
-    all_flags = _analyze_segments(segs, config)
+    all_flags = _analyze_segments(
+        segs, config, observation_start=datetime.combine(start_lb, time.min)
+    )
     enabled_system = {
         code for code, rule in config["system"].items()
         if rule["enabled"]
@@ -3310,7 +3511,9 @@ def would_trigger_fatigue(staff: Staff, day: date, code: str):
             "early_pre0600": is_pre0600,
             "morning": _is_morning_duty(sdt),
         })
-    flags = _analyze_segments(segs)
+    flags = _analyze_segments(
+        segs, observation_start=datetime.combine(start_lb, time.min)
+    )
     return flags.get(day, [])
 
 
@@ -3356,7 +3559,10 @@ def would_create_new_fatigue_issues(
     start = proposed_day - timedelta(days=lookback_days)
     end = proposed_day + timedelta(days=lookahead_days)
     segs_base = _segments_for_staff(staff, start, end)
-    flags_base = _analyze_segments(segs_base)
+    observation_start = datetime.combine(start, time.min)
+    flags_base = _analyze_segments(
+        segs_base, observation_start=observation_start
+    )
     sdt, edt = _span(proposed_day, sh)
     if not sdt:
         return {}
@@ -3373,7 +3579,9 @@ def would_create_new_fatigue_issues(
         "early_pre0600": is_pre0600,
         "morning": _is_morning_duty(sdt),
     })
-    flags_prop = _analyze_segments(segs_prop)
+    flags_prop = _analyze_segments(
+        segs_prop, observation_start=observation_start
+    )
     new_flags = {}
     for d, lst in flags_prop.items():
         if d < proposed_day:
@@ -4862,6 +5070,10 @@ def inject_perms():
         accent_colour = ""
     pending_request_count = 0
     unread_notification_count = 0
+    unread_briefing_count = 0
+    has_briefing_module = False
+    has_training_module = False
+    has_competency_module = False
     active_admin_count = 0
     if current_unit and au and is_admin_user(au):
         active_admin_count = Staff.query.filter(
@@ -4879,11 +5091,48 @@ def inject_perms():
             recipient_id=au.id,
             read_at=None,
         ).count()
+        has_briefing_module = briefing_enabled(current_unit.id)
+        has_training_module = training_enabled(current_unit.id)
+        has_competency_module = competency_enabled(current_unit.id)
+        if (
+            has_briefing_module
+            and (
+                request.endpoint == "module_home"
+                or (
+                    request.endpoint
+                    and request.endpoint.startswith("briefing.")
+                )
+            )
+        ):
+            briefing_now = briefing_local_now(current_unit.id)
+            unread_briefing_count = (
+                db.session.query(BriefingDelivery.id)
+                .join(
+                    BriefingItem,
+                    BriefingItem.id == BriefingDelivery.briefing_id,
+                )
+                .filter(
+                    BriefingDelivery.unit_id == current_unit.id,
+                    BriefingDelivery.recipient_id == au.id,
+                    BriefingDelivery.acknowledged_at.is_(None),
+                    BriefingDelivery.archived_at.is_(None),
+                    BriefingDelivery.deleted_at.is_(None),
+                    BriefingItem.status == "published",
+                    BriefingItem.kind != "daily",
+                    BriefingItem.effective_at <= briefing_now,
+                    BriefingItem.expires_at >= briefing_now,
+                )
+                .count()
+            )
     return {
         "is_admin":  bool(au) and is_admin_user(au),
         "is_editor": bool(au) and is_editor_user(au),
         "pending_request_count": pending_request_count,
         "unread_notification_count": unread_notification_count,
+        "unread_briefing_count": unread_briefing_count,
+        "has_briefing_module": has_briefing_module,
+        "has_training_module": has_training_module,
+        "has_competency_module": has_competency_module,
         "active_admin_count": active_admin_count,
         "current_unit": current_unit,
         "unit_branding": {
@@ -4896,6 +5145,26 @@ def inject_perms():
             )[:120],
         },
     }
+
+
+@app.get("/modules")
+@login_required
+def module_home():
+    """Select between subscribed airport modules after authentication."""
+    if current_user.role == "superadmin":
+        return redirect(url_for("platform_admin"))
+    if not (
+        briefing_enabled(current_user.unit_id)
+        or training_enabled(current_user.unit_id)
+        or competency_enabled(current_user.unit_id)
+    ):
+        return redirect(url_for("index"))
+    return render_template(
+        "module_home.html",
+        show_briefing=briefing_enabled(current_user.unit_id),
+        show_training=training_enabled(current_user.unit_id),
+        show_competency=competency_enabled(current_user.unit_id),
+    )
 
 
 @app.route("/roster/<ym>")
@@ -5744,6 +6013,8 @@ def admin():
                 id=sid, unit_id=_current_unit_id()
             ).first_or_404()
             db.session.delete(sh)
+            db.session.flush()
+            _prune_roster_code_settings(_current_unit_id())
             db.session.commit()
             refresh_shift_cache()
             _shift_groups_snapshot.cache_clear()
@@ -5945,10 +6216,6 @@ def admin_reference():
             "label": "Working shift codes",
             "help": "Codes treated as working when checking fatigue and consecutive days.",
         },
-        "leave_codes": {
-            "label": "Leave codes",
-            "help": "Codes considered leave-like in automatic logic and reports.",
-        },
         "banned_codes": {
             "label": "Roster grid exclusions",
             "help": "Codes that cannot be set directly from the roster grid (must use dedicated forms).",
@@ -5982,23 +6249,11 @@ def admin_reference():
                     return redirect(url_for("admin_reference"))
                 label = (request.form.get("label") or code).strip()
                 category = (request.form.get("category") or "Other").strip()
-                allow_suffix = bool(request.form.get("allow_suffix"))
-                suffixes = "".join(sorted({
-                    c.upper() for c in (request.form.get("suffixes") or "")
-                    if c.isalnum()
-                }))
                 try:
                     toil_half_days = int(request.form.get("toil_half_days") or 0)
                 except ValueError:
                     toil_half_days = 0
                 toil_half_days = max(-200, min(toil_half_days, 200))
-                tags = ",".join(sorted({
-                    t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
-                }))
-                try:
-                    sort_order = int(request.form.get("sort_order") or 0)
-                except ValueError:
-                    sort_order = 0
                 is_active = bool(request.form.get("is_active", True))
 
                 ann = AnnotationType(
@@ -6015,14 +6270,14 @@ def admin_reference():
                         else "#6c757d"
                     ),
                     description=(request.form.get("description") or "")[:1000],
-                    allow_suffix=allow_suffix,
-                    suffixes=suffixes,
+                    allow_suffix=False,
+                    suffixes="",
                     toil_half_days=toil_half_days,
-                    tags=tags,
+                    tags="",
                     note_required=bool(request.form.get("note_required")),
                     admin_only=bool(request.form.get("admin_only")),
                     is_active=is_active,
-                    sort_order=sort_order,
+                    sort_order=100,
                 )
                 db.session.add(ann)
                 db.session.flush()
@@ -6056,7 +6311,7 @@ def admin_reference():
                     abort(409, "That annotation code already exists.")
                 old_value = {
                     "code": ann.code, "label": ann.label, "category": ann.category,
-                    "active": ann.is_active, "sort_order": ann.sort_order,
+                    "active": ann.is_active,
                 }
                 ann.code = new_code or ann.code
                 ann.label = (request.form.get("label") or ann.label or new_code).strip() or new_code
@@ -6066,26 +6321,13 @@ def admin_reference():
                     abort(400, "Invalid annotation colour.")
                 ann.colour = requested_colour
                 ann.description = (request.form.get("description") or ann.description or "")[:1000]
-                ann.allow_suffix = bool(request.form.get("allow_suffix"))
-                ann.suffixes = "".join(sorted({
-                    c.upper() for c in (request.form.get("suffixes") or "")
-                    if c.isalnum()
-                }))
                 try:
                     ann.toil_half_days = int(request.form.get("toil_half_days") or 0)
                 except ValueError:
                     ann.toil_half_days = 0
                 ann.toil_half_days = max(-200, min(ann.toil_half_days, 200))
-                tags = ",".join(sorted({
-                    t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
-                }))
-                ann.tags = tags
                 ann.note_required = bool(request.form.get("note_required"))
                 ann.admin_only = bool(request.form.get("admin_only"))
-                try:
-                    ann.sort_order = int(request.form.get("sort_order") or ann.sort_order or 0)
-                except ValueError:
-                    pass
                 ann.is_active = bool(request.form.get("is_active"))
                 db.session.add(AnnotationAudit(
                     unit_id=unit_id, annotation_type_id=ann.id,
@@ -6093,7 +6335,7 @@ def admin_reference():
                     old_value=json.dumps(old_value, sort_keys=True),
                     new_value=json.dumps({
                         "code": ann.code, "label": ann.label, "category": ann.category,
-                        "active": ann.is_active, "sort_order": ann.sort_order,
+                        "active": ann.is_active,
                     }, sort_keys=True),
                 ))
                 db.session.commit()
@@ -6128,7 +6370,21 @@ def admin_reference():
                 if key not in settings_meta:
                     flash("Unknown setting.", "error")
                     return redirect(url_for("admin_reference"))
-                values = _parse_codes_input(request.form.get("values", ""))
+                values = _normalise_codes(request.form.getlist("values"))
+                valid_codes = {
+                    str(code or "").strip().upper()
+                    for (code,) in db.session.query(
+                        ShiftType.code
+                    ).filter_by(unit_id=unit_id).all()
+                }
+                unknown = sorted(set(values) - valid_codes)
+                if unknown:
+                    flash(
+                        "The list was not saved because these roster codes "
+                        f"do not exist: {', '.join(unknown)}.",
+                        "error",
+                    )
+                    return redirect(url_for("admin_reference"))
                 _save_codes_setting(key, values)
                 flash("Reference list updated.", "ok")
                 return redirect(url_for("admin_reference"))
@@ -6143,14 +6399,19 @@ def admin_reference():
             flash(f"Update failed: {exc}", "error")
             return redirect(url_for("admin_reference"))
 
+    if _prune_roster_code_settings(unit_id):
+        db.session.commit()
+
     annotations = (AnnotationType.query.filter_by(unit_id=unit_id)
-                   .order_by(AnnotationType.sort_order, AnnotationType.code)
+                   .order_by(AnnotationType.code)
                    .all())
 
     settings_view = []
+    roster_codes = ShiftType.query.filter_by(
+        unit_id=unit_id
+    ).order_by(ShiftType.code).all()
     current_values = {
         "working_codes": sorted(get_working_codes()),
-        "leave_codes": sorted(get_leave_codes()),
         "banned_codes": sorted(get_banned_roster_codes()),
         "exclude_from_counters": sorted(get_exclude_from_counters()),
         "non_working_codes": sorted(get_non_working_codes()),
@@ -6160,12 +6421,13 @@ def admin_reference():
             "key": key,
             "label": meta["label"],
             "help": meta["help"],
-            "value": ", ".join(current_values.get(key, [])),
+            "selected_codes": set(current_values.get(key, [])),
         })
 
     return render_template("admin_reference.html",
                            annotations=annotations,
-                           settings=settings_view)
+                           settings=settings_view,
+                           roster_codes=roster_codes)
 
 # Keep your dedicated staff edit route (ATCO edit)
 
@@ -6183,6 +6445,9 @@ def admin_staff_edit(sid):
     if request.method == "POST":
         s.name = request.form.get("name", s.name).strip()
         s.staff_no = request.form.get("staff_no", s.staff_no).strip()
+        s.caa_license_number = (
+            request.form.get("caa_license_number") or s.caa_license_number or ""
+        ).strip()[:40]
         s.username = request.form.get("username", s.username).strip()
         submitted_email = request.form.get("email", s.email)
         if submitted_email and not _valid_email(submitted_email):
@@ -6230,6 +6495,30 @@ def admin_staff_edit(sid):
         s.tower_ue_expiry = _parse_date(request.form.get("tower_ue_expiry"))
         s.radar_ue_expiry = _parse_date(request.form.get("radar_ue_expiry"))
         s.met_ue_expiry = _parse_date(request.form.get("met_ue_expiry"))
+        for code, expiry in {
+            "MEDICAL": s.medical_expiry, "ADI": s.tower_ue_expiry,
+            "APS": s.radar_ue_expiry, "MET": s.met_ue_expiry,
+        }.items():
+            qtype = QualificationType.query.filter_by(
+                unit_id=s.unit_id, code=code
+            ).first()
+            if not qtype:
+                continue
+            qualification = PersonQualification.query.filter_by(
+                unit_id=s.unit_id, person_id=s.id,
+                qualification_type_id=qtype.id,
+            ).first()
+            if not qualification and expiry:
+                qualification = PersonQualification(
+                    unit_id=s.unit_id, person_id=s.id,
+                    qualification_type_id=qtype.id, status="valid",
+                )
+                db.session.add(qualification)
+                db.session.flush()
+            if qualification:
+                qualification.expires_on = expiry
+                qualification.updated_at = utcnow()
+                _record_qualification_history(qualification, "roster_profile_updated")
 
         s.tower_ut = bool(request.form.get("tower_ut"))
         s.radar_ut = bool(request.form.get("radar_ut"))
@@ -6786,6 +7075,275 @@ def leave():
                            prev_ym=prev_ym, next_ym=next_ym)
 
 # -------------------- Staff profile --------------------
+
+
+def _training_profile_allowed(person):
+    return bool(
+        person.id == current_user.id
+        or is_editor_user(current_user)
+        or can_manage_training(current_user)
+        or can_record_training(current_user)
+    )
+
+
+@app.get("/training/")
+@login_required
+def training_home():
+    unit_id = _current_unit_id()
+    if not training_enabled(unit_id):
+        abort(404)
+    own_sessions = TrainingSession.query.filter_by(
+        unit_id=unit_id, trainee_id=current_user.id
+    ).all()
+    own_minutes = sum(row.duration_minutes for row in own_sessions)
+    can_view_people = bool(
+        is_editor_user(current_user)
+        or can_manage_training(current_user)
+        or can_record_training(current_user)
+    )
+    people = []
+    if can_view_people:
+        people = Staff.query.filter_by(
+            unit_id=unit_id, is_operational=True
+        ).order_by(Staff.name).all()
+        people = [person for person in people if is_under_training(person)]
+    trainee_count = sum(1 for person in people if is_under_training(person))
+    return render_template(
+        "training_home.html", people=people,
+        own_minutes=own_minutes, can_view_people=can_view_people,
+        trainee_count=trainee_count,
+        own_under_training=is_under_training(current_user),
+    )
+
+
+@app.route("/training/<int:sid>", methods=["GET", "POST"])
+@login_required
+def training_profile(sid):
+    unit_id = _current_unit_id()
+    if not training_enabled(unit_id):
+        abort(404)
+    person = Staff.query.filter_by(id=sid, unit_id=unit_id).first_or_404()
+    if not _training_profile_allowed(person):
+        abort(403)
+    if not is_under_training(person):
+        abort(404)
+    if request.method == "POST":
+        _validate_csrf()
+        if not can_record_training(current_user) or not is_under_training(person):
+            abort(403)
+        level = TrainingLevel.query.filter_by(
+            id=int(request.form.get("level_id") or 0), unit_id=unit_id,
+            is_active=True,
+        ).first_or_404()
+        try:
+            training_date = date.fromisoformat(request.form.get("training_date") or "")
+            duration_minutes = int(request.form.get("duration_minutes") or 0)
+        except (TypeError, ValueError):
+            abort(400, "Enter a valid training date and duration.")
+        if not 1 <= duration_minutes <= 1440:
+            abort(400, "Training duration must be between 1 and 1,440 minutes.")
+        session_row = TrainingSession(
+            unit_id=unit_id, trainee_id=person.id, ojti_id=current_user.id,
+            level_id=level.id, training_date=training_date,
+            duration_minutes=duration_minutes,
+            summary=(request.form.get("summary") or "").strip()[:4000],
+        )
+        db.session.add(session_row)
+        db.session.flush()
+        for objective in sorted(level.objectives, key=lambda row: row.position)[:15]:
+            raw_attainment = request.form.get(f"attainment_{objective.id}")
+            raw_assistance = request.form.get(f"assistance_{objective.id}")
+            if not raw_attainment and not raw_assistance:
+                continue
+            try:
+                attainment = int(raw_attainment or 0)
+                assistance = int(raw_assistance or 0)
+            except ValueError:
+                abort(400, "Objective scores must be whole numbers.")
+            if attainment not in {1, 2, 3, 4} or assistance not in {1, 2, 3, 4}:
+                abort(400, "Objective scores must be between 1 and 4.")
+            db.session.add(TrainingScore(
+                unit_id=unit_id, session_id=session_row.id,
+                objective_id=objective.id, attainment=attainment,
+                assistance=assistance,
+                safety_critical=bool(request.form.get(f"safety_{objective.id}")),
+                note=(request.form.get(f"note_{objective.id}") or "").strip()[:4000],
+            ))
+        db.session.commit()
+        flash("Training report saved.", "ok")
+        return redirect(url_for("training_profile", sid=person.id, level=level.id))
+
+    levels = TrainingLevel.query.filter_by(
+        unit_id=unit_id, is_active=True
+    ).order_by(TrainingLevel.sort_order, TrainingLevel.name).all()
+    selected_id = request.args.get("level", type=int)
+    selected = next((row for row in levels if row.id == selected_id), levels[0] if levels else None)
+    sessions = []
+    if selected:
+        sessions = TrainingSession.query.filter_by(
+            unit_id=unit_id, trainee_id=person.id, level_id=selected.id
+        ).order_by(TrainingSession.training_date.desc(), TrainingSession.id.desc()).all()
+    total_minutes = sum(row.duration_minutes for row in TrainingSession.query.filter_by(
+        unit_id=unit_id, trainee_id=person.id
+    ).all())
+    return render_template(
+        "training_profile.html", person=person, levels=levels,
+        selected_level=selected, sessions=sessions, total_minutes=total_minutes,
+        under_training=is_under_training(person),
+        can_record=can_record_training(current_user),
+    )
+
+
+@app.get("/competency/")
+@login_required
+def competency_home():
+    unit_id = _current_unit_id()
+    if not competency_enabled(unit_id):
+        abort(404)
+    can_view_people = bool(
+        is_editor_user(current_user) or can_manage_training(current_user)
+        or can_record_training(current_user)
+    )
+    people = []
+    if can_view_people:
+        people = Staff.query.filter_by(
+            unit_id=unit_id, is_operational=True
+        ).order_by(Staff.name).all()
+    return render_template(
+        "competency_home.html", people=people,
+        can_view_people=can_view_people,
+    )
+
+
+@app.route("/competency/<int:sid>", methods=["GET", "POST"])
+@login_required
+def competency_profile(sid):
+    unit_id = _current_unit_id()
+    if not competency_enabled(unit_id):
+        abort(404)
+    person = Staff.query.filter_by(id=sid, unit_id=unit_id).first_or_404()
+    if not _training_profile_allowed(person):
+        abort(403)
+    can_edit = bool(
+        is_admin_user(current_user)
+        or getattr(current_user, "has_assessor", False)
+    )
+    qualification_types = QualificationType.query.filter_by(
+        unit_id=unit_id, is_active=True
+    ).order_by(QualificationType.label).all()
+    if request.method == "POST":
+        _validate_csrf()
+        if not can_edit:
+            abort(403)
+        person.caa_license_number = (
+            request.form.get("caa_license_number") or ""
+        ).strip()[:40]
+        for qtype in qualification_types:
+            raw = (request.form.get(f"expiry_{qtype.id}") or "").strip()
+            try:
+                expires_on = date.fromisoformat(raw) if raw else None
+            except ValueError:
+                abort(400, "Enter valid competency expiry dates.")
+            record = PersonQualification.query.filter_by(
+                unit_id=unit_id, person_id=person.id,
+                qualification_type_id=qtype.id,
+            ).first()
+            if not record and expires_on:
+                record = PersonQualification(
+                    unit_id=unit_id, person_id=person.id,
+                    qualification_type_id=qtype.id, status="valid",
+                )
+                db.session.add(record)
+                db.session.flush()
+            if record:
+                record.expires_on = expires_on
+                record.updated_at = utcnow()
+                _record_qualification_history(record, "competency_updated")
+            _sync_qualification_to_roster_profile(person, qtype, expires_on)
+        db.session.commit()
+        flash("Competency profile updated everywhere.", "ok")
+        return redirect(url_for("competency_profile", sid=person.id))
+    qualification_rows = PersonQualification.query.filter_by(
+        unit_id=unit_id, person_id=person.id
+    ).all()
+    return render_template(
+        "competency_profile.html", person=person,
+        qualification_types=qualification_types,
+        qualifications={
+            row.qualification_type_id: row for row in qualification_rows
+        },
+        can_edit=can_edit,
+    )
+
+
+@app.route("/training/admin", methods=["GET", "POST"])
+@login_required
+def training_admin():
+    if not training_enabled(_current_unit_id()):
+        abort(404)
+    if not is_admin_user(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    if request.method == "POST":
+        _validate_csrf()
+        action = request.form.get("action")
+        if action == "create_level":
+            name = (request.form.get("name") or "").strip()
+            if not name:
+                abort(400, "Enter a level name.")
+            level = TrainingLevel(unit_id=unit_id, name=name[:80])
+            db.session.add(level)
+            db.session.flush()
+            for position in range(1, 16):
+                db.session.add(TrainingObjective(
+                    unit_id=unit_id, level_id=level.id, position=position,
+                    title=f"Objective {position}", description="Configure this objective.",
+                ))
+        elif action == "save_objectives":
+            level = TrainingLevel.query.filter_by(
+                id=int(request.form.get("level_id") or 0), unit_id=unit_id
+            ).first_or_404()
+            for objective in level.objectives:
+                objective.title = (request.form.get(f"title_{objective.id}") or objective.title).strip()[:100]
+                objective.description = (request.form.get(f"description_{objective.id}") or "").strip()[:4000]
+        else:
+            abort(400, "Unknown training administration action.")
+        db.session.commit()
+        flash("Training configuration saved.", "ok")
+        return redirect(url_for("training_admin"))
+    levels = TrainingLevel.query.filter_by(unit_id=unit_id).order_by(
+        TrainingLevel.sort_order, TrainingLevel.name
+    ).all()
+    return render_template("training_admin.html", levels=levels)
+
+
+@app.get("/training/analytics")
+@login_required
+def training_analytics():
+    if not training_enabled(_current_unit_id()):
+        abort(404)
+    if not can_manage_training(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    sessions = TrainingSession.query.filter_by(unit_id=unit_id).order_by(
+        TrainingSession.training_date
+    ).all()
+    scores = TrainingScore.query.filter_by(unit_id=unit_id).all()
+    objective_totals = defaultdict(list)
+    for score in scores:
+        objective_totals[score.objective].append(score.attainment)
+    objective_analytics = sorted((
+        {"objective": objective, "average": round(sum(values) / len(values), 2), "count": len(values)}
+        for objective, values in objective_totals.items()
+    ), key=lambda row: (row["objective"].level_id, row["objective"].position))
+    ojti_minutes = defaultdict(int)
+    for row in sessions:
+        ojti_minutes[row.ojti] += row.duration_minutes
+    return render_template(
+        "training_analytics.html", sessions=sessions,
+        objective_analytics=objective_analytics,
+        ojti_hours=sorted(ojti_minutes.items(), key=lambda item: item[0].name),
+    )
 
 
 @app.route("/staff/<int:sid>", methods=["GET", "POST"])
@@ -8998,6 +9556,8 @@ def platform_admin():
             row.key: row.enabled
             for row in FeatureFlag.query.filter_by(unit_id=unit.id).all()
         }
+        if "competency_module" not in flags:
+            flags["competency_module"] = bool(flags.get("training_module"))
         routing = db.session.get(DatabaseRoutingMetadata, unit.id)
         activity = db.session.query(
             db.func.coalesce(db.func.sum(AggregateUsageEvent.count), 0)
@@ -9921,6 +10481,17 @@ def _record_qualification_history(
     ))
 
 
+def _sync_qualification_to_roster_profile(
+    person: Staff, qtype: QualificationType, expires_on: date | None
+) -> None:
+    legacy_field = {
+        "MEDICAL": "medical_expiry", "ADI": "tower_ue_expiry",
+        "APS": "radar_ue_expiry", "MET": "met_ue_expiry",
+    }.get(qtype.code)
+    if legacy_field:
+        setattr(person, legacy_field, expires_on)
+
+
 @app.route("/compliance", methods=["GET", "POST"])
 @login_required
 def qualification_compliance():
@@ -10017,6 +10588,9 @@ def qualification_compliance():
             record.expires_on = expires_on
             record.status = status
             record.updated_at = utcnow()
+            _sync_qualification_to_roster_profile(
+                person, qtype, expires_on
+            )
             _record_qualification_history(record, action_name)
             db.session.commit()
             flash("Person qualification saved.", "ok")
@@ -10107,6 +10681,15 @@ def qualification_compliance():
                     )
                 record.status = row["status"]
                 record.updated_at = utcnow()
+                person = Staff.query.filter_by(
+                    unit_id=unit_id, id=row["person_id"]
+                ).first_or_404()
+                qtype = QualificationType.query.filter_by(
+                    unit_id=unit_id, id=row["type_id"]
+                ).first_or_404()
+                _sync_qualification_to_roster_profile(
+                    person, qtype, record.expires_on
+                )
                 _record_qualification_history(record, "imported")
             db.session.commit()
             session.pop("_qualification_import_preview", None)
@@ -11085,6 +11668,7 @@ def signin_form():   # function name can be anything; endpoint is 'login'
                 session["_mfa_rate_key"] = rate_key
                 session["_mfa_next"] = _canonical_login_redirect(
                     request.args.get("next"),
+                    default_endpoint=_airport_login_endpoint(user),
                     user_id=user.id,
                 )
                 return redirect(url_for("mfa_challenge"))
@@ -11099,7 +11683,9 @@ def signin_form():   # function name can be anything; endpoint is 'login'
             flash("Logged in successfully", "ok")
             # support ?next=... to return where user was going
             return redirect(_canonical_login_redirect(
-                request.args.get("next"), user_id=user.id,
+                request.args.get("next"),
+                default_endpoint=_airport_login_endpoint(user),
+                user_id=user.id,
             ))
         if identity:
             _central_security_event(
@@ -11708,6 +12294,7 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 # -------------------- Run --------------------
 
+app.register_blueprint(briefing_blueprint)
 
 # -------------------- WSGI entry point --------------------
 # PythonAnywhere’s WSGI file imports "application"

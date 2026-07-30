@@ -1,0 +1,34 @@
+<a href="{{ url_for('briefing.home') }}"
+   class="nav-link {% if request.endpoint in ('briefing.home', 'briefing.view_item') %}active{% endif %}"
+   {% if request.endpoint in ('briefing.home', 'briefing.view_item') %}aria-current="page"{% endif %}>
+  <i class="fa-solid fa-file-shield" aria-hidden="true"></i>
+  My briefing
+  {% if unread_briefing_count %}<span class="nav-attention-count">{{ unread_briefing_count }}</span>{% endif %}
+</a>
+<a href="{{ url_for('briefing.archive') }}"
+   class="nav-link {% if request.endpoint == 'briefing.archive' %}active{% endif %}"
+   {% if request.endpoint == 'briefing.archive' %}aria-current="page"{% endif %}>
+  <i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archive
+</a>
+{% if is_admin %}
+  <a href="{{ url_for('briefing.admin') }}"
+     class="nav-link briefing-nav__admin-start {% if request.endpoint == 'briefing.admin' %}active{% endif %}"
+     {% if request.endpoint == 'briefing.admin' %}aria-current="page"{% endif %}>
+    <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i> Publish
+  </a>
+  <a href="{{ url_for('briefing.assurance') }}"
+     class="nav-link {% if request.endpoint == 'briefing.assurance' %}active{% endif %}"
+     {% if request.endpoint == 'briefing.assurance' %}aria-current="page"{% endif %}>
+    <i class="fa-solid fa-chart-column" aria-hidden="true"></i> Reports
+  </a>
+  <a href="{{ url_for('briefing.audit') }}"
+     class="nav-link {% if request.endpoint == 'briefing.audit' %}active{% endif %}"
+     {% if request.endpoint == 'briefing.audit' %}aria-current="page"{% endif %}>
+    <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Audit
+  </a>
+  <a href="{{ url_for('briefing.settings') }}"
+     class="nav-link {% if request.endpoint == 'briefing.settings' %}active{% endif %}"
+     {% if request.endpoint == 'briefing.settings' %}aria-current="page"{% endif %}>
+    <i class="fa-solid fa-gear" aria-hidden="true"></i> Settings
+  </a>
+{% endif %}

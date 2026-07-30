@@ -12,6 +12,7 @@
     <div class="card-bd grid grid-3">
       <label>Name <input name="name" value="{{ s.name }}"></label>
       <label>Staff # <input name="staff_no" value="{{ s.staff_no }}"></label>
+      <label>CAA licence # <input name="caa_license_number" value="{{ s.caa_license_number or '' }}"></label>
       <label>Username <input name="username" value="{{ s.username }}"></label>
       <label>Email <input type="email" name="email" value="{{ s.email or '' }}" autocomplete="email"></label>
       <label>Phone <input name="phone_number" value="{{ s.phone_number or '' }}" placeholder="+441234567890"></label>

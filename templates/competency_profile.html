@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Competency · {{ person.name }}{% endblock %}
+{% block content %}
+<section class="training-hero competency-hero"><div><span class="admin-step">Competency profile</span><h2>{{ person.name }}</h2><p>{{ person.staff_no }} · CAA {{ person.caa_license_number or "not recorded" }}{% if person.watch %} · {{ person.watch.name }}{% endif %}</p></div></section>
+<section class="card"><div class="card-hd">Licence, medical &amp; endorsements <span class="training-sync">Shared live profile</span></div><div class="card-bd">
+<form method="post" class="training-profile-fields">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<label>Staff number<input value="{{ person.staff_no }}" disabled></label>
+<label>CAA licence number<input name="caa_license_number" value="{{ person.caa_license_number or '' }}" {% if not can_edit %}disabled{% endif %}></label>
+{% for qtype in qualification_types %}{% set qual = qualifications.get(qtype.id) %}<label>{{ qtype.label }}<input type="date" name="expiry_{{ qtype.id }}" value="{{ qual.expires_on.isoformat() if qual and qual.expires_on else '' }}" {% if not can_edit %}disabled{% endif %}></label>{% endfor %}
+{% if can_edit %}<button class="btn btn-primary" type="submit">Update shared competency profile</button>{% endif %}
+</form></div></section>
+{% endblock %}

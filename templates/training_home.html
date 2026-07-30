@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Training home{% endblock %}
+{% block content %}
+<section class="training-module-hero">
+  <div>
+    <span class="admin-step">Training</span>
+    <h2>Training progression and assurance</h2>
+    <p>Training reports, objective scoring, safety-critical events, progress analytics and OJTI hours.</p>
+  </div>
+  {% if own_under_training %}<a class="btn btn-primary" href="{{ url_for('training_profile', sid=current_user.id) }}">Open my training record</a>{% endif %}
+</section>
+
+<section class="training-module-summary">
+  <article class="card">
+    <span>My recorded training</span>
+    <strong>{{ "%.1f"|format(own_minutes / 60) }} hours</strong>
+    {% if own_under_training %}<a href="{{ url_for('training_profile', sid=current_user.id) }}">View training record</a>{% endif %}
+  </article>
+  {% if can_view_people %}
+  <article class="card">
+    <span>Staff under training</span>
+    <strong>{{ trainee_count }}</strong>
+    <a href="#people">Open staff directory</a>
+  </article>
+  {% endif %}
+  {% if is_admin or current_user.is_wm or current_user.is_dwm or current_user.has_assessor %}
+  <article class="card">
+    <span>Management assurance</span>
+    <strong>Analytics</strong>
+    <a href="{{ url_for('training_analytics') }}">Review progress</a>
+  </article>
+  {% endif %}
+</section>
+
+{% if can_view_people %}
+<section class="card training-people" id="people">
+  <div class="card-hd">Staff under training</div>
+  <div class="card-bd training-people-grid">
+    {% for person in people %}
+    <a href="{{ url_for('training_profile', sid=person.id) }}">
+      <span class="training-person-avatar" aria-hidden="true">{{ person.name[:1] }}</span>
+      <span><strong>{{ person.name }}</strong><small>{{ person.staff_no }}{% if person.watch %} · {{ person.watch.name }}{% endif %}</small></span>
+      <span class="status-pill {% if person.is_trainee or person.tower_ut or person.radar_ut or person.met_ut %}status-pill--request{% endif %}">
+        Under training
+      </span>
+      <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+    </a>
+    {% else %}
+    <p class="empty-state">No operational staff profiles are available.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

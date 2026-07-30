@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Briefing reports{% endblock %}
+{% block content %}
+<section class="compliance-hero">
+  <div><span class="admin-step">Real-time briefing oversight</span><h2>Reports</h2><p>Review logins, roster activity and outstanding briefing instructions.</p></div>
+</section>
+<section class="card"><div class="card-bd">
+  <form method="post" class="assurance-run-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label>Operational date <input type="date" name="date" value="{{ selected_date.isoformat() }}" required></label>
+    <button class="btn btn-primary" type="submit"><i class="fa-solid fa-play"></i> Run report</button>
+  </form>
+</div></section>
+{% if results is not none %}
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Login and roster activity</span><small>Run {{ run.run_at.strftime('%d %b %Y %H:%M:%S') }} by {{ run.run_by_name }}</small></summary>
+  <div class="table-responsive"><table class="table">
+    <thead><tr><th>User</th><th>Last login</th><th>Last rostered working day</th><th>Comparison</th></tr></thead>
+    <tbody>{% for row in results.login_roster %}
+      <tr class="{% if row.different %}assurance-exception{% endif %}">
+        <td>{{ row.name }}</td>
+        <td>{{ row.last_login_date or 'No login recorded' }}</td>
+        <td>{{ row.last_rostered_date or 'No working duty recorded' }}</td>
+        <td>{% if row.different %}<span class="assurance-fail">Different</span>{% else %}<span class="assurance-ok">Match</span>{% endif %}</td>
+      </tr>
+    {% else %}<tr><td colspan="4">No active users.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>On duty with unread mandatory messages</span><small>{{ results.on_duty_mandatory|length }} exception{{ '' if results.on_duty_mandatory|length == 1 else 's' }}</small></summary>
+  <div class="table-responsive"><table class="table">
+    <thead><tr><th>User</th><th>Duty</th><th>Unread mandatory messages</th></tr></thead>
+    <tbody>{% for row in results.on_duty_mandatory %}
+      <tr class="assurance-exception">
+        <td>{{ row.name }}</td>
+        <td>{{ row.shift }} · {{ row.duty_start[11:16] }}</td>
+        <td>{% for item in row.outstanding %}<div><strong>{{ item.title }}</strong> · {{ 'opened, not acknowledged' if item.opened else 'not opened' }}</div>{% endfor %}</td>
+      </tr>
+    {% else %}<tr><td colspan="3"><span class="assurance-ok">No on-duty users have unread mandatory messages.</span></td></tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Unread instructions by user</span><small>Expand to review individual users</small></summary>
+  <div class="card-bd assurance-profiles">
+    {% for profile in results.unread_profiles %}
+      <details class="assurance-profile {% if profile.count %}assurance-profile--attention{% endif %}">
+        <summary>
+          <strong>{{ profile.name }}</strong>
+          <span>{{ profile.count }} unread instruction{{ '' if profile.count == 1 else 's' }}{% if profile.mandatory_count %} · {{ profile.mandatory_count }} mandatory{% endif %}</span>
+        </summary>
+        {% if profile.instructions %}
+          <div class="table-responsive"><table class="table">
+            <thead><tr><th>Instruction</th><th>Type</th><th>Reading status</th><th>Effective period</th></tr></thead>
+            <tbody>{% for item in profile.instructions %}
+              <tr>
+                <td><strong>{{ item.title }}</strong>{% if item.mandatory %}<br><small>Mandatory</small>{% endif %}</td>
+                <td>{{ item.message_type }}</td>
+                <td>{{ 'Opened, not acknowledged' if item.opened else 'Not opened' }}</td>
+                <td>{{ item.effective_at[:16]|replace('T', ' ') }} to {{ item.expires_at[:16]|replace('T', ' ') }}</td>
+              </tr>
+            {% endfor %}</tbody>
+          </table></div>
+        {% else %}
+          <p class="assurance-ok">No unread instructions.</p>
+        {% endif %}
+      </details>
+    {% else %}
+      <p>No active users.</p>
+    {% endfor %}
+  </div>
+</details>
+
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Read instructions and active reading time</span><small>Expand to review individual users</small></summary>
+  <div class="card-bd assurance-profiles">
+    {% for profile in results.read_profiles %}
+      <details class="assurance-profile">
+        <summary>
+          <strong>{{ profile.name }}</strong>
+          <span>
+            {{ profile.count }} read instruction{{ '' if profile.count == 1 else 's' }}
+            · {{ profile.total_active_view_seconds // 60 }}m {{ profile.total_active_view_seconds % 60 }}s active reading
+          </span>
+        </summary>
+        {% if profile.instructions %}
+          <div class="table-responsive"><table class="table">
+            <thead><tr><th>Instruction</th><th>Type</th><th>Version read</th><th>Acknowledged</th><th>Active reading time</th></tr></thead>
+            <tbody>{% for item in profile.instructions %}
+              <tr>
+                <td><strong>{{ item.title }}</strong></td>
+                <td>{{ item.message_type }}</td>
+                <td>{{ item.version }}</td>
+                <td>{{ item.acknowledged_at[:16]|replace('T', ' ') }}</td>
+                <td>{{ item.active_view_seconds // 60 }}m {{ item.active_view_seconds % 60 }}s</td>
+              </tr>
+            {% endfor %}</tbody>
+          </table></div>
+        {% else %}
+          <p>No acknowledged instructions.</p>
+        {% endif %}
+      </details>
+    {% else %}
+      <p>No active users.</p>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+<details class="card mt-3 briefing-report-fold">
+  <summary class="card-hd"><span>Previous reports</span><small>{{ previous_reports|length }} saved</small></summary>
+  <div class="card-bd briefing-previous-reports">
+    {% for previous in previous_reports %}
+      <article class="briefing-previous-report">
+        <div class="briefing-previous-report__title">
+          <strong>{{ previous.run.operational_date.strftime('%d %b %Y') }}</strong>
+          <small>Run {{ previous.run.run_at.strftime('%d %b %Y %H:%M') }} by {{ previous.run.run_by_name }}</small>
+        </div>
+        <div class="briefing-previous-report__findings">
+          <span>{{ previous.users_checked }} users checked</span>
+          <span>{{ previous.login_roster_differences }} login/roster difference{{ '' if previous.login_roster_differences == 1 else 's' }}</span>
+          <span>{{ previous.on_duty_exceptions }} on-duty exception{{ '' if previous.on_duty_exceptions == 1 else 's' }}</span>
+          <span>{{ previous.unread_instructions }} unread</span>
+          <span>{{ previous.read_instructions }} read · {{ previous.reading_seconds // 60 }}m {{ previous.reading_seconds % 60 }}s</span>
+        </div>
+        <form method="post" action="{{ url_for('briefing.delete_assurance_report', run_id=previous.run.id) }}" data-confirm="Delete this saved briefing report? This cannot be undone.">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm" type="submit"><i class="fa-solid fa-trash" aria-hidden="true"></i> Delete</button>
+        </form>
+      </article>
+    {% else %}
+      <p>No checks have been run.</p>
+    {% endfor %}
+  </div>
+</details>
+{% endblock %}

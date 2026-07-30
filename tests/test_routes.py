@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 
 import pyotp
@@ -785,6 +785,9 @@ def test_overtime_finder_reports_an_empty_search_instead_of_looking_broken(clien
     assert response.status_code == 200
     assert b"Eligibility result" in response.data
     assert b"Nobody is eligible for overtime for this date and shift" in response.data
+    assert response.data.index(b"Eligibility result") < response.data.index(
+        b"What if?"
+    )
 
 
 @pytest.mark.parametrize("rostered_code", ["OFF", "AL"])
@@ -985,6 +988,7 @@ def test_admin_pages_accessible(client):
     acknowledge_reports(client)
     endpoints = [
         "/admin",
+        "/admin/reference",
         "/leave",
         "/metrics",
         "/reports",
@@ -996,6 +1000,62 @@ def test_admin_pages_accessible(client):
     for url in endpoints:
         resp = client.get(url)
         assert resp.status_code == 200, f"Endpoint {url} returned {resp.status_code}"
+        if url == "/admin/reference":
+            assert b"annotation-edit-list" in resp.data
+            assert b"<table" not in resp.data
+            assert b"Leave codes" not in resp.data
+            assert b"Working shift codes" in resp.data
+            assert b'name="values" value="M"' in resp.data
+            assert b'placeholder="Comma or space separated codes"' not in resp.data
+            assert b"System tags" not in resp.data
+            assert b"Allowed suffixes" not in resp.data
+            assert b"Sort order" not in resp.data
+            assert b"Allow a suffix" not in resp.data
+
+
+def test_roster_code_lists_only_accept_existing_shift_codes(client):
+    login(client)
+    token = csrf(client)
+    rejected = client.post(
+        "/admin/reference",
+        data={
+            "_csrf_token": token,
+            "form": "settings_codes",
+            "key": "working_codes",
+            "values": ["M", "DOESNOTEXIST"],
+        },
+        follow_redirects=True,
+    )
+    assert b"do not exist: DOESNOTEXIST" in rejected.data
+    with app.app.app_context():
+        assert app.RosterSetting.query.filter_by(
+            unit_id=1, key="working_codes"
+        ).first() is None
+
+    token = csrf(client)
+    saved = client.post(
+        "/admin/reference",
+        data={
+            "_csrf_token": token,
+            "form": "settings_codes",
+            "key": "working_codes",
+            "values": ["M", "D"],
+        },
+        follow_redirects=True,
+    )
+    assert b"Reference list updated." in saved.data
+    with app.app.app_context():
+        assert app.get_working_codes() == {"M", "D"}
+
+
+def test_shift_staffing_mapping_follows_shift_type_tool(client):
+    login(client)
+    response = client.get("/admin")
+    assert response.status_code == 200
+    assert b"Required for accurate daily totals and coverage warnings" not in response.data
+    assert response.data.index(b"admin-shift-list") < response.data.index(
+        b"Which shifts count toward staffing?"
+    )
 
 
 def test_operations_workspace_is_hidden_from_primary_navigation(client):
@@ -1132,6 +1192,40 @@ def test_admin_can_add_and_manage_custom_fatigue_rules(client):
             custom_code in message
             for message in findings.get(target_day, [])
         )
+
+
+def test_d24_requires_a_complete_observation_window(client):
+    start = datetime(2026, 1, 1, 8)
+    segments = []
+    for offset in range(31):
+        duty_start = start + timedelta(days=offset)
+        segments.append({
+            "day": duty_start.date(),
+            "start": duty_start,
+            "end": duty_start + timedelta(hours=8),
+            "mins": 8 * 60,
+            "night": False,
+            "early": False,
+            "early_pre0600": False,
+            "morning": True,
+        })
+
+    with app.app.app_context():
+        without_history = app._analyze_segments(segments)
+        with_history = app._analyze_segments(
+            segments,
+            observation_start=start - timedelta(days=30),
+        )
+    assert not any(
+        message.startswith("D24:")
+        for messages in without_history.values()
+        for message in messages
+    )
+    assert any(
+        message.startswith("D24:")
+        for messages in with_history.values()
+        for message in messages
+    )
 
 
 def test_system_fatigue_threshold_changes_are_airport_specific(client):
