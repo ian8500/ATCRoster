@@ -1855,12 +1855,20 @@ def _load_codes_setting(
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
     raw = _roster_settings_snapshot(resolved_unit_id).get(key)
     if not raw:
-        return set(_normalise_codes(default))
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return set(_normalise_codes(default))
-    return set(_normalise_codes(parsed))
+        parsed = default
+    else:
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = default
+    configured = set(_normalise_codes(parsed))
+    existing = {
+        str(code or "").strip().upper()
+        for (code,) in db.session.query(ShiftType.code).filter_by(
+            unit_id=resolved_unit_id
+        ).all()
+    }
+    return configured & existing
 
 
 def get_working_codes() -> set[str]:
@@ -2084,6 +2092,36 @@ def _save_codes_setting(key: str, values: list[str]) -> None:
         row.value = payload
     db.session.commit()
     refresh_roster_settings_cache()
+
+
+def _prune_roster_code_settings(unit_id: int) -> int:
+    """Remove list entries that have no ShiftType in this airport."""
+    valid_codes = {
+        str(code or "").strip().upper()
+        for (code,) in db.session.query(ShiftType.code).filter_by(
+            unit_id=unit_id
+        ).all()
+    }
+    changed = 0
+    rows = RosterSetting.query.filter(
+        RosterSetting.unit_id == unit_id,
+        RosterSetting.key.in_(DEFAULT_ROSTER_SETTINGS),
+    ).all()
+    for row in rows:
+        try:
+            values = json.loads(row.value or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            values = []
+        if not isinstance(values, list):
+            values = []
+        normalised = _normalise_codes(values)
+        cleaned = [code for code in normalised if code in valid_codes]
+        if cleaned != normalised:
+            row.value = json.dumps(cleaned)
+            changed += 1
+    if changed:
+        refresh_roster_settings_cache()
+    return changed
 
 
 def _save_roster_setting(key: str, value: str) -> None:
@@ -5925,6 +5963,8 @@ def admin():
                 id=sid, unit_id=_current_unit_id()
             ).first_or_404()
             db.session.delete(sh)
+            db.session.flush()
+            _prune_roster_code_settings(_current_unit_id())
             db.session.commit()
             refresh_shift_cache()
             _shift_groups_snapshot.cache_clear()
@@ -6305,7 +6345,21 @@ def admin_reference():
                 if key not in settings_meta:
                     flash("Unknown setting.", "error")
                     return redirect(url_for("admin_reference"))
-                values = _parse_codes_input(request.form.get("values", ""))
+                values = _normalise_codes(request.form.getlist("values"))
+                valid_codes = {
+                    str(code or "").strip().upper()
+                    for (code,) in db.session.query(
+                        ShiftType.code
+                    ).filter_by(unit_id=unit_id).all()
+                }
+                unknown = sorted(set(values) - valid_codes)
+                if unknown:
+                    flash(
+                        "The list was not saved because these roster codes "
+                        f"do not exist: {', '.join(unknown)}.",
+                        "error",
+                    )
+                    return redirect(url_for("admin_reference"))
                 _save_codes_setting(key, values)
                 flash("Reference list updated.", "ok")
                 return redirect(url_for("admin_reference"))
@@ -6320,11 +6374,17 @@ def admin_reference():
             flash(f"Update failed: {exc}", "error")
             return redirect(url_for("admin_reference"))
 
+    if _prune_roster_code_settings(unit_id):
+        db.session.commit()
+
     annotations = (AnnotationType.query.filter_by(unit_id=unit_id)
                    .order_by(AnnotationType.sort_order, AnnotationType.code)
                    .all())
 
     settings_view = []
+    roster_codes = ShiftType.query.filter_by(
+        unit_id=unit_id
+    ).order_by(ShiftType.code).all()
     current_values = {
         "working_codes": sorted(get_working_codes()),
         "banned_codes": sorted(get_banned_roster_codes()),
@@ -6336,12 +6396,13 @@ def admin_reference():
             "key": key,
             "label": meta["label"],
             "help": meta["help"],
-            "value": ", ".join(current_values.get(key, [])),
+            "selected_codes": set(current_values.get(key, [])),
         })
 
     return render_template("admin_reference.html",
                            annotations=annotations,
-                           settings=settings_view)
+                           settings=settings_view,
+                           roster_codes=roster_codes)
 
 # Keep your dedicated staff edit route (ATCO edit)
 

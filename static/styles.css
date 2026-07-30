@@ -2153,6 +2153,7 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
 .setup-walkthrough small,.field-label small,.setup-date-field small,.watch-setup-card label small { color:var(--muted,#aab7c4); }
 .roster-setup-card { display:grid; gap:1rem; margin-bottom:1.25rem; }
 .pattern-builder { display:grid; gap:.7rem; }
+.roster-code-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.55rem;margin:0;padding:0;border:0}.roster-code-options label{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:.5rem;padding:.65rem .75rem;border:1px solid var(--border,#39434f);border-radius:9px;background:rgba(255,255,255,.025);cursor:pointer}.roster-code-options label:has(input:checked){border-color:var(--accent,#56b4e9);background:rgba(86,180,233,.1)}.roster-code-options span{overflow:hidden;color:var(--muted,#aeb8c2);font-size:.82rem;text-overflow:ellipsis;white-space:nowrap}
 .pattern-sequence { display:flex; gap:.45rem; flex-wrap:wrap; min-height:48px; align-items:center; padding:.55rem; border:1px dashed rgba(255,255,255,.16); border-radius:10px; }
 .pattern-chip,.pattern-duty { border:1px solid rgba(255,255,255,.14); border-radius:9px; padding:.48rem .65rem; color:inherit; font:inherit; font-weight:750; cursor:pointer; }
 .pattern-chip--m,.pattern-duty--m { background:rgba(255,193,7,.17); }

@@ -129,7 +129,17 @@
       <div class="card-body">
         <h4>{{ item.label }}</h4>
         <p class="muted">{{ item.help }}</p>
-        <textarea name="values" rows="3" class="input-xl" aria-label="{{ item.label }} codes" placeholder="Comma or space separated codes">{{ item.value }}</textarea>
+        <fieldset class="roster-code-options" aria-label="{{ item.label }} codes">
+          {% for roster_code in roster_codes %}
+            <label>
+              <input type="checkbox" name="values" value="{{ roster_code.code }}" {% if roster_code.code in item.selected_codes %}checked{% endif %}>
+              <strong>{{ roster_code.code }}</strong>
+              <span>{{ roster_code.name }}</span>
+            </label>
+          {% else %}
+            <p class="empty-state">Create a roster code before adding codes to this list.</p>
+          {% endfor %}
+        </fieldset>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">Save {{ item.label }}</button>
         </div>

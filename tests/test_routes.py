@@ -1005,6 +1005,43 @@ def test_admin_pages_accessible(client):
             assert b"<table" not in resp.data
             assert b"Leave codes" not in resp.data
             assert b"Working shift codes" in resp.data
+            assert b'name="values" value="M"' in resp.data
+            assert b'placeholder="Comma or space separated codes"' not in resp.data
+
+
+def test_roster_code_lists_only_accept_existing_shift_codes(client):
+    login(client)
+    token = csrf(client)
+    rejected = client.post(
+        "/admin/reference",
+        data={
+            "_csrf_token": token,
+            "form": "settings_codes",
+            "key": "working_codes",
+            "values": ["M", "DOESNOTEXIST"],
+        },
+        follow_redirects=True,
+    )
+    assert b"do not exist: DOESNOTEXIST" in rejected.data
+    with app.app.app_context():
+        assert app.RosterSetting.query.filter_by(
+            unit_id=1, key="working_codes"
+        ).first() is None
+
+    token = csrf(client)
+    saved = client.post(
+        "/admin/reference",
+        data={
+            "_csrf_token": token,
+            "form": "settings_codes",
+            "key": "working_codes",
+            "values": ["M", "D"],
+        },
+        follow_redirects=True,
+    )
+    assert b"Reference list updated." in saved.data
+    with app.app.app_context():
+        assert app.get_working_codes() == {"M", "D"}
 
 
 def test_shift_staffing_mapping_follows_shift_type_tool(client):
