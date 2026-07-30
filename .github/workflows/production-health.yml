@@ -31,7 +31,7 @@ jobs:
             --retry 3 --retry-all-errors --retry-delay 5 \
             --max-time 15 "$PRODUCTION_ORIGIN/health/ready")"
           jq -e '.status == "ready"' <<<"$ready"
-          curl --fail --show-error --silent --location \
+          login="$(curl --fail --show-error --silent --location \
             --retry 2 --retry-all-errors --retry-delay 3 \
-            --max-time 15 "$PRODUCTION_ORIGIN/login" |
-            grep -Fq "<title>Login"
+            --max-time 15 "$PRODUCTION_ORIGIN/login")"
+          grep -Fq "<title>Login" <<<"$login"
