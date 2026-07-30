@@ -1997,7 +1997,7 @@ def shift_counter_group_for_day(
 def _annotation_snapshot(unit_id: int) -> dict[str, object]:
     rows = (AnnotationType.query
             .filter(AnnotationType.unit_id == unit_id)
-            .order_by(AnnotationType.sort_order, AnnotationType.code)
+            .order_by(AnnotationType.code)
             .all())
     items = []
     for row in rows:
@@ -6199,23 +6199,11 @@ def admin_reference():
                     return redirect(url_for("admin_reference"))
                 label = (request.form.get("label") or code).strip()
                 category = (request.form.get("category") or "Other").strip()
-                allow_suffix = bool(request.form.get("allow_suffix"))
-                suffixes = "".join(sorted({
-                    c.upper() for c in (request.form.get("suffixes") or "")
-                    if c.isalnum()
-                }))
                 try:
                     toil_half_days = int(request.form.get("toil_half_days") or 0)
                 except ValueError:
                     toil_half_days = 0
                 toil_half_days = max(-200, min(toil_half_days, 200))
-                tags = ",".join(sorted({
-                    t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
-                }))
-                try:
-                    sort_order = int(request.form.get("sort_order") or 0)
-                except ValueError:
-                    sort_order = 0
                 is_active = bool(request.form.get("is_active", True))
 
                 ann = AnnotationType(
@@ -6232,14 +6220,14 @@ def admin_reference():
                         else "#6c757d"
                     ),
                     description=(request.form.get("description") or "")[:1000],
-                    allow_suffix=allow_suffix,
-                    suffixes=suffixes,
+                    allow_suffix=False,
+                    suffixes="",
                     toil_half_days=toil_half_days,
-                    tags=tags,
+                    tags="",
                     note_required=bool(request.form.get("note_required")),
                     admin_only=bool(request.form.get("admin_only")),
                     is_active=is_active,
-                    sort_order=sort_order,
+                    sort_order=100,
                 )
                 db.session.add(ann)
                 db.session.flush()
@@ -6273,7 +6261,7 @@ def admin_reference():
                     abort(409, "That annotation code already exists.")
                 old_value = {
                     "code": ann.code, "label": ann.label, "category": ann.category,
-                    "active": ann.is_active, "sort_order": ann.sort_order,
+                    "active": ann.is_active,
                 }
                 ann.code = new_code or ann.code
                 ann.label = (request.form.get("label") or ann.label or new_code).strip() or new_code
@@ -6283,26 +6271,13 @@ def admin_reference():
                     abort(400, "Invalid annotation colour.")
                 ann.colour = requested_colour
                 ann.description = (request.form.get("description") or ann.description or "")[:1000]
-                ann.allow_suffix = bool(request.form.get("allow_suffix"))
-                ann.suffixes = "".join(sorted({
-                    c.upper() for c in (request.form.get("suffixes") or "")
-                    if c.isalnum()
-                }))
                 try:
                     ann.toil_half_days = int(request.form.get("toil_half_days") or 0)
                 except ValueError:
                     ann.toil_half_days = 0
                 ann.toil_half_days = max(-200, min(ann.toil_half_days, 200))
-                tags = ",".join(sorted({
-                    t.strip().lower() for t in (request.form.get("tags") or "").split(",") if t.strip()
-                }))
-                ann.tags = tags
                 ann.note_required = bool(request.form.get("note_required"))
                 ann.admin_only = bool(request.form.get("admin_only"))
-                try:
-                    ann.sort_order = int(request.form.get("sort_order") or ann.sort_order or 0)
-                except ValueError:
-                    pass
                 ann.is_active = bool(request.form.get("is_active"))
                 db.session.add(AnnotationAudit(
                     unit_id=unit_id, annotation_type_id=ann.id,
@@ -6310,7 +6285,7 @@ def admin_reference():
                     old_value=json.dumps(old_value, sort_keys=True),
                     new_value=json.dumps({
                         "code": ann.code, "label": ann.label, "category": ann.category,
-                        "active": ann.is_active, "sort_order": ann.sort_order,
+                        "active": ann.is_active,
                     }, sort_keys=True),
                 ))
                 db.session.commit()
@@ -6378,7 +6353,7 @@ def admin_reference():
         db.session.commit()
 
     annotations = (AnnotationType.query.filter_by(unit_id=unit_id)
-                   .order_by(AnnotationType.sort_order, AnnotationType.code)
+                   .order_by(AnnotationType.code)
                    .all())
 
     settings_view = []

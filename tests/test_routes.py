@@ -1007,6 +1007,10 @@ def test_admin_pages_accessible(client):
             assert b"Working shift codes" in resp.data
             assert b'name="values" value="M"' in resp.data
             assert b'placeholder="Comma or space separated codes"' not in resp.data
+            assert b"System tags" not in resp.data
+            assert b"Allowed suffixes" not in resp.data
+            assert b"Sort order" not in resp.data
+            assert b"Allow a suffix" not in resp.data
 
 
 def test_roster_code_lists_only_accept_existing_shift_codes(client):

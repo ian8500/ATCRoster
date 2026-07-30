@@ -23,7 +23,7 @@
     <div class="setup-walkthrough">
       <article><span>1</span><div><strong>Name it</strong><small>Choose a short roster code and a clear staff-facing label.</small></div></article>
       <article><span>2</span><div><strong>Make it recognisable</strong><small>Pick a colour, category and short explanation.</small></div></article>
-      <article><span>3</span><div><strong>Add behaviour only if needed</strong><small>Use advanced options for TOIL, suffixes, restricted use or mandatory notes.</small></div></article>
+      <article><span>3</span><div><strong>Add behaviour only if needed</strong><small>Use advanced options for TOIL, restricted use or mandatory notes.</small></div></article>
     </div>
     <section class="collapsible-card annotation-create-card">
       <h4>Create an annotation</h4>
@@ -39,13 +39,9 @@
         </div>
         <input type="hidden" name="is_active" value="on">
         <details class="advanced-panel">
-          <summary><span><strong>Advanced behaviour</strong><small>Optional suffix, TOIL and permission controls</small></span></summary>
+          <summary><span><strong>Advanced behaviour</strong><small>Optional TOIL and permission controls</small></span></summary>
           <div class="advanced-panel__content annotation-advanced-grid">
-            <label>System tags<input name="tags" placeholder="e.g. ot,aava"></label>
-            <label>Allowed suffixes<input name="suffixes" placeholder="e.g. MDAN"></label>
             <label>TOIL half-days<input type="number" name="toil_half_days" min="-200" max="200" value="0"></label>
-            <label>Sort order<input type="number" name="sort_order" value="100"></label>
-            <label class="checkbox"><input type="checkbox" name="allow_suffix"> Allow a suffix</label>
             <label class="checkbox"><input type="checkbox" name="note_required"> Require a note</label>
             <label class="checkbox"><input type="checkbox" name="admin_only"> Unit Admin only</label>
           </div>
@@ -81,13 +77,9 @@
                 <label class="annotation-description">Description<input name="description" value="{{ ann.description or '' }}"></label>
               </div>
               <details class="advanced-panel">
-                <summary><span><strong>Advanced behaviour</strong><small>Suffix, TOIL, ordering and permission controls</small></span></summary>
+                <summary><span><strong>Advanced behaviour</strong><small>TOIL and permission controls</small></span></summary>
                 <div class="advanced-panel__content annotation-advanced-grid">
-                  <label>System tags<input name="tags" value="{{ ann.tags }}" placeholder="Comma-separated"></label>
-                  <label>Allowed suffixes<input name="suffixes" value="{{ ann.suffixes }}"></label>
                   <label>TOIL half-days<input type="number" name="toil_half_days" min="-200" max="200" value="{{ ann.toil_half_days }}"></label>
-                  <label>Sort order<input type="number" name="sort_order" value="{{ ann.sort_order or 0 }}"></label>
-                  <label class="checkbox"><input type="checkbox" name="allow_suffix" {% if ann.allow_suffix %}checked{% endif %}> Allow a suffix</label>
                   <label class="checkbox"><input type="checkbox" name="is_active" {% if ann.is_active %}checked{% endif %}> Active</label>
                   <label class="checkbox"><input type="checkbox" name="note_required" {% if ann.note_required %}checked{% endif %}> Require a note</label>
                   <label class="checkbox"><input type="checkbox" name="admin_only" {% if ann.admin_only %}checked{% endif %}> Unit Admin only</label>
