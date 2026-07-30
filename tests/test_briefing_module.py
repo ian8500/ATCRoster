@@ -194,6 +194,47 @@ def test_admin_configures_instruction_message_types(briefing_client):
         }
 
 
+def test_reports_tolerate_legacy_history_and_keep_errors_in_briefing(
+    briefing_client,
+):
+    _login(briefing_client, "brief_admin")
+    with app.app.app_context():
+        BriefingAssuranceRun.query.delete()
+        db.session.add_all([
+            BriefingAssuranceRun(
+                unit_id=1, operational_date=datetime.now().date(),
+                run_by_id=1, run_by_name="Legacy Admin",
+                result_json="[]",
+            ),
+            BriefingAssuranceRun(
+                unit_id=1, operational_date=datetime.now().date(),
+                run_by_id=1, run_by_name="Legacy Admin",
+                result_json=json.dumps({
+                    "login_roster": [None, {"different": True}],
+                    "unread_profiles": [{"count": None}],
+                    "read_profiles": [{
+                        "count": "old",
+                        "total_active_view_seconds": None,
+                    }],
+                }),
+            ),
+        ])
+        db.session.commit()
+    reports = briefing_client.get("/briefing/admin/reports")
+    assert reports.status_code == 200
+    assert b"Previous reports" in reports.data
+
+    briefing_client.get("/logout")
+    _login(briefing_client, "brief_user")
+    forbidden = briefing_client.get("/briefing/admin/reports")
+    assert forbidden.status_code == 403
+    assert b"Return to briefing" in forbidden.data
+    assert b"Return to roster" not in forbidden.data
+    with app.app.app_context():
+        BriefingAssuranceRun.query.delete()
+        db.session.commit()
+
+
 def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     _login(briefing_client, "brief_admin")
     now = datetime.now()

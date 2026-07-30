@@ -984,9 +984,23 @@ def assurance():
             previous_result = json.loads(previous.result_json or "{}")
         except (TypeError, ValueError, json.JSONDecodeError):
             previous_result = {}
-        login_rows = previous_result.get("login_roster") or []
-        unread_profiles = previous_result.get("unread_profiles") or []
-        read_profiles = previous_result.get("read_profiles") or []
+        if not isinstance(previous_result, dict):
+            previous_result = {}
+
+        def report_rows(key):
+            rows = previous_result.get(key)
+            return (
+                [row for row in rows if isinstance(row, dict)]
+                if isinstance(rows, list) else []
+            )
+
+        def count_value(row, key):
+            value = row.get(key, 0)
+            return value if isinstance(value, int) and value >= 0 else 0
+
+        login_rows = report_rows("login_roster")
+        unread_profiles = report_rows("unread_profiles")
+        read_profiles = report_rows("read_profiles")
         previous_reports.append({
             "run": previous,
             "users_checked": len(login_rows),
@@ -994,16 +1008,16 @@ def assurance():
                 1 for row in login_rows if row.get("different")
             ),
             "on_duty_exceptions": len(
-                previous_result.get("on_duty_mandatory") or []
+                report_rows("on_duty_mandatory")
             ),
             "unread_instructions": sum(
-                profile.get("count", 0) for profile in unread_profiles
+                count_value(profile, "count") for profile in unread_profiles
             ),
             "read_instructions": sum(
-                profile.get("count", 0) for profile in read_profiles
+                count_value(profile, "count") for profile in read_profiles
             ),
             "reading_seconds": sum(
-                profile.get("total_active_view_seconds", 0)
+                count_value(profile, "total_active_view_seconds")
                 for profile in read_profiles
             ),
         })

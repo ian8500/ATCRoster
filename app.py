@@ -405,7 +405,31 @@ def _internal_error(error):
         "unhandled_request_error request_id=%s path=%s",
         getattr(g, "request_id", ""), request.path, exc_info=error,
     )
-    return render_template("error.html", request_id=getattr(g, "request_id", "")), 500
+    module_context = _module_error_navigation()
+    return render_template(
+        "error.html", request_id=getattr(g, "request_id", ""),
+        **module_context,
+    ), 500
+
+
+def _module_error_navigation() -> dict[str, str]:
+    """Keep module errors inside the module instead of linking to Roster."""
+    if request.path.startswith("/briefing"):
+        return {
+            "home_url": url_for("briefing.home"),
+            "home_label": "Return to briefing",
+        }
+    if request.path.startswith("/training"):
+        return {
+            "home_url": url_for("training_home"),
+            "home_label": "Return to training",
+        }
+    if request.path.startswith("/competency"):
+        return {
+            "home_url": url_for("competency_home"),
+            "home_label": "Return to competency",
+        }
+    return {}
 
 
 @app.errorhandler(400)
@@ -436,6 +460,7 @@ def _bad_request(error):
         error_title="We could not validate that request",
         error_message=message,
         request_id=getattr(g, "request_id", ""),
+        **_module_error_navigation(),
     ), 400
 
 
@@ -445,6 +470,7 @@ def _forbidden(_error):
         getattr(current_user, "is_authenticated", False)
         and getattr(current_user, "role", "") == "superadmin"
     )
+    module_context = _module_error_navigation()
     return render_template(
         "error.html",
         status_code=403,
@@ -454,15 +480,18 @@ def _forbidden(_error):
             "operational roster data. Return to Platform Administration."
             if is_platform_admin
             else (
-                "Your account role does not permit this action. Return to the "
-                "roster or ask your Unit Administrator for access."
+                "Your account role does not permit this action. Ask your Unit "
+                "Administrator for access."
             )
         ),
-        home_url=url_for("platform_admin") if is_platform_admin else url_for("index"),
+        home_url=(
+            url_for("platform_admin") if is_platform_admin
+            else module_context.get("home_url", url_for("index"))
+        ),
         home_label=(
             "Return to Platform Administration"
             if is_platform_admin
-            else "Return to roster"
+            else module_context.get("home_label", "Return to roster")
         ),
         request_id=getattr(g, "request_id", ""),
     ), 403
@@ -478,6 +507,7 @@ def _not_found(_error):
             "It may have moved, been removed, or belong to a different airport."
         ),
         request_id=getattr(g, "request_id", ""),
+        **_module_error_navigation(),
     ), 404
 
 OPERATIONAL_TABLE_NAMES = frozenset({
