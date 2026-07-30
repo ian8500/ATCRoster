@@ -3205,7 +3205,7 @@ def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
     return segs
 
 
-def _analyze_segments(segs, rule_config=None):
+def _analyze_segments(segs, rule_config=None, observation_start=None):
     segs = sorted(segs, key=lambda x: x["start"])
     flags = {}
     if not segs:
@@ -3225,8 +3225,6 @@ def _analyze_segments(segs, rule_config=None):
     win30 = deque()
     duty_30 = 0
     reduced_intervals_30 = deque()
-    rest_gaps_30 = deque()
-
     night_block_count = 0
     last_night_end = None
 
@@ -3289,19 +3287,32 @@ def _analyze_segments(segs, rule_config=None):
                         f"(D22: {int(gap.total_seconds()//3600)}h)"
                     )
 
-            rest_gaps_30.append((start, gap))
-            while rest_gaps_30 and (
-                end - rest_gaps_30[0][0]
-            ) > d24_window:
-                rest_gaps_30.popleft()
-
         qualifying_rest = parameter("D24", "qualifying_rest_hours")
         required_rest = parameter("D24", "required_rest_hours")
+        rest_window_start = start - d24_window
+        has_complete_rest_window = (
+            observation_start is not None
+            and observation_start <= rest_window_start
+        )
         qual_hours = 0.0
-        for _, g in rest_gaps_30:
-            if g >= timedelta(hours=qualifying_rest):
-                qual_hours += g.total_seconds() / 3600.0
-        if qual_hours < required_rest:
+        if has_complete_rest_window:
+            rest_start = rest_window_start
+            for prior in segs:
+                if prior["start"] >= start:
+                    break
+                if prior["end"] <= rest_window_start:
+                    continue
+                duty_start = max(prior["start"], rest_window_start)
+                if duty_start > rest_start:
+                    rest = duty_start - rest_start
+                    if rest >= timedelta(hours=qualifying_rest):
+                        qual_hours += rest.total_seconds() / 3600.0
+                rest_start = max(rest_start, prior["end"])
+            if start > rest_start:
+                rest = start - rest_start
+                if rest >= timedelta(hours=qualifying_rest):
+                    qual_hours += rest.total_seconds() / 3600.0
+        if has_complete_rest_window and qual_hours < required_rest:
             flags.setdefault(the_day, []).append(
                 f"D24: qualifying rest {int(round(qual_hours))}h "
                 f"(<{required_rest:g}h) in last "
@@ -3432,7 +3443,9 @@ def fatigue_flags_for_range(staff: Staff, day_list, lookback_days=30):
     end_day = day_list[-1]
     segs = _segments_for_staff(staff, start_lb, end_day)
     config = _fatigue_rule_config(staff.unit_id)
-    all_flags = _analyze_segments(segs, config)
+    all_flags = _analyze_segments(
+        segs, config, observation_start=datetime.combine(start_lb, time.min)
+    )
     enabled_system = {
         code for code, rule in config["system"].items()
         if rule["enabled"]
@@ -3498,7 +3511,9 @@ def would_trigger_fatigue(staff: Staff, day: date, code: str):
             "early_pre0600": is_pre0600,
             "morning": _is_morning_duty(sdt),
         })
-    flags = _analyze_segments(segs)
+    flags = _analyze_segments(
+        segs, observation_start=datetime.combine(start_lb, time.min)
+    )
     return flags.get(day, [])
 
 
@@ -3544,7 +3559,10 @@ def would_create_new_fatigue_issues(
     start = proposed_day - timedelta(days=lookback_days)
     end = proposed_day + timedelta(days=lookahead_days)
     segs_base = _segments_for_staff(staff, start, end)
-    flags_base = _analyze_segments(segs_base)
+    observation_start = datetime.combine(start, time.min)
+    flags_base = _analyze_segments(
+        segs_base, observation_start=observation_start
+    )
     sdt, edt = _span(proposed_day, sh)
     if not sdt:
         return {}
@@ -3561,7 +3579,9 @@ def would_create_new_fatigue_issues(
         "early_pre0600": is_pre0600,
         "morning": _is_morning_duty(sdt),
     })
-    flags_prop = _analyze_segments(segs_prop)
+    flags_prop = _analyze_segments(
+        segs_prop, observation_start=observation_start
+    )
     new_flags = {}
     for d, lst in flags_prop.items():
         if d < proposed_day:

@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 
 import pyotp
@@ -1192,6 +1192,40 @@ def test_admin_can_add_and_manage_custom_fatigue_rules(client):
             custom_code in message
             for message in findings.get(target_day, [])
         )
+
+
+def test_d24_requires_a_complete_observation_window(client):
+    start = datetime(2026, 1, 1, 8)
+    segments = []
+    for offset in range(31):
+        duty_start = start + timedelta(days=offset)
+        segments.append({
+            "day": duty_start.date(),
+            "start": duty_start,
+            "end": duty_start + timedelta(hours=8),
+            "mins": 8 * 60,
+            "night": False,
+            "early": False,
+            "early_pre0600": False,
+            "morning": True,
+        })
+
+    with app.app.app_context():
+        without_history = app._analyze_segments(segments)
+        with_history = app._analyze_segments(
+            segments,
+            observation_start=start - timedelta(days=30),
+        )
+    assert not any(
+        message.startswith("D24:")
+        for messages in without_history.values()
+        for message in messages
+    )
+    assert any(
+        message.startswith("D24:")
+        for messages in with_history.values()
+        for message in messages
+    )
 
 
 def test_system_fatigue_threshold_changes_are_airport_specific(client):
