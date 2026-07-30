@@ -235,6 +235,56 @@ def test_reports_tolerate_legacy_history_and_keep_errors_in_briefing(
         db.session.commit()
 
 
+def test_publish_register_groups_expired_items_by_expiry_year_and_month(
+    briefing_client,
+):
+    _login(briefing_client, "brief_admin")
+    now = datetime.now()
+    historic_expiry = datetime(now.year - 2, 5, 20)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username="brief_admin").one()
+        current = BriefingItem(
+            unit_id=1, kind="daily", title="Current register item",
+            body="Still current.", effective_at=now - timedelta(days=1),
+            expires_at=now + timedelta(days=365), status="draft",
+            target_json='{"scope":"all"}', created_by_id=admin.id,
+            created_by_name=admin.name,
+        )
+        historic = BriefingItem(
+            unit_id=1, kind="daily", title="Historic register item",
+            body="Expired.",
+            effective_at=historic_expiry - timedelta(days=30),
+            expires_at=historic_expiry, status="withdrawn",
+            target_json='{"scope":"all"}', created_by_id=admin.id,
+            created_by_name=admin.name,
+        )
+        db.session.add_all([current, historic])
+        db.session.commit()
+        ids = [current.id, historic.id]
+
+    page = briefing_client.get("/briefing/admin")
+    assert page.status_code == 200
+    assert b"Briefing register \xc2\xb7 Current instructions" in page.data
+    assert b"Browse by expiry year and month" in page.data
+    assert (
+        f'data-briefing-history-year="{historic_expiry.year}"'.encode()
+        in page.data
+    )
+    assert b'data-briefing-history-month="5"' in page.data
+    assert page.data.index(b"Current register item") < page.data.index(
+        b"Older instructions"
+    )
+    assert page.data.index(b"Historic register item") > page.data.index(
+        b"Older instructions"
+    )
+
+    with app.app.app_context():
+        BriefingItem.query.filter(BriefingItem.id.in_(ids)).delete(
+            synchronize_session=False
+        )
+        db.session.commit()
+
+
 def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
     _login(briefing_client, "brief_admin")
     now = datetime.now()

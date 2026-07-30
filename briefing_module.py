@@ -611,6 +611,36 @@ def admin():
     items = BriefingItem.query.filter_by(
         unit_id=current_user.unit_id
     ).order_by(BriefingItem.created_at.desc()).all()
+    current_time = briefing_local_now()
+    current_items = [
+        item for item in items if item.expires_at >= current_time
+    ]
+    historic_groups = {}
+    for item in sorted(
+        (item for item in items if item.expires_at < current_time),
+        key=lambda row: row.expires_at,
+        reverse=True,
+    ):
+        year = item.expires_at.year
+        month = item.expires_at.month
+        historic_groups.setdefault(year, {}).setdefault(month, []).append(item)
+    historic_years = [
+        {
+            "year": year,
+            "count": sum(len(rows) for rows in months.values()),
+            "months": [
+                {
+                    "number": month,
+                    "label": datetime(year, month, 1).strftime("%B"),
+                    "rows": months[month],
+                }
+                for month in sorted(months, reverse=True)
+            ],
+        }
+        for year, months in sorted(
+            historic_groups.items(), reverse=True
+        )
+    ]
     watches = roster_app.Watch.query.order_by(
         roster_app.Watch.order_index, roster_app.Watch.name
     ).all()
@@ -627,7 +657,8 @@ def admin():
     except BriefingStorageError as exc:
         storage_ok, storage_message = False, str(exc)
     return render_template(
-        "briefing/admin.html", items=items, watches=watches, people=people,
+        "briefing/admin.html", current_items=current_items,
+        historic_years=historic_years, watches=watches, people=people,
         message_types=message_types,
         storage_ok=storage_ok, storage_message=storage_message,
     )

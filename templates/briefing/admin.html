@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Briefing administration{% endblock %}
+{% macro register_rows(items, empty_message) %}
+  {% for item in items %}
+    <tr><td><strong>{{ item.title }}</strong><br><small>v{{ item.version }} · {{ item.created_by_name }}</small></td><td>{{ item.message_type_name or item.kind|title }}</td><td>{{ item.effective_at.strftime('%d %b %Y %H:%M') }}<br><small>to {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small></td><td>{{ item.status|title }}</td><td>
+      {% if item.status == 'draft' %}<form method="post" action="{{ url_for('briefing.publish', item_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Publish</button></form>{% endif %}
+      {% if item.status == 'published' %}<form method="post" action="{{ url_for('briefing.withdraw', item_id=item.id) }}" data-confirm="Withdraw this briefing? The audit history will be retained."><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Withdraw</button></form>{% endif %}
+    </td></tr>
+  {% else %}
+    <tr><td colspan="5">{{ empty_message }}</td></tr>
+  {% endfor %}
+{% endmacro %}
 {% block content %}
 <section class="compliance-hero">
   <div><span class="admin-step">Briefing administration</span><h2>Publish briefing material</h2><p>Upload controlled instructions or issue a temporary brief of the day.</p></div>
@@ -94,19 +104,41 @@
 </div>
 
 <section class="card mt-3">
-  <div class="card-hd">Briefing register</div>
+  <div class="card-hd">Briefing register · Current instructions</div>
   <div class="table-responsive"><table class="table">
     <thead><tr><th>Title</th><th>Type</th><th>Effective</th><th>Status</th><th>Action</th></tr></thead>
     <tbody>
-    {% for item in items %}
-      <tr><td><strong>{{ item.title }}</strong><br><small>v{{ item.version }} · {{ item.created_by_name }}</small></td><td>{{ item.message_type_name or item.kind|title }}</td><td>{{ item.effective_at.strftime('%d %b %Y %H:%M') }}<br><small>to {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small></td><td>{{ item.status|title }}</td><td>
-        {% if item.status == 'draft' %}<form method="post" action="{{ url_for('briefing.publish', item_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Publish</button></form>{% endif %}
-        {% if item.status == 'published' %}<form method="post" action="{{ url_for('briefing.withdraw', item_id=item.id) }}" data-confirm="Withdraw this briefing? The audit history will be retained."><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Withdraw</button></form>{% endif %}
-      </td></tr>
-    {% else %}<tr><td colspan="5">No briefing items have been created.</td></tr>{% endfor %}
+      {{ register_rows(current_items, 'No current instructions.') }}
     </tbody>
   </table></div>
 </section>
+
+<details class="card mt-3 briefing-history">
+  <summary class="card-hd">
+    <span>Older instructions</span>
+    <small>Browse by expiry year and month</small>
+  </summary>
+  <div class="card-bd briefing-history__years">
+    {% for year_group in historic_years %}
+      <details class="briefing-history__year" data-briefing-history-year="{{ year_group.year }}">
+        <summary><strong>{{ year_group.year }}</strong><span>{{ year_group.count }} instruction{{ '' if year_group.count == 1 else 's' }}</span></summary>
+        <div class="briefing-history__months">
+          {% for month_group in year_group.months %}
+            <details class="briefing-history__month" data-briefing-history-month="{{ month_group.number }}">
+              <summary><strong>{{ month_group.label }}</strong><span>{{ month_group.rows|length }}</span></summary>
+              <div class="table-responsive"><table class="table">
+                <thead><tr><th>Title</th><th>Type</th><th>Effective</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>{{ register_rows(month_group.rows, 'No instructions expired in this month.') }}</tbody>
+              </table></div>
+            </details>
+          {% endfor %}
+        </div>
+      </details>
+    {% else %}
+      <p class="mb-0 text-muted">There are no older instructions.</p>
+    {% endfor %}
+  </div>
+</details>
 <script nonce="{{ csp_nonce() }}">
 (() => {
   const kind = document.querySelector('[data-briefing-kind]');
