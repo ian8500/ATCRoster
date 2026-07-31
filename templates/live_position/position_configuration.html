@@ -31,6 +31,7 @@
     <label>Short code<input name="code" maxlength="30" placeholder="AIR" required></label>
     <label>Display name<input name="label" maxlength="120" placeholder="Aerodrome Control" required></label>
     <label>Display order<input name="display_order" type="number" min="0" value="100"></label>
+    <label>Maximum controller time (minutes)<input name="maximum_session_duration_minutes" type="number" min="1" max="1440" value="120" required></label>
     <label>Position group
       <select name="position_group_id"><option value="">No group</option>{% for group in groups if group.is_active %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}</select>
     </label>
@@ -61,6 +62,7 @@
       <label>Short code<input name="code" maxlength="30" value="{{ position.code }}" required></label>
       <label>Display name<input name="label" maxlength="120" value="{{ position.label }}" required></label>
       <label>Display order<input name="display_order" type="number" min="0" value="{{ position.display_order }}"></label>
+      <label>Maximum controller time (minutes)<input name="maximum_session_duration_minutes" type="number" min="1" max="1440" value="{{ position.maximum_session_duration_minutes }}" required></label>
       <label>Position group
         <select name="position_group_id"><option value="">No group</option>{% for group in groups if group.is_active %}<option value="{{ group.id }}" {% if group.name == position.group_name %}selected{% endif %}>{{ group.name }}</option>{% endfor %}</select>
       </label>
