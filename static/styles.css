@@ -1928,7 +1928,23 @@ table.roster { zoom:var(--ui-scale); }
     margin:6mm;
   }
 
-  .site-header, .site-footer, .flashes, .month-nav, .main-nav, .btn, a.nav-link, .nav-toggle { display:none !important; }
+  .site-header, .site-footer, .flashes, .month-nav, .main-nav, .btn, a.nav-link, .nav-toggle,
+  .report-output-actions, .report-page .report-filter, .report-page .bar,
+  .report-page .admin-section-nav, .report-page .assurance-run-form,
+  .report-page .operations-form { display:none !important; }
+
+  .report-page .page-content{
+    width:100% !important;
+    max-width:none !important;
+    padding:0 !important;
+  }
+
+  .report-page .card,
+  .report-page .table-scroll,
+  .report-page .table-responsive{
+    overflow:visible !important;
+    box-shadow:none !important;
+  }
 
   table{
     width:100% !important;
@@ -2773,6 +2789,27 @@ body::before { display:none; }
   max-width:1680px;
   padding-inline:clamp(1rem, 2.4vw, 2.5rem);
   gap:1.25rem;
+}
+
+.report-output-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:.65rem;
+  flex-wrap:wrap;
+  padding:.7rem .85rem;
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  background:var(--card);
+}
+
+.report-output-actions span{
+  color:var(--text-muted);
+  font-size:.8rem;
+}
+
+body.report-pdf-requested .report-output-actions{
+  border-color:var(--accent);
 }
 
 .roster-page .page-content{

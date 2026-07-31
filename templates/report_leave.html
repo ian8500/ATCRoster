@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Leave – {{ month_title }}{% endblock %}
 {% block content %}
+{% include "_report_actions.html" %}
 <section class="compliance-hero">
   <div><span class="admin-step">Leave reporting</span><h2>Leave · {{ month_title }}</h2><p>Recorded leave totals by controller and leave type.</p></div>
   <div class="compliance-actions">

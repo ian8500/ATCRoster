@@ -278,6 +278,10 @@ def test_reports_require_sensitive_data_acknowledgement(client):
     opened = client.get("/reports/leave-year")
     assert opened.status_code == 200
     assert b"Leave year" in opened.data
+    assert b'<body class="app-body report-page">' in opened.data
+    assert b'data-command="print-report"' in opened.data
+    assert b'data-command="save-report-pdf"' in opened.data
+    assert b"choose <strong>Save as PDF</strong>" in opened.data
 
     # Returning to the Reports tab is a new entry and must require a fresh
     # privacy acknowledgement.

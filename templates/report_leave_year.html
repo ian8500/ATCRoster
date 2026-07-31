@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Leave Year{% endblock %}
 {% block content %}
+{% include "_report_actions.html" %}
 <section class="compliance-hero">
   <div><span class="admin-step">Leave reporting</span><h2>Leave year</h2><p>Entitlement and balances as of {{ today }}.</p></div>
   <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>

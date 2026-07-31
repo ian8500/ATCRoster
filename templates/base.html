@@ -10,6 +10,11 @@
   {% set in_briefing_module = request.endpoint and request.endpoint.startswith('briefing.') %}
   {% set in_training_module = request.endpoint and request.endpoint.startswith('training_') %}
   {% set in_competency_module = request.endpoint and request.endpoint.startswith('competency_') %}
+  {% set report_endpoints = (
+    'report_leave', 'report_leave_year', 'report_sickness', 'report_fatigue',
+    'metrics', 'coverage_heatmap', 'operations_assurance', 'training_analytics',
+    'admin_sms_audit', 'briefing.audit', 'briefing.assurance'
+  ) %}
   <title>{% block title %}{% endblock %} – {{ 'ATC Competency' if in_competency_module else ('ATC Training' if in_training_module else ('ATC Briefing' if in_briefing_module else 'ATC Roster')) }}</title>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-TbP2oT4maGdTKStZJ9+doRTO1D94avYVbwybXDq3s1ymUOI1IKXey9HvK+nZd9kpGdn6FQkR0fF6Bw7+Xw8FfA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -31,7 +36,7 @@
   {# allow pages to add their own head content (CSS/JS) #}
   {% block extra_head %}{% endblock %}
 </head>
-<body class="app-body{% if request.endpoint == 'login' %} login-shell{% endif %}{% if request.endpoint == 'roster_month' %} roster-page{% endif %}">
+<body class="app-body{% if request.endpoint == 'login' %} login-shell{% endif %}{% if request.endpoint == 'roster_month' %} roster-page{% endif %}{% if request.endpoint in report_endpoints %} report-page{% endif %}">
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="site-header">
     <div class="nav-container">
@@ -222,9 +227,15 @@
         history.back();
       } else if (target.dataset.command === 'print-roster') {
         window.printRoster?.();
-      } else if (target.dataset.command === 'print-fatigue') {
-        window.doPrint?.();
+      } else if (target.dataset.command === 'print-report') {
+        window.print();
+      } else if (target.dataset.command === 'save-report-pdf') {
+        document.body.classList.add('report-pdf-requested');
+        window.setTimeout(() => window.print(), 50);
       }
+    });
+    window.addEventListener('afterprint', () => {
+      document.body.classList.remove('report-pdf-requested');
     });
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/static/service-worker.js'));
