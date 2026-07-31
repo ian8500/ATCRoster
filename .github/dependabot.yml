@@ -23,10 +23,6 @@ updates:
           - mypy
           - bandit
           - pip-audit
-      desktop-packaging:
-        patterns:
-          - pywebview
-          - pyinstaller
   - package-ecosystem: docker
     directory: /
     schedule:

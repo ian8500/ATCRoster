@@ -58,7 +58,7 @@ except Exception:
 app = create_app()
 _runtime_settings = get_runtime_settings(app)
 
-# Writable ./instance folder (works locally & on PythonAnywhere)
+# Writable local instance folder for development and tests.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = app.instance_path
 os.makedirs(INSTANCE_DIR, exist_ok=True)
@@ -695,53 +695,6 @@ def _airport_login_endpoint(user) -> str:
     ).first()
     return "module_home" if enabled else "index"
 
-
-# ----- SQLite performance helpers (define only; run after db exists) -----
-def _enable_sqlite_fast_mode():
-    """Enable WAL and other pragmas when using SQLite."""
-    try:
-        if "sqlite" in str(db.engine.url.drivername).lower():
-            with db.engine.connect() as conn:
-                conn.execute(text("PRAGMA journal_mode=WAL"))
-                conn.execute(text("PRAGMA synchronous=NORMAL"))
-                conn.execute(text("PRAGMA temp_store=MEMORY"))
-                conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
-    except Exception:
-        pass
-
-
-def migrate_add_more_perf_indexes():
-    """Extra composite indexes that help roster month queries."""
-    try:
-        db.session.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_assignment_day_staff ON assignment(day, staff_id)"
-        ))
-        db.session.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_assignment_staff_day_code ON assignment(staff_id, day, code)"
-        ))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-
-
-def _init_perf_once():
-    try:
-        _enable_sqlite_fast_mode()
-    except Exception:
-        pass
-    try:
-        migrate_add_more_perf_indexes()
-    except Exception:
-        pass
-
-
-    # Run the performance tweaks once at import time (Flask 3.x safe)
-try:
-    with app.app_context():
-        _init_perf_once()
-except Exception:
-    # Don’t block app import if pragmas/index creation fails
-    pass
 
 # ----- Lightweight caching -----
 _cache = None
@@ -1432,39 +1385,6 @@ class TrainingScore(db.Model):
         db.UniqueConstraint("session_id", "objective_id", name="uq_training_score_objective"),
     )
 
-
-def migrate_add_met_and_assessor():
-    """Idempotent: add MET/Assessor columns to staff if missing."""
-    with app.app_context():
-        from sqlalchemy import inspect, text
-        insp = inspect(db.engine)
-        try:
-            cols = {c["name"] for c in insp.get_columns("staff")}
-        except Exception:
-            # If table doesn't exist yet, create all then re-inspect
-            db.create_all()
-            cols = {c["name"] for c in inspect(db.engine).get_columns("staff")}
-
-        alters = []
-        if "met_ue_expiry" not in cols:
-            alters.append("ALTER TABLE staff ADD COLUMN met_ue_expiry DATE")
-        if "met_ut" not in cols:
-            alters.append(
-                "ALTER TABLE staff ADD COLUMN met_ut BOOLEAN DEFAULT 0")
-        if "has_assessor" not in cols:
-            alters.append(
-                "ALTER TABLE staff ADD COLUMN has_assessor BOOLEAN DEFAULT 0")
-        if "caa_license_number" not in cols:
-            alters.append(
-                "ALTER TABLE staff ADD COLUMN caa_license_number VARCHAR(40) "
-                "NOT NULL DEFAULT ''")
-
-        from sqlalchemy import text  # keep this at top of the function if not already there
-        for sql in alters:
-            db.session.execute(text(sql))
-
-        if alters:
-            db.session.commit()
 
 class ShiftType(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -11953,99 +11873,7 @@ with app.app_context():
         and os.environ.get("ATCROSTER_SKIP_RUNTIME_SCHEMA") != "1"
     ):
         db.create_all()
-        is_sqlite = db.engine.dialect.name == "sqlite"
-        if is_sqlite:
-            # Legacy desktop compatibility only. Production uses Alembic.
-            from sqlalchemy import inspect
-            control_tables = set(inspect(db.engine).get_table_names())
-            if "platform_identity" in control_tables:
-                identity_columns = {
-                    column["name"]
-                    for column in inspect(db.engine).get_columns(
-                        "platform_identity"
-                    )
-                }
-                if "email" not in identity_columns:
-                    db.session.execute(text(
-                        "ALTER TABLE platform_identity ADD COLUMN email "
-                        "VARCHAR(254) NOT NULL DEFAULT ''"
-                    ))
-                    db.session.commit()
-            migrate_tenant_foundation_compat()
-            migrate_add_perf_indexes()
-            migrate_add_met_and_assessor()
-            migrate_add_toil_half_days_and_convert()
-            migrate_add_ut_flags()
-            migrate_add_assignment_annotation()
-            migrate_add_unique_assignment_key()
-            migrate_add_requirement_req_d()
-            migrate_add_is_training()
-            migrate_add_wm_dwm_exclude()
-            migrate_add_phone_number()
-            migrate_add_watch_pattern_configuration()
-            migrate_add_invitation_target()
-            migrate_add_role_and_calendar_token()
-
-            cols = [row[1] for row in db.session.execute(
-                text("PRAGMA table_info(shift_request)"))]
-
-            def _add_col(name, ddl):
-                if name not in cols:
-                    try:
-                        db.session.execute(
-                            text(f"ALTER TABLE shift_request ADD COLUMN {ddl}"))
-                        db.session.commit()
-                    except Exception:
-                        db.session.rollback()
-            _add_col("admin_response", "admin_response TEXT DEFAULT ''")
-            _add_col("responded_by_id", "responded_by_id INTEGER")
-            _add_col("responded_at", "responded_at TEXT")
-            _add_col("status", "status VARCHAR(20) DEFAULT 'pending'")
-            _add_col(
-                "dismissed_by_requester_at",
-                "dismissed_by_requester_at TEXT",
-            )
-
         seed_once()
-        # Reconstruct deterministic local-only database routes after a restart.
-        # Production routes continue to come exclusively from managed secrets.
-        if is_sqlite:
-            for routing in DatabaseRoutingMetadata.query.all():
-                unit = db.session.get(Unit, routing.unit_id)
-                if (
-                    unit
-                    and unit.status != "platform_control"
-                    and not os.environ.get(routing.secret_name)
-                ):
-                    os.environ[routing.secret_name] = (
-                        "sqlite:///"
-                        + os.path.join(
-                            INSTANCE_DIR,
-                            f"unit-{unit.id}-{unit.code.lower()}.db",
-                        )
-                    )
-                database_url = os.environ.get(routing.secret_name, "")
-                if database_url.startswith("sqlite:///"):
-                    # Local multi-database installations predate Alembic in
-                    # some workspaces. Keep each tenant schema compatible
-                    # before a remembered browser session can load its Staff.
-                    with operational_unit_context(
-                        routing.unit_id, routing.secret_name
-                    ) as operational_engine:
-                        tenant_inspector = inspect(operational_engine)
-                        if "staff" in tenant_inspector.get_table_names():
-                            tenant_columns = {
-                                column["name"]
-                                for column in tenant_inspector.get_columns(
-                                    "staff"
-                                )
-                            }
-                            if "email" not in tenant_columns:
-                                with operational_engine.begin() as connection:
-                                    connection.execute(text(
-                                        "ALTER TABLE staff ADD COLUMN email "
-                                        "VARCHAR(254) NOT NULL DEFAULT ''"
-                                    ))
         refresh_shift_cache()
 
 # Expose helpers & models needed by Jinja templates that refer to them directly
@@ -12081,7 +11909,7 @@ app.register_blueprint(create_auth_blueprint(AuthDependencies(
 app.register_blueprint(briefing_blueprint)
 
 # -------------------- WSGI entry point --------------------
-# PythonAnywhere’s WSGI file imports "application"
+# Compatibility alias for WSGI servers that import ``application``.
 application = app
 
 # -------------------- Local dev server --------------------

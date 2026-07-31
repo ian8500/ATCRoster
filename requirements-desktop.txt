@@ -1,4 +1,0 @@
--r requirements-prod.txt
-
-pywebview==6.2.1
-pyinstaller==6.21.0

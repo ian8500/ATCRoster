@@ -3,6 +3,7 @@ from datetime import date, time
 import pytest
 
 import app
+from conftest import finish_operational_login
 from app import (
     AnnotationAudit,
     AnnotationType,
@@ -52,6 +53,22 @@ def secured_client():
                       is_active=True, is_requestable=True),
         ]
         db.session.add_all([unit_a, unit_b, watch_a, watch_b, admin, user, other, *shifts])
+        db.session.flush()
+        for member in (admin, user, other):
+            identity = app.PlatformIdentity(
+                public_id=f"test-{member.username}",
+                username=member.username,
+                password_hash=member.password_hash,
+            )
+            db.session.add(identity)
+            db.session.flush()
+            db.session.add(app.UnitMembership(
+                identity_id=identity.id,
+                unit_id=member.unit_id,
+                person_id=member.id,
+                role="UnitAdmin" if member.role == "admin" else "StaffUser",
+                status="active",
+            ))
         db.session.commit()
         refresh_shift_cache()
     client = app.app.test_client()
@@ -71,6 +88,7 @@ def login(client, username="user-a"):
         "password": "password123",
     })
     assert response.status_code == 302
+    finish_operational_login(client)
     response = client.get("/requests")
     assert response.status_code == 200
     with client.session_transaction() as sess:
@@ -800,6 +818,21 @@ def test_watch_manager_needs_explicit_annotation_permission(secured_client):
         )
         target = Staff.query.filter_by(username="user-a").one()
         db.session.add_all([manager, definition])
+        db.session.flush()
+        identity = app.PlatformIdentity(
+            public_id="test-wm-limited",
+            username=manager.username,
+            password_hash=manager.password_hash,
+        )
+        db.session.add(identity)
+        db.session.flush()
+        db.session.add(app.UnitMembership(
+            identity_id=identity.id,
+            unit_id=manager.unit_id,
+            person_id=manager.id,
+            role="StaffUser",
+            status="active",
+        ))
         db.session.commit()
         target_id = target.id
         refresh_annotation_cache()

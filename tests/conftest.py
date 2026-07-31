@@ -13,6 +13,75 @@ from pathlib import Path
 import tempfile
 
 
+def finish_operational_login(client) -> None:
+    """Complete the real airport MFA flow for test administrator accounts."""
+    import pyotp
+
+    import app
+
+    with client.session_transaction() as session:
+        challenge_user_id = int(session.get("_mfa_user_id") or 0)
+        authenticated = "_user_id" in session
+
+    if challenge_user_id:
+        with app.app.app_context():
+            credential = app.MfaCredential.query.filter_by(
+                person_id=challenge_user_id,
+                enabled=True,
+            ).one()
+            secret = app._decrypt_mfa_secret(credential)
+            # Tests can sign the same account in repeatedly within one TOTP
+            # interval. Reset replay tracking only inside this test helper.
+            credential.last_used_step = None
+            app.db.session.commit()
+            with app.app.test_request_context(
+                "/", environ_base={"REMOTE_ADDR": "127.0.0.1"}
+            ):
+                app._reset_rate_limit(
+                    "airport-mfa",
+                    f"{credential.unit_id}:{challenge_user_id}",
+                )
+        client.get("/login/mfa")
+        with client.session_transaction() as session:
+            token = session["_csrf_token"]
+        response = client.post(
+            "/login/mfa",
+            data={"_csrf_token": token, "code": pyotp.TOTP(secret).now()},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        return
+
+    if not authenticated:
+        return
+
+    client.get("/security/mfa")
+    with client.session_transaction() as session:
+        pending = session.get("_pending_mfa_secret")
+        token = session.get("_csrf_token")
+    if not pending:
+        return
+    with app.app.test_request_context(
+        "/", environ_base={"REMOTE_ADDR": "127.0.0.1"}
+    ):
+        with client.session_transaction() as session:
+            membership_id = int(str(session["_user_id"]).split(":")[-1])
+        with app.app.app_context():
+            membership = app.db.session.get(
+                app.UnitMembership, membership_id
+            )
+            app._reset_rate_limit(
+                "airport-mfa-enrolment",
+                f"{membership.unit_id}:{membership.person_id}",
+            )
+    response = client.post(
+        "/security/mfa",
+        data={"_csrf_token": token, "code": pyotp.TOTP(pending).now()},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+
 integration_url = os.environ.get("ATCROSTER_TEST_CONTROL_DATABASE_URL")
 if integration_url:
     os.environ["DATABASE_URL"] = integration_url
@@ -33,9 +102,3 @@ else:
                 pass
 
     atexit.register(_remove_test_database)
-
-
-# Most route tests intentionally exercise pre-control-plane fixture accounts.
-# Production and normal development remain fail-closed unless this migration
-# escape hatch is explicitly enabled.
-os.environ.setdefault("ATCROSTER_ENABLE_LEGACY_LOGIN", "true")
