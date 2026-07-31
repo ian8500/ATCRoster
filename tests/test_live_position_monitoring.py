@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import re
 
 import pytest
 
@@ -434,3 +435,69 @@ def test_live_position_module_must_be_enabled(live_position_data):
         },
     )
     assert client.get("/live-positions/kiosk").status_code == 404
+
+
+def test_unit_admin_can_provision_a_dedicated_kiosk_account(live_position_data):
+    admin_client = app.app.test_client()
+    admin_client.get("/login")
+    with admin_client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    admin_client.post(
+        "/login",
+        data={
+            "_csrf_token": csrf,
+            "username": "live-admin",
+            "password": "admin-password",
+        },
+    )
+    finish_operational_login(admin_client)
+    page = admin_client.get("/administration/kiosk-accounts")
+    assert page.status_code == 200
+    with admin_client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    created = admin_client.post(
+        "/administration/kiosk-accounts",
+        data={"_csrf_token": csrf, "action": "create_invitation"},
+        follow_redirects=True,
+    )
+    token_match = re.search(rb"/invite/([A-Za-z0-9_-]+)", created.data)
+    assert token_match
+    invitation_path = f"/invite/{token_match.group(1).decode()}"
+
+    kiosk_client = app.app.test_client()
+    setup = kiosk_client.get(invitation_path)
+    assert setup.status_code == 200
+    with kiosk_client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    accepted = kiosk_client.post(
+        invitation_path,
+        data={
+            "_csrf_token": csrf,
+            "name": "Tower display",
+            "username": "tower-display",
+            "email": "kiosk@example.test",
+            "password": "secure-kiosk-password",
+        },
+    )
+    assert accepted.status_code == 302
+    with app.app.app_context():
+        kiosk = app.Staff.query.filter_by(username="tower-display").one()
+        membership = app.UnitMembership.query.filter_by(person_id=kiosk.id).one()
+        assert kiosk.role == "position_monitor"
+        assert not kiosk.is_operational
+        assert membership.role == "PositionMonitor"
+        assert membership.status == "active"
+
+    kiosk_client.get("/login")
+    with kiosk_client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    login = kiosk_client.post(
+        "/login",
+        data={
+            "_csrf_token": csrf,
+            "username": "tower-display",
+            "password": "secure-kiosk-password",
+        },
+    )
+    assert login.status_code == 302
+    assert login.headers["Location"].endswith("/live-positions/kiosk")

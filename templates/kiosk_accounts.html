@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Kiosk accounts{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Administration · Live Position Monitoring</p>
+    <h1>Kiosk accounts</h1>
+    <p>Create dedicated accounts for Live Position displays. These accounts cannot access the roster or administration tools.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('administration_home') }}">Back to administration</a>
+</section>
+
+<section class="card card-body mb-4">
+  <h2>Create kiosk account</h2>
+  <p>Generate a single-use setup link, then open it on the kiosk device to choose its username and password.</p>
+  <form method="post">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="create_invitation">
+    <button class="btn btn-primary" type="submit">Create kiosk setup link</button>
+  </form>
+</section>
+
+<section class="card card-body mb-4">
+  <h2>Pending setup links</h2>
+  {% for invitation in invitations %}
+  <form method="post" class="d-flex gap-2 align-items-center mb-2">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="disable_invitation">
+    <input type="hidden" name="invitation_id" value="{{ invitation.id }}">
+    <span>Expires {{ invitation.expires_at.strftime('%d %b %Y %H:%M') }}</span>
+    <button class="btn btn-sm" type="submit">Disable link</button>
+  </form>
+  {% else %}<p class="muted">No setup links are awaiting use.</p>{% endfor %}
+</section>
+
+<section class="card card-body">
+  <h2>Existing kiosk accounts</h2>
+  <table class="table">
+    <thead><tr><th>Kiosk</th><th>Username</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for membership in memberships %}
+      {% set kiosk = people.get(membership.person_id) %}
+      <tr>
+        <td>{{ kiosk.name if kiosk else 'Kiosk account' }}</td>
+        <td>{{ kiosk.username if kiosk else '—' }}</td>
+        <td>{{ membership.status|title }}</td>
+        <td>
+          {% if membership.status in ('active', 'suspended') %}
+          <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="{{ 'deactivate' if membership.status == 'active' else 'restore' }}">
+            <input type="hidden" name="membership_id" value="{{ membership.id }}">
+            <button class="btn btn-sm" type="submit">{{ 'Deactivate' if membership.status == 'active' else 'Restore' }}</button>
+          </form>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+    {% else %}<tr><td colspan="4">No kiosk accounts have been created.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

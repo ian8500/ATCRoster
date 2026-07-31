@@ -14,6 +14,11 @@
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
     {% if show_live_position %}
+    <a class="module-card" href="{{ url_for('kiosk_accounts') }}">
+      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-display"></i></span>
+      <span><strong>Kiosk accounts</strong><small>Create and manage dedicated Live Position display accounts.</small></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
     <a class="module-card" href="{{ url_for('live_position.position_configuration') }}">
       <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-tower-broadcast"></i></span>
       <span><strong>Position Monitoring setup</strong><small>Configure positions, currency categories and kiosk identities.</small></span>
