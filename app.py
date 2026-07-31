@@ -1792,6 +1792,20 @@ def get_non_working_codes() -> set[str]:
     return _load_codes_setting("non_working_codes", DEFAULT_NON_WORKING_CODES)
 
 
+def staff_is_countable_on(person: Staff, on_date: date) -> bool:
+    """Return whether a person holds the credentials needed for staffing counts."""
+    if not person.medical_expiry or person.medical_expiry < on_date:
+        return False
+    return any(
+        expiry is not None and expiry >= on_date
+        for expiry in (
+            person.tower_ue_expiry,
+            person.radar_ue_expiry,
+            person.met_ue_expiry,
+        )
+    )
+
+
 def get_shift_counter_map(unit_id: int | None = None) -> dict[str, str]:
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
     raw = _roster_settings_snapshot(resolved_unit_id).get(
@@ -4575,6 +4589,7 @@ def _publication_preflight(year: int, month: int) -> dict:
             if (
                 shift and shift.is_working and not shift.is_training
                 and assignment.code not in get_exclude_from_counters()
+                and staff_is_countable_on(person, day)
             ):
                 group = shift_counter_group_for_day(
                     assignment.code, day, _current_unit_id()
@@ -5078,6 +5093,8 @@ def roster_month(ym):
             continue
         row = a_map.get(s.id, {})
         for d in days:
+            if not staff_is_countable_on(s, d):
+                continue
             c = (row.get(d) or "").upper()
             if not c:
                 continue
@@ -5421,6 +5438,8 @@ def roster_export_csv(ym):
         if not s.is_operational:
             continue
         for d in days:
+            if not staff_is_countable_on(s, d):
+                continue
             c = a_map[s.id].get(d)
             if not c or c in get_exclude_from_counters():
                 continue

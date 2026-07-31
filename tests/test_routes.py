@@ -1805,6 +1805,38 @@ def test_counter_requires_created_shift_and_respects_closed_nights(client):
         assert app.shift_counter_group("UNCREATED", 1) == ""
 
 
+def test_roster_counter_requires_current_medical_and_unit_endorsement():
+    roster_day = date(2026, 7, 31)
+    person = Staff(
+        medical_expiry=roster_day,
+        tower_ue_expiry=roster_day,
+    )
+    assert app.staff_is_countable_on(person, roster_day)
+
+    person.medical_expiry = roster_day - timedelta(days=1)
+    assert not app.staff_is_countable_on(person, roster_day)
+
+    person.medical_expiry = roster_day
+    person.tower_ue_expiry = roster_day - timedelta(days=1)
+    person.radar_ue_expiry = None
+    person.met_ue_expiry = None
+    assert not app.staff_is_countable_on(person, roster_day)
+
+    person.met_ue_expiry = roster_day
+    assert app.staff_is_countable_on(person, roster_day)
+
+
+def test_under_training_flags_do_not_replace_an_in_date_endorsement():
+    roster_day = date(2026, 7, 31)
+    person = Staff(
+        medical_expiry=roster_day,
+        tower_ut=True,
+        radar_ut=True,
+        met_ut=True,
+    )
+    assert not app.staff_is_countable_on(person, roster_day)
+
+
 def test_roster_never_shows_fatigue_warning_on_off_shift(
     client, monkeypatch
 ):
