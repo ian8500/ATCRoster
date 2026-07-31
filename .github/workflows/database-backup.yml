@@ -1,0 +1,116 @@
+name: Encrypted database backup
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: encrypted-database-backup
+  cancel-in-progress: false
+
+env:
+  RAILWAY_PROJECT_ID: a6961dc8-2018-4824-a188-d6caff37c7f1
+  RAILWAY_ENVIRONMENT: production
+  CONTROL_DATABASE_SERVICE: 55db45e1-ab77-46a6-88a7-fcc6be66bb5f
+  AIRPORT_DATABASE_SERVICE: 2f678217-8749-4f8e-86ee-53b414ee52db
+  RAILWAY_CLI_VERSION: 5.29.0
+  RECOVERY_KEY_FINGERPRINT: 3DEB01B48268E181F0E864D2A3816AE4F1A6F20E
+
+jobs:
+  backup:
+    name: Dump and encrypt production databases
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: backups
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+    steps:
+      - name: Check out trusted backup configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned Railway CLI
+        run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+
+      - name: Import recovery public key
+        run: |
+          set -euo pipefail
+          gpg --batch --import .github/backup-recovery-public.asc
+          imported_fingerprint="$(gpg --batch --with-colons --fingerprint \
+            backup-recovery@atcroster.invalid |
+            awk -F: '$1 == "fpr" {print $10; exit}')"
+          test "$imported_fingerprint" = "$RECOVERY_KEY_FINGERPRINT"
+
+      - name: Dump, encrypt, and inventory databases
+        run: |
+          set -euo pipefail
+          umask 077
+          backup_dir="$RUNNER_TEMP/atcroster-backup"
+          mkdir -p "$backup_dir"
+          created_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          backup_database() {
+            local label="$1"
+            local service_id="$2"
+            local variables
+            variables="$(railway variable list \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$RAILWAY_ENVIRONMENT" \
+              --service "$service_id" --json)"
+            local database_url
+            database_url="$(jq -er '.DATABASE_PUBLIC_URL' <<<"$variables")"
+            unset variables
+
+            local revision
+            revision="$(docker run --rm \
+              -e DATABASE_URL="$database_url" postgres:18-alpine \
+              sh -eu -c \
+              'psql "$DATABASE_URL" --no-psqlrc --tuples-only --no-align \
+                --command "SELECT version_num FROM alembic_version LIMIT 1"')"
+
+            docker run --rm \
+              -e DATABASE_URL="$database_url" postgres:18-alpine \
+              sh -eu -c \
+              'pg_dump "$DATABASE_URL" --format=custom --no-owner --file=-' |
+              gpg --batch --yes --trust-model always \
+                --recipient "$RECOVERY_KEY_FINGERPRINT" \
+                --output "$backup_dir/$label.dump.gpg" --encrypt
+            unset database_url
+
+            local checksum
+            local bytes
+            checksum="$(sha256sum "$backup_dir/$label.dump.gpg" |
+              awk '{print $1}')"
+            bytes="$(stat --format='%s' "$backup_dir/$label.dump.gpg")"
+            jq -n \
+              --arg database "$label" \
+              --arg created_at "$created_at" \
+              --arg revision "$revision" \
+              --arg sha256 "$checksum" \
+              --argjson encrypted_bytes "$bytes" \
+              '{database:$database,created_at:$created_at,
+                alembic_revision:$revision,encrypted_bytes:$encrypted_bytes,
+                encrypted_sha256:$sha256}' \
+              >> "$backup_dir/manifest.jsonl"
+          }
+
+          backup_database control "$CONTROL_DATABASE_SERVICE"
+          backup_database airport-iwld "$AIRPORT_DATABASE_SERVICE"
+          jq -s \
+            --arg recovery_key_fingerprint "$RECOVERY_KEY_FINGERPRINT" \
+            '{format_version:1,recovery_key_fingerprint:$recovery_key_fingerprint,
+              databases:.}' \
+            "$backup_dir/manifest.jsonl" > "$backup_dir/manifest.json"
+          rm "$backup_dir/manifest.jsonl"
+
+      - name: Upload encrypted recovery set
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: atcroster-production-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/atcroster-backup/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

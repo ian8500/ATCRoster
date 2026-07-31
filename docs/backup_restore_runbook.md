@@ -30,6 +30,31 @@ database server. Railway currently provisions PostgreSQL 18 for this project;
 the official `postgres:18-alpine` image provides a reproducible recovery
 client when the operator workstation has an older client installed.
 
+### Current automated recovery set
+
+The **Encrypted database backup** GitHub Actions workflow runs daily at 02:30
+UTC and can also be started manually. It:
+
+- retrieves production database connection details at runtime from Railway;
+- streams PostgreSQL 18 custom-format dumps without writing plaintext dumps;
+- encrypts each dump to the checked-in recovery public key;
+- records the database label, timestamp, Alembic revision, encrypted byte size,
+  SHA-256 checksum and recovery-key fingerprint; and
+- retains the encrypted GitHub artifact for 30 days.
+
+The private recovery key is not stored in GitHub, Railway, the repository or
+the workflow artifact. The accountable operator must keep at least two
+access-controlled copies in separate locations and test decryption quarterly.
+Rotating the key requires retaining the old private key until every artifact
+encrypted to it has expired.
+
+This provides an off-Railway logical recovery copy. It does not provide
+point-in-time recovery. Railway volume snapshots and PITR remain unavailable
+on the current plan; reassess a Pro-plan upgrade before committing to a
+customer RPO that requires either capability. GitHub artifact retention covers
+the proposed 30 daily copies, not the proposed 12 monthly copies. Configure an
+approved long-term object store before representing monthly retention as met.
+
 ## Restore rehearsal
 
 1. Authorise an isolated PostgreSQL target and restrict network access.
