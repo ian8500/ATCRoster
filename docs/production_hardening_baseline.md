@@ -8,6 +8,11 @@ Baseline commit: `80177ec` (`main`)
 
 Runtime used for local evidence: Python 3.12.7
 
+> Historical baseline: the Railway topology and authentication findings below
+> were remediated by commits `3bd1527`, `06fbb12` and the 31 July 2026
+> production/staging reconciliation. See
+> `docs/railway_topology_reconciliation.md` for the current state.
+
 ## Executive summary
 
 ATCRoster has a credible controlled-pilot security foundation: production
