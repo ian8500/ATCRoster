@@ -5886,7 +5886,6 @@ def _training_profile_allowed(person):
     )
 
 
-@app.get("/training/")
 @login_required
 def training_home():
     unit_id = _current_unit_id()
@@ -5916,7 +5915,6 @@ def training_home():
     )
 
 
-@app.route("/training/<int:sid>", methods=["GET", "POST"])
 @login_required
 def training_profile(sid):
     unit_id = _current_unit_id()
@@ -5994,7 +5992,6 @@ def training_profile(sid):
     )
 
 
-@app.get("/competency/")
 @login_required
 def competency_home():
     unit_id = _current_unit_id()
@@ -6015,7 +6012,6 @@ def competency_home():
     )
 
 
-@app.route("/competency/<int:sid>", methods=["GET", "POST"])
 @login_required
 def competency_profile(sid):
     unit_id = _current_unit_id()
@@ -6076,7 +6072,6 @@ def competency_profile(sid):
     )
 
 
-@app.route("/training/admin", methods=["GET", "POST"])
 @login_required
 def training_admin():
     if not training_enabled(_current_unit_id()):
@@ -6117,7 +6112,6 @@ def training_admin():
     return render_template("training_admin.html", levels=levels)
 
 
-@app.get("/training/analytics")
 @login_required
 def training_analytics():
     if not training_enabled(_current_unit_id()):
@@ -10060,6 +10054,7 @@ from absence_requests_blueprint import (
 )
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
+from training_blueprint import TrainingDependencies, create_training_blueprint
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
     db=db,
@@ -10181,6 +10176,14 @@ app.register_blueprint(create_absence_requests_blueprint(
         notify_requester=_notify_requester,
     )
 ))
+app.register_blueprint(create_training_blueprint(TrainingDependencies(
+    training_home=training_home,
+    training_profile=training_profile,
+    competency_home=competency_home,
+    competency_profile=competency_profile,
+    training_admin=training_admin,
+    training_analytics=training_analytics,
+)))
 app.register_blueprint(briefing_blueprint)
 
 # -------------------- WSGI entry point --------------------
