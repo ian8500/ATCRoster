@@ -1,0 +1,309 @@
+name: Controlled promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: Branch, tag, or commit to promote (must already be on main)
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: controlled-promotion
+  cancel-in-progress: false
+
+env:
+  RAILWAY_PROJECT_ID: a6961dc8-2018-4824-a188-d6caff37c7f1
+  RAILWAY_CLI_VERSION: 5.29.0
+
+jobs:
+  resolve:
+    name: Resolve approved commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.git_ref }}
+          fetch-depth: 0
+
+      - name: Require the revision to be on main
+        id: commit
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          commit_sha="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$commit_sha" origin/main || {
+            echo "::error::The requested revision is not part of origin/main."
+            exit 1
+          }
+          echo "Promoting commit $commit_sha"
+          echo "sha=$commit_sha" >> "$GITHUB_OUTPUT"
+
+  staging:
+    name: Deploy and accept staging
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: staging
+      url: https://pilot.atcroster.com
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_ENVIRONMENT: staging
+      RAILWAY_WEB_SERVICE: 9fc81ec5-4450-4ea2-8ff1-4652492224af
+      RAILWAY_WORKER_SERVICE: fed56e4b-f418-4b18-995c-b59add764ce7
+      APP_ORIGIN: https://pilot.atcroster.com
+      ACCEPTANCE_USERNAME: ${{ secrets.STAGING_USERNAME }}
+      ACCEPTANCE_PASSWORD: ${{ secrets.STAGING_PASSWORD }}
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.commit_sha }}
+          fetch-depth: 1
+
+      - name: Install pinned Railway CLI
+        run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+
+      - name: Deploy web and worker
+        env:
+          PROMOTION_SHA: ${{ needs.resolve.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+
+          deploy_service() {
+            local service_id="$1"
+            local label="$2"
+            local result
+            result="$(railway deployment up . \
+              --path-as-root --detach --json --yes \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$RAILWAY_ENVIRONMENT" \
+              --service "$service_id" \
+              --message "Promote $PROMOTION_SHA to staging ($label)")"
+            local deployment_id
+            deployment_id="$(jq -r \
+              '.. | .deploymentId? // .deployment_id? // empty' \
+              <<<"$result" | tail -1)"
+            if [[ -z "$deployment_id" ]]; then
+              echo "::error::Railway did not return a deployment ID for $label."
+              exit 1
+            fi
+            printf '%s' "$deployment_id"
+          }
+
+          echo "WEB_DEPLOYMENT=$(deploy_service "$RAILWAY_WEB_SERVICE" web)" \
+            >> "$GITHUB_ENV"
+          echo "WORKER_DEPLOYMENT=$(deploy_service "$RAILWAY_WORKER_SERVICE" worker)" \
+            >> "$GITHUB_ENV"
+
+      - name: Wait for both deployments
+        run: |
+          set -euo pipefail
+
+          wait_for_deployment() {
+            local service_id="$1"
+            local deployment_id="$2"
+            local label="$3"
+            for attempt in {1..60}; do
+              deployment_status="$(railway deployment list \
+                --project "$RAILWAY_PROJECT_ID" \
+                --environment "$RAILWAY_ENVIRONMENT" \
+                --service "$service_id" --limit 100 --json |
+                jq -r --arg id "$deployment_id" \
+                  '.[] | select(.id == $id) | .status')"
+              case "$deployment_status" in
+                SUCCESS) echo "$label deployment succeeded."; return 0 ;;
+                FAILED|CRASHED|REMOVED)
+                  echo "::error::$label deployment ended with $deployment_status."
+                  return 1
+                  ;;
+                *)
+                  echo "$label deployment status: ${deployment_status:-pending}"
+                  sleep 10
+                  ;;
+              esac
+            done
+            echo "::error::Timed out waiting for $label deployment."
+            return 1
+          }
+
+          wait_for_deployment \
+            "$RAILWAY_WEB_SERVICE" "$WEB_DEPLOYMENT" web &
+          web_wait_pid=$!
+          wait_for_deployment \
+            "$RAILWAY_WORKER_SERVICE" "$WORKER_DEPLOYMENT" worker &
+          worker_wait_pid=$!
+          wait "$web_wait_pid"
+          wait "$worker_wait_pid"
+
+      - name: Run public health checks
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location \
+            --retry 5 --retry-all-errors --retry-delay 5 --max-time 15 \
+            "$APP_ORIGIN/health/live" |
+            jq -e '.status == "ok" and .service == "atcroster" and .environment == "production"'
+          curl --fail --show-error --silent --location \
+            --retry 5 --retry-all-errors --retry-delay 5 --max-time 15 \
+            "$APP_ORIGIN/health/ready" |
+            jq -e '.status == "ready"'
+
+      - name: Run authenticated acceptance check
+        run: |
+          set -euo pipefail
+          cookie_jar="$(mktemp)"
+          login_page="$(mktemp)"
+          trap 'rm -f "$cookie_jar" "$login_page"' EXIT
+
+          curl --fail --show-error --silent \
+            --cookie-jar "$cookie_jar" --max-time 15 \
+            "$APP_ORIGIN/login" > "$login_page"
+          csrf_token="$(sed -n \
+            's/.*name="_csrf_token" value="\([^"]*\)".*/\1/p' \
+            "$login_page" | head -1)"
+          if [[ -z "$csrf_token" ]]; then
+            echo "::error::The staging login page did not contain a CSRF token."
+            exit 1
+          fi
+
+          http_code="$(curl --show-error --silent \
+            --output /dev/null --write-out '%{http_code}' \
+            --cookie "$cookie_jar" --cookie-jar "$cookie_jar" \
+            --max-time 15 --request POST \
+            --data-urlencode "_csrf_token=$csrf_token" \
+            --data-urlencode "username=$ACCEPTANCE_USERNAME" \
+            --data-urlencode "password=$ACCEPTANCE_PASSWORD" \
+            "$APP_ORIGIN/login")"
+          if [[ "$http_code" != "302" && "$http_code" != "303" ]]; then
+            echo "::error::Synthetic staging login returned HTTP $http_code."
+            exit 1
+          fi
+
+          final_url="$(curl --fail --show-error --silent \
+            --output /dev/null --write-out '%{url_effective}' \
+            --location --cookie "$cookie_jar" --max-time 15 \
+            "$APP_ORIGIN/")"
+          if [[ "$final_url" == "$APP_ORIGIN/login"* ]]; then
+            echo "::error::Synthetic user was redirected back to login."
+            exit 1
+          fi
+          echo "Authenticated staging acceptance check passed."
+
+  production:
+    name: Approve and deploy production
+    needs:
+      - resolve
+      - staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+      url: https://www.atcroster.com
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_ENVIRONMENT: production
+      RAILWAY_WEB_SERVICE: 0a09e66c-43f6-4a8f-995e-97066c29cf07
+      RAILWAY_WORKER_SERVICE: 1a7871f2-7b28-4abf-b78c-ed92532e9e27
+      APP_ORIGIN: https://www.atcroster.com
+    steps:
+      - name: Check out the accepted commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.commit_sha }}
+          fetch-depth: 1
+
+      - name: Install pinned Railway CLI
+        run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+
+      - name: Deploy accepted web and worker
+        env:
+          PROMOTION_SHA: ${{ needs.resolve.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+
+          deploy_service() {
+            local service_id="$1"
+            local label="$2"
+            local result
+            result="$(railway deployment up . \
+              --path-as-root --detach --json --yes \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$RAILWAY_ENVIRONMENT" \
+              --service "$service_id" \
+              --message "Promote $PROMOTION_SHA to production ($label)")"
+            local deployment_id
+            deployment_id="$(jq -r \
+              '.. | .deploymentId? // .deployment_id? // empty' \
+              <<<"$result" | tail -1)"
+            if [[ -z "$deployment_id" ]]; then
+              echo "::error::Railway did not return a deployment ID for $label."
+              exit 1
+            fi
+            printf '%s' "$deployment_id"
+          }
+
+          echo "WEB_DEPLOYMENT=$(deploy_service "$RAILWAY_WEB_SERVICE" web)" \
+            >> "$GITHUB_ENV"
+          echo "WORKER_DEPLOYMENT=$(deploy_service "$RAILWAY_WORKER_SERVICE" worker)" \
+            >> "$GITHUB_ENV"
+
+      - name: Wait for both deployments
+        run: |
+          set -euo pipefail
+
+          wait_for_deployment() {
+            local service_id="$1"
+            local deployment_id="$2"
+            local label="$3"
+            for attempt in {1..60}; do
+              deployment_status="$(railway deployment list \
+                --project "$RAILWAY_PROJECT_ID" \
+                --environment "$RAILWAY_ENVIRONMENT" \
+                --service "$service_id" --limit 100 --json |
+                jq -r --arg id "$deployment_id" \
+                  '.[] | select(.id == $id) | .status')"
+              case "$deployment_status" in
+                SUCCESS) echo "$label deployment succeeded."; return 0 ;;
+                FAILED|CRASHED|REMOVED)
+                  echo "::error::$label deployment ended with $deployment_status."
+                  return 1
+                  ;;
+                *)
+                  echo "$label deployment status: ${deployment_status:-pending}"
+                  sleep 10
+                  ;;
+              esac
+            done
+            echo "::error::Timed out waiting for $label deployment."
+            return 1
+          }
+
+          wait_for_deployment \
+            "$RAILWAY_WEB_SERVICE" "$WEB_DEPLOYMENT" web &
+          web_wait_pid=$!
+          wait_for_deployment \
+            "$RAILWAY_WORKER_SERVICE" "$WORKER_DEPLOYMENT" worker &
+          worker_wait_pid=$!
+          wait "$web_wait_pid"
+          wait "$worker_wait_pid"
+
+      - name: Verify production health
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location \
+            --retry 5 --retry-all-errors --retry-delay 5 --max-time 15 \
+            "$APP_ORIGIN/health/live" |
+            jq -e '.status == "ok" and .service == "atcroster" and .environment == "production"'
+          curl --fail --show-error --silent --location \
+            --retry 5 --retry-all-errors --retry-delay 5 --max-time 15 \
+            "$APP_ORIGIN/health/ready" |
+            jq -e '.status == "ready"'

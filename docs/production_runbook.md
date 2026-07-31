@@ -126,6 +126,29 @@ flask --app app rotate-field-encryption \
 Retire old field keys only after verification. Token-envelope key versions
 must overlap for at least the configured bootstrap-token TTL.
 
+### Controlled staging-to-production promotion
+
+Use the **Controlled promotion** GitHub Actions workflow for application
+releases. Do not deploy an unmerged branch directly to production.
+
+1. Open **Actions → Controlled promotion → Run workflow**.
+2. Leave `git_ref` as `main`, or enter a commit already contained in `main`.
+3. The workflow records the exact commit SHA, then deploys that commit to both
+   staging services.
+4. It waits for the staging web and worker deployments, checks liveness and
+   readiness, and signs in with the staging-only synthetic account.
+5. If every staging check passes, the production job pauses at the protected
+   `production` GitHub environment. Review the commit and staging results,
+   then approve or reject the job in GitHub.
+6. Approval deploys the same recorded commit to both production services and
+   verifies public production health. A later change to `main` is not included
+   in an already-running promotion.
+
+The `staging` and `production` GitHub environments each hold their Railway
+automation credential. Synthetic login credentials exist only in `staging`.
+Keep production approval protection enabled and rotate the automation
+credential if its use or storage is in doubt.
+
 ## Reverse proxy
 
 Terminate TLS at the proxy, redirect HTTP to HTTPS, preserve the original host
