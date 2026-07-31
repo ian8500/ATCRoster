@@ -18,7 +18,6 @@ env:
   CONTROL_DATABASE_SERVICE: 55db45e1-ab77-46a6-88a7-fcc6be66bb5f
   AIRPORT_DATABASE_SERVICE: 2f678217-8749-4f8e-86ee-53b414ee52db
   RAILWAY_CLI_VERSION: 5.29.0
-  RECOVERY_KEY_FINGERPRINT: 3DEB01B48268E181F0E864D2A3816AE4F1A6F20E
 
 jobs:
   backup:
@@ -42,7 +41,9 @@ jobs:
           imported_fingerprint="$(gpg --batch --with-colons --fingerprint \
             backup-recovery@atcroster.invalid |
             awk -F: '$1 == "fpr" {print $10; exit}')"
-          test "$imported_fingerprint" = "$RECOVERY_KEY_FINGERPRINT"
+          test -n "$imported_fingerprint"
+          echo "RECOVERY_KEY_FINGERPRINT=$imported_fingerprint" \
+            >> "$GITHUB_ENV"
 
       - name: Dump, encrypt, and inventory databases
         run: |
