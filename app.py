@@ -5887,86 +5887,6 @@ def _training_profile_allowed(person):
 
 
 @login_required
-def competency_home():
-    unit_id = _current_unit_id()
-    if not competency_enabled(unit_id):
-        abort(404)
-    can_view_people = bool(
-        is_editor_user(current_user) or can_manage_training(current_user)
-        or can_record_training(current_user)
-    )
-    people = []
-    if can_view_people:
-        people = Staff.query.filter_by(
-            unit_id=unit_id, is_operational=True
-        ).order_by(Staff.name).all()
-    return render_template(
-        "competency_home.html", people=people,
-        can_view_people=can_view_people,
-    )
-
-
-@login_required
-def competency_profile(sid):
-    unit_id = _current_unit_id()
-    if not competency_enabled(unit_id):
-        abort(404)
-    person = Staff.query.filter_by(id=sid, unit_id=unit_id).first_or_404()
-    if not _training_profile_allowed(person):
-        abort(403)
-    can_edit = bool(
-        is_admin_user(current_user)
-        or getattr(current_user, "has_assessor", False)
-    )
-    qualification_types = QualificationType.query.filter_by(
-        unit_id=unit_id, is_active=True
-    ).order_by(QualificationType.label).all()
-    if request.method == "POST":
-        _validate_csrf()
-        if not can_edit:
-            abort(403)
-        person.caa_license_number = (
-            request.form.get("caa_license_number") or ""
-        ).strip()[:40]
-        for qtype in qualification_types:
-            raw = (request.form.get(f"expiry_{qtype.id}") or "").strip()
-            try:
-                expires_on = date.fromisoformat(raw) if raw else None
-            except ValueError:
-                abort(400, "Enter valid competency expiry dates.")
-            record = PersonQualification.query.filter_by(
-                unit_id=unit_id, person_id=person.id,
-                qualification_type_id=qtype.id,
-            ).first()
-            if not record and expires_on:
-                record = PersonQualification(
-                    unit_id=unit_id, person_id=person.id,
-                    qualification_type_id=qtype.id, status="valid",
-                )
-                db.session.add(record)
-                db.session.flush()
-            if record:
-                record.expires_on = expires_on
-                record.updated_at = utcnow()
-                _record_qualification_history(record, "competency_updated")
-            _sync_qualification_to_roster_profile(person, qtype, expires_on)
-        db.session.commit()
-        flash("Competency profile updated everywhere.", "ok")
-        return redirect(url_for("competency_profile", sid=person.id))
-    qualification_rows = PersonQualification.query.filter_by(
-        unit_id=unit_id, person_id=person.id
-    ).all()
-    return render_template(
-        "competency_profile.html", person=person,
-        qualification_types=qualification_types,
-        qualifications={
-            row.qualification_type_id: row for row in qualification_rows
-        },
-        can_edit=can_edit,
-    )
-
-
-@login_required
 def training_admin():
     if not training_enabled(_current_unit_id()):
         abort(404)
@@ -10084,8 +10004,13 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     is_under_training=is_under_training,
     training_profile_allowed=_training_profile_allowed,
     validate_csrf=_validate_csrf,
-    competency_home=competency_home,
-    competency_profile=competency_profile,
+    QualificationType=QualificationType,
+    PersonQualification=PersonQualification,
+    competency_enabled=competency_enabled,
+    is_admin_user=is_admin_user,
+    utcnow=utcnow,
+    record_qualification_history=_record_qualification_history,
+    sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
     training_admin=training_admin,
     training_analytics=training_analytics,
 )))
