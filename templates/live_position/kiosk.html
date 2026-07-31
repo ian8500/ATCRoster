@@ -160,8 +160,14 @@
         if (!grouped.has(name)) grouped.set(name, {order: position.group_order, positions: []});
         grouped.get(name).positions.push(position);
       });
+      const operationalGroupPriority = (name) => {
+        const normalized = name.trim().toLowerCase();
+        if (normalized.startsWith('tower')) return 0;
+        if (normalized.startsWith('radar')) return 1;
+        return 2;
+      };
       grid.innerHTML = [...grouped.entries()]
-        .sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0]))
+        .sort((a, b) => operationalGroupPriority(a[0]) - operationalGroupPriority(b[0]) || a[1].order - b[1].order || a[0].localeCompare(b[0]))
         .map(([name, group]) => `<section class="live-position-group">
           <header class="live-position-group__header"><h2>${escapeText(name)}</h2><span>${group.positions.length} position${group.positions.length === 1 ? '' : 's'}</span></header>
           <div class="live-position-grid">${group.positions.map(renderPosition).join('')}</div>
