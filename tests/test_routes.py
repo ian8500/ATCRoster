@@ -583,6 +583,8 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"-webkit-appearance:none" in stylesheet.data
     assert b".roster-page .page-content" in stylesheet.data
     assert b"padding:.65rem 0" in stylesheet.data
+    assert b"table.roster { zoom:var(--ui-scale); }" in stylesheet.data
+    assert b"transform: scale(var(--ui-scale))" not in stylesheet.data
 
 
 def test_favicon_is_served(client):
