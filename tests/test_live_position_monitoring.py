@@ -205,6 +205,8 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"startsWith('radar')" in kiosk_page.data
     assert b'data-primary-id="${occupied ? occupied.id' in kiosk_page.data
     assert b"primarySelect.disabled = operation === 'participant'" in kiosk_page.data
+    assert b"operation === 'logoff' || operation === 'logoff_close'" in kiosk_page.data
+    assert b"close_position: operation === 'logoff_close'" in kiosk_page.data
     state = client.get("/live-positions/api/state")
     assert state.status_code == 200
     assert state.get_json()["positions"][0]["display_status"] == "closed"
