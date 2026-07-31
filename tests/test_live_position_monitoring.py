@@ -194,7 +194,10 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     )
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/live-positions/kiosk")
-    assert client.get("/live-positions/kiosk").status_code == 200
+    kiosk_page = client.get("/live-positions/kiosk")
+    assert kiosk_page.status_code == 200
+    assert b"Start kiosk display" in kiosk_page.data
+    assert b"requestFullscreen" in kiosk_page.data
     state = client.get("/live-positions/api/state")
     assert state.status_code == 200
     assert state.get_json()["positions"][0]["display_status"] == "closed"

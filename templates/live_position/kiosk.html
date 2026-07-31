@@ -3,10 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Live positions · {{ unit.name }}</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body class="live-position-kiosk">
+  <section id="live-position-kiosk-launch" class="live-position-kiosk-launch" role="dialog" aria-modal="true" aria-labelledby="live-position-kiosk-launch-title">
+    <div>
+      <p>Live Position Monitoring</p>
+      <h1 id="live-position-kiosk-launch-title">Start kiosk display</h1>
+      <span>This opens the monitor full screen and hides the browser controls.</span>
+      <button class="btn" type="button" id="live-position-kiosk-start">Start kiosk</button>
+      <small id="live-position-kiosk-launch-error" role="alert" hidden></small>
+    </div>
+  </section>
   <header class="live-position-kiosk__header">
     <div><p>Live Position Monitoring</p><h1>{{ unit.name }}</h1></div>
     <div class="live-position-kiosk__clock">
@@ -63,9 +76,42 @@
     const clock = document.getElementById('live-position-clock');
     const dialog = document.getElementById('live-position-dialog');
     const form = document.getElementById('live-position-action-form');
+    const kioskLaunch = document.getElementById('live-position-kiosk-launch');
+    const kioskStart = document.getElementById('live-position-kiosk-start');
+    const kioskLaunchError = document.getElementById('live-position-kiosk-launch-error');
     const csrf = {{ csrf_token()|tojson }};
     let people = [];
     let serverOffset = 0;
+    const isStandalone = () => window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || window.navigator.standalone === true;
+    const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+    const updateKioskLaunch = () => {
+      kioskLaunch.hidden = Boolean(fullscreenElement()) || isStandalone();
+    };
+    const startKiosk = async () => {
+      const root = document.documentElement;
+      const enterFullscreen = root.requestFullscreen || root.webkitRequestFullscreen;
+      kioskLaunchError.hidden = true;
+      if (!enterFullscreen) {
+        kioskLaunchError.textContent = 'This browser cannot hide its controls automatically. Install the app or use the browser kiosk/full-screen command.';
+        kioskLaunchError.hidden = false;
+        return;
+      }
+      try {
+        try {
+          await enterFullscreen.call(root, {navigationUI: 'hide'});
+        } catch (_optionsError) {
+          await enterFullscreen.call(root);
+        }
+      } catch (_error) {
+        kioskLaunchError.textContent = 'Full screen was blocked. Select Start kiosk again or allow full-screen access for this site.';
+        kioskLaunchError.hidden = false;
+      }
+      updateKioskLaunch();
+    };
+    kioskStart.addEventListener('click', startKiosk);
+    document.addEventListener('fullscreenchange', updateKioskLaunch);
+    document.addEventListener('webkitfullscreenchange', updateKioskLaunch);
+    updateKioskLaunch();
     const escapeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const render = (payload) => {
       const serverTime = Date.parse(payload.server_time);
