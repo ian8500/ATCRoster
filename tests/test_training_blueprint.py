@@ -41,3 +41,11 @@ def test_competency_handlers_are_no_longer_in_legacy_module():
     source = (Path(__file__).parents[1] / "app.py").read_text()
     assert "def competency_home():" not in source
     assert "def competency_profile(" not in source
+
+
+def test_training_admin_handlers_are_no_longer_in_legacy_module():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "app.py").read_text()
+    assert "def training_admin():" not in source
+    assert "def training_analytics():" not in source

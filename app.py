@@ -5886,73 +5886,6 @@ def _training_profile_allowed(person):
     )
 
 
-@login_required
-def training_admin():
-    if not training_enabled(_current_unit_id()):
-        abort(404)
-    if not is_admin_user(current_user):
-        abort(403)
-    unit_id = _current_unit_id()
-    if request.method == "POST":
-        _validate_csrf()
-        action = request.form.get("action")
-        if action == "create_level":
-            name = (request.form.get("name") or "").strip()
-            if not name:
-                abort(400, "Enter a level name.")
-            level = TrainingLevel(unit_id=unit_id, name=name[:80])
-            db.session.add(level)
-            db.session.flush()
-            for position in range(1, 16):
-                db.session.add(TrainingObjective(
-                    unit_id=unit_id, level_id=level.id, position=position,
-                    title=f"Objective {position}", description="Configure this objective.",
-                ))
-        elif action == "save_objectives":
-            level = TrainingLevel.query.filter_by(
-                id=int(request.form.get("level_id") or 0), unit_id=unit_id
-            ).first_or_404()
-            for objective in level.objectives:
-                objective.title = (request.form.get(f"title_{objective.id}") or objective.title).strip()[:100]
-                objective.description = (request.form.get(f"description_{objective.id}") or "").strip()[:4000]
-        else:
-            abort(400, "Unknown training administration action.")
-        db.session.commit()
-        flash("Training configuration saved.", "ok")
-        return redirect(url_for("training_admin"))
-    levels = TrainingLevel.query.filter_by(unit_id=unit_id).order_by(
-        TrainingLevel.sort_order, TrainingLevel.name
-    ).all()
-    return render_template("training_admin.html", levels=levels)
-
-
-@login_required
-def training_analytics():
-    if not training_enabled(_current_unit_id()):
-        abort(404)
-    if not can_manage_training(current_user):
-        abort(403)
-    unit_id = _current_unit_id()
-    sessions = TrainingSession.query.filter_by(unit_id=unit_id).order_by(
-        TrainingSession.training_date
-    ).all()
-    scores = TrainingScore.query.filter_by(unit_id=unit_id).all()
-    objective_totals = defaultdict(list)
-    for score in scores:
-        objective_totals[score.objective].append(score.attainment)
-    objective_analytics = sorted((
-        {"objective": objective, "average": round(sum(values) / len(values), 2), "count": len(values)}
-        for objective, values in objective_totals.items()
-    ), key=lambda row: (row["objective"].level_id, row["objective"].position))
-    ojti_minutes = defaultdict(int)
-    for row in sessions:
-        ojti_minutes[row.ojti] += row.duration_minutes
-    return render_template(
-        "training_analytics.html", sessions=sessions,
-        objective_analytics=objective_analytics,
-        ojti_hours=sorted(ojti_minutes.items(), key=lambda item: item[0].name),
-    )
-
 
 @app.route("/staff/<int:sid>", methods=["GET", "POST"])
 @login_required
@@ -10011,8 +9944,7 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     utcnow=utcnow,
     record_qualification_history=_record_qualification_history,
     sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
-    training_admin=training_admin,
-    training_analytics=training_analytics,
+    TrainingObjective=TrainingObjective,
 )))
 app.register_blueprint(briefing_blueprint)
 
