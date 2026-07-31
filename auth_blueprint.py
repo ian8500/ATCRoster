@@ -195,6 +195,20 @@ def create_auth_blueprint(dependencies: AuthDependencies) -> Blueprint:
                             else "platform_mfa_setup"
                         )
                     )
+                if user.role == "position_monitor":
+                    # Password-only authentication is deliberately confined to
+                    # the locked-down unit kiosk role. Ordinary airport users
+                    # continue through the existing MFA flow below.
+                    login_user(user, remember=True)
+                    session.permanent = True
+                    dependencies.initialize_authenticated_session(user)
+                    dependencies.security_event(
+                        "position_monitor_login_succeeded",
+                        principal=rate_key[-16:],
+                        unit_id=user.unit_id,
+                    )
+                    dependencies.record_successful_login(user)
+                    return redirect(url_for(dependencies.airport_login_endpoint(user)))
                 credential = dependencies.MfaCredential.query.filter_by(
                     person_id=user.id, enabled=True
                 ).first()

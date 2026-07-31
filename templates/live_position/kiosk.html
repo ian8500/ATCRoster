@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live positions · {{ unit.name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="live-position-kiosk">
+  <header class="live-position-kiosk__header">
+    <div><p>Live Position Monitoring</p><h1>{{ unit.name }}</h1></div>
+    <div class="live-position-kiosk__clock">
+      <strong id="live-position-clock">--:--:--</strong>
+      <span>UTC</span>
+    </div>
+    <div class="live-position-kiosk__connection" id="live-position-connection">
+      <span aria-hidden="true">●</span> Connecting
+    </div>
+  </header>
+  <main>
+    <div id="live-position-warning" class="live-position-kiosk__warning" hidden></div>
+    <section id="live-position-grid" class="live-position-grid" aria-live="polite"></section>
+  </main>
+  <footer class="live-position-kiosk__footer">
+    <span id="live-position-refresh">Awaiting server data</span>
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-secondary" type="submit">Log out</button>
+    </form>
+  </footer>
+  <script nonce="{{ csp_nonce() }}">
+  (() => {
+    const grid = document.getElementById('live-position-grid');
+    const connection = document.getElementById('live-position-connection');
+    const refreshed = document.getElementById('live-position-refresh');
+    const clock = document.getElementById('live-position-clock');
+    let serverOffset = 0;
+    const escapeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const render = (payload) => {
+      serverOffset = Date.parse(payload.server_time) - Date.now();
+      grid.innerHTML = payload.positions.map((position) => {
+        const occupied = position.primary;
+        const label = position.display_status.replace('_', ' ').toUpperCase();
+        return `<article class="live-position-tile live-position-tile--${escapeText(position.display_status)}">
+          <header><strong>${escapeText(position.code)}</strong><span>${escapeText(label)}</span></header>
+          <h2>${escapeText(position.label)}</h2>
+          ${occupied ? `<div class="live-position-tile__primary"><strong>${escapeText(occupied.name)}</strong><span data-start="${escapeText(occupied.started_at)}">00:00</span></div>` : '<p>No controller logged on</p>'}
+          ${position.participants.map((p) => `<small>${escapeText(p.person_name)}</small>`).join('')}
+        </article>`;
+      }).join('') || '<p class="empty-state">No active operational positions are configured.</p>';
+      connection.innerHTML = '<span aria-hidden="true">●</span> Connected';
+      connection.classList.add('is-connected');
+      refreshed.textContent = `Last refreshed ${new Date().toLocaleTimeString('en-GB')}`;
+    };
+    const refresh = async () => {
+      try {
+        const response = await fetch('{{ url_for("live_position.live_state") }}', {headers: {'Accept': 'application/json'}});
+        if (!response.ok) throw new Error('refresh failed');
+        render(await response.json());
+      } catch (_) {
+        connection.innerHTML = '<span aria-hidden="true">●</span> Reconnecting';
+        connection.classList.remove('is-connected');
+      }
+    };
+    setInterval(() => {
+      const now = new Date(Date.now() + serverOffset);
+      clock.textContent = now.toISOString().slice(11, 19);
+      document.querySelectorAll('[data-start]').forEach((node) => {
+        const seconds = Math.max(0, Math.floor((now - new Date(node.dataset.start)) / 1000));
+        node.textContent = `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}`;
+      });
+    }, 1000);
+    setInterval(refresh, 15000);
+    refresh();
+    if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
+  })();
+  </script>
+</body>
+</html>

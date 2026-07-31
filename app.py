@@ -471,7 +471,10 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "briefing_item", "briefing_delivery", "briefing_audit",
     "briefing_assurance_run", "briefing_message_type",
     "training_level", "training_objective", "training_session",
-    "training_score",
+    "training_score", "position_currency_category",
+    "position_participant_role", "position_status_event",
+    "position_session", "position_session_participant",
+    "controller_kiosk_credential", "position_session_audit",
 })
 
 
@@ -604,7 +607,20 @@ def _bind_tenant_context():
             )
     if (
         current_user.is_authenticated
+        and getattr(current_user, "role", "") == "position_monitor"
+    ):
+        allowed_kiosk_endpoints = {
+            "live_position.kiosk_hmi", "live_position.live_state",
+            "logout", "static", "favicon", "health_live", "health_ready",
+        }
+        if request.endpoint not in allowed_kiosk_endpoints:
+            if request.method == "GET":
+                return redirect(url_for("live_position.kiosk_hmi"))
+            abort(403)
+    if (
+        current_user.is_authenticated
         and getattr(current_user, "role", "") != "superadmin"
+        and getattr(current_user, "role", "") != "position_monitor"
         and (
             DEPLOYMENT_ENV == "production"
             or UnitMembership.query.filter_by(
@@ -728,6 +744,8 @@ def _canonical_login_redirect(
 
 def _airport_login_endpoint(user) -> str:
     """Land multi-module airport users on the module launcher."""
+    if getattr(user, "role", "") == "position_monitor":
+        return "live_position.kiosk_hmi"
     enabled = FeatureFlag.query.filter(
         FeatureFlag.unit_id == user.unit_id,
         FeatureFlag.key.in_((
@@ -1307,7 +1325,7 @@ class Staff(UserMixin, db.Model):
     email = db.Column(db.String(254), nullable=False, default="")
 
     # Roles: 'admin' | 'editor' | 'user'
-    role = db.Column(db.String(10), nullable=False, default="user")
+    role = db.Column(db.String(32), nullable=False, default="user")
     membership_status = db.Column(db.String(20), nullable=False, default="active")
     permissions_json = db.Column(db.Text, nullable=False, default="{}")
 
@@ -1654,6 +1672,13 @@ RosterPublication = SaaS.RosterPublication
 RosterAcknowledgement = SaaS.RosterAcknowledgement
 Scenario = SaaS.Scenario
 OperationalPosition = SaaS.OperationalPosition
+PositionCurrencyCategory = SaaS.PositionCurrencyCategory
+PositionParticipantRole = SaaS.PositionParticipantRole
+PositionStatusEvent = SaaS.PositionStatusEvent
+PositionSession = SaaS.PositionSession
+PositionSessionParticipant = SaaS.PositionSessionParticipant
+ControllerKioskCredential = SaaS.ControllerKioskCredential
+PositionSessionAudit = SaaS.PositionSessionAudit
 PositionEndorsement = SaaS.PositionEndorsement
 PositionRequirement = SaaS.PositionRequirement
 BreakPlan = SaaS.BreakPlan
@@ -1681,7 +1706,10 @@ TENANT_OPERATIONAL_MODELS = (
     ChangeLog, StaffWatchHistory, QualificationType,
     PersonQualification, PersonQualificationHistory,
     RosterPublication, RosterAcknowledgement, Scenario,
-    OperationalPosition, PositionEndorsement, PositionRequirement, BreakPlan,
+    OperationalPosition, PositionCurrencyCategory, PositionParticipantRole,
+    PositionStatusEvent, PositionSession, PositionSessionParticipant,
+    ControllerKioskCredential, PositionSessionAudit,
+    PositionEndorsement, PositionRequirement, BreakPlan,
     AchievedDuty, FatigueReport, RosterRuleVersion,
     MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
     BriefingAudit,
@@ -9486,6 +9514,16 @@ from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
 from training_blueprint import TrainingDependencies, create_training_blueprint
 from operations_blueprint import OperationsDependencies, create_operations_blueprint
+from live_position_blueprint import (
+    LivePositionDependencies, create_live_position_blueprint,
+)
+
+app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
+    db=db, Unit=Unit, OperationalPosition=OperationalPosition,
+    PositionStatusEvent=PositionStatusEvent, PositionSession=PositionSession,
+    PositionSessionParticipant=PositionSessionParticipant, Staff=Staff,
+    utcnow=utcnow, is_admin_user=is_admin_user,
+)))
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
     db=db,

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Live Position Monitoring{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Operations</p>
+    <h1>Live Position Monitoring</h1>
+    <p>Configure positions, monitor live occupancy and review achieved operational activity.</p>
+  </div>
+  <a class="btn" href="{{ url_for('live_position.kiosk_hmi') }}">Open live display</a>
+</section>
+<section class="module-launcher__grid" aria-label="Live Position Monitoring administration">
+  {% for title, description in [
+    ('Live status overview', 'View current position state and occupancy.'),
+    ('Position configuration', 'Manage physical positions, groups and currency categories.'),
+    ('Rules and alerts', 'Configure supervision, validity and position-time rules.'),
+    ('Kiosk and controller PINs', 'Manage the restricted display account and identity PINs.'),
+    ('Session history and corrections', 'Review, correct and audit achieved activity.'),
+    ('Reports and exports', 'Analyse hours, currency and operational exceptions.')
+  ] %}
+  <div class="module-card live-position-admin-card">
+    <span><strong>{{ title }}</strong><small>{{ description }}</small></span>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}
