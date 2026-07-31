@@ -10,7 +10,7 @@ import json
 import hashlib
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from sqlalchemy.exc import IntegrityError
@@ -280,6 +280,14 @@ class LivePositionService:
                 raise LivePositionValidationError("Training is not supported here.")
             if session_type == "assessment" and not position.assessment_supported:
                 raise LivePositionValidationError("Assessment is not supported here.")
+            effective_maximum_duration_seconds = (
+                maximum_duration_seconds
+                if maximum_duration_seconds is not None
+                else position.maximum_session_duration_minutes * 60
+            )
+            effective_due_off_at = due_off_at or (
+                timestamp + timedelta(seconds=effective_maximum_duration_seconds)
+            )
             if position_was_closed:
                 open_key = self.related_key(key, "position-opened")
                 self.db.session.add(
@@ -313,9 +321,9 @@ class LivePositionService:
                 currency_category_id=(
                     currency_category_id or position.currency_category_id
                 ),
-                maximum_duration_seconds=maximum_duration_seconds,
+                maximum_duration_seconds=effective_maximum_duration_seconds,
                 warning_threshold_seconds=warning_threshold_seconds,
-                due_off_at=due_off_at,
+                due_off_at=effective_due_off_at,
                 created_by_id=actor_id,
                 transaction_key=key,
             )
@@ -578,6 +586,15 @@ class LivePositionService:
             session_type=session_type,
             started_at=timestamp,
             currency_category_id=position.currency_category_id,
+            maximum_duration_seconds=(
+                position.maximum_session_duration_minutes * 60
+            ),
+            due_off_at=(
+                timestamp
+                + timedelta(
+                    minutes=position.maximum_session_duration_minutes
+                )
+            ),
             created_by_id=actor_id,
             transaction_key=self.related_key(key, "incoming"),
         )

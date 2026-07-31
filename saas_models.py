@@ -346,6 +346,9 @@ def register_saas_models(db, utcnow):
         description = db.Column(db.Text, nullable=False, default="")
         display_order = db.Column(db.Integer, nullable=False, default=100)
         group_name = db.Column(db.String(80), nullable=False, default="")
+        maximum_session_duration_minutes = db.Column(
+            db.Integer, nullable=False, default=120
+        )
         currency_category_id = db.Column(
             db.Integer, db.ForeignKey("position_currency_category.id")
         )

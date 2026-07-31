@@ -341,6 +341,15 @@ def create_live_position_blueprint(
                     position.display_order = max(
                         0, _int_field(data, "display_order", 100)
                     )
+                    position.maximum_session_duration_minutes = max(
+                        1,
+                        min(
+                            1440,
+                            _int_field(
+                                data, "maximum_session_duration_minutes", 120
+                            ),
+                        ),
+                    )
                     position.group_name = group.name if group else ""
                     position.currency_category_id = category.id if category else None
                     position.supporting_participants_allowed = (
@@ -659,6 +668,11 @@ def create_live_position_blueprint(
                 else None
             )
             participants = []
+            maximum_duration_seconds = (
+                session.maximum_duration_seconds
+                if session and session.maximum_duration_seconds
+                else position.maximum_session_duration_minutes * 60
+            )
             if session:
                 for row in dependencies.PositionSessionParticipant.query.filter_by(
                     unit_id=unit_id, session_id=session.id, ended_at=None
@@ -676,6 +690,7 @@ def create_live_position_blueprint(
                             "role_id": row.role_id,
                             "role_label": role.label if role else "Supporting",
                             "started_at": _iso_timestamp(row.started_at),
+                            "maximum_duration_seconds": maximum_duration_seconds,
                         }
                     )
             physical_status = status_event.status if status_event else "closed"
@@ -700,6 +715,7 @@ def create_live_position_blueprint(
                             "id": primary.id,
                             "name": primary.name,
                             "started_at": _iso_timestamp(session.started_at),
+                            "maximum_duration_seconds": maximum_duration_seconds,
                             "due_off_at": (
                                 _iso_timestamp(session.due_off_at)
                                 if session.due_off_at

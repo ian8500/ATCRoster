@@ -210,6 +210,8 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"Log off all controllers" in kiosk_page.data
     assert b"data-logoff-choice" in kiosk_page.data
     assert b"position?.participants.length" in kiosk_page.data
+    assert b"data-elapsed-from" in kiosk_page.data
+    assert b"data-remaining-from" in kiosk_page.data
     state = client.get("/live-positions/api/state")
     assert state.status_code == 200
     assert state.get_json()["positions"][0]["display_status"] == "closed"
@@ -273,6 +275,8 @@ def test_kiosk_controller_selection_runs_full_live_position_workflow(
     state = client.get("/live-positions/api/state").get_json()["positions"][0]
     assert state["display_status"] == "training"
     assert state["physical_status"] == "open"
+    assert state["primary"]["maximum_duration_seconds"] == 7200
+    assert state["participants"][0]["maximum_duration_seconds"] == 7200
     assert state["primary"]["name"] == "Alex Controller"
     assert state["participants"][0]["role_label"] == "OJTI"
     assert "+00:00Z" not in state["primary"]["started_at"]
@@ -504,6 +508,7 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
             "code": "GMC",
             "label": "Ground Movement Control",
             "display_order": "10",
+            "maximum_session_duration_minutes": "90",
             "position_group_id": str(group_id),
             "currency_category_id": str(category_id),
             "supporting_participants_allowed": "on",
@@ -519,6 +524,7 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
         configured = app.OperationalPosition.query.filter_by(code="GMC").one()
         assert configured.label == "Ground Movement Control"
         assert configured.group_name == "Radar"
+        assert configured.maximum_session_duration_minutes == 90
         assert configured.currency_category_id == category_id
     page = client.get("/live-positions/admin/positions")
     assert b'<option value="%d" selected>Radar</option>' % group_id in page.data
