@@ -75,7 +75,7 @@ jobs:
             docker run --rm \
               -e DATABASE_URL="$database_url" postgres:18-alpine \
               sh -eu -c \
-              'pg_dump "$DATABASE_URL" --format=custom --no-owner --file=-' |
+              'pg_dump "$DATABASE_URL" --format=custom --no-owner' |
               gpg --batch --yes --trust-model always \
                 --recipient "$RECOVERY_KEY_FINGERPRINT" \
                 --output "$backup_dir/$label.dump.gpg" --encrypt
