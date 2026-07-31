@@ -380,6 +380,83 @@ def test_login_rejects_missing_and_invalid_csrf_tokens(client):
     assert invalid.status_code == 400
 
 
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        ("unknown-central-identity", "irrelevant"),
+        (ADMIN_CREDENTIALS["username"], "wrong-password"),
+    ],
+)
+def test_login_returns_same_generic_error_for_unknown_and_wrong_credentials(
+    client, username, password,
+):
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    response = client.post(
+        "/login",
+        data={
+            "_csrf_token": token,
+            "username": username,
+            "password": password,
+        },
+    )
+
+    assert response.status_code == 200
+    assert b"Invalid username or password." in response.data
+
+
+def test_legacy_login_requires_explicit_migration_switch(client):
+    original = app.app.config["ATCROSTER_ENABLE_LEGACY_LOGIN"]
+    app.app.config["ATCROSTER_ENABLE_LEGACY_LOGIN"] = False
+    try:
+        client.get("/login")
+        with client.session_transaction() as session:
+            token = session["_csrf_token"]
+        response = client.post(
+            "/login",
+            data={"_csrf_token": token, **ADMIN_CREDENTIALS},
+        )
+    finally:
+        app.app.config["ATCROSTER_ENABLE_LEGACY_LOGIN"] = original
+
+    assert response.status_code == 200
+    assert b"Invalid username or password." in response.data
+
+
+def test_login_preserves_password_whitespace_and_rotates_session(client):
+    with app.app.app_context():
+        admin = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        admin.set_password(" password with spaces ")
+        db.session.commit()
+    try:
+        client.get("/login")
+        with client.session_transaction() as session:
+            session["attacker_supplied_marker"] = "must-not-survive"
+            token = session["_csrf_token"]
+        response = client.post(
+            "/login",
+            data={
+                "_csrf_token": token,
+                "username": ADMIN_CREDENTIALS["username"],
+                "password": " password with spaces ",
+            },
+        )
+        assert response.status_code == 302
+        with client.session_transaction() as session:
+            assert "attacker_supplied_marker" not in session
+            assert "_user_id" in session
+    finally:
+        with app.app.app_context():
+            admin = Staff.query.filter_by(
+                username=ADMIN_CREDENTIALS["username"]
+            ).one()
+            admin.set_password(ADMIN_CREDENTIALS["password"])
+            db.session.commit()
+
+
 def test_login_and_logout_require_valid_csrf_tokens(client):
     signed_in = login_as(
         client,

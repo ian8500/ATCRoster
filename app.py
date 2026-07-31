@@ -12054,9 +12054,30 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 # -------------------- Run --------------------
 
-from auth_blueprint import create_auth_blueprint
+from auth_blueprint import AuthDependencies, create_auth_blueprint
 
-app.register_blueprint(create_auth_blueprint(__import__(__name__)))
+app.register_blueprint(create_auth_blueprint(AuthDependencies(
+    db=db,
+    PlatformIdentity=PlatformIdentity,
+    UnitMembership=UnitMembership,
+    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+    Staff=Staff,
+    Unit=Unit,
+    PlatformMfaCredential=PlatformMfaCredential,
+    MfaCredential=MfaCredential,
+    validate_csrf=_validate_csrf,
+    normalized_login=_normalized_login,
+    login_rate_key=_login_rate_key,
+    consume_rate_limit=_consume_rate_limit,
+    reset_rate_limit=_reset_rate_limit,
+    security_event=_security_event,
+    central_security_event=_central_security_event,
+    bind_authenticated_unit=bind_authenticated_unit,
+    canonical_login_redirect=_canonical_login_redirect,
+    airport_login_endpoint=_airport_login_endpoint,
+    initialize_authenticated_session=_initialize_authenticated_session,
+    record_successful_login=_record_successful_login,
+)))
 app.register_blueprint(briefing_blueprint)
 
 # -------------------- WSGI entry point --------------------
