@@ -941,7 +941,7 @@ def test_login_next_rejects_external_or_unapproved_destinations(
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/login/mfa")
     with client.session_transaction() as session:
-        assert session["_mfa_next"] == "/"
+        assert session["_mfa_next"] == "/modules"
 
 
 def test_untrusted_host_returns_plain_400_instead_of_error_handler_500(client):

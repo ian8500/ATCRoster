@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Controller kiosk PINs{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Live Position Monitoring</p>
+    <h1>Controller kiosk PINs</h1>
+    <p>PINs identify controllers on the shared live-position display. They are separate from application passwords and are never displayed after saving.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('live_position.admin_home') }}">Back to module</a>
+</section>
+<section class="card">
+  <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label>Controller
+      <select name="person_id" required>
+        <option value="">Select controller</option>
+        {% for person in people %}
+        <option value="{{ person.id }}">{{ person.name }}{% if person.id in configured %} — PIN configured{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>New PIN
+      <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" required>
+      <small>Enter 4 to 8 digits. The PIN is stored as a one-way secure hash.</small>
+    </label>
+    <button class="btn" type="submit">Save kiosk PIN</button>
+  </form>
+</section>
+{% endblock %}

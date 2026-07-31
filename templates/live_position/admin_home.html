@@ -18,9 +18,15 @@
     ('Session history and corrections', 'Review, correct and audit achieved activity.'),
     ('Reports and exports', 'Analyse hours, currency and operational exceptions.')
   ] %}
+  {% if title == 'Kiosk and controller PINs' %}
+  <a class="module-card live-position-admin-card" href="{{ url_for('live_position.controller_pins') }}">
+    <span><strong>{{ title }}</strong><small>{{ description }}</small></span>
+  </a>
+  {% else %}
   <div class="module-card live-position-admin-card">
     <span><strong>{{ title }}</strong><small>{{ description }}</small></span>
   </div>
+  {% endif %}
   {% endfor %}
 </section>
 {% endblock %}
