@@ -31,7 +31,7 @@
   {# allow pages to add their own head content (CSS/JS) #}
   {% block extra_head %}{% endblock %}
 </head>
-<body class="app-body{% if request.endpoint == 'login' %} login-shell{% endif %}">
+<body class="app-body{% if request.endpoint == 'login' %} login-shell{% endif %}{% if request.endpoint == 'roster_month' %} roster-page{% endif %}">
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="site-header">
     <div class="nav-container">

@@ -2312,7 +2312,7 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
 .roster-status-banner--published { background:rgba(60,190,125,.12); border-color:rgba(60,190,125,.65); }
 .roster-status-banner--published > i { color:#54d696; }
 .roster-status-frame {
-  padding:.65rem;
+  padding:.65rem 0;
   border:1px solid;
   border-radius:12px;
 }
@@ -2772,6 +2772,16 @@ body::before { display:none; }
   max-width:1680px;
   padding-inline:clamp(1rem, 2.4vw, 2.5rem);
   gap:1.25rem;
+}
+
+.roster-page .page-content{
+  width:100%;
+  max-width:none;
+  padding-inline:0;
+}
+
+.roster-page .page-content > :not(#roster){
+  margin-inline:clamp(.75rem, 1.5vw, 1.5rem);
 }
 
 h1,h2,h3 {
