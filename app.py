@@ -4659,158 +4659,6 @@ def _send_roster_publication_emails(
     return sent, failed, len(unique_addresses)
 
 
-@login_required
-def roster_month_publish(ym):
-    if not _can_publish_roster(current_user):
-        abort(403)
-    _validate_csrf()
-    year, month = parse_ym(ym)
-    unit_id = _current_unit_id()
-    if not month_has_data(year, month):
-        ensure_month_requirement(year, month)
-        generate_month(year, month)
-    active = _active_roster_publication(year, month)
-    if active and _publication_matches_live_roster(active, year, month):
-        flash(
-            f"The {date(year, month, 1).strftime('%B %Y')} roster is already published.",
-            "info",
-        )
-        return redirect(url_for("roster_month", ym=ym))
-
-    published_at = utcnow()
-    latest_version = (
-        db.session.query(db.func.max(RosterPublication.version))
-        .filter(
-            RosterPublication.unit_id == unit_id,
-            RosterPublication.year == year,
-            RosterPublication.month == month,
-        )
-        .scalar()
-        or 0
-    )
-    if active:
-        active.state = "superseded"
-        active.superseded_at = published_at
-    snapshot = _roster_snapshot(year, month)
-    snapshot["published_by"] = {
-        "id": current_user.id,
-        "name": current_user.name,
-        "published_at": published_at.isoformat(),
-    }
-    publication = RosterPublication(
-        unit_id=unit_id,
-        year=year,
-        month=month,
-        version=latest_version + 1,
-        state="published",
-        snapshot_json=json.dumps(snapshot),
-        published_at=published_at,
-    )
-    db.session.add(publication)
-    for person in Staff.query.filter_by(
-        unit_id=unit_id,
-        is_operational=True,
-        membership_status="active",
-    ).all():
-        if person.id != current_user.id:
-            db.session.add(Notification(
-                unit_id=unit_id,
-                recipient_id=person.id,
-                kind="roster_published",
-                message=(
-                    f"The {date(year, month, 1).strftime('%B %Y')} roster "
-                    f"was published on {published_at.strftime('%d %B %Y')}."
-                ),
-            ))
-    db.session.commit()
-    email_sent, email_failed, email_recipients = (
-        _send_roster_publication_emails(
-            unit_id, year, month, published_at
-        )
-    )
-    if email_failed:
-        app.logger.warning(
-            "roster_publication_email_delivery_incomplete "
-            "unit_id=%s year=%s month=%s sent=%s failed=%s",
-            unit_id, year, month, email_sent, email_failed,
-        )
-    log_change(
-        "RosterPublication",
-        publication.id,
-        "state",
-        "draft",
-        "published",
-        note=f"Published directly from the monthly roster by {current_user.name}.",
-        context_day=date(year, month, 1),
-    )
-    publication_message = (
-        f"{date(year, month, 1).strftime('%B %Y')} roster published."
-    )
-    if email_recipients:
-        publication_message += (
-            f" Email sent to {email_sent} registered "
-            f"user{'s' if email_sent != 1 else ''}."
-        )
-        if email_failed:
-            publication_message += (
-                f" {email_failed} email"
-                f"{'s' if email_failed != 1 else ''} could not be delivered."
-            )
-    else:
-        publication_message += (
-            " No registered users have an email address."
-        )
-    flash(publication_message, "ok" if not email_failed else "warning")
-    return redirect(url_for("roster_month", ym=ym))
-
-
-@login_required
-def roster_month_unpublish(ym):
-    if not _can_publish_roster(current_user):
-        abort(403)
-    _validate_csrf()
-    year, month = parse_ym(ym)
-    unit_id = _current_unit_id()
-    publication = _active_roster_publication(year, month)
-    if not publication:
-        flash("This roster is already in Draft.", "info")
-        return redirect(url_for("roster_month", ym=ym))
-
-    publication.state = "withdrawn"
-    publication.superseded_at = utcnow()
-    for person in Staff.query.filter_by(
-        unit_id=unit_id,
-        is_operational=True,
-        membership_status="active",
-    ).all():
-        if person.id != current_user.id:
-            db.session.add(Notification(
-                unit_id=unit_id,
-                recipient_id=person.id,
-                kind="roster_unpublished",
-                message=(
-                    f"The {date(year, month, 1).strftime('%B %Y')} roster "
-                    "has returned to Draft and may be subject to change."
-                ),
-            ))
-    db.session.commit()
-    log_change(
-        "RosterPublication",
-        publication.id,
-        "state",
-        "published",
-        "withdrawn",
-        note=f"Publication undone by {current_user.name}; roster returned to Draft.",
-        context_day=date(year, month, 1),
-    )
-    flash(
-        f"{date(year, month, 1).strftime('%B %Y')} roster returned to Draft.",
-        "ok",
-    )
-    return redirect(url_for("roster_month", ym=ym))
-
-
-
 def _clamp_prev_next(year, month):
     """Clamp navigation so you cannot go earlier than MIN_MONTH."""
     prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
@@ -5328,111 +5176,6 @@ def assign_cell(staff_id, ym, day):
                 ))
 
     db.session.commit()
-    return redirect(url_for("roster_month", ym=ym))
-
-
-@login_required
-def roster_export_csv(ym):
-    if not _consume_rate_limit(
-        "roster-export", current_user.id, limit=30,
-        window=timedelta(hours=1),
-    ):
-        abort(429)
-    year, month = parse_ym(ym)
-    start, days = month_range(year, month)
-
-    staff = (Staff.query
-             .outerjoin(Watch, Staff.watch_id == Watch.id)
-             .order_by(Watch.order_index,
-                       Staff.name).all())
-
-    a_map = defaultdict(dict)
-    month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
-    for a in Assignment.query.filter(Assignment.day >= start, Assignment.day < month_end):
-        a_map[a.staff_id][a.day] = a.code
-
-    # compute daily counters + RAG for footer (prefix grouping) — EXCLUDE training shifts & excluded codes
-    req = Requirement.query.filter_by(year=year, month=month).first()
-    special_by_day = {
-        row.day: row
-        for row in SpecialRequirement.query.filter(
-            SpecialRequirement.day >= start,
-            SpecialRequirement.day < month_end,
-        ).all()
-    }
-    req_by_day = {
-        d: requirements_for_day(req, d, special_by_day.get(d))
-        for d in days
-    }
-    counters = {d: Counter() for d in days}
-    for s in staff:
-        if not s.is_operational:
-            continue
-        for d in days:
-            if not staff_is_countable_on(s, d):
-                continue
-            c = a_map[s.id].get(d)
-            if not c or c in get_exclude_from_counters():
-                continue
-            sh = get_shift(c) if c else None
-            if not c or not sh or sh.is_training:
-                continue
-            grp = shift_counter_group_for_day(
-                c, d, _current_unit_id()
-            )
-            if grp:
-                counters[d][grp] += 1
-
-    # Replicate the RAG calculation used in the HTML view so the CSV footer
-    # includes consistent status flags instead of raising a NameError.
-    rag = {}
-    for d in days:
-        rag[d] = {}
-        for code in ("M", "D", "A", "N"):
-            have = counters[d][code]
-            need = (
-                0
-                if code == "N" and not _night_active_on(
-                    _current_unit_id(), d
-                )
-                else req_by_day[d][code]
-            )
-            rag[d][code] = (
-                "green" if have >= need
-                else ("amber" if have >= max(0, need - 1) else "red")
-            )
-
-    output = io.StringIO()
-    w = csv.writer(output)
-    header = ["Name", "Staff #", "Watch"] + [d.isoformat() for d in days]
-    w.writerow(header)
-    for s in staff:
-        row = [s.name, s.staff_no, (s.watch.name.replace(
-            "Watch ", "") if s.watch else "-")]
-        for d in days:
-            row.append(a_map[s.id].get(d, ""))
-        w.writerow(row)
-
-    w.writerow([])
-    w.writerow(["Totals (M/D/A/N)", "", ""] + [
-        f"M:{counters[d]['M']}/{req_by_day[d]['M']}-{rag[d]['M']} | "
-        f"D:{counters[d]['D']}/{req_by_day[d]['D']}-{rag[d]['D']} | "
-        f"A:{counters[d]['A']}/{req_by_day[d]['A']}-{rag[d]['A']} | "
-        f"N:{counters[d]['N']}/{req_by_day[d]['N']}-{rag[d]['N']}"
-        for d in days
-    ])
-
-    csv_bytes = output.getvalue().encode("utf-8")
-    filename = f"roster_{year:04d}-{month:02d}.csv"
-    return Response(
-        csv_bytes,
-        mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
-
-
-@login_required
-def roster_print_view(ym):
     return redirect(url_for("roster_month", ym=ym))
 
 
@@ -11318,7 +11061,7 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 from auth_blueprint import AuthDependencies, create_auth_blueprint
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
-from roster_blueprint import RosterViews, create_roster_blueprint
+from roster_blueprint import RosterDependencies, create_roster_blueprint
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
     db=db,
@@ -11361,13 +11104,38 @@ app.register_blueprint(create_reports_blueprint(ReportsDependencies(
     group_consecutive_days=_group_consecutive_days,
     get_absence_types=get_absence_types,
 )))
-app.register_blueprint(create_roster_blueprint(RosterViews(
-    roster_month_publish=roster_month_publish,
-    roster_month_unpublish=roster_month_unpublish,
+app.register_blueprint(create_roster_blueprint(RosterDependencies(
+    db=db,
+    RosterPublication=RosterPublication,
+    Staff=Staff,
+    Notification=Notification,
+    Assignment=Assignment,
+    Watch=Watch,
+    Requirement=Requirement,
+    SpecialRequirement=SpecialRequirement,
     roster_month=roster_month,
     assign_cell=assign_cell,
-    roster_export_csv=roster_export_csv,
-    roster_print_view=roster_print_view,
+    can_publish_roster=_can_publish_roster,
+    validate_csrf=_validate_csrf,
+    parse_year_month=parse_ym,
+    current_unit_id=_current_unit_id,
+    month_has_data=month_has_data,
+    ensure_month_requirement=ensure_month_requirement,
+    generate_month=generate_month,
+    active_publication=_active_roster_publication,
+    publication_matches_live=_publication_matches_live_roster,
+    roster_snapshot=_roster_snapshot,
+    utcnow=utcnow,
+    send_publication_emails=_send_roster_publication_emails,
+    log_change=log_change,
+    consume_rate_limit=_consume_rate_limit,
+    month_range=month_range,
+    requirements_for_day=requirements_for_day,
+    staff_is_countable_on=staff_is_countable_on,
+    exclude_from_counters=get_exclude_from_counters,
+    get_shift=get_shift,
+    shift_counter_group_for_day=shift_counter_group_for_day,
+    night_active_on=_night_active_on,
 )))
 app.register_blueprint(briefing_blueprint)
 
