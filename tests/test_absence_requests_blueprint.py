@@ -35,3 +35,10 @@ def test_shift_request_handler_is_no_longer_implemented_in_legacy_module():
 
     source = (Path(__file__).parents[1] / "app.py").read_text()
     assert "def requests_page():" not in source
+
+
+def test_manager_request_handler_is_no_longer_implemented_in_legacy_module():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "app.py").read_text()
+    assert "def admin_request_respond(" not in source
