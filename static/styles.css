@@ -93,6 +93,8 @@
 .live-position-dialog form { display: grid; gap: 1rem; }
 .live-position-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .live-position-dialog h2, .live-position-dialog p { margin: 0; }
+.live-position-logoff-options { display: grid; gap: .75rem; margin-top: 1rem; }
+.live-position-logoff-options .btn { width: 100%; min-height: 50px; }
 .live-position-dialog label { display: grid; gap: .35rem; font-weight: 700; }
 .live-position-dialog input, .live-position-dialog select { min-height: 48px; border: 1px solid #64748b; border-radius: 8px; padding: .65rem; background: #f8fafc; color: #0f172a; font-size: 1rem; }
 .live-position-dialog__error { padding: .75rem; border: 2px solid #f87171; border-radius: 8px; background: #450a0a; }

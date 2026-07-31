@@ -63,6 +63,15 @@
       <button class="btn" type="submit" id="live-position-confirm">Confirm</button>
     </form>
   </dialog>
+  <dialog id="live-position-logoff-dialog" class="live-position-dialog">
+    <header>
+      <h2>Choose who to log off</h2>
+      <button type="button" class="btn btn-secondary" data-logoff-dialog-close>Cancel</button>
+    </header>
+    <p id="live-position-logoff-help"></p>
+    <div id="live-position-logoff-options" class="live-position-logoff-options"></div>
+    <p id="live-position-logoff-error" class="live-position-dialog__error" role="alert" hidden></p>
+  </dialog>
   <footer class="live-position-kiosk__footer">
     <span id="live-position-refresh">Awaiting server data</span>
     <form method="post" action="{{ url_for('logout') }}">
@@ -79,12 +88,16 @@
     const refreshed = document.getElementById('live-position-refresh');
     const clock = document.getElementById('live-position-clock');
     const dialog = document.getElementById('live-position-dialog');
+    const logoffDialog = document.getElementById('live-position-logoff-dialog');
+    const logoffOptions = document.getElementById('live-position-logoff-options');
+    const logoffError = document.getElementById('live-position-logoff-error');
     const form = document.getElementById('live-position-action-form');
     const kioskLaunch = document.getElementById('live-position-kiosk-launch');
     const kioskStart = document.getElementById('live-position-kiosk-start');
     const kioskLaunchError = document.getElementById('live-position-kiosk-launch-error');
     const csrf = {{ csrf_token()|tojson }};
     let people = [];
+    let livePositions = new Map();
     let serverOffset = 0;
     const isStandalone = () => window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || window.navigator.standalone === true;
     const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement;
@@ -138,6 +151,7 @@
     const escapeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const render = (payload) => {
       warning.hidden = true;
+      livePositions = new Map(payload.positions.map((position) => [position.id, position]));
       const serverTime = Date.parse(payload.server_time);
       if (Number.isFinite(serverTime)) serverOffset = serverTime - Date.now();
       const renderPosition = (position) => {
@@ -223,12 +237,39 @@
       document.getElementById('live-position-action-error').hidden = true;
       dialog.showModal();
     };
+    const openLogoffChoice = (position) => {
+      logoffDialog.dataset.positionId = position.id;
+      document.getElementById('live-position-logoff-help').textContent = `${position.primary.name} is the primary controller. Choose whether to log off everyone or only a secondary controller.`;
+      logoffOptions.replaceChildren();
+      const allButton = document.createElement('button');
+      allButton.type = 'button';
+      allButton.className = 'btn';
+      allButton.dataset.logoffChoice = 'all';
+      allButton.textContent = 'Log off all controllers';
+      logoffOptions.append(allButton);
+      position.participants.forEach((participant) => {
+        const secondaryButton = document.createElement('button');
+        secondaryButton.type = 'button';
+        secondaryButton.className = 'btn btn-secondary';
+        secondaryButton.dataset.logoffChoice = 'secondary';
+        secondaryButton.dataset.participantId = participant.id;
+        secondaryButton.textContent = `Log off ${participant.person_name} (${participant.role_label}) only`;
+        logoffOptions.append(secondaryButton);
+      });
+      logoffError.hidden = true;
+      logoffDialog.showModal();
+    };
     grid.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-operation]');
       if (!button) return;
       const operation = button.dataset.operation;
       if (operation === 'logoff' || operation === 'logoff_close') {
         const tile = button.closest('[data-position-id]');
+        const position = livePositions.get(Number(tile.dataset.positionId));
+        if (operation === 'logoff' && position?.participants.length) {
+          openLogoffChoice(position);
+          return;
+        }
         button.disabled = true;
         try {
           const response = await fetch(`/live-positions/api/positions/${tile.dataset.positionId}/logoff`, {
@@ -250,6 +291,32 @@
         return;
       }
       openAction(button);
+    });
+    document.querySelector('[data-logoff-dialog-close]').addEventListener('click', () => logoffDialog.close());
+    logoffOptions.addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-logoff-choice]');
+      if (!button) return;
+      const positionId = logoffDialog.dataset.positionId;
+      const logoffAll = button.dataset.logoffChoice === 'all';
+      const route = logoffAll
+        ? `/live-positions/api/positions/${positionId}/logoff`
+        : `/live-positions/api/positions/${positionId}/participants/${button.dataset.participantId}/logoff`;
+      button.disabled = true;
+      try {
+        const response = await fetch(route, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+          body: JSON.stringify({close_position: false, request_key: crypto.randomUUID()}),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'The controller could not be logged off.');
+        logoffDialog.close();
+        await refresh();
+      } catch (failure) {
+        logoffError.textContent = failure.message;
+        logoffError.hidden = false;
+        button.disabled = false;
+      }
     });
     document.querySelector('[data-dialog-close]').addEventListener('click', () => dialog.close());
     document.getElementById('live-position-support-role').addEventListener('change', populateSecondaryPeople);
