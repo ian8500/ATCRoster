@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: encrypted-database-backup
@@ -115,3 +116,49 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+  alert:
+    name: Update backup incident
+    if: ${{ always() }}
+    needs: backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INCIDENT_TITLE: "[monitor] Encrypted production backup failing"
+      CHECK_RESULT: ${{ needs.backup.result }}
+    steps:
+      - name: Open or resolve incident
+        run: |
+          set -euo pipefail
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --search "$INCIDENT_TITLE in:title" \
+            --json number,title \
+            --jq ".[] | select(.title == \"$INCIDENT_TITLE\") | .number" |
+            head -1)"
+          if [[ "$CHECK_RESULT" != "success" ]]; then
+            if [[ -z "$issue_number" ]]; then
+              gh issue create \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "$INCIDENT_TITLE" \
+                --label monitoring,bug \
+                --body "The encrypted production backup failed.
+
+          Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          Treat recovery coverage as degraded until a new artifact succeeds and is restore-tested."
+            else
+              gh issue comment "$issue_number" \
+                --repo "$GITHUB_REPOSITORY" \
+                --body "The backup is still failing: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            fi
+          elif [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "Automated recovery confirmed by: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            gh issue close "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --reason completed
+          fi

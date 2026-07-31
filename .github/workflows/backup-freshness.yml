@@ -1,0 +1,81 @@
+name: Backup freshness
+
+on:
+  schedule:
+    - cron: "15 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: backup-freshness
+  cancel-in-progress: true
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INCIDENT_TITLE: "[monitor] Production backup is stale"
+    steps:
+      - name: Check latest successful backup and update incident
+        run: |
+          set -euo pipefail
+          latest_created_at="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow database-backup.yml \
+            --status success \
+            --limit 1 \
+            --json createdAt \
+            --jq '.[0].createdAt // empty')"
+
+          stale=true
+          age_hours="unknown"
+          if [[ -n "$latest_created_at" ]]; then
+            latest_epoch="$(date -u -d "$latest_created_at" +%s)"
+            now_epoch="$(date -u +%s)"
+            age_seconds=$((now_epoch - latest_epoch))
+            age_hours=$((age_seconds / 3600))
+            if (( age_seconds <= 93600 )); then
+              stale=false
+            fi
+          fi
+
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --search "$INCIDENT_TITLE in:title" \
+            --json number,title \
+            --jq ".[] | select(.title == \"$INCIDENT_TITLE\") | .number" |
+            head -1)"
+
+          if [[ "$stale" == true ]]; then
+            if [[ -z "$issue_number" ]]; then
+              gh issue create \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "$INCIDENT_TITLE" \
+                --label monitoring,bug \
+                --body "No successful encrypted production backup was found within the 26-hour recovery-point threshold. Last known age: $age_hours hours.
+
+          Check: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            else
+              gh issue comment "$issue_number" \
+                --repo "$GITHUB_REPOSITORY" \
+                --body "Backup remains stale. Last known age: $age_hours hours."
+            fi
+            exit 1
+          fi
+
+          echo "Latest successful backup age: $age_hours hours."
+          if [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "A successful backup is again within the 26-hour threshold."
+            gh issue close "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --reason completed
+          fi
