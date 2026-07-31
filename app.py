@@ -7168,197 +7168,6 @@ def _staff_has_shift_qualification(
     )
 
 
-@login_required
-def requests_page():
-    today = date.today()
-    unit_id = _current_unit_id()
-    if not unit_id:
-        abort(403)
-    months_ahead, _ = _unit_request_rules(unit_id)
-    first_allowed, last_allowed = _request_date_bounds(today, unit_id)
-
-    # ---- user/editor: show configured future months they can request into ----
-    months = []
-    base_y, base_m = today.year, today.month
-    for k in range(1, months_ahead + 1):
-        t_m = base_m + k
-        t_y = base_y + (t_m - 1) // 12
-        t_m = ((t_m - 1) % 12) + 1
-        months.append((t_y, t_m))
-
-    # ---- POST (create/delete own requests) ----
-    if request.method == "POST":
-        _validate_csrf()
-        form = request.form.get("form", "")
-        if form == "add":
-            try:
-                day = date.fromisoformat(request.form.get("day", ""))
-            except (TypeError, ValueError):
-                flash("Enter a valid request date.", "error")
-                return redirect(url_for("requests_page"))
-            code = (request.form.get("code") or "").upper().strip()
-            comment = (request.form.get("comment") or "").strip()
-            if len(comment) > 500:
-                flash("Requester comments are limited to 500 characters.", "error")
-                return redirect(url_for("requests_page"))
-            shift = ShiftType.query.filter_by(
-                unit_id=unit_id, code=code, is_active=True,
-                is_requestable=True, is_working=True,
-            ).first()
-            if not shift:
-                flash("That shift is inactive or cannot be requested.", "error")
-                return redirect(url_for("requests_page"))
-            if day < first_allowed or day > last_allowed:
-                flash(f"Requests must be between {first_allowed} and {last_allowed}.", "error")
-                return redirect(url_for("requests_page"))
-            if _is_month_locked(day.year, day.month, today, unit_id):
-                flash("Requests for that month are locked.", "error")
-                return redirect(url_for("requests_page"))
-            ex = ShiftRequest.query.filter_by(
-                unit_id=unit_id, staff_id=current_user.id, day=day).first()
-            if not ex:
-                ex = ShiftRequest(
-                    unit_id=unit_id, staff_id=current_user.id, day=day,
-                    code=code, requester_comment=comment,
-                )
-                db.session.add(ex)
-                db.session.flush()
-                _request_audit(ex, current_user.id, "created", {}, {
-                    "code": code, "comment": comment, "status": "pending",
-                })
-            else:
-                if ex.status != "pending":
-                    flash("Only pending requests can be edited.", "error")
-                    return redirect(url_for("requests_page"))
-                old = {"code": ex.code, "comment": ex.requester_comment, "status": ex.status}
-                ex.code = code
-                ex.requester_comment = comment
-                ex.updated_at = utcnow()
-                ex.submitted_at = utcnow()
-                ex.status = "pending"
-                ex.admin_response = ""
-                ex.responded_by_id = None
-                ex.responded_at = None
-                _request_audit(ex, current_user.id, "updated", old, {
-                    "code": code, "comment": comment, "status": "pending",
-                })
-            db.session.commit()
-            flash("Request saved.", "ok")
-            return redirect(url_for("requests_page"))
-
-        if form == "del":
-            try:
-                rid = int(request.form.get("rid", ""))
-            except (TypeError, ValueError):
-                abort(400)
-            req = ShiftRequest.query.filter_by(id=rid, unit_id=unit_id).first_or_404()
-            if req.staff_id != current_user.id:
-                abort(403)
-            if req.status != "pending":
-                abort(409, "Only pending requests can be cancelled.")
-            if _is_month_locked(req.day.year, req.day.month, today, unit_id):
-                flash("Requests for that month are locked.", "error")
-                return redirect(url_for("requests_page"))
-            old = req.status
-            req.status = "cancelled"
-            req.cancelled_at = utcnow()
-            req.updated_at = utcnow()
-            _request_audit(req, current_user.id, "cancelled", old, req.status, "Cancelled by requester")
-            db.session.commit()
-            flash("Request cancelled; its history has been preserved.", "ok")
-            return redirect(url_for("requests_page"))
-        if form == "dismiss":
-            try:
-                rid = int(request.form.get("rid", ""))
-            except (TypeError, ValueError):
-                abort(400)
-            req = ShiftRequest.query.filter_by(
-                id=rid, unit_id=unit_id, staff_id=current_user.id
-            ).first_or_404()
-            if req.status not in {"fulfilled", "rejected"}:
-                abort(409, "Only fulfilled or rejected requests can be removed.")
-            if req.dismissed_by_requester_at is None:
-                req.dismissed_by_requester_at = utcnow()
-                req.updated_at = utcnow()
-                _request_audit(
-                    req,
-                    current_user.id,
-                    "dismissed_by_requester",
-                    {"visible_to_requester": True},
-                    {"visible_to_requester": False},
-                    "Removed from the requester's personal list",
-                )
-                db.session.commit()
-            flash("Completed request removed from your list.", "ok")
-            return redirect(url_for("requests_page"))
-        abort(400)
-
-    # ---- My requests (everyone) ----
-    my_reqs = ShiftRequest.query.filter_by(
-        unit_id=unit_id,
-        staff_id=current_user.id,
-        dismissed_by_requester_at=None,
-    ).all()
-    req_map = defaultdict(dict)
-    for r in my_reqs:
-        req_map[(r.day.year, r.day.month)][r.day] = r
-
-    all_shifts = ShiftType.query.filter_by(
-        unit_id=unit_id, is_active=True, is_requestable=True
-    ).order_by(ShiftType.code).all()
-    codes = [s.code for s in all_shifts]
-
-    # ---- Admin: month-selectable “All requests” panel ----
-    admin_view = is_admin_user(current_user)
-    admin_grouped = {}
-    admin_ym = None
-    admin_month_title = None
-    admin_prev_ym = None
-    admin_next_ym = None
-    admin_total = 0
-
-    if admin_view:
-        # default to current month unless ?ym=YYYY-MM provided
-        admin_ym = _safe_request_admin_month(request.args.get("ym"), today)
-        ay, am = parse_ym(admin_ym)
-        start_of_month, month_days = month_range(ay, am)
-        end_of_month = month_days[-1]
-
-        admin_month_title = datetime(ay, am, 1).strftime("%B %Y")
-        admin_prev_ym, admin_next_ym = _clamp_prev_next(ay, am)
-
-        # fetch only the chosen month; order by day then staff name
-        admin_requests = (ShiftRequest.query
-                          .join(Staff, ShiftRequest.staff_id == Staff.id)
-                          .filter(ShiftRequest.unit_id == unit_id,
-                                  ShiftRequest.day >= start_of_month,
-                                  ShiftRequest.day <= end_of_month)
-                          .order_by(ShiftRequest.day.asc(), Staff.name.asc())
-                          .all())
-
-        # group by day for a tidy display
-        grouped = defaultdict(list)
-        for r in admin_requests:
-            grouped[r.day].append(r)
-        admin_grouped = dict(grouped)
-        admin_total = len(admin_requests)
-
-    return render_template("requests.html",
-                           months=months,
-                           is_locked=_is_month_locked,
-                           req_map=req_map,
-                           codes=codes,
-                           # admin block
-                           admin_view=admin_view,
-                           admin_grouped=admin_grouped,
-                           admin_total=admin_total,
-                           admin_ym=admin_ym,
-                           admin_month_title=admin_month_title,
-                           admin_prev_ym=admin_prev_ym,
-                           admin_next_ym=admin_next_ym,
-                           request_lock_day=_unit_request_rules(unit_id)[1],
-                           first_allowed=first_allowed,
-                           last_allowed=last_allowed)
 
 
 # >>> Admin can respond to a specific request
@@ -10496,7 +10305,14 @@ app.register_blueprint(create_absence_requests_blueprint(
         current_unit_id=_current_unit_id,
         refresh_day_from_pattern_and_leave=refresh_day_from_pattern_and_leave,
         group_sickness_instances=_group_sickness_instances,
-        requests_page=requests_page,
+        ShiftType=ShiftType,
+        ShiftRequest=ShiftRequest,
+        unit_request_rules=_unit_request_rules,
+        request_date_bounds=_request_date_bounds,
+        is_month_locked=_is_month_locked,
+        request_audit=_request_audit,
+        utcnow=utcnow,
+        safe_request_admin_month=_safe_request_admin_month,
         admin_request_respond=admin_request_respond,
     )
 ))
