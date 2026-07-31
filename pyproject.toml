@@ -1,6 +1,10 @@
 [tool.ruff]
 target-version = "py312"
 
+[tool.ruff.lint]
+# Keep the established lint baseline explicit across Ruff upgrades.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.ruff.lint.per-file-ignores]
 # Legacy monolith baseline. New modules receive the default Ruff rules.
 "app.py" = ["E402", "E731", "F401", "F811", "F841"]
