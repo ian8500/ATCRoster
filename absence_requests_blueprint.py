@@ -45,7 +45,12 @@ class AbsenceRequestDependencies:
     request_audit: Callable
     utcnow: Callable
     safe_request_admin_month: Callable
-    admin_request_respond: Callable
+    request_statuses: frozenset
+    request_transitions: dict
+    would_create_new_fatigue_issues: Callable
+    staff_has_shift_qualification: Callable
+    can_override_roster_conflicts: Callable
+    notify_requester: Callable
 
 
 def create_absence_requests_blueprint(
@@ -656,6 +661,178 @@ def create_absence_requests_blueprint(
             last_allowed=last_allowed,
         )
 
+    @login_required
+    def admin_request_respond(rid):
+        if not dependencies.is_admin_user(current_user):
+            abort(403)
+        dependencies.validate_csrf()
+        unit_id = dependencies.current_unit_id()
+        r = dependencies.ShiftRequest.query.filter_by(
+            id=rid, unit_id=unit_id
+        ).first_or_404()
+        action = (request.form.get("action") or "status").strip()
+        if action not in {
+            "approve",
+            "refuse",
+            "status",
+            "approve_only",
+            "approve_apply",
+        }:
+            abort(400, "Invalid request action.")
+        return_month = dependencies.safe_request_admin_month(
+            request.form.get("ym"), date.today()
+        )
+        response = (request.form.get("admin_response") or "").strip()
+        if len(response) > 500:
+            abort(400, "Response is limited to 500 characters.")
+        requested_status = (request.form.get("status") or "").strip().lower()
+        if action == "refuse":
+            requested_status = "rejected"
+        elif action == "approve_only":
+            requested_status = "approved"
+        elif action in {"approve", "approve_apply"}:
+            requested_status = "fulfilled"
+        if requested_status not in dependencies.request_statuses:
+            abort(400, "Invalid request status.")
+        if (r.status or "pending") not in dependencies.request_statuses:
+            abort(409, "The request has an invalid current status.")
+        if not r.staff or r.staff.unit_id != unit_id:
+            abort(409, "The requester does not belong to this airport.")
+        approval_actions = {"approve", "approve_only", "approve_apply"}
+        is_approval = action in approval_actions or (
+            action == "status" and requested_status in {"approved", "fulfilled"}
+        )
+        if is_approval and r.staff_id == current_user.id:
+            active_admin_count = dependencies.Staff.query.filter(
+                dependencies.Staff.unit_id == unit_id,
+                dependencies.Staff.membership_status == "active",
+                dependencies.db.or_(
+                    dependencies.Staff.role == "admin",
+                    dependencies.Staff.is_admin.is_(True),
+                ),
+            ).count()
+            if active_admin_count > 1:
+                abort(
+                    403,
+                    "Administrators cannot approve their own shift requests "
+                    "while another active administrator is available.",
+                )
+
+        old = {"status": r.status, "response": r.admin_response}
+        if action in {"approve", "approve_apply"}:
+            if r.status not in {"pending", "approved"}:
+                abort(409, "Only pending or approved requests can be applied.")
+            shift = dependencies.ShiftType.query.filter_by(
+                unit_id=unit_id,
+                code=r.code,
+                is_active=True,
+                is_requestable=True,
+                is_working=True,
+            ).first()
+            if not shift:
+                abort(409, "The requested shift is no longer valid.")
+            if dependencies.is_month_locked(r.day.year, r.day.month, unit_id=unit_id):
+                abort(409, "The roster month is locked.")
+            # The primary manager workflow is intentionally one step: approve and
+            # place on the roster. Existing roster fatigue warnings remain visible
+            # after the change. The legacy endpoint retains its explicit conflict
+            # confirmation for backwards-compatible API clients.
+            if action == "approve_apply":
+                conflicts = list(
+                    dependencies.would_create_new_fatigue_issues(
+                        r.staff, r.day, r.code
+                    ).values()
+                )
+                if not dependencies.staff_has_shift_qualification(
+                    r.staff, shift, r.day
+                ):
+                    conflicts.append(["Required qualification is missing or expired."])
+                override = request.form.get("confirm_override") == "yes"
+                if override and not dependencies.can_override_roster_conflicts(
+                    current_user
+                ):
+                    abort(403, "You do not have permission to override conflicts.")
+                if conflicts and override and len(response) < 10:
+                    abort(400, "A reason of at least 10 characters is required.")
+                if conflicts and not override:
+                    warning_text = "; ".join(
+                        str(item)
+                        for group in conflicts
+                        for item in (
+                            group if isinstance(group, (list, tuple, set)) else [group]
+                        )
+                    )
+                    flash(
+                        "Applying this request has conflicts: "
+                        f"{warning_text[:700]}. Review and confirm the permitted override.",
+                        "error",
+                    )
+                    return redirect(url_for("requests_page", ym=return_month))
+            assignment = dependencies.Assignment.query.filter_by(
+                unit_id=unit_id, staff_id=r.staff_id, day=r.day
+            ).first()
+            if not assignment:
+                assignment = dependencies.Assignment(
+                    unit_id=unit_id, staff_id=r.staff_id, day=r.day
+                )
+                dependencies.db.session.add(assignment)
+            assignment.code = r.code
+            assignment.source = "request"
+            assignment.note = f"Applied from shift request #{r.id}"
+            dependencies.db.session.flush()
+            r.resulting_assignment_id = assignment.id
+            r.fulfilled_at = dependencies.utcnow()
+            requested_status = "fulfilled"
+        else:
+            if requested_status == "fulfilled":
+                abort(400, "Fulfilment is only available through Approve and apply.")
+            allowed = dependencies.request_transitions.get(
+                r.status or "pending", frozenset()
+            )
+            if requested_status not in allowed:
+                abort(
+                    409,
+                    f"Transition from {r.status or 'pending'} to "
+                    f"{requested_status} is not permitted.",
+                )
+            if (
+                action != "refuse"
+                and r.status == "approved"
+                and requested_status in {"rejected", "cancelled"}
+                and len(response) < 10
+            ):
+                abort(400, "Changing an approved request requires an audited reason.")
+
+        r.admin_response = response
+        r.status = requested_status
+        r.responded_by_id = getattr(current_user, "id", None)
+        r.responded_at = dependencies.utcnow()
+        r.updated_at = dependencies.utcnow()
+        if requested_status == "cancelled" and r.cancelled_at is None:
+            r.cancelled_at = dependencies.utcnow()
+        dependencies.request_audit(
+            r,
+            current_user.id,
+            action,
+            old,
+            {
+                "status": r.status,
+                "response": response,
+                "assignment_id": r.resulting_assignment_id,
+            },
+            response,
+        )
+        if old["status"] != r.status:
+            dependencies.notify_requester(r)
+        dependencies.db.session.commit()
+        if requested_status == "fulfilled":
+            flash("Request approved and added to the roster.", "ok")
+        elif requested_status == "rejected":
+            flash("Request refused. The ATCO has been notified.", "ok")
+        else:
+            flash("Response saved.", "ok")
+        return redirect(url_for("requests_page", ym=return_month))
+
     @blueprint.record_once
     def register_routes(state):
         routes = (
@@ -664,7 +841,7 @@ def create_absence_requests_blueprint(
             (
                 "/admin/requests/<int:rid>/respond",
                 "admin_request_respond",
-                dependencies.admin_request_respond,
+                admin_request_respond,
                 ["POST"],
             ),
         )
