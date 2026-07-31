@@ -206,6 +206,8 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b'data-primary-id="${occupied ? occupied.id' in kiosk_page.data
     assert b"primarySelect.disabled = operation === 'participant'" in kiosk_page.data
     assert b"operation === 'logoff' || operation === 'logoff_close'" in kiosk_page.data
+    assert b"if (operation === 'close')" in kiosk_page.data
+    assert b"The position could not be closed." in kiosk_page.data
     assert b"close_position: operation === 'logoff_close'" in kiosk_page.data
     assert b"Log off all controllers" in kiosk_page.data
     assert b"data-logoff-choice" in kiosk_page.data
