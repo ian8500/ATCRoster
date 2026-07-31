@@ -7,7 +7,7 @@ import io
 import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from flask import (
@@ -17,6 +17,7 @@ from flask import (
     current_app,
     flash,
     redirect,
+    render_template,
     request,
     url_for,
 )
@@ -33,9 +34,9 @@ class RosterDependencies:
     Watch: Any
     Requirement: Any
     SpecialRequirement: Any
+    ShiftRequest: Any
     AnnotationType: Any
     AnnotationAudit: Any
-    roster_month: Callable
     can_publish_roster: Callable[[Any], bool]
     validate_csrf: Callable[[], None]
     parse_year_month: Callable[[str], tuple[int, int]]
@@ -63,6 +64,12 @@ class RosterDependencies:
     parse_annotation: Callable[[str], dict | None]
     is_admin_user: Callable[[Any], bool]
     apply_toil_annotation_delta: Callable[..., None]
+    load_month_roster: Callable[[int, int, int], tuple]
+    add_months: Callable[[int, int, int], tuple[int, int]]
+    shift_groups: Callable[[int], tuple]
+    watch_id_for_staff_on: Callable[[int, date], int | None]
+    roster_fatigue_flags: Callable[..., dict]
+    get_annotation_groups: Callable[[], list]
 
 
 def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
@@ -339,6 +346,246 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         return redirect(url_for("roster_month", ym=ym))
 
     @login_required
+    def roster_month(ym):
+        year, month = dependencies.parse_year_month(ym)
+        unit_id = dependencies.current_unit_id()
+        if not dependencies.month_has_data(year, month):
+            dependencies.ensure_month_requirement(year, month)
+            dependencies.generate_month(year, month)
+
+        days, staff, assignment_tuples, requirement = dependencies.load_month_roster(
+            unit_id, year, month
+        )
+        assignment_map: dict[int, dict[date, str]] = {}
+        annotation_map: dict[int, dict[date, str]] = {}
+        annotation_note_map: dict[int, dict[date, str]] = {}
+        for staff_id, day_map in assignment_tuples.items():
+            assignment_map[staff_id] = {}
+            annotation_map[staff_id] = {}
+            annotation_note_map[staff_id] = {}
+            for duty_day, (code, _source, annotation, note) in day_map.items():
+                assignment_map[staff_id][duty_day] = code
+                annotation_map[staff_id][duty_day] = annotation or ""
+                annotation_note_map[staff_id][duty_day] = note or ""
+
+        previous_year, previous_month = dependencies.add_months(year, month, -1)
+        next_year, next_month = dependencies.add_months(year, month, 1)
+        previous_ym = f"{previous_year:04d}-{previous_month:02d}"
+        next_ym = f"{next_year:04d}-{next_month:02d}"
+        start = date(year, month, 1)
+        month_end = date(next_year, next_month, 1)
+        working_shifts, training_shifts, nonworking_shifts = dependencies.shift_groups(
+            unit_id
+        )
+        training_codes = {shift.code for shift in training_shifts}
+        display_watch_by_staff = {
+            person.id: dependencies.watch_id_for_staff_on(person.id, start)
+            for person in staff
+        }
+        try:
+            watch_order = {
+                watch.id: watch.order_index for watch in dependencies.Watch.query.all()
+            }
+        except Exception:
+            watch_order = {}
+
+        def rank_within_watch(person):
+            if getattr(person, "is_wm", False):
+                return 0
+            if getattr(person, "is_dwm", False):
+                return 1
+            return 2
+
+        staff.sort(
+            key=lambda person: (
+                watch_order.get(display_watch_by_staff.get(person.id), 9999),
+                rank_within_watch(person),
+                person.name,
+            )
+        )
+        counters = {duty_day: Counter() for duty_day in days}
+        excluded = dependencies.exclude_from_counters()
+        for person in staff:
+            if not getattr(person, "is_operational", True):
+                continue
+            row = assignment_map.get(person.id, {})
+            for duty_day in days:
+                if not dependencies.staff_is_countable_on(person, duty_day):
+                    continue
+                code = (row.get(duty_day) or "").upper()
+                if (
+                    not code
+                    or code in excluded
+                    or code in training_codes
+                    or code in ("AL", "NOPS")
+                ):
+                    continue
+                group = dependencies.shift_counter_group_for_day(
+                    code, duty_day, unit_id
+                )
+                if group:
+                    counters[duty_day][group] += 1
+
+        night_active = {
+            duty_day: dependencies.night_active_on(unit_id, duty_day)
+            for duty_day in days
+        }
+        special_requirements = (
+            dependencies.SpecialRequirement.query.filter(
+                dependencies.SpecialRequirement.day >= start,
+                dependencies.SpecialRequirement.day < month_end,
+            )
+            .order_by(dependencies.SpecialRequirement.day)
+            .all()
+        )
+        special_by_day = {row.day: row for row in special_requirements}
+        requirements = {
+            duty_day: dependencies.requirements_for_day(
+                requirement, duty_day, special_by_day.get(duty_day)
+            )
+            for duty_day in days
+        }
+        rag = {}
+        for duty_day in days:
+            rag[duty_day] = {}
+            for code in ("M", "D", "A", "N"):
+                available = counters[duty_day][code]
+                needed = (
+                    0
+                    if code == "N" and not night_active[duty_day]
+                    else requirements[duty_day][code]
+                )
+                rag[duty_day][code] = (
+                    "green"
+                    if available >= needed
+                    else ("amber" if available >= max(0, needed - 1) else "red")
+                )
+        fatigue = {
+            person.id: dependencies.roster_fatigue_flags(
+                person,
+                days,
+                assignment_map.get(person.id, {}),
+                unit_id,
+            )
+            for person in staff
+        }
+        requests = dependencies.ShiftRequest.query.filter(
+            dependencies.ShiftRequest.unit_id == unit_id,
+            dependencies.ShiftRequest.day >= start,
+            dependencies.ShiftRequest.day < month_end,
+        ).all()
+        pending_requests = {
+            (item.staff_id, item.day): {
+                "code": item.code,
+                "status": (item.status or "pending").lower(),
+            }
+            for item in requests
+            if (item.status or "pending").lower() in {"pending", "approved"}
+        }
+        applied_requests = {
+            (staff_id, request_day): {"code": request_code}
+            for staff_id, request_day, request_code in (
+                dependencies.db.session.query(
+                    dependencies.ShiftRequest.staff_id,
+                    dependencies.ShiftRequest.day,
+                    dependencies.ShiftRequest.code,
+                )
+                .join(
+                    dependencies.Assignment,
+                    dependencies.ShiftRequest.resulting_assignment_id
+                    == dependencies.Assignment.id,
+                )
+                .filter(
+                    dependencies.ShiftRequest.unit_id == unit_id,
+                    dependencies.ShiftRequest.status == "fulfilled",
+                    dependencies.ShiftRequest.day >= start,
+                    dependencies.ShiftRequest.day < month_end,
+                    dependencies.Assignment.code == dependencies.ShiftRequest.code,
+                )
+                .all()
+            )
+        }
+        today = date.today()
+
+        def expiry_class(expiry: date | None, under_training=False):
+            if under_training:
+                return "exp-amber"
+            if not expiry:
+                return ""
+            remaining = (expiry - today).days
+            if remaining < 0:
+                return "exp-red"
+            if remaining <= 90:
+                return "exp-amber"
+            return "exp-green"
+
+        expiry_classes = {
+            person.id: {
+                "medical": expiry_class(person.medical_expiry),
+                "tower": expiry_class(person.tower_ue_expiry, person.tower_ut),
+                "radar": expiry_class(person.radar_ue_expiry, person.radar_ut),
+                "met": expiry_class(person.met_ue_expiry, person.met_ut),
+            }
+            for person in staff
+        }
+        watch_break_after_ids = []
+        previous_watch = None
+        previous_id = None
+        for person in staff:
+            current_watch = display_watch_by_staff.get(person.id)
+            if (
+                previous_watch is not None
+                and current_watch != previous_watch
+                and previous_id is not None
+            ):
+                watch_break_after_ids.append(previous_id)
+            previous_watch = current_watch
+            previous_id = person.id
+        active_publication = dependencies.active_publication(year, month)
+        roster_publication = (
+            active_publication
+            if dependencies.publication_matches_live(active_publication, year, month)
+            else None
+        )
+        return render_template(
+            "roster_month.html",
+            ym=ym,
+            year=year,
+            month=month,
+            days=days,
+            staff=staff,
+            a_map=assignment_map,
+            ann_map=annotation_map,
+            ann_note_map=annotation_note_map,
+            req_by_day=requirements,
+            special_requirements=special_requirements,
+            counters=counters,
+            req=requirement,
+            requirement=requirement,
+            rag=rag,
+            expiry_classes=expiry_classes,
+            fatigue=fatigue,
+            watch_break_after_ids=watch_break_after_ids,
+            prev_ym=previous_ym,
+            next_ym=next_ym,
+            shifts_working=working_shifts,
+            shifts_training=training_shifts,
+            shifts_non=nonworking_shifts,
+            can_edit=dependencies.can_edit_roster(current_user),
+            readonly=False,
+            month_title=datetime(year, month, 1).strftime("%B %Y"),
+            today=today,
+            req_pending_map=pending_requests,
+            applied_request_map=applied_requests,
+            show_ot_finder=True,
+            display_watch_by_staff=display_watch_by_staff,
+            annotation_groups=dependencies.get_annotation_groups(),
+            night_active=night_active,
+            roster_publication=roster_publication,
+            can_publish_roster=dependencies.can_publish_roster(current_user),
+        )
+
+    @login_required
     def assign_cell(staff_id, ym, day):
         if not dependencies.can_edit_roster(current_user):
             return "Forbidden", 403
@@ -482,7 +729,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 roster_month_unpublish,
                 ["POST"],
             ),
-            ("/roster/<ym>", "roster_month", dependencies.roster_month, ["GET"]),
+            ("/roster/<ym>", "roster_month", roster_month, ["GET"]),
             (
                 "/assign/<int:staff_id>/<ym>/<day>",
                 "assign_cell",

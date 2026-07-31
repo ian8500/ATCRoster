@@ -4790,267 +4790,6 @@ def module_home():
     )
 
 
-@login_required
-def roster_month(ym):
-    year, month = parse_ym(ym)
-    unit_id = _current_unit_id()
-
-    # Build only if the month has no data yet
-    if not month_has_data(year, month):
-        ensure_month_requirement(year, month)
-        generate_month(year, month)
-
-    # Fast path: 2 queries total (staff + all assignments in month)
-    days, staff, a_map_tuples, req = _load_month_roster_fast(
-        unit_id, year, month
-    )
-
-    # --- ensure WM first, DWM second, then alphabetical within each watch ---
-    def _rank_within_watch(person):
-        # 0 = WM, 1 = DWM, 2 = everyone else
-        return 0 if getattr(person, "is_wm", False) else (1 if getattr(person, "is_dwm", False) else 2)
-
-    # Build code_map (what the template expects) and ann_map from the tuples
-    # a_map_tuples[sid][day] = (code, source, annotation, annotation note)
-    a_map: dict[int, dict[date, str]] = {}
-    ann_map: dict[int, dict[date, str]] = {}
-    ann_note_map: dict[int, dict[date, str]] = {}
-    for sid, dmap in a_map_tuples.items():
-        codes = {}
-        anns = {}
-        ann_notes = {}
-        for d, (code, _src, ann, ann_note) in dmap.items():
-            codes[d] = code
-            anns[d] = ann or ""
-            ann_notes[d] = ann_note or ""
-        a_map[sid] = codes
-        ann_map[sid] = anns
-        ann_note_map[sid] = ann_notes
-
-    # Prev/next month strings
-    py, pm = _month_add(year, month, -1)
-    ny, nm = _month_add(year, month, +1)
-    prev_ym = f"{py:04d}-{pm:02d}"
-    next_ym = f"{ny:04d}-{nm:02d}"
-
-    # Month bounds for queries like ShiftRequest
-    start = date(year, month, 1)
-    month_end = date(ny, nm, 1)
-
-    # Shift dropdown groupings (cached)
-    shifts_working, shifts_training, shifts_non = _shift_groups_snapshot(
-        unit_id
-    )
-    training_codes = {sh.code for sh in shifts_training}
-
-    # --- Effective watch for THIS month (first day of the month) ---
-    def _watch_for(sid: int, on_date: date):
-        fn = globals().get("watch_id_for_staff_on")
-        if callable(fn):
-            return fn(sid, on_date)
-        s = tenant_get(Staff, sid)
-        return s.watch_id if s else None
-
-    display_watch_by_staff = {s.id: _watch_for(s.id, start) for s in staff}
-
-    # Optional: ensure staff ordering matches watch order for the display month
-    try:
-        watch_order = {w.id: w.order_index for w in Watch.query.all()}
-    except Exception:
-        watch_order = {}
-
-    staff.sort(
-        key=lambda s: (
-            watch_order.get(display_watch_by_staff.get(s.id), 9999),
-            _rank_within_watch(s),
-            s.name
-        )
-    )
-
-    # Counters (operational only); exclude training and configured exclusions
-    counters = {d: Counter() for d in days}
-    for s in staff:
-        if not getattr(s, "is_operational", True):
-            continue
-        row = a_map.get(s.id, {})
-        for d in days:
-            if not staff_is_countable_on(s, d):
-                continue
-            c = (row.get(d) or "").upper()
-            if not c:
-                continue
-            # Never count leave/sickness/non-operational placeholders
-            if c in get_exclude_from_counters():
-                continue
-            if c in training_codes:
-                continue
-            # Explicit exclusions
-            if c in ("AL", "NOPS"):
-                continue
-            grp = shift_counter_group_for_day(c, d, unit_id)
-            if grp:
-                counters[d][grp] += 1
-    rag = {}
-    night_active = {d: _night_active_on(unit_id, d) for d in days}
-    special_requirements = SpecialRequirement.query.filter(
-        SpecialRequirement.day >= start,
-        SpecialRequirement.day < month_end,
-    ).order_by(SpecialRequirement.day).all()
-    special_by_day = {row.day: row for row in special_requirements}
-    req_by_day = {
-        d: requirements_for_day(req, d, special_by_day.get(d))
-        for d in days
-    }
-    for d in days:
-        rag[d] = {}
-        for code in ("M", "D", "A", "N"):
-            have = counters[d][code]
-            need = (
-                0
-                if code == "N" and not night_active[d]
-                else req_by_day[d][code]
-            )
-            # Green if we meet/beat requirement, Amber if short by 1, else Red
-            rag[d][code] = (
-                "green" if have >= need
-                else ("amber" if have >= max(0, need - 1) else "red")
-            )
-
-    # Fatigue flags keyed by staff id -> {date -> [flags]}
-    # Assumes you have a helper like fatigue_flags_for_range(person, days)
-    try:
-        fatigue = {
-            s.id: roster_fatigue_flags_for_range(
-                s, days, a_map.get(s.id, {}), unit_id
-            )
-            for s in staff
-        }
-    except NameError:
-        # If your helper is named differently, fall back to empty flags.
-        # (Prevents NameError, but you should wire the real helper.)
-        fatigue = {s.id: {} for s in staff}
-
-
-# Pending requests for the month (indexed)
-    reqs = ShiftRequest.query.filter(
-        ShiftRequest.unit_id == _current_unit_id(),
-        ShiftRequest.day >= start, ShiftRequest.day < month_end
-    ).all()
-    req_pending_map = {
-        (r.staff_id, r.day): {"code": r.code, "status": (r.status or "pending").lower()}
-        for r in reqs
-        if (r.status or "pending").lower() in {"pending", "approved"}
-    }
-    applied_request_map = {
-        (staff_id, request_day): {"code": request_code}
-        for staff_id, request_day, request_code in (
-            db.session.query(
-                ShiftRequest.staff_id,
-                ShiftRequest.day,
-                ShiftRequest.code,
-            )
-            .join(
-                Assignment,
-                ShiftRequest.resulting_assignment_id == Assignment.id,
-            )
-            .filter(
-                ShiftRequest.unit_id == unit_id,
-                ShiftRequest.status == "fulfilled",
-                ShiftRequest.day >= start,
-                ShiftRequest.day < month_end,
-                Assignment.code == ShiftRequest.code,
-            )
-            .all()
-        )
-    }
-
-    # --- Unified editability flags ---
-    can_edit = can_edit_roster(current_user)
-    # If you don't lock months, keep False. If you do, let admin/editor override.
-    readonly = False
-    # Example for locks:
-    # readonly = bool(getattr(req, "is_locked", False)) and not (is_admin_user(current_user) or is_editor_user(current_user))
-
-    month_title = datetime(year, month, 1).strftime("%B %Y")
-    today = date.today()
-
-    def _expiry_class(expiry: date | None, ut_flag: bool = False) -> str:
-        if ut_flag:
-            return "exp-amber"
-        if not expiry:
-            return ""
-        days_to_expiry = (expiry - today).days
-        if days_to_expiry < 0:
-            return "exp-red"
-        if days_to_expiry <= 90:
-            return "exp-amber"
-        return "exp-green"
-
-    expiry_classes = {}
-    for person in staff:
-        expiry_classes[person.id] = {
-            "medical": _expiry_class(person.medical_expiry),
-            "tower": _expiry_class(person.tower_ue_expiry, person.tower_ut),
-            "radar": _expiry_class(person.radar_ue_expiry, person.radar_ut),
-            "met": _expiry_class(person.met_ue_expiry, person.met_ut),
-        }
-
-    # Build row-separator helpers for the template: break between watches
-    watch_break_after_ids = []
-    prev_watch = None
-    prev_id = None
-    for s in staff:
-        cur_watch = display_watch_by_staff.get(s.id)
-        if prev_watch is not None and cur_watch != prev_watch and prev_id is not None:
-            # Insert a separator after the previous staff row when the watch changes
-            watch_break_after_ids.append(prev_id)
-        prev_watch = cur_watch
-        prev_id = s.id
-
-    active_publication = _active_roster_publication(year, month)
-    roster_publication = (
-        active_publication
-        if _publication_matches_live_roster(active_publication, year, month)
-        else None
-    )
-
-    # Call Flask's render_template via the module to avoid any local name shadowing
-    import flask as _flask
-    return _flask.render_template(
-        "roster_month.html",
-        ym=ym, year=year, month=month,
-        days=days,
-        staff=staff,
-        a_map=a_map,
-        ann_map=ann_map,             # <<< required by template
-        ann_note_map=ann_note_map,
-        req_by_day=req_by_day,
-        special_requirements=special_requirements,
-        counters=counters,
-        req=req,                     # <<< ensure 'req' exists for template
-        requirement=req,             # <<< keep this if any blocks expect 'requirement'
-        rag=rag,
-        expiry_classes=expiry_classes,
-        fatigue=fatigue,
-        watch_break_after_ids=watch_break_after_ids,
-        prev_ym=prev_ym, next_ym=next_ym,
-        shifts_working=shifts_working,
-        shifts_training=shifts_training,
-        shifts_non=shifts_non,
-        can_edit=can_edit,
-        readonly=readonly,
-        month_title=month_title,
-        today=today,
-        req_pending_map=req_pending_map,
-        applied_request_map=applied_request_map,
-        show_ot_finder=True,
-        display_watch_by_staff=display_watch_by_staff,
-        annotation_groups=get_annotation_groups(),
-        night_active=night_active,
-        roster_publication=roster_publication,
-        can_publish_roster=_can_publish_roster(current_user),
-    )
-
 
 @app.route("/__can")
 @login_required
@@ -11003,9 +10742,9 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     Watch=Watch,
     Requirement=Requirement,
     SpecialRequirement=SpecialRequirement,
+    ShiftRequest=ShiftRequest,
     AnnotationType=AnnotationType,
     AnnotationAudit=AnnotationAudit,
-    roster_month=roster_month,
     can_publish_roster=_can_publish_roster,
     validate_csrf=_validate_csrf,
     parse_year_month=parse_ym,
@@ -11033,6 +10772,12 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     parse_annotation=parse_annotation,
     is_admin_user=is_admin_user,
     apply_toil_annotation_delta=_apply_toil_annotation_delta,
+    load_month_roster=_load_month_roster_fast,
+    add_months=_month_add,
+    shift_groups=_shift_groups_snapshot,
+    watch_id_for_staff_on=watch_id_for_staff_on,
+    roster_fatigue_flags=roster_fatigue_flags_for_range,
+    get_annotation_groups=get_annotation_groups,
 )))
 app.register_blueprint(briefing_blueprint)
 
