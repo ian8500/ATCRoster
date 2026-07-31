@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from datetime import date, datetime, time as datetime_time, timedelta
 from typing import Any, Callable
 
 from flask import (
@@ -43,9 +44,36 @@ class LivePositionDependencies:
     PositionSessionAudit: Any
     PositionEndorsement: Any
     Staff: Any
+    Watch: Any
     utcnow: Callable[[], Any]
     is_admin_user: Callable[[Any], bool]
     live_position_enabled: Callable[[int], bool]
+    competency_enabled: Callable[[int], bool]
+
+
+def _minutes_between(start: datetime, end: datetime) -> int:
+    return max(0, round((end - start).total_seconds() / 60))
+
+
+def _overlap_minutes(
+    start: datetime, end: datetime, intervals: list[tuple[datetime, datetime]]
+) -> int:
+    clipped = sorted(
+        (max(start, item_start), min(end, item_end))
+        for item_start, item_end in intervals
+        if item_start < end and item_end > start
+    )
+    if not clipped:
+        return 0
+    merged: list[list[datetime]] = []
+    for item_start, item_end in clipped:
+        if not merged or item_start > merged[-1][1]:
+            merged.append([item_start, item_end])
+        else:
+            merged[-1][1] = max(merged[-1][1], item_end)
+    return sum(
+        _minutes_between(item_start, item_end) for item_start, item_end in merged
+    )
 
 
 def create_live_position_blueprint(
@@ -217,6 +245,291 @@ def create_live_position_blueprint(
             abort(403)
         return redirect(url_for("administration_home"))
 
+    @blueprint.get("/reports/operational-activity")
+    @login_required
+    def operational_activity():
+        _require_module()
+        if getattr(current_user, "role", "") == "position_monitor":
+            abort(403)
+        unit_id = _unit_id()
+        today = dependencies.utcnow().date()
+        try:
+            start_day = date.fromisoformat(
+                request.args.get("start") or (today - timedelta(days=29)).isoformat()
+            )
+            end_day = date.fromisoformat(request.args.get("end") or today.isoformat())
+        except ValueError:
+            abort(400, "Enter valid report dates.")
+        if end_day < start_day or (end_day - start_day).days > 731:
+            abort(400, "Choose a date range of no more than two years.")
+
+        can_view_all = bool(
+            dependencies.is_admin_user(current_user)
+            or getattr(current_user, "role", "") == "editor"
+            or getattr(current_user, "is_wm", False)
+            or getattr(current_user, "is_dwm", False)
+            or getattr(current_user, "has_ojti", False)
+            or getattr(current_user, "has_assessor", False)
+        )
+        people = (
+            dependencies.Staff.query.filter_by(
+                unit_id=unit_id, membership_status="active", is_operational=True
+            )
+            .order_by(dependencies.Staff.name)
+            .all()
+        )
+        watches = (
+            dependencies.Watch.query.filter_by(unit_id=unit_id)
+            .order_by(dependencies.Watch.order_index, dependencies.Watch.name)
+            .all()
+        )
+        positions = (
+            dependencies.OperationalPosition.query.filter_by(unit_id=unit_id)
+            .order_by(
+                dependencies.OperationalPosition.group_name,
+                dependencies.OperationalPosition.display_order,
+                dependencies.OperationalPosition.code,
+            )
+            .all()
+        )
+        people_by_id = {person.id: person for person in people}
+        positions_by_id = {position.id: position for position in positions}
+        roles = {
+            role.id: role
+            for role in dependencies.PositionParticipantRole.query.filter_by(
+                unit_id=unit_id
+            ).all()
+        }
+        selected_person_id = request.args.get("person_id", type=int)
+        selected_watch_id = request.args.get("watch_id", type=int)
+        selected_position_id = request.args.get("position_id", type=int)
+        report_type = request.args.get("report_type") or "individual"
+        if report_type not in {"individual", "position", "instruction"}:
+            abort(400, "Unknown operational report type.")
+        if not can_view_all:
+            selected_person_id = current_user.id
+            selected_watch_id = None
+        if selected_person_id and selected_person_id not in people_by_id:
+            abort(404)
+        if selected_watch_id and selected_watch_id not in {row.id for row in watches}:
+            abort(404)
+        if selected_position_id and selected_position_id not in positions_by_id:
+            abort(404)
+
+        range_start = datetime.combine(start_day, datetime_time.min)
+        range_end = datetime.combine(end_day + timedelta(days=1), datetime_time.min)
+        now = dependencies.utcnow()
+        sessions = dependencies.PositionSession.query.filter(
+            dependencies.PositionSession.unit_id == unit_id,
+            dependencies.PositionSession.is_void.is_(False),
+            dependencies.PositionSession.started_at < range_end,
+            dependencies.db.or_(
+                dependencies.PositionSession.ended_at.is_(None),
+                dependencies.PositionSession.ended_at > range_start,
+            ),
+        ).all()
+        session_ids = [row.id for row in sessions]
+        participant_rows = (
+            dependencies.PositionSessionParticipant.query.filter(
+                dependencies.PositionSessionParticipant.unit_id == unit_id,
+                dependencies.PositionSessionParticipant.session_id.in_(session_ids),
+            ).all()
+            if session_ids
+            else []
+        )
+        participants_by_session: dict[int, list[Any]] = {}
+        for participant in participant_rows:
+            participants_by_session.setdefault(participant.session_id, []).append(
+                participant
+            )
+
+        activity: list[dict[str, Any]] = []
+        role_labels = {
+            "solo": "Solo",
+            "under_training": "Under instruction",
+            "under_assessment": "Under assessment",
+            "ojti": "OJTI",
+            "assessor": "Assessor",
+        }
+
+        def add_activity(
+            person_id: int,
+            position: Any,
+            day: date,
+            role_code: str,
+            minutes: int,
+            session_id: int,
+        ) -> None:
+            person = people_by_id.get(person_id)
+            if not person or minutes <= 0:
+                return
+            if selected_person_id and person.id != selected_person_id:
+                return
+            if selected_watch_id and person.watch_id != selected_watch_id:
+                return
+            if selected_position_id and position.id != selected_position_id:
+                return
+            activity.append(
+                {
+                    "day": day,
+                    "person": person,
+                    "watch": person.watch,
+                    "position": position,
+                    "role": role_code,
+                    "role_label": role_labels.get(role_code, role_code.title()),
+                    "minutes": minutes,
+                    "session_id": session_id,
+                }
+            )
+
+        for session_row in sessions:
+            position = positions_by_id.get(session_row.position_id)
+            if not position:
+                continue
+            session_start = max(session_row.started_at, range_start)
+            session_end = min(session_row.ended_at or now, range_end)
+            if session_end <= session_start:
+                continue
+            participants = participants_by_session.get(session_row.id, [])
+            cursor_day = session_start.date()
+            while cursor_day <= session_end.date():
+                day_start = max(
+                    session_start, datetime.combine(cursor_day, datetime_time.min)
+                )
+                day_end = min(
+                    session_end,
+                    datetime.combine(cursor_day + timedelta(days=1), datetime_time.min),
+                )
+                if day_end > day_start:
+                    all_intervals: list[tuple[datetime, datetime]] = []
+                    role_intervals: dict[str, list[tuple[datetime, datetime]]] = {
+                        "ojti": [],
+                        "assessor": [],
+                    }
+                    for participant in participants:
+                        participant_end = participant.ended_at or now
+                        if (
+                            participant.started_at < day_end
+                            and participant_end > day_start
+                        ):
+                            interval = (participant.started_at, participant_end)
+                            all_intervals.append(interval)
+                            role = roles.get(participant.role_id)
+                            role_code = (
+                                "assessor"
+                                if role and role.code in {"assessor", "examiner"}
+                                else "ojti"
+                            )
+                            role_intervals[role_code].append(interval)
+                            add_activity(
+                                participant.person_id,
+                                position,
+                                cursor_day,
+                                role_code,
+                                _overlap_minutes(day_start, day_end, [interval]),
+                                session_row.id,
+                            )
+                    total_minutes = _minutes_between(day_start, day_end)
+                    supported_minutes = _overlap_minutes(
+                        day_start, day_end, all_intervals
+                    )
+                    add_activity(
+                        session_row.primary_person_id,
+                        position,
+                        cursor_day,
+                        "solo",
+                        max(0, total_minutes - supported_minutes),
+                        session_row.id,
+                    )
+                    for support_role, primary_role in (
+                        ("ojti", "under_training"),
+                        ("assessor", "under_assessment"),
+                    ):
+                        add_activity(
+                            session_row.primary_person_id,
+                            position,
+                            cursor_day,
+                            primary_role,
+                            _overlap_minutes(
+                                day_start, day_end, role_intervals[support_role]
+                            ),
+                            session_row.id,
+                        )
+                cursor_day += timedelta(days=1)
+
+        activity.sort(
+            key=lambda row: (
+                row["day"],
+                row["person"].name,
+                row["position"].code,
+                row["role"],
+            )
+        )
+        person_summary: dict[int, dict[str, Any]] = {}
+        position_summary: dict[int, dict[str, Any]] = {}
+        instruction_summary: dict[int, dict[str, Any]] = {}
+        for row in activity:
+            person_total = person_summary.setdefault(
+                row["person"].id,
+                {"person": row["person"], "roles": {}, "total": 0},
+            )
+            person_total["roles"][row["role"]] = (
+                person_total["roles"].get(row["role"], 0) + row["minutes"]
+            )
+            person_total["total"] += row["minutes"]
+            position_total = position_summary.setdefault(
+                row["position"].id,
+                {"position": row["position"], "roles": {}, "total": 0, "people": set()},
+            )
+            position_total["roles"][row["role"]] = (
+                position_total["roles"].get(row["role"], 0) + row["minutes"]
+            )
+            if row["role"] in {"solo", "under_training", "under_assessment"}:
+                position_total["total"] += row["minutes"]
+                position_total["people"].add(row["person"].id)
+            if row["role"] in {"ojti", "assessor"}:
+                instruction_total = instruction_summary.setdefault(
+                    row["person"].id,
+                    {
+                        "person": row["person"],
+                        "ojti": 0,
+                        "assessor": 0,
+                        "sessions": set(),
+                    },
+                )
+                instruction_total[row["role"]] += row["minutes"]
+                instruction_total["sessions"].add(row["session_id"])
+
+        return render_template(
+            "live_position/operational_activity_report.html",
+            start_day=start_day,
+            end_day=end_day,
+            report_type=report_type,
+            activity=activity,
+            person_summary=sorted(
+                person_summary.values(), key=lambda row: row["person"].name
+            ),
+            position_summary=sorted(
+                position_summary.values(),
+                key=lambda row: (
+                    row["position"].group_name,
+                    row["position"].display_order,
+                    row["position"].code,
+                ),
+            ),
+            instruction_summary=sorted(
+                instruction_summary.values(), key=lambda row: row["person"].name
+            ),
+            people=people,
+            watches=watches,
+            positions=positions,
+            selected_person_id=selected_person_id,
+            selected_watch_id=selected_watch_id,
+            selected_position_id=selected_position_id,
+            can_view_all=can_view_all,
+            competency_location=dependencies.competency_enabled(unit_id),
+        )
+
     @blueprint.route("/admin/positions", methods=["GET", "POST"])
     @login_required
     def position_configuration():
@@ -233,7 +546,8 @@ def create_live_position_blueprint(
                     dependencies.OperationalPositionGroup.unit_id == unit_id,
                     dependencies.db.func.lower(
                         dependencies.OperationalPositionGroup.name
-                    ) == name.lower(),
+                    )
+                    == name.lower(),
                 ).first()
                 if not name:
                     flash("Enter a group name.", "error")
@@ -345,9 +659,7 @@ def create_live_position_blueprint(
                         1,
                         min(
                             1440,
-                            _int_field(
-                                data, "maximum_session_duration_minutes", 120
-                            ),
+                            _int_field(data, "maximum_session_duration_minutes", 120),
                         ),
                     )
                     position.group_name = group.name if group else ""

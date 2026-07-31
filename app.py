@@ -9686,8 +9686,10 @@ app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     PositionParticipantRole=PositionParticipantRole,
     PositionSessionAudit=PositionSessionAudit,
     PositionEndorsement=PositionEndorsement, Staff=Staff,
+    Watch=Watch,
     utcnow=utcnow, is_admin_user=is_admin_user,
     live_position_enabled=live_position_enabled,
+    competency_enabled=competency_enabled,
 )))
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(

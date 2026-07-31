@@ -9,3 +9,8 @@
   <i class="fa-solid fa-users" aria-hidden="true"></i> People
 </a>
 {% endif %}
+{% if has_live_position_module %}
+<a href="{{ url_for('live_position.operational_activity') }}" class="nav-link {% if request.endpoint == 'live_position.operational_activity' %}active{% endif %}">
+  <i class="fa-solid fa-headset" aria-hidden="true"></i> Operational activity
+</a>
+{% endif %}
