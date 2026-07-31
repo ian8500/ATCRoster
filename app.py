@@ -8590,207 +8590,6 @@ def _position_assurance(year: int, month: int) -> list[dict]:
 
 
 @login_required
-def operations_assurance(ym):
-    if not is_admin_user(current_user):
-        abort(403)
-    year, month = _compliance_month(ym)
-    if request.method == "POST":
-        _validate_csrf()
-        action = (request.form.get("action") or "").strip()
-        try:
-            if action == "create_position":
-                code = (request.form.get("code") or "").strip().upper()
-                label = (request.form.get("label") or "").strip()
-                if not re.fullmatch(r"[A-Z0-9_-]{2,30}", code) or not label:
-                    raise ValueError("Position code and label are required.")
-                db.session.add(OperationalPosition(
-                    unit_id=_current_unit_id(), code=code, label=label,
-                    description=(request.form.get("description") or "").strip()[:1000],
-                    is_safety_critical=request.form.get("is_safety_critical") == "on",
-                ))
-            elif action == "grant_endorsement":
-                person_id = int(request.form.get("person_id") or 0)
-                position_id = int(request.form.get("position_id") or 0)
-                person = Staff.query.filter_by(id=person_id, is_operational=True).first_or_404()
-                position = OperationalPosition.query.filter_by(id=position_id).first_or_404()
-                row = PositionEndorsement.query.filter_by(
-                    person_id=person.id, position_id=position.id
-                ).first()
-                if not row:
-                    row = PositionEndorsement(
-                        unit_id=_current_unit_id(), person_id=person.id,
-                        position_id=position.id,
-                    )
-                    db.session.add(row)
-                row.valid_from = date.fromisoformat(request.form["valid_from"])
-                valid_until = (request.form.get("valid_until") or "").strip()
-                row.valid_until = date.fromisoformat(valid_until) if valid_until else None
-                row.status = "valid"
-                row.restrictions = (request.form.get("restrictions") or "").strip()[:1000]
-            elif action == "set_position_requirement":
-                position_id = int(request.form.get("position_id") or 0)
-                OperationalPosition.query.filter_by(id=position_id, is_active=True).first_or_404()
-                duty_day = date.fromisoformat(request.form["day"])
-                shift_code = (request.form.get("shift_code") or "").strip().upper()
-                ShiftType.query.filter_by(code=shift_code, is_active=True).first_or_404()
-                required = max(0, int(request.form.get("required_count") or 0))
-                contingency = max(0, int(request.form.get("contingency_count") or 0))
-                row = PositionRequirement.query.filter_by(
-                    day=duty_day, shift_code=shift_code, position_id=position_id
-                ).first()
-                if not row:
-                    row = PositionRequirement(
-                        unit_id=_current_unit_id(), day=duty_day,
-                        shift_code=shift_code, position_id=position_id,
-                    )
-                    db.session.add(row)
-                row.required_count = required
-                row.contingency_count = contingency
-            elif action == "add_break":
-                duty_day = date.fromisoformat(request.form["day"])
-                start_time = time.fromisoformat(request.form["start_time"])
-                end_time = time.fromisoformat(request.form["end_time"])
-                if end_time <= start_time:
-                    raise ValueError("Break end must be after its start.")
-                person_id = int(request.form.get("person_id") or 0)
-                Staff.query.filter_by(id=person_id, is_operational=True).first_or_404()
-                position_id = int(request.form.get("position_id") or 0) or None
-                if position_id:
-                    OperationalPosition.query.filter_by(id=position_id).first_or_404()
-                db.session.add(BreakPlan(
-                    unit_id=_current_unit_id(), day=duty_day,
-                    person_id=person_id, position_id=position_id,
-                    start_time=start_time, end_time=end_time,
-                    kind=(request.form.get("kind") or "break")[:20],
-                    recorded_by_id=current_user.id,
-                ))
-            elif action == "record_actual":
-                duty_day = date.fromisoformat(request.form["day"])
-                person_id = int(request.form.get("person_id") or 0)
-                Staff.query.filter_by(id=person_id, is_operational=True).first_or_404()
-                actual_start = datetime.fromisoformat(request.form["actual_start"])
-                actual_end = datetime.fromisoformat(request.form["actual_end"])
-                if actual_end <= actual_start:
-                    raise ValueError("Actual duty end must be after its start.")
-                assignment = Assignment.query.filter_by(
-                    staff_id=person_id, day=duty_day
-                ).first()
-                row = AchievedDuty.query.filter_by(
-                    person_id=person_id, day=duty_day
-                ).first()
-                if not row:
-                    row = AchievedDuty(
-                        unit_id=_current_unit_id(), person_id=person_id,
-                        day=duty_day, recorded_by_id=current_user.id,
-                    )
-                    db.session.add(row)
-                row.planned_assignment_id = assignment.id if assignment else None
-                row.actual_start = actual_start
-                row.actual_end = actual_end
-                row.duty_type = (request.form.get("duty_type") or "operational")[:30]
-                row.variance_reason = (
-                    request.form.get("variance_reason") or ""
-                ).strip()[:500]
-            elif action == "review_fatigue":
-                report = FatigueReport.query.filter_by(
-                    id=int(request.form.get("report_id") or 0)
-                ).first_or_404()
-                response = (request.form.get("manager_response") or "").strip()
-                if len(response) < 10:
-                    raise ValueError("Record the assessment and action taken.")
-                report.manager_response = response[:1000]
-                report.status = request.form.get("status") if request.form.get(
-                    "status"
-                ) in {"reviewed", "closed"} else "reviewed"
-                report.reviewed_by_id = current_user.id
-                report.reviewed_at = utcnow()
-                report.closed_at = utcnow() if report.status == "closed" else None
-            elif action == "create_rule_version":
-                latest = db.session.query(
-                    db.func.max(RosterRuleVersion.version)
-                ).filter(
-                    RosterRuleVersion.unit_id == _current_unit_id()
-                ).scalar() or 0
-                rules = request.form.get("rules_json") or "{}"
-                parsed = json.loads(rules)
-                if not isinstance(parsed, dict):
-                    raise ValueError("Rules must be a JSON object.")
-                db.session.add(RosterRuleVersion(
-                    unit_id=_current_unit_id(), version=latest + 1,
-                    name=(request.form.get("name") or f"Rule set {latest + 1}")[:120],
-                    rules_json=json.dumps(parsed),
-                    change_reference=(request.form.get("change_reference") or "")[:120],
-                    consultation_summary=(
-                        request.form.get("consultation_summary") or ""
-                    )[:2000],
-                ))
-            elif action == "approve_rule_version":
-                rule = RosterRuleVersion.query.filter_by(
-                    id=int(request.form.get("rule_id") or 0), state="draft"
-                ).first_or_404()
-                if not rule.change_reference or len(rule.consultation_summary) < 20:
-                    raise ValueError(
-                        "Approval requires a change reference and consultation summary."
-                    )
-                RosterRuleVersion.query.filter_by(
-                    unit_id=_current_unit_id(), state="approved"
-                ).update(
-                    {"state": "superseded"},
-                    synchronize_session=False,
-                )
-                rule.state = "approved"
-                rule.effective_from = date.fromisoformat(
-                    request.form["effective_from"]
-                )
-                rule.approved_by_id = current_user.id
-                rule.approved_at = utcnow()
-            else:
-                abort(400)
-            db.session.commit()
-            log_change(
-                "OperationalAssurance", 0, action, None, "completed",
-                context_day=date(year, month, 1),
-            )
-            flash("Operational assurance record saved.", "ok")
-        except (ValueError, KeyError, json.JSONDecodeError) as exc:
-            db.session.rollback()
-            flash(str(exc), "error")
-        return redirect(url_for("operations_assurance", ym=ym))
-
-    positions = OperationalPosition.query.filter_by(is_active=True).order_by(
-        OperationalPosition.code
-    ).all()
-    staff = Staff.query.filter_by(is_operational=True).order_by(Staff.name).all()
-    endorsements = PositionEndorsement.query.order_by(
-        PositionEndorsement.valid_until
-    ).all()
-    breaks = BreakPlan.query.filter(
-        BreakPlan.day >= date(year, month, 1),
-        BreakPlan.day < date(*_month_add(year, month, 1), 1),
-    ).order_by(BreakPlan.day, BreakPlan.start_time).all()
-    actuals = AchievedDuty.query.filter(
-        AchievedDuty.day >= date(year, month, 1),
-        AchievedDuty.day < date(*_month_add(year, month, 1), 1),
-    ).order_by(AchievedDuty.day.desc()).all()
-    reports = FatigueReport.query.filter(
-        FatigueReport.status.in_(("open", "reviewed"))
-    ).order_by(FatigueReport.reported_at.desc()).all()
-    rules = RosterRuleVersion.query.order_by(
-        RosterRuleVersion.version.desc()
-    ).all()
-    assurance = _position_assurance(year, month)
-    return render_template(
-        "operations_assurance.html", ym=ym, year=year, month=month,
-        positions=positions, staff=staff, endorsements=endorsements,
-        breaks=breaks, actuals=actuals, reports=reports, rules=rules,
-        assurance=assurance,
-        staff_by_id={row.id: row for row in staff},
-        positions_by_id={row.id: row for row in positions},
-        shifts=ShiftType.query.filter_by(is_active=True).order_by(ShiftType.code).all(),
-    )
-
-
-@login_required
 def coverage_heatmap(ym):
     if not can_edit_roster(current_user):
         abort(403)
@@ -9945,7 +9744,25 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     TrainingObjective=TrainingObjective,
 )))
 app.register_blueprint(create_operations_blueprint(OperationsDependencies(
-    operations_assurance=operations_assurance,
+    db=db,
+    OperationalPosition=OperationalPosition,
+    PositionEndorsement=PositionEndorsement,
+    PositionRequirement=PositionRequirement,
+    Staff=Staff,
+    ShiftType=ShiftType,
+    BreakPlan=BreakPlan,
+    Assignment=Assignment,
+    AchievedDuty=AchievedDuty,
+    FatigueReport=FatigueReport,
+    RosterRuleVersion=RosterRuleVersion,
+    is_admin_user=is_admin_user,
+    compliance_month=_compliance_month,
+    validate_csrf=_validate_csrf,
+    current_unit_id=_current_unit_id,
+    utcnow=utcnow,
+    log_change=log_change,
+    month_add=_month_add,
+    position_assurance=_position_assurance,
     coverage_heatmap=coverage_heatmap,
     scenarios_page=scenarios_page,
 )))

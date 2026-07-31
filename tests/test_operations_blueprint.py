@@ -21,3 +21,10 @@ def test_operations_routes_are_owned_outside_legacy_module():
     source = (Path(__file__).parents[1] / "app.py").read_text()
     for path, _methods in ENDPOINTS.values():
         assert f'@app.route("{path}"' not in source
+
+
+def test_operations_handler_is_no_longer_in_legacy_module():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "app.py").read_text()
+    assert "def operations_assurance(" not in source
