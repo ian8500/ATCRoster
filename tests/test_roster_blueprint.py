@@ -36,5 +36,6 @@ def test_completed_roster_handlers_are_no_longer_in_legacy_module():
         "roster_export_csv",
         "roster_print_view",
         "assign_cell",
+        "roster_month",
     ):
         assert f"def {handler}(" not in source
