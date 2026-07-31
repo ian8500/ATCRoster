@@ -573,6 +573,7 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"Active unit" not in response.data
     assert b"data-operational-clock" in response.data
     assert b"Secure session" in response.data
+    assert b'<body class="app-body roster-page">' in response.data
 
     stylesheet = client.get("/static/styles.css")
     assert stylesheet.status_code == 200
@@ -580,6 +581,8 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"background: var(--off-blue)" in stylesheet.data
     assert b"select.code-input.code-len-5" in stylesheet.data
     assert b"-webkit-appearance:none" in stylesheet.data
+    assert b".roster-page .page-content" in stylesheet.data
+    assert b"padding:.65rem 0" in stylesheet.data
 
 
 def test_favicon_is_served(client):
