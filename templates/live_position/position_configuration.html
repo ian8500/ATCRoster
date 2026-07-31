@@ -11,6 +11,19 @@
 </section>
 
 <details class="card" open>
+  <summary><strong>Position groups</strong><span>{{ groups|length }} configured</span></summary>
+  <p>Create the display sections first, such as Tower and Radar. Their display order controls the order on the live screen.</p>
+  <form method="post" class="admin-form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="create_group">
+    <label>Group name<input name="group_name" maxlength="80" placeholder="Tower" required></label>
+    <label>Display order<input name="group_display_order" type="number" min="0" value="100"></label>
+    <div class="form-actions"><button class="btn" type="submit">Add position group</button></div>
+  </form>
+  {% if groups %}<ul class="live-position-category-list">{% for group in groups %}<li><strong>{{ group.name }}</strong> — display order {{ group.display_order }}</li>{% endfor %}</ul>{% endif %}
+</details>
+
+<details class="card" open>
   <summary><strong>Add a physical position</strong></summary>
   <form method="post" class="admin-form-grid live-position-config-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -18,7 +31,9 @@
     <label>Short code<input name="code" maxlength="30" placeholder="AIR" required></label>
     <label>Display name<input name="label" maxlength="120" placeholder="Aerodrome Control" required></label>
     <label>Display order<input name="display_order" type="number" min="0" value="100"></label>
-    <label>Position group<input name="group_name" maxlength="80" placeholder="Tower"></label>
+    <label>Position group
+      <select name="position_group_id"><option value="">No group</option>{% for group in groups if group.is_active %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}</select>
+    </label>
     <label>Currency category
       <select name="currency_category_id"><option value="">No category yet</option>{% for category in categories if category.is_active %}<option value="{{ category.id }}">{{ category.label }}</option>{% endfor %}</select>
     </label>
@@ -46,7 +61,9 @@
       <label>Short code<input name="code" maxlength="30" value="{{ position.code }}" required></label>
       <label>Display name<input name="label" maxlength="120" value="{{ position.label }}" required></label>
       <label>Display order<input name="display_order" type="number" min="0" value="{{ position.display_order }}"></label>
-      <label>Position group<input name="group_name" maxlength="80" value="{{ position.group_name or '' }}"></label>
+      <label>Position group
+        <select name="position_group_id"><option value="">No group</option>{% for group in groups if group.is_active %}<option value="{{ group.id }}" {% if group.name == position.group_name %}selected{% endif %}>{{ group.name }}</option>{% endfor %}</select>
+      </label>
       <label>Currency category
         <select name="currency_category_id"><option value="">No category yet</option>{% for category in categories if category.is_active %}<option value="{{ category.id }}" {% if position.currency_category_id == category.id %}selected{% endif %}>{{ category.label }}</option>{% endfor %}</select>
       </label>

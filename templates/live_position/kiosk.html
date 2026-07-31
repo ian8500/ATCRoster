@@ -19,7 +19,7 @@
   </header>
   <main>
     <div id="live-position-warning" class="live-position-kiosk__warning" hidden></div>
-    <section id="live-position-grid" class="live-position-grid" aria-live="polite"></section>
+    <section id="live-position-grid" class="live-position-groups" aria-live="polite"></section>
   </main>
   <dialog id="live-position-dialog" class="live-position-dialog">
     <form id="live-position-action-form">
@@ -70,7 +70,7 @@
     const render = (payload) => {
       const serverTime = Date.parse(payload.server_time);
       if (Number.isFinite(serverTime)) serverOffset = serverTime - Date.now();
-      grid.innerHTML = payload.positions.map((position) => {
+      const renderPosition = (position) => {
         const occupied = position.primary;
         const label = position.display_status.replace('_', ' ').toUpperCase();
         const buttons = position.display_status === 'closed'
@@ -85,7 +85,19 @@
           <div class="live-position-tile__participants">${position.participants.map((p) => `<small><strong>${escapeText(p.role_label)}</strong> ${escapeText(p.person_name)} · <span data-start="${escapeText(p.started_at)}">00:00</span> <button data-operation="participant_remove" data-participant-id="${p.id}">Log off</button></small>`).join('')}</div>
           <footer>${buttons}</footer>
         </article>`;
-      }).join('') || '<p class="empty-state">No active operational positions are configured.</p>';
+      };
+      const grouped = new Map();
+      payload.positions.forEach((position) => {
+        const name = position.group_name || 'Other positions';
+        if (!grouped.has(name)) grouped.set(name, {order: position.group_order, positions: []});
+        grouped.get(name).positions.push(position);
+      });
+      grid.innerHTML = [...grouped.entries()]
+        .sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0]))
+        .map(([name, group]) => `<section class="live-position-group">
+          <header class="live-position-group__header"><h2>${escapeText(name)}</h2><span>${group.positions.length} position${group.positions.length === 1 ? '' : 's'}</span></header>
+          <div class="live-position-grid">${group.positions.map(renderPosition).join('')}</div>
+        </section>`).join('') || '<p class="empty-state">No active operational positions are configured.</p>';
       connection.innerHTML = '<span aria-hidden="true">●</span> Connected';
       connection.classList.add('is-connected');
       refreshed.textContent = `Last refreshed ${new Date().toLocaleTimeString('en-GB')}`;
