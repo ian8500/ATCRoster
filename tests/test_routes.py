@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pyotp
 import pytest
+from conftest import finish_operational_login
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if REPO_ROOT not in sys.path:
@@ -140,6 +141,25 @@ def setup_database():
         for user in role_users:
             user.set_password("password123")
         db.session.add_all(role_users)
+        db.session.flush()
+        for user in (admin, *role_users):
+            identity = app.PlatformIdentity(
+                public_id=f"test-{user.username}",
+                username=user.username,
+                password_hash=user.password_hash,
+            )
+            db.session.add(identity)
+            db.session.flush()
+            db.session.add(app.UnitMembership(
+                identity_id=identity.id,
+                unit_id=user.unit_id,
+                person_id=user.id,
+                role={
+                    "admin": "UnitAdmin",
+                    "editor": "RosterEditor",
+                }.get(user.role, "StaffUser"),
+                status="active",
+            ))
 
         control = Unit(
             id=2, code="CTRL", name="Platform Control",
@@ -213,6 +233,8 @@ def login_as(client, username, password="password123", **kwargs):
     )
     expected_status = 200 if kwargs.get("follow_redirects") else 302
     assert response.status_code == expected_status
+    if username != "platform_test":
+        finish_operational_login(client)
     return response
 
 
@@ -406,30 +428,16 @@ def test_login_returns_same_generic_error_for_unknown_and_wrong_credentials(
     assert b"Invalid username or password." in response.data
 
 
-def test_legacy_login_requires_explicit_migration_switch(client):
-    original = app.app.config["ATCROSTER_ENABLE_LEGACY_LOGIN"]
-    app.app.config["ATCROSTER_ENABLE_LEGACY_LOGIN"] = False
-    try:
-        client.get("/login")
-        with client.session_transaction() as session:
-            token = session["_csrf_token"]
-        response = client.post(
-            "/login",
-            data={"_csrf_token": token, **ADMIN_CREDENTIALS},
-        )
-    finally:
-        app.app.config["ATCROSTER_ENABLE_LEGACY_LOGIN"] = original
-
-    assert response.status_code == 200
-    assert b"Invalid username or password." in response.data
-
-
 def test_login_preserves_password_whitespace_and_rotates_session(client):
     with app.app.app_context():
         admin = Staff.query.filter_by(
             username=ADMIN_CREDENTIALS["username"]
         ).one()
         admin.set_password(" password with spaces ")
+        identity = app.PlatformIdentity.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        identity.password_hash = admin.password_hash
         db.session.commit()
     try:
         client.get("/login")
@@ -445,6 +453,7 @@ def test_login_preserves_password_whitespace_and_rotates_session(client):
             },
         )
         assert response.status_code == 302
+        finish_operational_login(client)
         with client.session_transaction() as session:
             assert "attacker_supplied_marker" not in session
             assert "_user_id" in session
@@ -454,6 +463,10 @@ def test_login_preserves_password_whitespace_and_rotates_session(client):
                 username=ADMIN_CREDENTIALS["username"]
             ).one()
             admin.set_password(ADMIN_CREDENTIALS["password"])
+            identity = app.PlatformIdentity.query.filter_by(
+                username=ADMIN_CREDENTIALS["username"]
+            ).one()
+            identity.password_hash = admin.password_hash
             db.session.commit()
 
 
@@ -521,7 +534,7 @@ def test_user_can_update_own_profile_contact_details(client):
     assert b'data-profile-section="security"' in response.data
     assert b'data-profile-section="mfa"' in response.data
     assert b'action="/password"' in response.data
-    assert b'action="/security/mfa"' in response.data
+    assert b"Multi-factor authentication is enabled." in response.data
     assert b"Select a profile function" in response.data
     with app.app.app_context():
         staff = db.session.get(Staff, staff_id)
@@ -891,7 +904,9 @@ def test_login_next_uses_canonical_allowlisted_internal_route(client):
         data={"_csrf_token": token, **ADMIN_CREDENTIALS},
     )
     assert response.status_code == 302
-    assert response.headers["Location"] == "/requests"
+    assert response.headers["Location"].endswith("/login/mfa")
+    with client.session_transaction() as session:
+        assert session["_mfa_next"] == "/requests"
 
 
 @pytest.mark.parametrize(
@@ -915,7 +930,9 @@ def test_login_next_rejects_external_or_unapproved_destinations(
         data={"_csrf_token": token, **ADMIN_CREDENTIALS},
     )
     assert response.status_code == 302
-    assert response.headers["Location"] == "/"
+    assert response.headers["Location"].endswith("/login/mfa")
+    with client.session_transaction() as session:
+        assert session["_mfa_next"] == "/"
 
 
 def test_untrusted_host_returns_plain_400_instead_of_error_handler_500(client):

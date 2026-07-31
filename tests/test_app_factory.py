@@ -40,17 +40,6 @@ def test_create_app_returns_isolated_configured_applications():
     assert get_runtime_settings(second).deployment_environment == "development"
 
 
-def test_legacy_login_is_disabled_unless_explicitly_enabled():
-    default = load_flask_config({}, "/tmp/atcroster-test")
-    enabled = load_flask_config(
-        {"ATCROSTER_ENABLE_LEGACY_LOGIN": "true"},
-        "/tmp/atcroster-test",
-    )
-
-    assert default["ATCROSTER_ENABLE_LEGACY_LOGIN"] is False
-    assert enabled["ATCROSTER_ENABLE_LEGACY_LOGIN"] is True
-
-
 @pytest.mark.parametrize(
     ("update", "message"),
     [

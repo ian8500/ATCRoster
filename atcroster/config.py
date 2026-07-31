@@ -55,9 +55,6 @@ def load_flask_config(
         }
     return {
         "ATCROSTER_ENVIRONMENT": deployment_environment,
-        "ATCROSTER_ENABLE_LEGACY_LOGIN": (
-            environ.get("ATCROSTER_ENABLE_LEGACY_LOGIN", "").lower() in TRUE_VALUES
-        ),
         "SECRET_KEY": environ.get("FLASK_SECRET_KEY", "fallback-change-me"),
         "SQLALCHEMY_DATABASE_URI": database_url,
         "SQLALCHEMY_ENGINE_OPTIONS": engine_options,

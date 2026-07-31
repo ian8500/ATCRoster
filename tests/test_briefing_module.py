@@ -7,6 +7,7 @@ import sys
 from zoneinfo import ZoneInfo
 
 import pytest
+from conftest import finish_operational_login
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if REPO_ROOT not in sys.path:
@@ -33,6 +34,7 @@ def test_briefing_tables_are_routed_to_the_operational_database():
 
 def test_briefing_uses_airport_local_time():
     with app.app.app_context():
+        db.create_all()
         unit = Unit(
             id=99,
             code="TZT",
@@ -45,6 +47,7 @@ def test_briefing_uses_airport_local_time():
         actual = briefing_local_now(unit.id)
         assert abs((actual - expected).total_seconds()) < 2
         db.session.rollback()
+        db.drop_all()
 
 
 @pytest.fixture()
@@ -88,6 +91,22 @@ def briefing_client():
                 start_time=None, end_time=None, is_working=False,
             ),
         ])
+        db.session.flush()
+        for member in (admin, user):
+            identity = app.PlatformIdentity(
+                public_id=f"test-{member.username}",
+                username=member.username,
+                password_hash=member.password_hash,
+            )
+            db.session.add(identity)
+            db.session.flush()
+            db.session.add(app.UnitMembership(
+                identity_id=identity.id,
+                unit_id=member.unit_id,
+                person_id=member.id,
+                role="UnitAdmin" if member.role == "admin" else "StaffUser",
+                status="active",
+            ))
         db.session.commit()
     yield app.app.test_client()
     with app.app.app_context():
@@ -109,6 +128,7 @@ def _login(client, username):
         follow_redirects=True,
     )
     assert response.status_code == 200
+    finish_operational_login(client)
     return response
 
 

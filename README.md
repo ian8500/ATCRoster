@@ -605,14 +605,13 @@ fallback secret in production.
 Python 3.14 is the production and CI runtime. A newer Python major version
 must not be adopted through an automated dependency update: it requires a
 dedicated compatibility pull request that builds the production image and
-passes the complete web, PostgreSQL, Redis, worker and desktop test matrix.
+passes the complete web, PostgreSQL, Redis and worker test matrix.
 
 Dependency surfaces are deliberately separate:
 
 - `requirements-prod.txt` — production web, database, security and worker;
 - `requirements-dev.txt` — production dependencies plus test/security tools;
-- `requirements-desktop.txt` — production dependencies plus desktop packaging;
-- `requirements.txt` — compatibility entry point containing all surfaces.
+- `requirements.txt` — contributor compatibility entry point.
 
 Production containers install only `requirements-prod.txt`.
 
@@ -691,21 +690,6 @@ Health endpoints:
 - `/health/live` — process liveness;
 - `/health/ready` — database connectivity and required-schema readiness.
 
-### Native desktop mode
-
-```bash
-python desktop_app.py
-```
-
-Build on the target operating system:
-
-```bash
-pyinstaller --noconfirm --onefile --windowed --name "ATCRoster" desktop_app.py
-```
-
-The desktop launcher binds locally. If the native webview is unavailable, it
-falls back to the default browser.
-
 ## Database migrations and legacy import
 
 ### Alembic
@@ -728,8 +712,8 @@ legacy operational tables, adds request lifecycle fields, and extends shift
 and annotation definitions. It is intentionally not automatically
 downgradable because removing tenant keys would destroy security boundaries.
 
-Older SQLite desktop databases also receive an idempotent compatibility
-upgrade at startup. Back up the file first.
+SQLite is retained for automated tests and as an input format for the
+one-time legacy importer. It is not a supported application deployment mode.
 
 ### Importing the existing database as the first airport
 

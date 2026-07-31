@@ -134,13 +134,8 @@ def create_auth_blueprint(dependencies: AuthDependencies) -> Blueprint:
                     else:
                         if identity.public_id.startswith("platform-"):
                             principal = PlatformPrincipal(identity, identity)
-            elif current_app.config.get("ATCROSTER_ENABLE_LEGACY_LOGIN", False):
-                user = dependencies.Staff.query.filter_by(username=username).first()
-                credentials_valid = bool(user and user.check_password(password))
-                if user:
-                    principal = OperationalPrincipal(user, None)
             else:
-                # Authentication normally always begins in control. Unknown
+                # Authentication always begins in control. Unknown
                 # principals never trigger an operational database query.
                 credentials_valid = False
             if (

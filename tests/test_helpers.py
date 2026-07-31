@@ -5,6 +5,7 @@ import tempfile
 from datetime import date, time, timedelta
 
 import pytest
+from conftest import finish_operational_login
 
 
 # Ensure the repository root (where app.py lives) is on the import path
@@ -155,6 +156,21 @@ def test_assign_cell_keeps_request_pending_until_approve_and_apply():
         requester.set_password("userpass123")
 
         db.session.add_all([admin, requester])
+        db.session.flush()
+        identity = app.PlatformIdentity(
+            public_id="test-admin-req",
+            username=admin.username,
+            password_hash=admin.password_hash,
+        )
+        db.session.add(identity)
+        db.session.flush()
+        db.session.add(app.UnitMembership(
+            identity_id=identity.id,
+            unit_id=admin.unit_id,
+            person_id=admin.id,
+            role="UnitAdmin",
+            status="active",
+        ))
         db.session.commit()
 
         db.session.add(ShiftRequest(staff_id=requester.id, day=req_day, code="M"))
@@ -174,6 +190,7 @@ def test_assign_cell_keeps_request_pending_until_approve_and_apply():
         follow_redirects=True,
     )
     assert login_resp.status_code == 200
+    finish_operational_login(client)
 
     assign_resp = client.post(
         f"/assign/{requester.id}/2025-07/{req_day.isoformat()}",

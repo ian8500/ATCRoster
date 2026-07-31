@@ -1,5 +1,3 @@
-# Compatibility entry point for contributors who need every supported surface.
-# Production images must install requirements-prod.txt only.
--r requirements-prod.txt
+# Contributor and quality-tool dependencies.
+# Production images must continue to install requirements-prod.txt only.
 -r requirements-dev.txt
--r requirements-desktop.txt
