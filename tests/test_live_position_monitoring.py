@@ -200,6 +200,9 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"requestFullscreen" in kiosk_page.data
     assert b"live-position-board-viewport" in kiosk_page.data
     assert b"ResizeObserver" in kiosk_page.data
+    assert b"operationalGroupPriority" in kiosk_page.data
+    assert b"startsWith('tower')" in kiosk_page.data
+    assert b"startsWith('radar')" in kiosk_page.data
     state = client.get("/live-positions/api/state")
     assert state.status_code == 200
     assert state.get_json()["positions"][0]["display_status"] == "closed"
