@@ -17,6 +17,7 @@ from flask import (
     current_app,
     flash,
     redirect,
+    request,
     url_for,
 )
 from flask_login import current_user, login_required
@@ -32,8 +33,9 @@ class RosterDependencies:
     Watch: Any
     Requirement: Any
     SpecialRequirement: Any
+    AnnotationType: Any
+    AnnotationAudit: Any
     roster_month: Callable
-    assign_cell: Callable
     can_publish_roster: Callable[[Any], bool]
     validate_csrf: Callable[[], None]
     parse_year_month: Callable[[str], tuple[int, int]]
@@ -55,6 +57,12 @@ class RosterDependencies:
     get_shift: Callable[[str], Any]
     shift_counter_group_for_day: Callable[[str, date, int], str | None]
     night_active_on: Callable[[int, date], bool]
+    can_edit_roster: Callable[[Any], bool]
+    banned_roster_codes: Callable[[], set[str]]
+    can_apply_annotations: Callable[[Any], bool]
+    parse_annotation: Callable[[str], dict | None]
+    is_admin_user: Callable[[Any], bool]
+    apply_toil_annotation_delta: Callable[..., None]
 
 
 def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
@@ -330,6 +338,135 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
     def roster_print_view(ym):
         return redirect(url_for("roster_month", ym=ym))
 
+    @login_required
+    def assign_cell(staff_id, ym, day):
+        if not dependencies.can_edit_roster(current_user):
+            return "Forbidden", 403
+        dependencies.validate_csrf()
+        try:
+            duty_day = date.fromisoformat(day)
+            year, month = dependencies.parse_year_month(ym)
+            if duty_day.year != year or duty_day.month != month:
+                raise ValueError
+        except TypeError, ValueError:
+            abort(400, "Invalid roster date.")
+        unit_id = dependencies.current_unit_id()
+        person = dependencies.Staff.query.filter_by(
+            id=staff_id, unit_id=unit_id
+        ).first_or_404()
+        assignment = dependencies.Assignment.query.filter_by(
+            unit_id=unit_id, staff_id=staff_id, day=duty_day
+        ).first()
+        if assignment is None:
+            assignment = dependencies.Assignment(
+                unit_id=unit_id,
+                staff=person,
+                day=duty_day,
+                code="OFF",
+            )
+            dependencies.db.session.add(assignment)
+
+        code = (request.form.get("code") or "").strip().upper()
+        annotation = request.form.get("annotation")
+        if code:
+            if code in dependencies.banned_roster_codes():
+                flash(
+                    "Leave, sickness and TOIL use must be logged via the form, "
+                    "not the roster grid.",
+                    "error",
+                )
+                return redirect(url_for("roster_month", ym=ym))
+            if not dependencies.get_shift(code):
+                flash(f"Unknown shift code '{code}'", "error")
+                return redirect(url_for("roster_month", ym=ym))
+            assignment.code = code
+            assignment.source = "manual"
+
+        if annotation is not None:
+            if not dependencies.can_apply_annotations(current_user):
+                abort(403)
+            old_value = assignment.annotation or ""
+            old_note = assignment.annotation_note or ""
+            new_value = (annotation or "").strip().upper()
+            if new_value == "__REMOVE__":
+                new_value = ""
+            note_was_posted = "annotation_detail_update" in request.form
+            annotation_note = (request.form.get("annotation_note") or "").strip()[:140]
+            parsed = dependencies.parse_annotation(new_value) if new_value else None
+            definition = None
+            if parsed:
+                definition = dependencies.AnnotationType.query.filter_by(
+                    unit_id=unit_id, code=parsed["type"]
+                ).first()
+            if new_value and (not parsed or not definition):
+                flash(f"Unknown annotation '{new_value}'.", "error")
+                return redirect(url_for("roster_month", ym=ym))
+            if definition and not definition.is_active and old_value != new_value:
+                flash(
+                    f"{definition.code} is inactive and cannot be newly applied.",
+                    "error",
+                )
+                return redirect(url_for("roster_month", ym=ym))
+            if (
+                definition
+                and definition.admin_only
+                and not dependencies.is_admin_user(current_user)
+            ):
+                abort(403)
+            if definition and definition.note_required and not annotation_note:
+                flash(f"{definition.code} requires a note.", "error")
+                return redirect(url_for("roster_month", ym=ym))
+            if old_value != new_value:
+                transaction_key = (request.form.get("transaction_key") or "").strip()[
+                    :64
+                ]
+                if (
+                    transaction_key
+                    and dependencies.AnnotationAudit.query.filter_by(
+                        unit_id=unit_id, transaction_key=transaction_key
+                    ).first()
+                ):
+                    return redirect(url_for("roster_month", ym=ym))
+                dependencies.apply_toil_annotation_delta(
+                    staff=person,
+                    old_annot=old_value,
+                    new_annot=new_value,
+                )
+                assignment.annotation = new_value
+                assignment.annotation_note = annotation_note if new_value else ""
+                if definition:
+                    definition.has_been_used = True
+                dependencies.db.session.flush()
+                dependencies.db.session.add(
+                    dependencies.AnnotationAudit(
+                        unit_id=unit_id,
+                        annotation_type_id=definition.id if definition else None,
+                        assignment_id=assignment.id,
+                        actor_id=current_user.id,
+                        action="applied" if new_value else "removed",
+                        old_value=old_value,
+                        new_value=new_value,
+                        transaction_key=transaction_key or None,
+                    )
+                )
+            elif note_was_posted:
+                assignment.annotation_note = annotation_note
+                if old_note != annotation_note:
+                    dependencies.db.session.flush()
+                    dependencies.db.session.add(
+                        dependencies.AnnotationAudit(
+                            unit_id=unit_id,
+                            annotation_type_id=definition.id if definition else None,
+                            assignment_id=assignment.id,
+                            actor_id=current_user.id,
+                            action="detail_updated",
+                            old_value=old_note,
+                            new_value=annotation_note,
+                        )
+                    )
+        dependencies.db.session.commit()
+        return redirect(url_for("roster_month", ym=ym))
+
     @blueprint.record_once
     def register_routes(state):
         routes = (
@@ -349,7 +486,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             (
                 "/assign/<int:staff_id>/<ym>/<day>",
                 "assign_cell",
-                dependencies.assign_cell,
+                assign_cell,
                 ["POST"],
             ),
             ("/roster/<ym>/export", "roster_export_csv", roster_export_csv, ["GET"]),
