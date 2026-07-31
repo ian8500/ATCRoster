@@ -37,6 +37,13 @@ from sqlalchemy.exc import IntegrityError
 from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
+from reporting import (
+    compute_annotation_metrics,
+    current_leave_year_window,
+    financial_year_start,
+    group_consecutive_days,
+    leave_summary_for_month,
+)
 from atcroster import create_app, get_runtime_settings
 from tenancy import (
     authenticated_unit_id,
@@ -7402,99 +7409,21 @@ def notification_delete(notification_id):
 
 
 def _compute_metrics_range(start_day: date, end_day: date):
-    assignments = (Assignment.query
-                   .filter(Assignment.day >= start_day, Assignment.day <= end_day)
-                   .all())
-
-    annotation_snapshot = _annotation_snapshot(
-        int(_current_unit_id() or 1)
-    )["items"]
-    label_map = {item["code"]: item["label"] for item in annotation_snapshot}
-    report_excluded_codes = {
-        item["code"]
-        for item in annotation_snapshot
-        if "report_exclude" in set(item.get("tags") or ())
-    }
-
-    annotation_columns = [
-        {
-            "code": item["code"],
-            "label": item["label"] or item["code"],
-            "active": bool(item["is_active"]),
-        }
-        for item in annotation_snapshot
-        if item["is_active"] and item["code"] not in report_excluded_codes
-    ]
-    annotation_order = [
-        column["code"] for column in annotation_columns
-    ]
-    annotation_known = set(annotation_order)
-
-    staff_by_id = {s.id: s for s in Staff.query.all()}
-    metrics_map: dict[int, dict[str, object]] = {}
-
-    for a in assignments:
-        s = staff_by_id.get(a.staff_id)
-        if not s:
-            continue
-        if s.id not in metrics_map:
-            metrics_map[s.id] = {
-                "staff": s,
-                "annotations": {
-                    code: 0 for code in annotation_order
-                },
-            }
-        parsed = parse_annotation(a.annotation)
-        if not parsed:
-            continue
-        code = parsed["type"]
-        if code in report_excluded_codes:
-            continue
-        # Preserve historical totals when a definition was retired after use.
-        if code not in annotation_known:
-            annotation_known.add(code)
-            annotation_order.append(code)
-            annotation_columns.append({
-                "code": code,
-                "label": label_map.get(code, code),
-                "active": False,
-            })
-        metrics_map[s.id]["annotations"].setdefault(code, 0)
-        metrics_map[s.id]["annotations"][code] += 1
-
-    staff_order = (Staff.query
-                   .outerjoin(Watch, Staff.watch_id == Watch.id)
-                   .order_by(Watch.order_index, Staff.name).all())
-
-    staff_metrics = []
-    for s in staff_order:
-        base = {
-            "staff": s,
-            "annotations": {
-                code: 0 for code in annotation_order
-            },
-        }
-        row = metrics_map.get(s.id, base)
-        row["annotations"] = {
-            code: row["annotations"].get(code, 0)
-            for code in annotation_order
-        }
-        staff_metrics.append(row)
-
-    totals = {
-        "annotations": {
-            code: sum(
-                row["annotations"].get(code, 0)
-                for row in staff_metrics
-            )
-            for code in annotation_order
-        },
-    }
-    return staff_metrics, totals, annotation_columns
+    return compute_annotation_metrics(
+        start_day,
+        end_day,
+        Assignment=Assignment,
+        Staff=Staff,
+        Watch=Watch,
+        annotation_items=_annotation_snapshot(
+            int(_current_unit_id() or 1)
+        )["items"],
+        parse_annotation=parse_annotation,
+    )
 
 
 def _fy_start_for(d: date) -> date:
-    return date(d.year if d.month >= 4 else d.year - 1, 4, 1)
+    return financial_year_start(d)
 
 
 def _reports_acknowledgement_key() -> str:
@@ -8197,46 +8126,17 @@ def calendar_feed(sid, token):
 
 
 def _leave_summary_for_month(year: int, month: int, watch_id: int | None = None):
-    start, days = month_range(year, month)
-    month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
-    unit_id = _current_unit_id()
-
-    a_map = defaultdict(dict)
-    for a in Assignment.query.filter(
-        Assignment.unit_id == unit_id,
-        Assignment.day >= start,
-        Assignment.day < month_end,
-    ):
-        a_map[a.staff_id][a.day] = a.code
-
-    staff_query = (
-        Staff.query
-        .filter(Staff.unit_id == unit_id)
-        .outerjoin(Watch, Staff.watch_id == Watch.id)
+    return leave_summary_for_month(
+        year,
+        month,
+        watch_id,
+        unit_id=_current_unit_id(),
+        Assignment=Assignment,
+        Staff=Staff,
+        Watch=Watch,
+        month_range=month_range,
+        active_leave_types=get_absence_types("leave", active_only=True),
     )
-    if watch_id is not None:
-        staff_query = staff_query.filter(Staff.watch_id == watch_id)
-    staff = staff_query.order_by(Watch.order_index, Staff.name).all()
-
-    codes_sorted = [
-        item["code"] for item in get_absence_types("leave", active_only=True)
-    ]
-    rows = []
-    totals = Counter()
-
-    for s in staff:
-        counts = {c: 0 for c in codes_sorted}
-        for d in days:
-            code = a_map[s.id].get(d)
-            if code in counts:
-                counts[code] += 1
-        total = sum(counts.values())
-        for c, v in counts.items():
-            totals[c] += v
-        rows.append({"staff": s, "counts": counts, "total": total})
-
-    grand_total = sum(totals.values())
-    return rows, codes_sorted, totals, grand_total, days
 
 
 def _report_watch_selection():
@@ -8324,15 +8224,7 @@ def report_leave_csv():
 # (unchanged from your post)
 
 def _current_leave_year_window(s: Staff, today: date | None = None):
-    today = today or date.today()
-    start_month = s.leave_year_start_month or 4
-    start_year = today.year if today.month >= start_month else today.year - 1
-    start = date(start_year, start_month, 1)
-    end_year = start_year + 1 if start_month > 1 else start_year + 1
-    end_month = start_month - 1 if start_month > 1 else 12
-    _, end_days = month_range(end_year, end_month)
-    end = end_days[-1]
-    return start, end
+    return current_leave_year_window(s, today)
 
 
 def _toil_accrual_half_days_from_annotation(parsed):
@@ -8434,16 +8326,7 @@ def report_leave_year():
 
 
 def _group_consecutive_days(days_set):
-    if not days_set:
-        return 0
-    days = sorted(days_set)
-    groups = 0
-    prev = None
-    for d in days:
-        if prev is None or (d - prev).days > 1:
-            groups += 1
-        prev = d
-    return groups
+    return group_consecutive_days(days_set)
 
 
 @app.route("/reports/sickness")

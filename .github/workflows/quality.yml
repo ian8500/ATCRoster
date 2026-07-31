@@ -20,14 +20,14 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Formatting, lint and static analysis
         run: |
-          ruff format --check atcroster rate_limiting.py platform_provisioning.py signup_locking.py scripts/migrate_all_databases.py scripts/run_provisioning_worker.py auth_blueprint.py
-          ruff check atcroster app.py account_limits.py auth_blueprint.py briefing_module.py briefing_storage.py platform_provisioning.py rate_limiting.py saas_models.py signup_locking.py tenancy.py wsgi.py scripts/*.py
+          ruff format --check atcroster rate_limiting.py reporting.py platform_provisioning.py signup_locking.py scripts/migrate_all_databases.py scripts/run_provisioning_worker.py auth_blueprint.py
+          ruff check atcroster app.py account_limits.py auth_blueprint.py briefing_module.py briefing_storage.py platform_provisioning.py rate_limiting.py reporting.py saas_models.py signup_locking.py tenancy.py wsgi.py scripts/*.py
           mypy --ignore-missing-imports --follow-imports=skip atcroster rate_limiting.py signup_locking.py
       - run: pip-audit -r requirements-prod.txt
       - name: Full maintained-application security scan
         run: |
-          bandit -q -ll -r atcroster app.py account_limits.py auth_blueprint.py briefing_module.py briefing_storage.py platform_provisioning.py rate_limiting.py saas_models.py signup_locking.py tenancy.py wsgi.py scripts
-      - run: python -m compileall -q atcroster app.py auth_blueprint.py briefing_module.py briefing_storage.py saas_models.py tenancy.py account_limits.py scripts
+          bandit -q -ll -r atcroster app.py account_limits.py auth_blueprint.py briefing_module.py briefing_storage.py platform_provisioning.py rate_limiting.py reporting.py saas_models.py signup_locking.py tenancy.py wsgi.py scripts
+      - run: python -m compileall -q atcroster app.py auth_blueprint.py briefing_module.py briefing_storage.py reporting.py saas_models.py tenancy.py account_limits.py scripts
       - run: python -m pytest --cov --cov-report=term-missing -q
       - name: Verify fresh split migrations
         run: |
