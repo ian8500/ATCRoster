@@ -5069,116 +5069,6 @@ def __can():
     }
 
 
-@login_required
-@roster_edit_required
-def assign_cell(staff_id, ym, day):
-    _validate_csrf()
-    # parse inputs
-    try:
-        d = date.fromisoformat(day)
-        year, month = parse_ym(ym)
-        if d.year != year or d.month != month:
-            raise ValueError
-    except (TypeError, ValueError):
-        abort(400, "Invalid roster date.")
-    unit_id = _current_unit_id()
-    st = Staff.query.filter_by(id=staff_id, unit_id=unit_id).first_or_404()
-
-    # fetch or create the assignment row for that staff/day
-    a = Assignment.query.filter_by(
-        unit_id=unit_id, staff_id=staff_id, day=d
-    ).first()
-    if a is None:
-        a = Assignment(unit_id=unit_id, staff=st, day=d, code="OFF")
-        db.session.add(a)
-
-    # form fields (each cell posts either code OR annotation)
-    code = (request.form.get("code") or "").strip().upper()
-    annot = request.form.get("annotation")  # None => no change
-
-    # if a shift code was posted, validate and set it
-    if code != "":
-        if code in get_banned_roster_codes():
-            flash(
-                "Leave, sickness and TOIL use must be logged via the form, not the roster grid.", "error")
-            return redirect(url_for("roster_month", ym=ym))
-        if not get_shift(code):
-            flash(f"Unknown shift code '{code}'", "error")
-            return redirect(url_for("roster_month", ym=ym))
-        a.code = code
-        a.source = "manual"
-
-    # if an annotation field was posted, apply delta + update
-    if annot is not None:
-        if not can_apply_annotations(current_user):
-            abort(403)
-        old = a.annotation or ""
-        old_annotation_note = a.annotation_note or ""
-        newv = (annot or "").strip().upper()
-        if newv == "__REMOVE__":
-            newv = ""
-        note_was_posted = "annotation_detail_update" in request.form
-        annotation_note = (
-            request.form.get("annotation_note") or ""
-        ).strip()[:140]
-        parsed = parse_annotation(newv) if newv else None
-        ann_def = None
-        if parsed:
-            ann_def = AnnotationType.query.filter_by(
-                unit_id=unit_id, code=parsed["type"]
-            ).first()
-        if newv and (not parsed or not ann_def):
-            flash(f"Unknown annotation '{newv}'.", "error")
-            return redirect(url_for("roster_month", ym=ym))
-        if ann_def and not ann_def.is_active and old != newv:
-            flash(
-                f"{ann_def.code} is inactive and cannot be newly applied.",
-                "error",
-            )
-            return redirect(url_for("roster_month", ym=ym))
-        if ann_def and ann_def.admin_only and not is_admin_user(current_user):
-            abort(403)
-        if ann_def and ann_def.note_required and not annotation_note:
-            flash(f"{ann_def.code} requires a note.", "error")
-            return redirect(url_for("roster_month", ym=ym))
-        if old != newv:
-            transaction_key = (request.form.get("transaction_key") or "").strip()[:64]
-            if transaction_key and AnnotationAudit.query.filter_by(
-                unit_id=unit_id, transaction_key=transaction_key
-            ).first():
-                return redirect(url_for("roster_month", ym=ym))
-            _apply_toil_annotation_delta(
-                staff=st, old_annot=old, new_annot=newv)
-            a.annotation = newv
-            a.annotation_note = annotation_note if newv else ""
-            if ann_def:
-                ann_def.has_been_used = True
-            db.session.flush()
-            db.session.add(AnnotationAudit(
-                unit_id=unit_id, annotation_type_id=ann_def.id if ann_def else None,
-                assignment_id=a.id, actor_id=current_user.id,
-                action="applied" if newv else "removed",
-                old_value=old, new_value=newv,
-                transaction_key=transaction_key or None,
-            ))
-        elif note_was_posted:
-            a.annotation_note = annotation_note
-            if old_annotation_note != annotation_note:
-                db.session.flush()
-                db.session.add(AnnotationAudit(
-                    unit_id=unit_id,
-                    annotation_type_id=ann_def.id if ann_def else None,
-                    assignment_id=a.id,
-                    actor_id=current_user.id,
-                    action="detail_updated",
-                    old_value=old_annotation_note,
-                    new_value=annotation_note,
-                ))
-
-    db.session.commit()
-    return redirect(url_for("roster_month", ym=ym))
-
-
 # -------------------- Admin --------------------
 
 
@@ -11113,8 +11003,9 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     Watch=Watch,
     Requirement=Requirement,
     SpecialRequirement=SpecialRequirement,
+    AnnotationType=AnnotationType,
+    AnnotationAudit=AnnotationAudit,
     roster_month=roster_month,
-    assign_cell=assign_cell,
     can_publish_roster=_can_publish_roster,
     validate_csrf=_validate_csrf,
     parse_year_month=parse_ym,
@@ -11136,6 +11027,12 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     get_shift=get_shift,
     shift_counter_group_for_day=shift_counter_group_for_day,
     night_active_on=_night_active_on,
+    can_edit_roster=can_edit_roster,
+    banned_roster_codes=get_banned_roster_codes,
+    can_apply_annotations=can_apply_annotations,
+    parse_annotation=parse_annotation,
+    is_admin_user=is_admin_user,
+    apply_toil_annotation_delta=_apply_toil_annotation_delta,
 )))
 app.register_blueprint(briefing_blueprint)
 
