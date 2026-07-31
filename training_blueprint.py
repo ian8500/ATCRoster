@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable
@@ -40,8 +41,7 @@ class TrainingDependencies:
     utcnow: Callable
     record_qualification_history: Callable
     sync_qualification_to_roster_profile: Callable
-    training_admin: Callable
-    training_analytics: Callable
+    TrainingObjective: Any
 
 
 def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
@@ -296,6 +296,95 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
             can_edit=can_edit,
         )
 
+    @login_required
+    def training_admin():
+        if not dependencies.training_enabled(dependencies.current_unit_id()):
+            abort(404)
+        if not dependencies.is_admin_user(current_user):
+            abort(403)
+        unit_id = dependencies.current_unit_id()
+        if request.method == "POST":
+            dependencies.validate_csrf()
+            action = request.form.get("action")
+            if action == "create_level":
+                name = (request.form.get("name") or "").strip()
+                if not name:
+                    abort(400, "Enter a level name.")
+                level = dependencies.TrainingLevel(unit_id=unit_id, name=name[:80])
+                dependencies.db.session.add(level)
+                dependencies.db.session.flush()
+                for position in range(1, 16):
+                    dependencies.db.session.add(
+                        dependencies.TrainingObjective(
+                            unit_id=unit_id,
+                            level_id=level.id,
+                            position=position,
+                            title=f"Objective {position}",
+                            description="Configure this objective.",
+                        )
+                    )
+            elif action == "save_objectives":
+                level = dependencies.TrainingLevel.query.filter_by(
+                    id=int(request.form.get("level_id") or 0), unit_id=unit_id
+                ).first_or_404()
+                for objective in level.objectives:
+                    objective.title = (
+                        request.form.get(f"title_{objective.id}") or objective.title
+                    ).strip()[:100]
+                    objective.description = (
+                        request.form.get(f"description_{objective.id}") or ""
+                    ).strip()[:4000]
+            else:
+                abort(400, "Unknown training administration action.")
+            dependencies.db.session.commit()
+            flash("Training configuration saved.", "ok")
+            return redirect(url_for("training_admin"))
+        levels = (
+            dependencies.TrainingLevel.query.filter_by(unit_id=unit_id)
+            .order_by(
+                dependencies.TrainingLevel.sort_order, dependencies.TrainingLevel.name
+            )
+            .all()
+        )
+        return render_template("training_admin.html", levels=levels)
+
+    @login_required
+    def training_analytics():
+        if not dependencies.training_enabled(dependencies.current_unit_id()):
+            abort(404)
+        if not dependencies.can_manage_training(current_user):
+            abort(403)
+        unit_id = dependencies.current_unit_id()
+        sessions = (
+            dependencies.TrainingSession.query.filter_by(unit_id=unit_id)
+            .order_by(dependencies.TrainingSession.training_date)
+            .all()
+        )
+        scores = dependencies.TrainingScore.query.filter_by(unit_id=unit_id).all()
+        objective_totals = defaultdict(list)
+        for score in scores:
+            objective_totals[score.objective].append(score.attainment)
+        objective_analytics = sorted(
+            (
+                {
+                    "objective": objective,
+                    "average": round(sum(values) / len(values), 2),
+                    "count": len(values),
+                }
+                for objective, values in objective_totals.items()
+            ),
+            key=lambda row: (row["objective"].level_id, row["objective"].position),
+        )
+        ojti_minutes = defaultdict(int)
+        for row in sessions:
+            ojti_minutes[row.ojti] += row.duration_minutes
+        return render_template(
+            "training_analytics.html",
+            sessions=sessions,
+            objective_analytics=objective_analytics,
+            ojti_hours=sorted(ojti_minutes.items(), key=lambda item: item[0].name),
+        )
+
     @blueprint.record_once
     def register_routes(state):
         routes = (
@@ -316,13 +405,13 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
             (
                 "/training/admin",
                 "training_admin",
-                dependencies.training_admin,
+                training_admin,
                 ["GET", "POST"],
             ),
             (
                 "/training/analytics",
                 "training_analytics",
-                dependencies.training_analytics,
+                training_analytics,
                 ["GET"],
             ),
         )
