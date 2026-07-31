@@ -326,6 +326,17 @@ def register_saas_models(db, utcnow):
         approved_by_id = db.Column(db.Integer)
         applied_at = db.Column(db.DateTime)
 
+    class OperationalPositionGroup(db.Model):
+        __tablename__ = "operational_position_group"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        name = db.Column(db.String(80), nullable=False)
+        display_order = db.Column(db.Integer, nullable=False, default=100)
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "name", name="uq_position_group_unit_name"),
+        )
+
     class OperationalPosition(db.Model):
         __tablename__ = "operational_position"
         id = db.Column(db.Integer, primary_key=True)

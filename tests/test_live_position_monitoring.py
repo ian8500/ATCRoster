@@ -56,10 +56,14 @@ def live_position_data():
         controller.set_password("controller-password")
         supporter.set_password("supporter-password")
         admin.set_password("admin-password")
+        position_group = app.OperationalPositionGroup(
+            unit_id=1, name="Tower", display_order=10, is_active=True
+        )
         position = app.OperationalPosition(
             unit_id=1,
             code="AIR",
             label="Aerodrome Control",
+            group_name="Tower",
         )
         role = app.PositionParticipantRole(
             unit_id=1,
@@ -68,7 +72,7 @@ def live_position_data():
             is_primary=False,
         )
         app.db.session.add_all(
-            [unit, kiosk, controller, supporter, admin, position, role]
+            [unit, kiosk, controller, supporter, admin, position_group, position, role]
         )
         app.db.session.flush()
         app.db.session.add(
@@ -197,6 +201,14 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     blocked = client.get("/roster/2026-07")
     assert blocked.status_code == 302
     assert blocked.headers["Location"].endswith("/live-positions/kiosk")
+
+
+def test_live_state_includes_configured_display_group(live_position_data):
+    client = app.app.test_client()
+    _login_kiosk(client)
+    state = client.get("/live-positions/api/state").get_json()["positions"][0]
+    assert state["group_name"] == "Tower"
+    assert state["group_order"] == 10
 
 
 def _login_kiosk(client):
@@ -443,6 +455,16 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
     assert page.status_code == 200
     with client.session_transaction() as session:
         csrf = session["_csrf_token"]
+    group = client.post(
+        "/live-positions/admin/positions",
+        data={
+            "_csrf_token": csrf,
+            "action": "create_group",
+            "group_name": "Radar",
+            "group_display_order": "10",
+        },
+    )
+    assert group.status_code == 302
     category = client.post(
         "/live-positions/admin/positions",
         data={
@@ -455,6 +477,7 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
     assert category.status_code == 302
     with app.app.app_context():
         category_id = app.PositionCurrencyCategory.query.filter_by(code="TWR").one().id
+        group_id = app.OperationalPositionGroup.query.filter_by(name="Radar").one().id
     position = client.post(
         "/live-positions/admin/positions",
         data={
@@ -463,7 +486,7 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
             "code": "GMC",
             "label": "Ground Movement Control",
             "display_order": "10",
-            "group_name": "Tower",
+            "position_group_id": str(group_id),
             "currency_category_id": str(category_id),
             "supporting_participants_allowed": "on",
             "multiple_supporting_participants_allowed": "on",
@@ -477,7 +500,10 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
     with app.app.app_context():
         configured = app.OperationalPosition.query.filter_by(code="GMC").one()
         assert configured.label == "Ground Movement Control"
+        assert configured.group_name == "Radar"
         assert configured.currency_category_id == category_id
+    page = client.get("/live-positions/admin/positions")
+    assert b'<option value="%d" selected>Radar</option>' % group_id in page.data
 
 
 def test_live_position_module_must_be_enabled(live_position_data):

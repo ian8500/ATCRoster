@@ -465,7 +465,8 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "change_log", "staff_watch_history", "qualification_type",
     "person_qualification", "person_qualification_history",
     "roster_publication", "roster_acknowledgement", "scenario",
-    "operational_position", "position_endorsement", "position_requirement",
+    "operational_position", "operational_position_group",
+    "position_endorsement", "position_requirement",
     "break_plan", "achieved_duty", "fatigue_report",
     "roster_rule_version", "mfa_credential",
     "briefing_item", "briefing_delivery", "briefing_audit",
@@ -1682,6 +1683,7 @@ RosterPublication = SaaS.RosterPublication
 RosterAcknowledgement = SaaS.RosterAcknowledgement
 Scenario = SaaS.Scenario
 OperationalPosition = SaaS.OperationalPosition
+OperationalPositionGroup = SaaS.OperationalPositionGroup
 PositionCurrencyCategory = SaaS.PositionCurrencyCategory
 PositionParticipantRole = SaaS.PositionParticipantRole
 PositionStatusEvent = SaaS.PositionStatusEvent
@@ -9677,6 +9679,7 @@ from live_position_blueprint import (
 
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,
+    OperationalPositionGroup=OperationalPositionGroup,
     PositionCurrencyCategory=PositionCurrencyCategory,
     PositionStatusEvent=PositionStatusEvent, PositionSession=PositionSession,
     PositionSessionParticipant=PositionSessionParticipant,

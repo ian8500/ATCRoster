@@ -34,6 +34,7 @@ class LivePositionDependencies:
     db: Any
     Unit: Any
     OperationalPosition: Any
+    OperationalPositionGroup: Any
     PositionCurrencyCategory: Any
     PositionStatusEvent: Any
     PositionSession: Any
@@ -226,7 +227,33 @@ def create_live_position_blueprint(
         if request.method == "POST":
             data = _payload()
             action = str(data.get("action") or "")
-            if action == "create_category":
+            if action == "create_group":
+                name = str(data.get("group_name") or "").strip()[:80]
+                duplicate = dependencies.OperationalPositionGroup.query.filter(
+                    dependencies.OperationalPositionGroup.unit_id == unit_id,
+                    dependencies.db.func.lower(
+                        dependencies.OperationalPositionGroup.name
+                    ) == name.lower(),
+                ).first()
+                if not name:
+                    flash("Enter a group name.", "error")
+                elif duplicate:
+                    flash("That position group already exists.", "error")
+                else:
+                    dependencies.db.session.add(
+                        dependencies.OperationalPositionGroup(
+                            unit_id=unit_id,
+                            name=name,
+                            display_order=max(
+                                0, _int_field(data, "group_display_order", 100)
+                            ),
+                            is_active=True,
+                        )
+                    )
+                    dependencies.db.session.commit()
+                    flash("Position group added.", "ok")
+                    return redirect(url_for("live_position.position_configuration"))
+            elif action == "create_category":
                 code = str(data.get("category_code") or "").strip().upper()
                 label = str(data.get("category_label") or "").strip()
                 if not code or not label:
@@ -274,6 +301,14 @@ def create_live_position_blueprint(
                     if category_id
                     else None
                 )
+                group_id = _int_field(data, "position_group_id")
+                group = (
+                    dependencies.OperationalPositionGroup.query.filter_by(
+                        id=group_id, unit_id=unit_id, is_active=True
+                    ).first()
+                    if group_id
+                    else None
+                )
                 requested_active = str(data.get("is_active") or "") == "on"
                 occupied = bool(
                     position.id
@@ -290,6 +325,8 @@ def create_live_position_blueprint(
                     flash("That position code is already in use.", "error")
                 elif category_id and not category:
                     flash("Select a valid currency category.", "error")
+                elif group_id and not group:
+                    flash("Select a valid position group.", "error")
                 elif occupied and not requested_active:
                     flash(
                         "Log off and close this position before making it inactive.",
@@ -304,7 +341,7 @@ def create_live_position_blueprint(
                     position.display_order = max(
                         0, _int_field(data, "display_order", 100)
                     )
-                    position.group_name = str(data.get("group_name") or "").strip()[:80]
+                    position.group_name = group.name if group else ""
                     position.currency_category_id = category.id if category else None
                     position.supporting_participants_allowed = (
                         str(data.get("supporting_participants_allowed") or "") == "on"
@@ -350,6 +387,14 @@ def create_live_position_blueprint(
                         "ok",
                     )
                     return redirect(url_for("live_position.position_configuration"))
+        groups = (
+            dependencies.OperationalPositionGroup.query.filter_by(unit_id=unit_id)
+            .order_by(
+                dependencies.OperationalPositionGroup.display_order,
+                dependencies.OperationalPositionGroup.name,
+            )
+            .all()
+        )
         categories = (
             dependencies.PositionCurrencyCategory.query.filter_by(unit_id=unit_id)
             .order_by(dependencies.PositionCurrencyCategory.label)
@@ -366,6 +411,7 @@ def create_live_position_blueprint(
         return render_template(
             "live_position/position_configuration.html",
             positions=positions,
+            groups=groups,
             categories=categories,
         )
 
@@ -566,6 +612,17 @@ def create_live_position_blueprint(
     def _state_payload() -> dict[str, Any]:
         unit_id = _unit_id()
         now = dependencies.utcnow()
+        groups = (
+            dependencies.OperationalPositionGroup.query.filter_by(
+                unit_id=unit_id, is_active=True
+            )
+            .order_by(
+                dependencies.OperationalPositionGroup.display_order,
+                dependencies.OperationalPositionGroup.name,
+            )
+            .all()
+        )
+        group_order = {group.name: group.display_order for group in groups}
         positions = (
             dependencies.OperationalPosition.query.filter_by(
                 unit_id=unit_id, is_active=True
@@ -634,6 +691,8 @@ def create_live_position_blueprint(
                     "id": position.id,
                     "code": position.code,
                     "label": position.label,
+                    "group_name": position.group_name,
+                    "group_order": group_order.get(position.group_name, 999999),
                     "physical_status": physical_status,
                     "display_status": display_status,
                     "primary": (
