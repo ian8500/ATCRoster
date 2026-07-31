@@ -57,6 +57,15 @@ from roster_logic import (
     shift_minutes,
     validated_pattern,
 )
+from absence_requests import (
+    add_months as add_request_months,
+    group_sickness_instances,
+    normalise_request_rules,
+    request_date_bounds,
+    request_lock_date,
+    request_month_is_locked,
+    safe_admin_month,
+)
 from atcroster import create_app, get_runtime_settings
 from tenancy import (
     authenticated_unit_id,
@@ -6523,42 +6532,7 @@ def change_log_page():
 
 
 def _group_sickness_instances(assignments, month_start=None, month_end=None):
-    """Group consecutive sickness assignments into human-readable instances."""
-    instances = []
-    current = None
-    for assignment in sorted(
-        assignments, key=lambda row: (row.staff_id, row.day)
-    ):
-        continues = (
-            current
-            and current["staff_id"] == assignment.staff_id
-            and assignment.day == current["end"] + timedelta(days=1)
-        )
-        if not continues:
-            current = {
-                "staff_id": assignment.staff_id,
-                "staff": assignment.staff,
-                "start": assignment.day,
-                "end": assignment.day,
-                "days": [],
-            }
-            instances.append(current)
-        current["days"].append(assignment)
-        current["end"] = assignment.day
-    if month_start and month_end:
-        instances = [
-            instance for instance in instances
-            if instance["end"] >= month_start
-            and instance["start"] <= month_end
-        ]
-    for instance in instances:
-        instance["duration"] = (
-            instance["end"] - instance["start"]
-        ).days + 1
-        instance["codes"] = list(dict.fromkeys(
-            day.code for day in instance["days"]
-        ))
-    return instances
+    return group_sickness_instances(assignments, month_start, month_end)
 
 
 @app.route("/leave", methods=["GET", "POST"])
@@ -8329,36 +8303,29 @@ def report_sickness():
 
 def _unit_request_rules(unit_id: int | None = None) -> tuple[int, int]:
     unit = db.session.get(Unit, unit_id or _current_unit_id())
-    months = max(1, min(int(getattr(unit, "request_months_ahead", 3) or 3), 24))
-    lock_day = max(1, min(int(getattr(unit, "request_lock_day", 20) or 20), 28))
-    return months, lock_day
+    return normalise_request_rules(
+        getattr(unit, "request_months_ahead", 3),
+        getattr(unit, "request_lock_day", 20),
+    )
 
 
 def _lock_date_for_target_month(y: int, m: int, unit_id: int | None = None):
     _, lock_day = _unit_request_rules(unit_id)
-    prev_m = m - 1
-    prev_y = y
-    if prev_m <= 0:
-        prev_m = 12
-        prev_y -= 1
-    return date(prev_y, prev_m, lock_day)
+    return request_lock_date(y, m, lock_day)
 
 
 def _is_month_locked(y: int, m: int, today: date | None = None, unit_id: int | None = None):
-    today = today or date.today()
-    return today >= _lock_date_for_target_month(y, m, unit_id)
+    _, lock_day = _unit_request_rules(unit_id)
+    return request_month_is_locked(y, m, lock_day, today)
 
 
 def _add_months(first: date, count: int) -> date:
-    idx = first.year * 12 + first.month - 1 + count
-    return date(idx // 12, idx % 12 + 1, 1)
+    return add_request_months(first, count)
 
 
 def _request_date_bounds(today: date, unit_id: int) -> tuple[date, date]:
     months, _ = _unit_request_rules(unit_id)
-    start = _add_months(date(today.year, today.month, 1), 1)
-    next_after_window = _add_months(start, months)
-    return start, next_after_window - timedelta(days=1)
+    return request_date_bounds(today, months)
 
 
 def _request_audit(req: ShiftRequest, actor_id: int, transition: str,
@@ -8397,11 +8364,7 @@ def _notify_requester(req: ShiftRequest) -> None:
 
 
 def _safe_request_admin_month(raw_value: str | None, fallback: date) -> str:
-    """Return a canonical admin month without allowing malformed redirects."""
-    candidate = (raw_value or "").strip()
-    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", candidate):
-        return f"{fallback.year:04d}-{fallback.month:02d}"
-    return candidate
+    return safe_admin_month(raw_value, fallback)
 
 
 def staff_has_qualification(
