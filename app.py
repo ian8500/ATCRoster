@@ -5874,7 +5874,6 @@ def _group_sickness_instances(assignments, month_start=None, month_end=None):
     return group_sickness_instances(assignments, month_start, month_end)
 
 
-@app.route("/leave", methods=["GET", "POST"])
 @login_required
 def leave():
     # Page visibility: editors & admins only
@@ -7470,7 +7469,6 @@ def _staff_has_shift_qualification(
     )
 
 
-@app.route("/requests", methods=["GET", "POST"])
 @login_required
 def requests_page():
     today = date.today()
@@ -7667,7 +7665,6 @@ def requests_page():
 # >>> Admin can respond to a specific request
 
 
-@app.route("/admin/requests/<int:rid>/respond", methods=["POST"])
 @login_required
 def admin_request_respond(rid):
     if not is_admin_user(current_user):
@@ -10689,6 +10686,10 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 # -------------------- Run --------------------
 
 from auth_blueprint import AuthDependencies, create_auth_blueprint
+from absence_requests_blueprint import (
+    AbsenceRequestDependencies,
+    create_absence_requests_blueprint,
+)
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
 
@@ -10779,6 +10780,13 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     roster_fatigue_flags=roster_fatigue_flags_for_range,
     get_annotation_groups=get_annotation_groups,
 )))
+app.register_blueprint(create_absence_requests_blueprint(
+    AbsenceRequestDependencies(
+        leave=leave,
+        requests_page=requests_page,
+        admin_request_respond=admin_request_respond,
+    )
+))
 app.register_blueprint(briefing_blueprint)
 
 # -------------------- WSGI entry point --------------------
