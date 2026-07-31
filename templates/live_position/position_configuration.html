@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Position configuration{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Live Position Monitoring</p>
+    <h1>Position configuration</h1>
+    <p>Set up the physical positions shown on the live display. Currency categories group positions for later currency calculations without changing their physical identity.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('live_position.admin_home') }}">Back to module</a>
+</section>
+
+<details class="card" open>
+  <summary><strong>Add a physical position</strong></summary>
+  <form method="post" class="admin-form-grid live-position-config-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="create_position">
+    <label>Short code<input name="code" maxlength="30" placeholder="AIR" required></label>
+    <label>Display name<input name="label" maxlength="120" placeholder="Aerodrome Control" required></label>
+    <label>Display order<input name="display_order" type="number" min="0" value="100"></label>
+    <label>Position group<input name="group_name" maxlength="80" placeholder="Tower"></label>
+    <label>Currency category
+      <select name="currency_category_id"><option value="">No category yet</option>{% for category in categories if category.is_active %}<option value="{{ category.id }}">{{ category.label }}</option>{% endfor %}</select>
+    </label>
+    <label>Description<textarea name="description" rows="2"></textarea></label>
+    <div class="live-position-config-options">
+      <label class="checkbox"><input type="checkbox" name="supporting_participants_allowed" checked> Supporting participants allowed</label>
+      <label class="checkbox"><input type="checkbox" name="multiple_supporting_participants_allowed" checked> Multiple supporting participants allowed</label>
+      <label class="checkbox"><input type="checkbox" name="training_supported" checked> Training mode</label>
+      <label class="checkbox"><input type="checkbox" name="assessment_supported" checked> Assessment mode</label>
+      <label class="checkbox"><input type="checkbox" name="is_safety_critical" checked> Safety-critical position</label>
+      <label class="checkbox"><input type="checkbox" name="is_active" checked> Show on live display</label>
+    </div>
+    <div class="form-actions"><button class="btn" type="submit">Add position</button></div>
+  </form>
+</details>
+
+<section class="live-position-config-list" aria-label="Configured positions">
+  {% for position in positions %}
+  <details class="card" {% if not position.is_active %}data-inactive{% endif %}>
+    <summary><strong>{{ position.code }} · {{ position.label }}</strong><span>{{ 'Active' if position.is_active else 'Inactive' }}</span></summary>
+    <form method="post" class="admin-form-grid live-position-config-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="update_position">
+      <input type="hidden" name="position_id" value="{{ position.id }}">
+      <label>Short code<input name="code" maxlength="30" value="{{ position.code }}" required></label>
+      <label>Display name<input name="label" maxlength="120" value="{{ position.label }}" required></label>
+      <label>Display order<input name="display_order" type="number" min="0" value="{{ position.display_order }}"></label>
+      <label>Position group<input name="group_name" maxlength="80" value="{{ position.group_name or '' }}"></label>
+      <label>Currency category
+        <select name="currency_category_id"><option value="">No category yet</option>{% for category in categories if category.is_active %}<option value="{{ category.id }}" {% if position.currency_category_id == category.id %}selected{% endif %}>{{ category.label }}</option>{% endfor %}</select>
+      </label>
+      <label>Description<textarea name="description" rows="2">{{ position.description or '' }}</textarea></label>
+      <div class="live-position-config-options">
+        <label class="checkbox"><input type="checkbox" name="supporting_participants_allowed" {% if position.supporting_participants_allowed %}checked{% endif %}> Supporting participants allowed</label>
+        <label class="checkbox"><input type="checkbox" name="multiple_supporting_participants_allowed" {% if position.multiple_supporting_participants_allowed %}checked{% endif %}> Multiple supporting participants allowed</label>
+        <label class="checkbox"><input type="checkbox" name="training_supported" {% if position.training_supported %}checked{% endif %}> Training mode</label>
+        <label class="checkbox"><input type="checkbox" name="assessment_supported" {% if position.assessment_supported %}checked{% endif %}> Assessment mode</label>
+        <label class="checkbox"><input type="checkbox" name="is_safety_critical" {% if position.is_safety_critical %}checked{% endif %}> Safety-critical position</label>
+        <label class="checkbox"><input type="checkbox" name="is_active" {% if position.is_active %}checked{% endif %}> Show on live display</label>
+      </div>
+      <div class="form-actions"><button class="btn" type="submit">Save changes</button></div>
+    </form>
+  </details>
+  {% else %}
+  <div class="card empty-state"><p>No physical positions have been configured yet.</p></div>
+  {% endfor %}
+</section>
+
+<details class="card">
+  <summary><strong>Currency categories</strong><span>{{ categories|length }} configured</span></summary>
+  <p>For example, physical positions “Radar 1” and “Radar 2” could both contribute to a single “Radar” currency category.</p>
+  <form method="post" class="admin-form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="create_category">
+    <label>Category code<input name="category_code" maxlength="30" placeholder="RADAR" required></label>
+    <label>Display name<input name="category_label" maxlength="120" placeholder="Radar" required></label>
+    <label>Description<textarea name="category_description" rows="2"></textarea></label>
+    <div class="form-actions"><button class="btn" type="submit">Add currency category</button></div>
+  </form>
+  {% if categories %}<ul class="live-position-category-list">{% for category in categories %}<li><strong>{{ category.code }}</strong> — {{ category.label }}</li>{% endfor %}</ul>{% endif %}
+</details>
+{% endblock %}

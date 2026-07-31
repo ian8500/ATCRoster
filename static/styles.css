@@ -37,6 +37,13 @@
 
 /* Live Position Monitoring uses a dedicated, navigation-free kiosk shell. */
 .live-position-admin-card small { display: block; margin-top: .5rem; color: var(--muted); }
+.live-position-admin-card--pending { opacity: .7; cursor: default; }
+.live-position-admin-card--pending em { display: block; margin-top: .75rem; color: var(--text-muted); font-size: .8rem; font-style: normal; text-transform: uppercase; letter-spacing: .04em; }
+.live-position-config-form { margin-top: 1.25rem; }
+.live-position-config-options { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .65rem 1rem; }
+.live-position-config-list details[data-inactive] { opacity: .75; }
+.live-position-config-list summary, details.card > summary { display: flex; justify-content: space-between; gap: 1rem; cursor: pointer; }
+.live-position-category-list { margin: 1rem 0 0; padding-left: 1.25rem; }
 .live-position-kiosk { margin: 0; min-height: 100vh; background: #07111f; color: #f8fafc; font-family: system-ui, sans-serif; }
 .live-position-kiosk__header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 2rem; padding: 1.25rem 2rem; border-bottom: 2px solid #334155; }
 .live-position-kiosk__header p, .live-position-kiosk__header h1 { margin: 0; }

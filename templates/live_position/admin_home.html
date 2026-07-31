@@ -10,21 +10,21 @@
   <a class="btn" href="{{ url_for('live_position.kiosk_hmi') }}">Open live display</a>
 </section>
 <section class="module-launcher__grid" aria-label="Live Position Monitoring administration">
-  {% for title, description in [
-    ('Live status overview', 'View current position state and occupancy.'),
-    ('Position configuration', 'Manage physical positions, groups and currency categories.'),
-    ('Rules and alerts', 'Configure supervision, validity and position-time rules.'),
-    ('Kiosk and controller PINs', 'Manage the restricted display account and identity PINs.'),
-    ('Session history and corrections', 'Review, correct and audit achieved activity.'),
-    ('Reports and exports', 'Analyse hours, currency and operational exceptions.')
+  {% for title, description, endpoint in [
+    ('Live status overview', 'View current position state and occupancy.', 'live_position.kiosk_hmi'),
+    ('Position configuration', 'Manage physical positions, groups and currency categories.', 'live_position.position_configuration'),
+    ('Rules and alerts', 'Configure supervision, validity and position-time rules.', none),
+    ('Kiosk and controller PINs', 'Manage the restricted display account and identity PINs.', 'live_position.controller_pins'),
+    ('Session history and corrections', 'Review, correct and audit achieved activity.', none),
+    ('Reports and exports', 'Analyse hours, currency and operational exceptions.', none)
   ] %}
-  {% if title == 'Kiosk and controller PINs' %}
-  <a class="module-card live-position-admin-card" href="{{ url_for('live_position.controller_pins') }}">
+  {% if endpoint %}
+  <a class="module-card live-position-admin-card" href="{{ url_for(endpoint) }}">
     <span><strong>{{ title }}</strong><small>{{ description }}</small></span>
   </a>
   {% else %}
-  <div class="module-card live-position-admin-card">
-    <span><strong>{{ title }}</strong><small>{{ description }}</small></span>
+  <div class="module-card live-position-admin-card live-position-admin-card--pending" aria-disabled="true">
+    <span><strong>{{ title }}</strong><small>{{ description }}</small><em>Coming in the next build stage</em></span>
   </div>
   {% endif %}
   {% endfor %}

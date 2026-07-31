@@ -9531,6 +9531,7 @@ from live_position_blueprint import (
 
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,
+    PositionCurrencyCategory=PositionCurrencyCategory,
     PositionStatusEvent=PositionStatusEvent, PositionSession=PositionSession,
     PositionSessionParticipant=PositionSessionParticipant,
     PositionParticipantRole=PositionParticipantRole,
