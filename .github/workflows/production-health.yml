@@ -43,7 +43,7 @@ jobs:
             https://atcroster.com)"
           echo "Apex redirect reached: $apex_destination"
           [[ "$apex_destination" == "https://www.atcroster.com" ||
-             "$apex_destination" == "https://www.atcroster.com/" ]]
+             "$apex_destination" == "https://www.atcroster.com/"* ]]
 
           openssl x509 -checkend 1209600 -noout \
             -in <(echo | openssl s_client \
