@@ -7320,44 +7320,6 @@ def _fy_start_for(d: date) -> date:
     return financial_year_start(d)
 
 
-def _reports_acknowledgement_key() -> str:
-    return f"{current_user.id}:{_current_unit_id()}"
-
-
-def _reports_sensitive_data_acknowledged() -> bool:
-    return session.get("reports_sensitive_data_ack") == _reports_acknowledgement_key()
-
-
-def _require_reports_sensitive_data_acknowledgement():
-    if _reports_sensitive_data_acknowledged():
-        return None
-    return redirect(url_for("reports_index"))
-
-
-@app.route("/metrics")
-@login_required
-def metrics():
-    if not (is_admin_user(current_user) or getattr(current_user, "role", "") in ("editor", "admin")):
-        abort(403)
-    acknowledgement = _require_reports_sensitive_data_acknowledgement()
-    if acknowledgement:
-        return acknowledgement
-    # ... existing body unchanged ...
-    today = date.today()
-    default_start = _fy_start_for(today)
-    start_str = request.args.get("start", default_start.isoformat())
-    end_str = request.args.get("end", today.isoformat())
-    start_day = date.fromisoformat(start_str)
-    end_day = date.fromisoformat(end_str)
-    staff_metrics, totals, annotation_columns = _compute_metrics_range(
-        start_day, end_day
-    )
-    return render_template("metrics.html",
-                           start=start_day, end=end_day,
-                           staff_metrics=staff_metrics, totals=totals,
-                           annotation_columns=annotation_columns)
-
-
 def _count_aava_soal_since_prev_april(staff_id: int, upto: date):
     start = date(upto.year if upto.month >= 4 else upto.year - 1, 4, 1)
     q = (Assignment.query
@@ -7420,62 +7382,6 @@ def _has_in_date_ue(s: Staff, ref_day: date) -> bool:
     tower_ok = valid(s.tower_ue_expiry, s.tower_ut)
     radar_ok = valid(s.radar_ue_expiry, s.radar_ut)
     return tower_ok or radar_ok
-
-
-@app.route("/metrics/export")
-@login_required
-def metrics_export():
-    if not _consume_rate_limit(
-        "metrics-export", current_user.id, limit=20,
-        window=timedelta(hours=1),
-    ):
-        abort(429)
-    if not is_admin_user(current_user):
-        abort(403)
-    acknowledgement = _require_reports_sensitive_data_acknowledgement()
-    if acknowledgement:
-        return acknowledgement
-    today = date.today()
-    default_start = _fy_start_for(today)
-    start_day = date.fromisoformat(
-        request.args.get("start", default_start.isoformat()))
-    end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
-    staff_metrics, totals, annotation_columns = _compute_metrics_range(
-        start_day, end_day
-    )
-
-    output = io.StringIO()
-    w = csv.writer(output)
-    header = ["ATCO", "Staff #", "Watch"]
-    header.extend([
-        f"{column['label']} ({column['code']})"
-        for column in annotation_columns
-    ])
-    w.writerow(header)
-    for row in staff_metrics:
-        s = row["staff"]
-        watch = s.watch.name.replace("Watch ", "") if s.watch else "-"
-        annotation_values = [
-            row["annotations"].get(column["code"], 0)
-            for column in annotation_columns
-        ]
-        w.writerow([s.name, s.staff_no, watch] + annotation_values)
-    w.writerow([])
-    total_row = ["All ATCOs", "", ""]
-    total_row.extend([
-        totals["annotations"].get(column["code"], 0)
-        for column in annotation_columns
-    ])
-    w.writerow(total_row)
-
-    csv_bytes = output.getvalue().encode("utf-8")
-    filename = (
-        f"annotation-totals_{start_day.isoformat()}_to_"
-        f"{end_day.isoformat()}.csv"
-    )
-    return Response(csv_bytes,
-                    mimetype="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 # -------------------- Overtime finder (admin/editor) --------------------
@@ -8033,87 +7939,6 @@ def _leave_summary_for_month(year: int, month: int, watch_id: int | None = None)
     )
 
 
-def _report_watch_selection():
-    unit_id = _current_unit_id()
-    watches = (
-        Watch.query
-        .filter(Watch.unit_id == unit_id)
-        .order_by(Watch.order_index, Watch.name)
-        .all()
-    )
-    raw_watch_id = (request.args.get("watch_id") or "").strip()
-    if not raw_watch_id:
-        return watches, None
-    try:
-        watch_id = int(raw_watch_id)
-    except ValueError:
-        abort(400, "Invalid watch.")
-    selected_watch = next((watch for watch in watches if watch.id == watch_id), None)
-    if selected_watch is None:
-        abort(404)
-    return watches, selected_watch
-
-
-@app.route("/reports/leave/<ym>")
-@login_required
-def report_leave(ym):
-    if not is_admin_user(current_user):
-        abort(403)
-    acknowledgement = _require_reports_sensitive_data_acknowledgement()
-    if acknowledgement:
-        return acknowledgement
-    year, month = parse_ym(ym)
-    ensure_month_requirement(year, month)
-    generate_month(year, month)
-    watches, selected_watch = _report_watch_selection()
-    rows, codes, totals, grand_total, days = _leave_summary_for_month(
-        year, month, selected_watch.id if selected_watch else None)
-    month_title = datetime(year, month, 1).strftime("%B %Y")
-    return render_template("report_leave.html",
-                           ym=ym, year=year, month=month, month_title=month_title,
-                           rows=rows, codes=codes,
-                           totals=totals, grand_total=grand_total,
-                           watches=watches, selected_watch=selected_watch)
-
-
-@app.route("/reports/leave.csv")
-@login_required
-def report_leave_csv():
-    if not is_admin_user(current_user):
-        abort(403)
-    acknowledgement = _require_reports_sensitive_data_acknowledgement()
-    if acknowledgement:
-        return acknowledgement
-    ym = request.args.get("ym")
-    if not ym:
-        abort(400)
-    year, month = parse_ym(ym)
-    ensure_month_requirement(year, month)
-    generate_month(year, month)
-    watches, selected_watch = _report_watch_selection()
-    rows, codes, totals, grand_total, days = _leave_summary_for_month(
-        year, month, selected_watch.id if selected_watch else None)
-
-    output = io.StringIO()
-    w = csv.writer(output)
-    w.writerow(["Name", "Staff #", "Watch", *codes, "Total"])
-    for r in rows:
-        s = r["staff"]
-        watch = s.watch.name.replace("Watch ", "") if s.watch else "-"
-        w.writerow([s.name, s.staff_no, watch, *[r["counts"].get(c, 0)
-                   for c in codes], r["total"]])
-    w.writerow([])
-    w.writerow(["Totals", "", "", *[totals.get(c, 0)
-               for c in codes], grand_total])
-
-    csv_bytes = output.getvalue().encode("utf-8")
-    watch_suffix = f"_watch-{selected_watch.id}" if selected_watch else ""
-    filename = f"leave_{year:04d}-{month:02d}{watch_suffix}.csv"
-    return Response(csv_bytes,
-                    mimetype="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f"attachment; filename={filename}"})
-
-
 # ===== Leave-Year report (per-person config; AL only; includes TOIL days) =====
 # (unchanged from your post)
 
@@ -8160,115 +7985,11 @@ def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_da
     return acc, use
 
 
-@app.route("/reports/leave-year")
-@login_required
-def report_leave_year():
-    if not is_admin_user(current_user):
-        abort(403)
-    acknowledgement = _require_reports_sensitive_data_acknowledgement()
-    if acknowledgement:
-        return acknowledgement
-    today = date.today()
-    unit_id = _current_unit_id()
-    watches, selected_watch = _report_watch_selection()
-    people_query = (
-        Staff.query
-        .filter(Staff.unit_id == unit_id)
-        .outerjoin(Watch, Staff.watch_id == Watch.id)
-    )
-    if selected_watch:
-        people_query = people_query.filter(Staff.watch_id == selected_watch.id)
-    people = people_query.order_by(Watch.order_index, Staff.name).all()
-    rows = []
-    for s in people:
-        start, end = _current_leave_year_window(s, today)
-        q = (Assignment.query
-             .filter(Assignment.staff_id == s.id,
-                     Assignment.day >= start,
-                     Assignment.day <= end))
-        al_taken = sum(1 for a in q.all() if a.code == "AL")
-        entitlement = (s.leave_entitlement_days or 0)
-        ph = (s.leave_public_holidays or 0)
-        carry = (s.leave_carryover_days or 0)
-        remaining = entitlement + ph + carry - al_taken
-        acc_half, use_half = _toil_accrued_used_in_range_half_days(
-            s.id, start, end)
-        rows.append({
-            "staff": s,
-            "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
-            "leave_year_start": start,
-            "leave_year_end": end,
-            "entitlement": entitlement,
-            "public_holidays": ph,
-            "carryover": carry,
-            "al_taken": al_taken,
-            "remaining": remaining,
-            "toil_accrued_days": acc_half / 2.0,
-            "toil_used_days": use_half / 2.0,
-            "toil_balance_days": (s.toil_half_days or 0) / 2.0,
-        })
-    return render_template(
-        "report_leave_year.html",
-        rows=rows,
-        today=today,
-        watches=watches,
-        selected_watch=selected_watch,
-    )
-
-
 # ===== Sickness Report (unchanged) =====
 
 
 def _group_consecutive_days(days_set):
     return group_consecutive_days(days_set)
-
-
-@app.route("/reports/sickness")
-@login_required
-def report_sickness():
-    if not is_admin_user(current_user):
-        abort(403)
-    acknowledgement = _require_reports_sensitive_data_acknowledgement()
-    if acknowledgement:
-        return acknowledgement
-    today = date.today()
-    start = today - timedelta(days=365)
-    unit_id = _current_unit_id()
-    watches, selected_watch = _report_watch_selection()
-    people_query = (
-        Staff.query
-        .filter(Staff.unit_id == unit_id)
-        .outerjoin(Watch, Staff.watch_id == Watch.id)
-    )
-    if selected_watch:
-        people_query = people_query.filter(Staff.watch_id == selected_watch.id)
-    people = people_query.order_by(Watch.order_index, Staff.name).all()
-    sickness_types = get_absence_types("sickness", active_only=True)
-    codes = [item["code"] for item in sickness_types]
-    rows = []
-    totals = Counter()
-    for s in people:
-        q = (Assignment.query
-             .filter(Assignment.unit_id == unit_id,
-                     Assignment.staff_id == s.id,
-                     Assignment.day >= start,
-                     Assignment.day <= today))
-        assignments = [a for a in q.all() if a.code in codes]
-        sick_days = sorted(a.day for a in assignments)
-        counts = Counter(a.code for a in assignments)
-        totals.update(counts)
-        total = len(sick_days)
-        groups = _group_consecutive_days(set(sick_days))
-        rows.append({
-            "staff": s, "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
-            "total": total, "groups": groups, "counts": counts,
-        })
-    return render_template(
-        "report_sickness.html", start=start, end=today, rows=rows,
-        sickness_types=sickness_types, totals=totals,
-        watches=watches, selected_watch=selected_watch,
-        has_sickness=any(row["total"] > 0 for row in rows),
-    )
 
 
 # -------------------- Request Sheets (shift requests) --------------------
@@ -10753,72 +10474,6 @@ def admin_toil_new():
         return redirect(url_for("admin_toil_new"))
     return render_template("admin_toil_new.html", atcos=atcos)
 
-# -------------------- Reports hub --------------------
-
-
-@app.route("/reports", methods=["GET", "POST"])
-@login_required
-def reports_index():
-    can_view_reports = (
-        is_admin_user(current_user)
-        or getattr(current_user, "role", "") in ("editor", "admin")
-    )
-    if not can_view_reports:
-        abort(403)
-
-    if request.method == "POST":
-        _validate_csrf()
-        session["reports_sensitive_data_ack"] = _reports_acknowledgement_key()
-        # Permit exactly the redirect that opens the reports hub. A later
-        # navigation back to /reports is a new entry and must show the privacy
-        # warning again.
-        session["reports_sensitive_data_hub_entry"] = _reports_acknowledgement_key()
-        return redirect(url_for("reports_index"))
-
-    if not _reports_sensitive_data_acknowledged():
-        return render_template(
-            "reports_index.html",
-            requires_acknowledgement=True,
-        )
-
-    hub_entry_key = session.pop("reports_sensitive_data_hub_entry", None)
-    if hub_entry_key != _reports_acknowledgement_key():
-        session.pop("reports_sensitive_data_ack", None)
-        return render_template(
-            "reports_index.html",
-            requires_acknowledgement=True,
-        )
-
-    # Admin: show the hub
-    if is_admin_user(current_user):
-        today = date.today()
-        month_title = datetime(today.year, today.month, 1).strftime("%B %Y")
-        links = {
-            "leave_year": url_for("report_leave_year"),
-            "sickness": url_for("report_sickness"),
-            "roster": url_for("roster_month", ym=f"{today.year}-{today.month:02d}"),
-            "metrics": url_for("metrics"),
-        }
-        months = []  # hide month selector
-        return render_template(
-            "reports_index.html",
-            ym=f"{today.year}-{today.month:02d}",
-            year=today.year,
-            month=today.month,
-            month_title=month_title,
-            months=months,
-            links=links,
-            page_title="Annotation Totals",
-            requires_acknowledgement=False,
-        )
-
-    # Editor: annotation totals only
-    if getattr(current_user, "role", "") in ("editor", "admin"):
-        return redirect(url_for("metrics"))
-
-    abort(403)
-
-
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
 
@@ -11668,6 +11323,7 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 # -------------------- Run --------------------
 
 from auth_blueprint import AuthDependencies, create_auth_blueprint
+from reports_blueprint import ReportsDependencies, create_reports_blueprint
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
     db=db,
@@ -11690,6 +11346,25 @@ app.register_blueprint(create_auth_blueprint(AuthDependencies(
     airport_login_endpoint=_airport_login_endpoint,
     initialize_authenticated_session=_initialize_authenticated_session,
     record_successful_login=_record_successful_login,
+)))
+app.register_blueprint(create_reports_blueprint(ReportsDependencies(
+    Assignment=Assignment,
+    Staff=Staff,
+    Watch=Watch,
+    is_admin_user=is_admin_user,
+    current_unit_id=_current_unit_id,
+    validate_csrf=_validate_csrf,
+    consume_rate_limit=_consume_rate_limit,
+    compute_metrics_range=_compute_metrics_range,
+    financial_year_start=_fy_start_for,
+    parse_year_month=parse_ym,
+    ensure_month_requirement=ensure_month_requirement,
+    generate_month=generate_month,
+    leave_summary_for_month=_leave_summary_for_month,
+    current_leave_year_window=_current_leave_year_window,
+    toil_accrued_used=_toil_accrued_used_in_range_half_days,
+    group_consecutive_days=_group_consecutive_days,
+    get_absence_types=get_absence_types,
 )))
 app.register_blueprint(briefing_blueprint)
 
