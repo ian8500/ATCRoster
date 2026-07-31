@@ -25,3 +25,11 @@ def test_training_routes_are_owned_outside_legacy_module():
     for path, _methods in ENDPOINTS.values():
         assert f'@app.route("{path}"' not in source
         assert f'@app.get("{path}"' not in source
+
+
+def test_training_dashboard_handlers_are_no_longer_in_legacy_module():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "app.py").read_text()
+    assert "def training_home():" not in source
+    assert "def training_profile(" not in source
