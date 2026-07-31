@@ -35,8 +35,6 @@
   }
 </style>
 <script nonce="{{ csp_nonce() }}">
-  function doPrint(){ window.print(); }
-
   function toggleNoIssueRows(cbId, tableId){
     const checked = document.getElementById(cbId).checked;
     const rows = document.querySelectorAll(`#${tableId} tbody tr`);
@@ -79,12 +77,12 @@
 
 {% block content %}
 <div class="page-wrap">
+  {% include "_report_actions.html" %}
   <section class="compliance-hero">
     <div><span class="admin-step">Fatigue reporting</span><h2>Fatigue findings · {{ month_title }}</h2><p>Review explainable roster warnings by controller and day.</p></div>
     <div class="compliance-actions">
       <a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a>
       <a class="btn" href="{{ url_for('roster_month', ym=ym) }}">Back to roster</a>
-      <button class="btn" type="button" data-command="print-fatigue">Print</button>
     </div>
   </section>
 

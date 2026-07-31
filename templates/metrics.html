@@ -3,6 +3,7 @@
 
 {% block content %}
 <div class="page-shell">
+  {% include "_report_actions.html" %}
   <section class="compliance-hero">
     <div><span class="admin-step">Roster reporting</span><h2>Annotation totals</h2><p>Each column follows this airport’s configured annotations. Retired annotations remain visible as historical data.</p></div>
     <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Training analytics{% endblock %}
 {% block content %}
+{% include "_report_actions.html" %}
 <section class="training-hero"><div><span class="admin-step">Management insight</span><h2>Training analytics</h2><p>Attainment trends, objective coverage and instructor hours.</p></div><div class="training-total"><span>Reports</span><strong>{{ sessions|length }}</strong></div></section>
 <section class="analytics-layout">
   <article class="card"><div class="card-hd">Attainment by objective</div><div class="card-bd analytics-bars">
