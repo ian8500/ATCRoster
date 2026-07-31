@@ -202,7 +202,7 @@ REQUEST_TRANSITIONS = {
 PLATFORM_FEATURE_FLAGS = frozenset({
     "advanced_coverage", "scenario_planning", "calendar_exports",
     "fatigue_reporting", "custom_branding", "briefing_module",
-    "training_module", "competency_module",
+    "training_module", "competency_module", "live_position_monitoring",
 })
 
 
@@ -707,6 +707,7 @@ _LOGIN_NEXT_ENDPOINTS = {
     "/training/": "training_home",
     "/competency/": "competency_home",
     "/admin": "admin",
+    "/administration": "administration_home",
     "/leave": "leave",
     "/messages": "unit_messages",
     "/overtime": "overtime",
@@ -2346,6 +2347,12 @@ def competency_enabled(unit_id: int) -> bool:
     # Existing airports inherit their current combined-module entitlement
     # until Super Admin explicitly chooses a separate competency setting.
     return bool(row.enabled) if row else training_enabled(unit_id)
+
+
+def live_position_enabled(unit_id: int) -> bool:
+    return bool(FeatureFlag.query.filter_by(
+        unit_id=unit_id, key="live_position_monitoring", enabled=True
+    ).first())
 
 
 def can_edit_roster(u) -> bool:
@@ -4733,6 +4740,7 @@ def inject_perms():
     has_briefing_module = False
     has_training_module = False
     has_competency_module = False
+    has_live_position_module = False
     active_admin_count = 0
     if current_unit and au and is_admin_user(au):
         active_admin_count = Staff.query.filter(
@@ -4753,6 +4761,7 @@ def inject_perms():
         has_briefing_module = briefing_enabled(current_unit.id)
         has_training_module = training_enabled(current_unit.id)
         has_competency_module = competency_enabled(current_unit.id)
+        has_live_position_module = live_position_enabled(current_unit.id)
         if (
             has_briefing_module
             and (
@@ -4792,6 +4801,7 @@ def inject_perms():
         "has_briefing_module": has_briefing_module,
         "has_training_module": has_training_module,
         "has_competency_module": has_competency_module,
+        "has_live_position_module": has_live_position_module,
         "active_admin_count": active_admin_count,
         "current_unit": current_unit,
         "unit_branding": {
@@ -4825,7 +4835,18 @@ def module_home():
         show_briefing=briefing_enabled(current_user.unit_id),
         show_training=training_enabled(current_user.unit_id),
         show_competency=competency_enabled(current_user.unit_id),
-        show_live_position=is_admin_user(current_user),
+        show_administration=is_admin_user(current_user),
+    )
+
+
+@app.get("/administration")
+@login_required
+@admin_required
+def administration_home():
+    """Shared administration, separate from module-specific configuration."""
+    return render_template(
+        "administration_home.html",
+        show_live_position=live_position_enabled(current_user.unit_id),
     )
 
 
@@ -9539,6 +9560,7 @@ app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     ControllerKioskCredential=ControllerKioskCredential,
     PositionEndorsement=PositionEndorsement, Staff=Staff,
     utcnow=utcnow, is_admin_user=is_admin_user,
+    live_position_enabled=live_position_enabled,
     consume_rate_limit=_consume_rate_limit, reset_rate_limit=_reset_rate_limit,
     security_event=_security_event,
 )))

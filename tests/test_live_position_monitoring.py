@@ -70,6 +70,9 @@ def live_position_data():
             [unit, kiosk, controller, supporter, admin, position, role]
         )
         app.db.session.flush()
+        app.db.session.add(
+            app.FeatureFlag(unit_id=1, key="live_position_monitoring", enabled=True)
+        )
         identity = app.PlatformIdentity(
             public_id="test-position-screen",
             username=kiosk.username,
@@ -364,10 +367,13 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
     )
     assert response.status_code == 302
     finish_operational_login(client)
-    module = client.get("/live-positions/")
-    assert module.status_code == 200
-    assert b"/live-positions/admin/positions" in module.data
-    assert b"Coming in the next build stage" in module.data
+    home = client.get("/modules")
+    assert home.status_code == 200
+    assert b"Administration" in home.data
+    administration = client.get("/administration")
+    assert administration.status_code == 200
+    assert b"/live-positions/admin/positions" in administration.data
+    assert client.get("/live-positions/kiosk").status_code == 403
     page = client.get("/live-positions/admin/positions")
     assert page.status_code == 200
     with client.session_transaction() as session:
@@ -407,3 +413,24 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
         configured = app.OperationalPosition.query.filter_by(code="GMC").one()
         assert configured.label == "Ground Movement Control"
         assert configured.currency_category_id == category_id
+
+
+def test_live_position_module_must_be_enabled(live_position_data):
+    with app.app.app_context():
+        app.FeatureFlag.query.filter_by(
+            unit_id=1, key="live_position_monitoring"
+        ).delete()
+        app.db.session.commit()
+    client = app.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    client.post(
+        "/login",
+        data={
+            "_csrf_token": csrf,
+            "username": "position-screen",
+            "password": "secure-kiosk-password",
+        },
+    )
+    assert client.get("/live-positions/kiosk").status_code == 404
