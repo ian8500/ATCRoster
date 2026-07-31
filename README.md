@@ -602,7 +602,7 @@ fallback secret in production.
 
 ### Supported Python versions
 
-Python 3.12 is the production and CI runtime. A newer Python major version
+Python 3.14 is the production and CI runtime. A newer Python major version
 must not be adopted through an automated dependency update: it requires a
 dedicated compatibility pull request that builds the production image and
 passes the complete web, PostgreSQL, Redis, worker and desktop test matrix.
