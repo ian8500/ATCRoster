@@ -47,7 +47,7 @@ class OperationsDependencies:
     month_range: Callable
     shift_counter_group_for_day: Callable
     staff_has_shift_qualification: Callable
-    scenarios_page: Callable
+    Scenario: Any
 
 
 def create_operations_blueprint(dependencies: OperationsDependencies) -> Blueprint:
@@ -386,6 +386,97 @@ def create_operations_blueprint(dependencies: OperationsDependencies) -> Bluepri
             competence_exclusions=competence_exclusions,
         )
 
+    @login_required
+    def scenarios_page():
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        unit_id = dependencies.current_unit_id()
+        if request.method == "POST":
+            dependencies.validate_csrf()
+            changes = (request.form.get("changes_json") or "").strip()
+            if not changes:
+                changes = json.dumps(
+                    [
+                        {
+                            "staff_id": request.form.get("staff_id"),
+                            "day": request.form.get("day"),
+                            "code": request.form.get("code"),
+                        }
+                    ]
+                )
+            try:
+                parsed = json.loads(changes)
+                if not isinstance(parsed, list):
+                    raise ValueError
+            except ValueError, json.JSONDecodeError:
+                abort(400, "Scenario changes must be a JSON list")
+            evaluated = []
+            for change in parsed:
+                if not isinstance(change, dict):
+                    abort(400, "Each scenario change must be an object.")
+                item = dict(change)
+                reasons = []
+                try:
+                    person_id = int(item.get("staff_id"))
+                    duty_date = date.fromisoformat(str(item.get("day") or ""))
+                except TypeError, ValueError:
+                    abort(400, "Scenario staff and dates must be valid.")
+                person = dependencies.Staff.query.filter_by(
+                    id=person_id, unit_id=unit_id, is_operational=True
+                ).first()
+                shift = dependencies.ShiftType.query.filter_by(
+                    unit_id=unit_id,
+                    code=str(item.get("code") or "").upper(),
+                    is_active=True,
+                ).first()
+                if not person:
+                    reasons.append("Person is unavailable in this airport.")
+                if not shift:
+                    reasons.append("Shift is unavailable in this airport.")
+                if (
+                    person
+                    and shift
+                    and not dependencies.staff_has_shift_qualification(
+                        person, shift, duty_date
+                    )
+                ):
+                    reasons.append("Required qualification is not valid.")
+                item["eligibility"] = {
+                    "eligible": not reasons,
+                    "reasons": reasons,
+                }
+                evaluated.append(item)
+            scenario = dependencies.Scenario(
+                unit_id=unit_id,
+                name=(request.form.get("name") or "Untitled scenario")[:120],
+                changes_json=json.dumps(evaluated),
+                created_by_id=current_user.id,
+            )
+            dependencies.db.session.add(scenario)
+            dependencies.db.session.commit()
+            flash("Scenario saved without changing the live roster.", "ok")
+            return redirect(url_for("scenarios_page"))
+        rows = (
+            dependencies.Scenario.query.filter_by(unit_id=unit_id)
+            .order_by(dependencies.Scenario.id.desc())
+            .all()
+        )
+        people = (
+            dependencies.Staff.query.filter_by(unit_id=unit_id, is_operational=True)
+            .order_by(dependencies.Staff.name)
+            .all()
+        )
+        shifts = (
+            dependencies.ShiftType.query.filter_by(unit_id=unit_id, is_active=True)
+            .order_by(dependencies.ShiftType.code)
+            .all()
+        )
+        return render_template(
+            "scenarios.html", scenarios=rows, people=people, shifts=shifts
+        )
+
+    # -------------------- Manual TOIL entry page (no bulk seed in UI) --------------------
+
     @blueprint.record_once
     def register_routes(state):
         routes = (
@@ -404,7 +495,7 @@ def create_operations_blueprint(dependencies: OperationsDependencies) -> Bluepri
             (
                 "/planning/scenarios",
                 "scenarios_page",
-                dependencies.scenarios_page,
+                scenarios_page,
                 ["GET", "POST"],
             ),
         )
