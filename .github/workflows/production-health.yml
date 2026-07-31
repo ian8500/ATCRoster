@@ -37,6 +37,17 @@ jobs:
             --max-time 15 "$PRODUCTION_ORIGIN/login")"
           grep -Fq "<title>Login" <<<"$login"
 
+          apex_headers="$(curl --fail --show-error --silent --head \
+            --retry 3 --retry-all-errors --retry-delay 5 \
+            --max-time 15 https://atcroster.com)"
+          grep -Eiq '^location: https://www\.atcroster\.com/?\r?$' \
+            <<<"$apex_headers"
+
+          openssl x509 -checkend 1209600 -noout \
+            -in <(echo | openssl s_client \
+              -servername atcroster.com \
+              -connect atcroster.com:443 2>/dev/null)
+
           certificate_expiry="$(echo | openssl s_client \
             -servername www.atcroster.com \
             -connect www.atcroster.com:443 2>/dev/null |
