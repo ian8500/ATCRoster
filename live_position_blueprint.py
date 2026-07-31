@@ -468,7 +468,25 @@ def create_live_position_blueprint(
         person_summary: dict[int, dict[str, Any]] = {}
         position_summary: dict[int, dict[str, Any]] = {}
         instruction_summary: dict[int, dict[str, Any]] = {}
+        report_totals: dict[str, Any] = {
+            "roles": {},
+            "controller_activity": 0,
+            "occupied": 0,
+            "instruction": 0,
+            "people": set(),
+            "sessions": set(),
+        }
         for row in activity:
+            report_totals["roles"][row["role"]] = (
+                report_totals["roles"].get(row["role"], 0) + row["minutes"]
+            )
+            report_totals["controller_activity"] += row["minutes"]
+            report_totals["people"].add(row["person"].id)
+            report_totals["sessions"].add(row["session_id"])
+            if row["role"] in {"solo", "under_training", "under_assessment"}:
+                report_totals["occupied"] += row["minutes"]
+            if row["role"] in {"ojti", "assessor"}:
+                report_totals["instruction"] += row["minutes"]
             person_total = person_summary.setdefault(
                 row["person"].id,
                 {"person": row["person"], "roles": {}, "total": 0},
@@ -479,11 +497,18 @@ def create_live_position_blueprint(
             person_total["total"] += row["minutes"]
             position_total = position_summary.setdefault(
                 row["position"].id,
-                {"position": row["position"], "roles": {}, "total": 0, "people": set()},
+                {
+                    "position": row["position"],
+                    "roles": {},
+                    "total": 0,
+                    "people": set(),
+                    "sessions": set(),
+                },
             )
             position_total["roles"][row["role"]] = (
                 position_total["roles"].get(row["role"], 0) + row["minutes"]
             )
+            position_total["sessions"].add(row["session_id"])
             if row["role"] in {"solo", "under_training", "under_assessment"}:
                 position_total["total"] += row["minutes"]
                 position_total["people"].add(row["person"].id)
@@ -520,6 +545,7 @@ def create_live_position_blueprint(
             instruction_summary=sorted(
                 instruction_summary.values(), key=lambda row: row["person"].name
             ),
+            report_totals=report_totals,
             people=people,
             watches=watches,
             positions=positions,
