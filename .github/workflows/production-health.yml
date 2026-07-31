@@ -37,11 +37,11 @@ jobs:
             --max-time 15 "$PRODUCTION_ORIGIN/login")"
           grep -Fq "<title>Login" <<<"$login"
 
-          apex_headers="$(curl --fail --show-error --silent --head \
+          apex_destination="$(curl --fail --show-error --silent --location \
             --retry 3 --retry-all-errors --retry-delay 5 \
-            --max-time 15 https://atcroster.com)"
-          grep -Eiq '^location: https://www\.atcroster\.com/?\r?$' \
-            <<<"$apex_headers"
+            --max-time 15 --output /dev/null --write-out '%{url_effective}' \
+            https://atcroster.com)"
+          [[ "$apex_destination" == "https://www.atcroster.com/" ]]
 
           openssl x509 -checkend 1209600 -noout \
             -in <(echo | openssl s_client \
