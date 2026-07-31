@@ -8590,44 +8590,6 @@ def _position_assurance(year: int, month: int) -> list[dict]:
 
 
 @login_required
-def coverage_heatmap(ym):
-    if not can_edit_roster(current_user):
-        abort(403)
-    year, month = parse_ym(ym)
-    start, days = month_range(year, month)
-    end = days[-1]
-    counts = defaultdict(Counter)
-    competence_exclusions = defaultdict(Counter)
-    assignments = Assignment.query.filter(
-        Assignment.unit_id == _current_unit_id(),
-        Assignment.day >= start, Assignment.day <= end,
-    ).all()
-    for assignment in assignments:
-        shift = ShiftType.query.filter_by(
-            unit_id=_current_unit_id(), code=assignment.code
-        ).first()
-        group = shift_counter_group_for_day(
-            assignment.code, assignment.day, _current_unit_id()
-        )
-        if not group:
-            continue
-        if (
-            shift
-            and shift.required_qualification
-            and not _staff_has_shift_qualification(
-                assignment.staff, shift, assignment.day
-            )
-        ):
-            competence_exclusions[assignment.day][group] += 1
-            continue
-        counts[assignment.day][group] += 1
-    return render_template(
-        "coverage_heatmap.html", days=days, counts=counts, ym=ym,
-        competence_exclusions=competence_exclusions,
-    )
-
-
-@login_required
 def scenarios_page():
     if not can_edit_roster(current_user):
         abort(403)
@@ -9763,7 +9725,11 @@ app.register_blueprint(create_operations_blueprint(OperationsDependencies(
     log_change=log_change,
     month_add=_month_add,
     position_assurance=_position_assurance,
-    coverage_heatmap=coverage_heatmap,
+    can_edit_roster=can_edit_roster,
+    parse_year_month=parse_ym,
+    month_range=month_range,
+    shift_counter_group_for_day=shift_counter_group_for_day,
+    staff_has_shift_qualification=_staff_has_shift_qualification,
     scenarios_page=scenarios_page,
 )))
 app.register_blueprint(briefing_blueprint)

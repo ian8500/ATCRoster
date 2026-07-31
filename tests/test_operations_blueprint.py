@@ -28,3 +28,10 @@ def test_operations_handler_is_no_longer_in_legacy_module():
 
     source = (Path(__file__).parents[1] / "app.py").read_text()
     assert "def operations_assurance(" not in source
+
+
+def test_coverage_handler_is_no_longer_in_legacy_module():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "app.py").read_text()
+    assert "def coverage_heatmap(" not in source

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time
 import json
@@ -41,7 +42,11 @@ class OperationsDependencies:
     log_change: Callable
     month_add: Callable
     position_assurance: Callable
-    coverage_heatmap: Callable
+    can_edit_roster: Callable
+    parse_year_month: Callable
+    month_range: Callable
+    shift_counter_group_for_day: Callable
+    staff_has_shift_qualification: Callable
     scenarios_page: Callable
 
 
@@ -340,6 +345,47 @@ def create_operations_blueprint(dependencies: OperationsDependencies) -> Bluepri
             .all(),
         )
 
+    @login_required
+    def coverage_heatmap(ym):
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        year, month = dependencies.parse_year_month(ym)
+        start, days = dependencies.month_range(year, month)
+        end = days[-1]
+        counts = defaultdict(Counter)
+        competence_exclusions = defaultdict(Counter)
+        assignments = dependencies.Assignment.query.filter(
+            dependencies.Assignment.unit_id == dependencies.current_unit_id(),
+            dependencies.Assignment.day >= start,
+            dependencies.Assignment.day <= end,
+        ).all()
+        for assignment in assignments:
+            shift = dependencies.ShiftType.query.filter_by(
+                unit_id=dependencies.current_unit_id(), code=assignment.code
+            ).first()
+            group = dependencies.shift_counter_group_for_day(
+                assignment.code, assignment.day, dependencies.current_unit_id()
+            )
+            if not group:
+                continue
+            if (
+                shift
+                and shift.required_qualification
+                and not dependencies.staff_has_shift_qualification(
+                    assignment.staff, shift, assignment.day
+                )
+            ):
+                competence_exclusions[assignment.day][group] += 1
+                continue
+            counts[assignment.day][group] += 1
+        return render_template(
+            "coverage_heatmap.html",
+            days=days,
+            counts=counts,
+            ym=ym,
+            competence_exclusions=competence_exclusions,
+        )
+
     @blueprint.record_once
     def register_routes(state):
         routes = (
@@ -352,7 +398,7 @@ def create_operations_blueprint(dependencies: OperationsDependencies) -> Bluepri
             (
                 "/planning/coverage/<ym>",
                 "coverage_heatmap",
-                dependencies.coverage_heatmap,
+                coverage_heatmap,
                 ["GET"],
             ),
             (
