@@ -8589,7 +8589,6 @@ def _position_assurance(year: int, month: int) -> list[dict]:
     return rows
 
 
-@app.route("/operations/<ym>", methods=["GET", "POST"])
 @login_required
 def operations_assurance(ym):
     if not is_admin_user(current_user):
@@ -8791,7 +8790,6 @@ def operations_assurance(ym):
     )
 
 
-@app.route("/planning/coverage/<ym>")
 @login_required
 def coverage_heatmap(ym):
     if not can_edit_roster(current_user):
@@ -8830,7 +8828,6 @@ def coverage_heatmap(ym):
     )
 
 
-@app.route("/planning/scenarios", methods=["GET", "POST"])
 @login_required
 def scenarios_page():
     if not can_edit_roster(current_user):
@@ -9802,6 +9799,7 @@ from absence_requests_blueprint import (
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
 from training_blueprint import TrainingDependencies, create_training_blueprint
+from operations_blueprint import OperationsDependencies, create_operations_blueprint
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
     db=db,
@@ -9945,6 +9943,11 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     record_qualification_history=_record_qualification_history,
     sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
     TrainingObjective=TrainingObjective,
+)))
+app.register_blueprint(create_operations_blueprint(OperationsDependencies(
+    operations_assurance=operations_assurance,
+    coverage_heatmap=coverage_heatmap,
+    scenarios_page=scenarios_page,
 )))
 app.register_blueprint(briefing_blueprint)
 
