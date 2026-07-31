@@ -32,7 +32,9 @@
   </header>
   <main>
     <div id="live-position-warning" class="live-position-kiosk__warning" hidden></div>
-    <section id="live-position-grid" class="live-position-groups" aria-live="polite"></section>
+    <div id="live-position-board-viewport" class="live-position-board-viewport">
+      <section id="live-position-grid" class="live-position-groups" aria-live="polite"></section>
+    </div>
   </main>
   <dialog id="live-position-dialog" class="live-position-dialog">
     <form id="live-position-action-form">
@@ -71,6 +73,7 @@
   <script nonce="{{ csp_nonce() }}">
   (() => {
     const grid = document.getElementById('live-position-grid');
+    const boardViewport = document.getElementById('live-position-board-viewport');
     const connection = document.getElementById('live-position-connection');
     const refreshed = document.getElementById('live-position-refresh');
     const clock = document.getElementById('live-position-clock');
@@ -112,6 +115,25 @@
     document.addEventListener('fullscreenchange', updateKioskLaunch);
     document.addEventListener('webkitfullscreenchange', updateKioskLaunch);
     updateKioskLaunch();
+    let fitFrame = 0;
+    const fitBoard = () => {
+      cancelAnimationFrame(fitFrame);
+      fitFrame = requestAnimationFrame(() => {
+        grid.style.transform = 'none';
+        const scale = Math.min(
+          1,
+          boardViewport.clientWidth / Math.max(1, grid.scrollWidth),
+          boardViewport.clientHeight / Math.max(1, grid.scrollHeight),
+        );
+        grid.style.transform = `scale(${scale})`;
+        grid.dataset.scale = scale.toFixed(3);
+      });
+    };
+    window.addEventListener('resize', fitBoard);
+    window.addEventListener('orientationchange', fitBoard);
+    document.addEventListener('fullscreenchange', fitBoard);
+    document.addEventListener('webkitfullscreenchange', fitBoard);
+    if (window.ResizeObserver) new ResizeObserver(fitBoard).observe(boardViewport);
     const escapeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const render = (payload) => {
       const serverTime = Date.parse(payload.server_time);
@@ -147,6 +169,7 @@
       connection.innerHTML = '<span aria-hidden="true">●</span> Connected';
       connection.classList.add('is-connected');
       refreshed.textContent = `Last refreshed ${new Date().toLocaleTimeString('en-GB')}`;
+      fitBoard();
     };
     const loadPeople = async () => {
       const response = await fetch('{{ url_for("live_position.controllers") }}', {headers: {'Accept': 'application/json'}});
