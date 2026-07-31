@@ -7,7 +7,7 @@
     {% if target_person %}
       <p>Your roster profile for <strong>{{ target_person.name }}</strong> is already configured. This invitation only adds secure account access.</p>
     {% else %}
-      <p>You have been invited as {{ invitation.role }}. This link is single-use.</p>
+      <p>{% if invitation.role == 'PositionMonitor' %}Create the dedicated Live Position kiosk account. It can only access the shared operational display.{% else %}You have been invited as {{ invitation.role }}. This link is single-use.{% endif %}</p>
     {% endif %}
     <form method="post" class="stack">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -17,7 +17,7 @@
         <label>Name<input name="name" maxlength="80" required autocomplete="name"></label>
       {% endif %}
       <label>Username<input name="username" minlength="3" maxlength="120" required autocomplete="username"></label>
-      <label>Email address<input type="email" name="email" maxlength="254" required autocomplete="email"></label>
+      <label>{{ 'Recovery email address' if invitation.role == 'PositionMonitor' else 'Email address' }}<input type="email" name="email" maxlength="254" required autocomplete="email"></label>
       <label>Password<input type="password" name="password" minlength="12" required autocomplete="new-password"></label>
       <button class="btn btn-primary" type="submit">Activate account access</button>
     </form>
