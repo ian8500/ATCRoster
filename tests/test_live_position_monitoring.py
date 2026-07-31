@@ -212,6 +212,7 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"position?.participants.length" in kiosk_page.data
     assert b"data-elapsed-from" in kiosk_page.data
     assert b"data-remaining-from" in kiosk_page.data
+    assert b"group.positions.length} position" not in kiosk_page.data
     assert b'id="live-position-kiosk-logout"' in kiosk_page.data
     assert b"kioskLogout.requestSubmit()" in kiosk_page.data
     assert b"Log out</button>" not in kiosk_page.data
