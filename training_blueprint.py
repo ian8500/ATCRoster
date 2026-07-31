@@ -33,8 +33,13 @@ class TrainingDependencies:
     is_under_training: Callable
     training_profile_allowed: Callable
     validate_csrf: Callable
-    competency_home: Callable
-    competency_profile: Callable
+    QualificationType: Any
+    PersonQualification: Any
+    competency_enabled: Callable
+    is_admin_user: Callable
+    utcnow: Callable
+    record_qualification_history: Callable
+    sync_qualification_to_roster_profile: Callable
     training_admin: Callable
     training_analytics: Callable
 
@@ -195,6 +200,102 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
             can_record=dependencies.can_record_training(current_user),
         )
 
+    @login_required
+    def competency_home():
+        unit_id = dependencies.current_unit_id()
+        if not dependencies.competency_enabled(unit_id):
+            abort(404)
+        can_view_people = bool(
+            dependencies.is_editor_user(current_user)
+            or dependencies.can_manage_training(current_user)
+            or dependencies.can_record_training(current_user)
+        )
+        people = []
+        if can_view_people:
+            people = (
+                dependencies.Staff.query.filter_by(unit_id=unit_id, is_operational=True)
+                .order_by(dependencies.Staff.name)
+                .all()
+            )
+        return render_template(
+            "competency_home.html",
+            people=people,
+            can_view_people=can_view_people,
+        )
+
+    @login_required
+    def competency_profile(sid):
+        unit_id = dependencies.current_unit_id()
+        if not dependencies.competency_enabled(unit_id):
+            abort(404)
+        person = dependencies.Staff.query.filter_by(
+            id=sid, unit_id=unit_id
+        ).first_or_404()
+        if not dependencies.training_profile_allowed(person):
+            abort(403)
+        can_edit = bool(
+            dependencies.is_admin_user(current_user)
+            or getattr(current_user, "has_assessor", False)
+        )
+        qualification_types = (
+            dependencies.QualificationType.query.filter_by(
+                unit_id=unit_id, is_active=True
+            )
+            .order_by(dependencies.QualificationType.label)
+            .all()
+        )
+        if request.method == "POST":
+            dependencies.validate_csrf()
+            if not can_edit:
+                abort(403)
+            person.caa_license_number = (
+                request.form.get("caa_license_number") or ""
+            ).strip()[:40]
+            for qtype in qualification_types:
+                raw = (request.form.get(f"expiry_{qtype.id}") or "").strip()
+                try:
+                    expires_on = date.fromisoformat(raw) if raw else None
+                except ValueError:
+                    abort(400, "Enter valid competency expiry dates.")
+                record = dependencies.PersonQualification.query.filter_by(
+                    unit_id=unit_id,
+                    person_id=person.id,
+                    qualification_type_id=qtype.id,
+                ).first()
+                if not record and expires_on:
+                    record = dependencies.PersonQualification(
+                        unit_id=unit_id,
+                        person_id=person.id,
+                        qualification_type_id=qtype.id,
+                        status="valid",
+                    )
+                    dependencies.db.session.add(record)
+                    dependencies.db.session.flush()
+                if record:
+                    record.expires_on = expires_on
+                    record.updated_at = dependencies.utcnow()
+                    dependencies.record_qualification_history(
+                        record, "competency_updated"
+                    )
+                dependencies.sync_qualification_to_roster_profile(
+                    person, qtype, expires_on
+                )
+            dependencies.db.session.commit()
+            flash("Competency profile updated everywhere.", "ok")
+            return redirect(url_for("competency_profile", sid=person.id))
+        qualification_rows = dependencies.PersonQualification.query.filter_by(
+            unit_id=unit_id, person_id=person.id
+        ).all()
+        return render_template(
+            "competency_profile.html",
+            person=person,
+            qualification_types=qualification_types,
+            qualifications={
+                row.qualification_type_id: row for row in qualification_rows
+            },
+            can_edit=can_edit,
+        )
+
     @blueprint.record_once
     def register_routes(state):
         routes = (
@@ -205,11 +306,11 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
                 training_profile,
                 ["GET", "POST"],
             ),
-            ("/competency/", "competency_home", dependencies.competency_home, ["GET"]),
+            ("/competency/", "competency_home", competency_home, ["GET"]),
             (
                 "/competency/<int:sid>",
                 "competency_profile",
-                dependencies.competency_profile,
+                competency_profile,
                 ["GET", "POST"],
             ),
             (
