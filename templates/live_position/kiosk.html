@@ -146,7 +146,7 @@
           : position.display_status === 'vacant'
             ? '<button class="btn" data-operation="logon">Log on</button><button class="btn btn-secondary" data-operation="close">Close</button>'
             : '<button class="btn" data-operation="handover">Hand over</button><button class="btn btn-secondary" data-operation="logoff">Log off</button><button class="btn btn-secondary" data-operation="logoff_close">Log off & close</button><button class="btn btn-secondary" data-operation="participant">Add secondary</button>';
-        return `<article class="live-position-tile live-position-tile--${escapeText(position.display_status)}" data-position-id="${position.id}" data-position-label="${escapeText(position.code)}">
+        return `<article class="live-position-tile live-position-tile--${escapeText(position.display_status)}" data-position-id="${position.id}" data-position-label="${escapeText(position.code)}" data-primary-id="${occupied ? occupied.id : ''}" data-primary-name="${occupied ? escapeText(occupied.name) : ''}">
           <header><strong>${escapeText(position.code)}</strong><span>${escapeText(label)}</span></header>
           <h2>${escapeText(position.label)}</h2>
           ${occupied ? `<div class="live-position-tile__primary"><strong>${escapeText(occupied.name)}</strong><span data-start="${escapeText(occupied.started_at)}">00:00</span></div>` : '<p>No controller logged on</p>'}
@@ -200,11 +200,19 @@
       document.getElementById('live-position-operation').value = operation;
       document.getElementById('live-position-participant-id').value = button.dataset.participantId || '';
       document.getElementById('live-position-dialog-title').textContent = `${button.textContent.trim()} · ${tile.dataset.positionLabel}`;
-      document.getElementById('live-position-person').innerHTML = '<option value="">Select your name</option>' + people.map((person) => `<option value="${person.id}">${escapeText(person.name)}</option>`).join('');
+      const primarySelect = document.getElementById('live-position-person');
+      primarySelect.innerHTML = '<option value="">Select your name</option>' + people.map((person) => `<option value="${person.id}">${escapeText(person.name)}</option>`).join('');
       const needsPrimary = ['logon', 'handover'].includes(operation);
       const supportsSecondary = needsPrimary || operation === 'participant';
-      document.getElementById('live-position-person-wrap').hidden = !needsPrimary;
-      document.getElementById('live-position-person').required = needsPrimary;
+      if (operation === 'participant' && tile.dataset.primaryId) {
+        if (![...primarySelect.options].some((option) => option.value === tile.dataset.primaryId)) {
+          primarySelect.add(new Option(tile.dataset.primaryName, tile.dataset.primaryId));
+        }
+        primarySelect.value = tile.dataset.primaryId;
+      }
+      document.getElementById('live-position-person-wrap').hidden = !(needsPrimary || operation === 'participant');
+      primarySelect.required = needsPrimary;
+      primarySelect.disabled = operation === 'participant';
       document.getElementById('live-position-support-role-wrap').hidden = !supportsSecondary;
       document.getElementById('live-position-support-role').value = operation === 'participant' ? 'ojti' : '';
       document.getElementById('live-position-support-role').required = operation === 'participant';
