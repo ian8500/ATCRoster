@@ -21,6 +21,40 @@
     <div id="live-position-warning" class="live-position-kiosk__warning" hidden></div>
     <section id="live-position-grid" class="live-position-grid" aria-live="polite"></section>
   </main>
+  <dialog id="live-position-dialog" class="live-position-dialog">
+    <form id="live-position-action-form">
+      <input type="hidden" id="live-position-id">
+      <input type="hidden" id="live-position-operation">
+      <input type="hidden" id="live-position-participant-id">
+      <header>
+        <h2 id="live-position-dialog-title">Position action</h2>
+        <button type="button" class="btn btn-secondary" data-dialog-close>Cancel</button>
+      </header>
+      <p id="live-position-dialog-help">Identify yourself to continue.</p>
+      <label>Controller
+        <select id="live-position-person" required></select>
+      </label>
+      <label>Controller PIN
+        <input id="live-position-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="off" required>
+      </label>
+      <label id="live-position-mode-wrap">Operating mode
+        <select id="live-position-mode">
+          <option value="operational">Solo</option>
+          <option value="training">Training</option>
+          <option value="assessment">Assessment</option>
+          <option value="supervised">Supervised</option>
+        </select>
+      </label>
+      <label id="live-position-role-wrap">Supporting role
+        <select id="live-position-role"></select>
+      </label>
+      <label id="live-position-reason-wrap">Reason or note
+        <input id="live-position-reason" maxlength="250">
+      </label>
+      <p id="live-position-action-error" class="live-position-dialog__error" role="alert" hidden></p>
+      <button class="btn" type="submit" id="live-position-confirm">Confirm</button>
+    </form>
+  </dialog>
   <footer class="live-position-kiosk__footer">
     <span id="live-position-refresh">Awaiting server data</span>
     <form method="post" action="{{ url_for('logout') }}">
@@ -34,6 +68,11 @@
     const connection = document.getElementById('live-position-connection');
     const refreshed = document.getElementById('live-position-refresh');
     const clock = document.getElementById('live-position-clock');
+    const dialog = document.getElementById('live-position-dialog');
+    const form = document.getElementById('live-position-action-form');
+    const csrf = {{ csrf_token()|tojson }};
+    let people = [];
+    let roles = [];
     let serverOffset = 0;
     const escapeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const render = (payload) => {
@@ -41,17 +80,91 @@
       grid.innerHTML = payload.positions.map((position) => {
         const occupied = position.primary;
         const label = position.display_status.replace('_', ' ').toUpperCase();
-        return `<article class="live-position-tile live-position-tile--${escapeText(position.display_status)}">
+        const buttons = position.display_status === 'closed'
+          ? '<button class="btn" data-operation="open">Open position</button>'
+          : position.display_status === 'vacant'
+            ? '<button class="btn" data-operation="logon">Log on</button><button class="btn btn-secondary" data-operation="close">Close</button>'
+            : '<button class="btn" data-operation="handover">Hand over</button><button class="btn btn-secondary" data-operation="logoff">Log off</button><button class="btn btn-secondary" data-operation="logoff_close">Log off & close</button><button class="btn btn-secondary" data-operation="participant">Add support</button>';
+        return `<article class="live-position-tile live-position-tile--${escapeText(position.display_status)}" data-position-id="${position.id}" data-position-label="${escapeText(position.code)}">
           <header><strong>${escapeText(position.code)}</strong><span>${escapeText(label)}</span></header>
           <h2>${escapeText(position.label)}</h2>
           ${occupied ? `<div class="live-position-tile__primary"><strong>${escapeText(occupied.name)}</strong><span data-start="${escapeText(occupied.started_at)}">00:00</span></div>` : '<p>No controller logged on</p>'}
-          ${position.participants.map((p) => `<small>${escapeText(p.person_name)}</small>`).join('')}
+          <div class="live-position-tile__participants">${position.participants.map((p) => `<small><strong>${escapeText(p.role_label)}</strong> ${escapeText(p.person_name)} <button data-operation="participant_remove" data-participant-id="${p.id}">Log off</button></small>`).join('')}</div>
+          <footer>${buttons}</footer>
         </article>`;
       }).join('') || '<p class="empty-state">No active operational positions are configured.</p>';
       connection.innerHTML = '<span aria-hidden="true">●</span> Connected';
       connection.classList.add('is-connected');
       refreshed.textContent = `Last refreshed ${new Date().toLocaleTimeString('en-GB')}`;
     };
+    const loadPeople = async () => {
+      const response = await fetch('{{ url_for("live_position.controllers") }}', {headers: {'Accept': 'application/json'}});
+      if (!response.ok) return;
+      const payload = await response.json();
+      people = payload.controllers;
+      roles = payload.roles;
+    };
+    const openAction = (button) => {
+      const tile = button.closest('[data-position-id]');
+      const operation = button.dataset.operation;
+      document.getElementById('live-position-id').value = tile.dataset.positionId;
+      document.getElementById('live-position-operation').value = operation;
+      document.getElementById('live-position-participant-id').value = button.dataset.participantId || '';
+      document.getElementById('live-position-dialog-title').textContent = `${button.textContent.trim()} · ${tile.dataset.positionLabel}`;
+      document.getElementById('live-position-person').innerHTML = '<option value="">Select your name</option>' + people.map((person) => `<option value="${person.id}">${escapeText(person.name)}</option>`).join('');
+      document.getElementById('live-position-role').innerHTML = roles.map((role) => `<option value="${role.id}">${escapeText(role.label)}</option>`).join('');
+      document.getElementById('live-position-mode-wrap').hidden = !['logon', 'handover'].includes(operation);
+      document.getElementById('live-position-role-wrap').hidden = operation !== 'participant';
+      document.getElementById('live-position-reason-wrap').hidden = !['open', 'close', 'logoff_close'].includes(operation);
+      document.getElementById('live-position-action-error').hidden = true;
+      document.getElementById('live-position-pin').value = '';
+      dialog.showModal();
+    };
+    grid.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-operation]');
+      if (button) openAction(button);
+    });
+    document.querySelector('[data-dialog-close]').addEventListener('click', () => dialog.close());
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const operation = document.getElementById('live-position-operation').value;
+      const positionId = document.getElementById('live-position-id').value;
+      const participantId = document.getElementById('live-position-participant-id').value;
+      const routes = {
+        open: `/live-positions/api/positions/${positionId}/open`,
+        close: `/live-positions/api/positions/${positionId}/close`,
+        logon: `/live-positions/api/positions/${positionId}/logon`,
+        logoff: `/live-positions/api/positions/${positionId}/logoff`,
+        logoff_close: `/live-positions/api/positions/${positionId}/logoff`,
+        handover: `/live-positions/api/positions/${positionId}/handover`,
+        participant: `/live-positions/api/positions/${positionId}/participants`,
+        participant_remove: `/live-positions/api/positions/${positionId}/participants/${participantId}/logoff`,
+      };
+      const payload = {
+        person_id: Number(document.getElementById('live-position-person').value),
+        pin: document.getElementById('live-position-pin').value,
+        session_type: document.getElementById('live-position-mode').value,
+        role_id: Number(document.getElementById('live-position-role').value),
+        reason: document.getElementById('live-position-reason').value,
+        close_position: operation === 'logoff_close',
+        request_key: crypto.randomUUID(),
+      };
+      const error = document.getElementById('live-position-action-error');
+      try {
+        const response = await fetch(routes[operation], {
+          method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'The action could not be completed.');
+        dialog.close();
+        form.reset();
+        await refresh();
+      } catch (failure) {
+        error.textContent = failure.message;
+        error.hidden = false;
+      }
+    });
     const refresh = async () => {
       try {
         const response = await fetch('{{ url_for("live_position.live_state") }}', {headers: {'Accept': 'application/json'}});
@@ -71,7 +184,18 @@
       });
     }, 1000);
     setInterval(refresh, 15000);
-    refresh();
+    const connectEvents = () => {
+      if (!window.EventSource) return;
+      const source = new EventSource('{{ url_for("live_position.live_events") }}');
+      source.addEventListener('state', (event) => {
+        try { render(JSON.parse(event.data)); } catch (_) { /* polling remains active */ }
+      });
+      source.onerror = () => {
+        connection.innerHTML = '<span aria-hidden="true">●</span> Reconnecting';
+        connection.classList.remove('is-connected');
+      };
+    };
+    loadPeople().then(() => { refresh(); connectEvents(); });
     if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
   })();
   </script>

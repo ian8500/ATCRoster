@@ -61,6 +61,18 @@
 .live-position-tile__primary { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .live-position-tile__primary strong { font-size: 1.5rem; }
 .live-position-tile__primary span { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+.live-position-tile__participants { display: grid; gap: .4rem; margin-top: .75rem; }
+.live-position-tile__participants small { display: flex; align-items: center; gap: .4rem; }
+.live-position-tile__participants button { margin-left: auto; border: 1px solid #94a3b8; border-radius: 6px; background: transparent; color: inherit; }
+.live-position-tile > footer { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.25rem; }
+.live-position-dialog { width: min(520px, calc(100vw - 2rem)); padding: 1.5rem; border: 2px solid #475569; border-radius: 16px; background: #111c2e; color: #f8fafc; }
+.live-position-dialog::backdrop { background: rgb(0 0 0 / 70%); }
+.live-position-dialog form { display: grid; gap: 1rem; }
+.live-position-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.live-position-dialog h2, .live-position-dialog p { margin: 0; }
+.live-position-dialog label { display: grid; gap: .35rem; font-weight: 700; }
+.live-position-dialog input, .live-position-dialog select { min-height: 48px; border: 1px solid #64748b; border-radius: 8px; padding: .65rem; background: #f8fafc; color: #0f172a; font-size: 1rem; }
+.live-position-dialog__error { padding: .75rem; border: 2px solid #f87171; border-radius: 8px; background: #450a0a; }
 .live-position-kiosk__footer { position: fixed; inset: auto 0 0; display: flex; align-items: center; justify-content: space-between; padding: .75rem 2rem; background: rgb(7 17 31 / 95%); border-top: 1px solid #334155; color: #94a3b8; }
 @media (max-width: 700px) {
   .live-position-kiosk__header { grid-template-columns: 1fr auto; padding: 1rem; }

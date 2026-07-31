@@ -611,6 +611,12 @@ def _bind_tenant_context():
     ):
         allowed_kiosk_endpoints = {
             "live_position.kiosk_hmi", "live_position.live_state",
+            "live_position.controllers", "live_position.open_position",
+            "live_position.live_events",
+            "live_position.close_position",
+            "live_position.logon", "live_position.logoff",
+            "live_position.handover", "live_position.add_participant",
+            "live_position.remove_participant",
             "logout", "static", "favicon", "health_live", "health_ready",
         }
         if request.endpoint not in allowed_kiosk_endpoints:
@@ -746,6 +752,8 @@ def _airport_login_endpoint(user) -> str:
     """Land multi-module airport users on the module launcher."""
     if getattr(user, "role", "") == "position_monitor":
         return "live_position.kiosk_hmi"
+    if is_admin_user(user):
+        return "module_home"
     enabled = FeatureFlag.query.filter(
         FeatureFlag.unit_id == user.unit_id,
         FeatureFlag.key.in_((
@@ -4805,6 +4813,8 @@ def module_home():
     if current_user.role == "superadmin":
         return redirect(url_for("platform_admin"))
     if not (
+        is_admin_user(current_user)
+        or
         briefing_enabled(current_user.unit_id)
         or training_enabled(current_user.unit_id)
         or competency_enabled(current_user.unit_id)
@@ -4815,6 +4825,7 @@ def module_home():
         show_briefing=briefing_enabled(current_user.unit_id),
         show_training=training_enabled(current_user.unit_id),
         show_competency=competency_enabled(current_user.unit_id),
+        show_live_position=is_admin_user(current_user),
     )
 
 
@@ -9521,8 +9532,14 @@ from live_position_blueprint import (
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,
     PositionStatusEvent=PositionStatusEvent, PositionSession=PositionSession,
-    PositionSessionParticipant=PositionSessionParticipant, Staff=Staff,
+    PositionSessionParticipant=PositionSessionParticipant,
+    PositionParticipantRole=PositionParticipantRole,
+    PositionSessionAudit=PositionSessionAudit,
+    ControllerKioskCredential=ControllerKioskCredential,
+    PositionEndorsement=PositionEndorsement, Staff=Staff,
     utcnow=utcnow, is_admin_user=is_admin_user,
+    consume_rate_limit=_consume_rate_limit, reset_rate_limit=_reset_rate_limit,
+    security_event=_security_event,
 )))
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
