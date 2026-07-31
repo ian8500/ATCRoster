@@ -193,11 +193,44 @@ def create_live_position_blueprint(
         status = 409 if isinstance(error, LivePositionConflict) else 422
         return jsonify({"ok": False, "error": str(error)}), status
 
+    def _ensure_participant_roles() -> None:
+        defaults = (
+            ("primary", "Primary controller", True, True),
+            ("ojti", "OJTI", False, False),
+            ("assessor", "Assessor", False, False),
+            ("secondary", "Secondary controller", False, False),
+            ("examiner", "Examiner", False, False),
+            ("safety_controller", "Safety controller", False, False),
+            ("observer", "Observer", False, False),
+        )
+        existing = {
+            row.code
+            for row in dependencies.PositionParticipantRole.query.filter_by(
+                unit_id=_unit_id()
+            ).all()
+        }
+        missing = [
+            dependencies.PositionParticipantRole(
+                unit_id=_unit_id(),
+                code=code,
+                label=label,
+                is_primary=is_primary,
+                counts_for_currency=counts,
+                is_active=True,
+            )
+            for code, label, is_primary, counts in defaults
+            if code not in existing
+        ]
+        if missing:
+            dependencies.db.session.add_all(missing)
+            dependencies.db.session.commit()
+
     @blueprint.get("/")
     @login_required
     def admin_home():
         if not dependencies.is_admin_user(current_user):
             abort(403)
+        _ensure_participant_roles()
         return render_template("live_position/admin_home.html")
 
     @blueprint.route("/admin/controller-pins", methods=["GET", "POST"])
@@ -267,6 +300,7 @@ def create_live_position_blueprint(
     @login_required
     def controllers():
         _require_kiosk_or_admin()
+        _ensure_participant_roles()
         configured_ids = {
             row.person_id
             for row in dependencies.ControllerKioskCredential.query.filter_by(
