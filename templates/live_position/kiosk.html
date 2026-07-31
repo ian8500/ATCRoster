@@ -74,9 +74,8 @@
   </dialog>
   <footer class="live-position-kiosk__footer">
     <span id="live-position-refresh">Awaiting server data</span>
-    <form method="post" action="{{ url_for('logout') }}">
+    <form id="live-position-kiosk-logout" method="post" action="{{ url_for('logout') }}" hidden>
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <button class="btn btn-secondary" type="submit">Log out</button>
     </form>
   </footer>
   <script nonce="{{ csp_nonce() }}">
@@ -95,6 +94,7 @@
     const kioskLaunch = document.getElementById('live-position-kiosk-launch');
     const kioskStart = document.getElementById('live-position-kiosk-start');
     const kioskLaunchError = document.getElementById('live-position-kiosk-launch-error');
+    const kioskLogout = document.getElementById('live-position-kiosk-logout');
     const csrf = {{ csrf_token()|tojson }};
     let people = [];
     let livePositions = new Map();
@@ -129,6 +129,11 @@
     document.addEventListener('fullscreenchange', updateKioskLaunch);
     document.addEventListener('webkitfullscreenchange', updateKioskLaunch);
     updateKioskLaunch();
+    document.addEventListener('keydown', (event) => {
+      if (event.repeat || event.key.toLowerCase() !== 'k' || !event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) return;
+      event.preventDefault();
+      kioskLogout.requestSubmit();
+    });
     let fitFrame = 0;
     const fitBoard = () => {
       cancelAnimationFrame(fitFrame);
