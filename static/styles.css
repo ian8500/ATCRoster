@@ -45,6 +45,15 @@
 .live-position-config-list summary, details.card > summary { display: flex; justify-content: space-between; gap: 1rem; cursor: pointer; }
 .live-position-category-list { margin: 1rem 0 0; padding-left: 1.25rem; }
 .live-position-kiosk { margin: 0; min-height: 100vh; background: #07111f; color: #f8fafc; font-family: system-ui, sans-serif; }
+.live-position-kiosk-launch { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 1.5rem; background: #07111f; text-align: center; }
+.live-position-kiosk-launch[hidden] { display: none; }
+.live-position-kiosk-launch > div { display: grid; justify-items: center; gap: 1rem; width: min(520px, 100%); padding: 2.5rem; border: 2px solid #475569; border-radius: 20px; background: #111c2e; box-shadow: 0 24px 70px rgb(0 0 0 / 45%); }
+.live-position-kiosk-launch p, .live-position-kiosk-launch h1, .live-position-kiosk-launch span { margin: 0; }
+.live-position-kiosk-launch p { color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; }
+.live-position-kiosk-launch h1 { font-size: clamp(2rem, 6vw, 3.5rem); }
+.live-position-kiosk-launch span { color: #cbd5e1; }
+.live-position-kiosk-launch .btn { min-width: 220px; min-height: 58px; font-size: 1.15rem; }
+.live-position-kiosk-launch small { color: #fca5a5; }
 .live-position-kiosk__header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 2rem; padding: 1.25rem 2rem; border-bottom: 2px solid #334155; }
 .live-position-kiosk__header p, .live-position-kiosk__header h1 { margin: 0; }
 .live-position-kiosk__header p { color: #94a3b8; font-size: .9rem; text-transform: uppercase; letter-spacing: .08em; }
