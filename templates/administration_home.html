@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Administration{% endblock %}
+{% block content %}
+<section class="module-launcher">
+  <div class="module-launcher__intro">
+    <p class="eyebrow">{{ current_unit.name }}</p>
+    <h1>Administration</h1>
+    <p>Manage shared information and services used across your subscribed modules.</p>
+  </div>
+  <div class="module-launcher__grid">
+    <a class="module-card" href="{{ url_for('unit_accounts') }}">
+      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-users-gear"></i></span>
+      <span><strong>People and access</strong><small>Manage user accounts, roles and access.</small></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
+    {% if show_live_position %}
+    <a class="module-card" href="{{ url_for('live_position.position_configuration') }}">
+      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-tower-broadcast"></i></span>
+      <span><strong>Position Monitoring setup</strong><small>Configure positions, currency categories and kiosk identities.</small></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
+    <a class="module-card" href="{{ url_for('live_position.controller_pins') }}">
+      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-key"></i></span>
+      <span><strong>Controller kiosk PINs</strong><small>Manage controller identity PINs for the dedicated kiosk.</small></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

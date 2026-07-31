@@ -47,6 +47,7 @@ class LivePositionDependencies:
     Staff: Any
     utcnow: Callable[[], Any]
     is_admin_user: Callable[[Any], bool]
+    live_position_enabled: Callable[[int], bool]
     consume_rate_limit: Callable[..., bool]
     reset_rate_limit: Callable[..., None]
     security_event: Callable[..., None]
@@ -60,11 +61,13 @@ def create_live_position_blueprint(
     def _unit_id() -> int:
         return int(getattr(current_user, "unit_id", 0) or 0)
 
-    def _require_kiosk_or_admin() -> None:
-        if not (
-            getattr(current_user, "role", "") == "position_monitor"
-            or dependencies.is_admin_user(current_user)
-        ):
+    def _require_module() -> None:
+        if not dependencies.live_position_enabled(_unit_id()):
+            abort(404)
+
+    def _require_kiosk() -> None:
+        _require_module()
+        if getattr(current_user, "role", "") != "position_monitor":
             abort(403)
 
     def _service() -> LivePositionService:
@@ -235,14 +238,15 @@ def create_live_position_blueprint(
     @blueprint.get("/")
     @login_required
     def admin_home():
+        _require_module()
         if not dependencies.is_admin_user(current_user):
             abort(403)
-        _ensure_participant_roles()
-        return render_template("live_position/admin_home.html")
+        return redirect(url_for("administration_home"))
 
     @blueprint.route("/admin/controller-pins", methods=["GET", "POST"])
     @login_required
     def controller_pins():
+        _require_module()
         if not dependencies.is_admin_user(current_user):
             abort(403)
         if request.method == "POST":
@@ -299,6 +303,7 @@ def create_live_position_blueprint(
     @blueprint.route("/admin/positions", methods=["GET", "POST"])
     @login_required
     def position_configuration():
+        _require_module()
         if not dependencies.is_admin_user(current_user):
             abort(403)
         unit_id = _unit_id()
@@ -451,14 +456,14 @@ def create_live_position_blueprint(
     @blueprint.get("/kiosk")
     @login_required
     def kiosk_hmi():
-        _require_kiosk_or_admin()
+        _require_kiosk()
         unit = dependencies.db.session.get(dependencies.Unit, _unit_id())
         return render_template("live_position/kiosk.html", unit=unit)
 
     @blueprint.get("/api/controllers")
     @login_required
     def controllers():
-        _require_kiosk_or_admin()
+        _require_kiosk()
         _ensure_participant_roles()
         configured_ids = {
             row.person_id
@@ -499,7 +504,7 @@ def create_live_position_blueprint(
     @blueprint.post("/api/positions/<int:position_id>/open")
     @login_required
     def open_position(position_id: int):
-        _require_kiosk_or_admin()
+        _require_kiosk()
         data = _payload()
         actor = _verify_pin(int(data.get("person_id") or 0), str(data.get("pin") or ""))
         try:
@@ -518,7 +523,7 @@ def create_live_position_blueprint(
     @blueprint.post("/api/positions/<int:position_id>/close")
     @login_required
     def close_position(position_id: int):
-        _require_kiosk_or_admin()
+        _require_kiosk()
         data = _payload()
         actor = _verify_pin(int(data.get("person_id") or 0), str(data.get("pin") or ""))
         try:
@@ -537,7 +542,7 @@ def create_live_position_blueprint(
     @blueprint.post("/api/positions/<int:position_id>/logon")
     @login_required
     def logon(position_id: int):
-        _require_kiosk_or_admin()
+        _require_kiosk()
         data = _payload()
         person = _verify_pin(
             int(data.get("person_id") or 0), str(data.get("pin") or "")
@@ -559,7 +564,7 @@ def create_live_position_blueprint(
     @blueprint.post("/api/positions/<int:position_id>/logoff")
     @login_required
     def logoff(position_id: int):
-        _require_kiosk_or_admin()
+        _require_kiosk()
         data = _payload()
         person = _verify_pin(
             int(data.get("person_id") or 0), str(data.get("pin") or "")
@@ -596,7 +601,7 @@ def create_live_position_blueprint(
     @blueprint.post("/api/positions/<int:position_id>/handover")
     @login_required
     def handover(position_id: int):
-        _require_kiosk_or_admin()
+        _require_kiosk()
         data = _payload()
         incoming = _verify_pin(
             int(data.get("person_id") or 0), str(data.get("pin") or "")
@@ -618,7 +623,7 @@ def create_live_position_blueprint(
     @blueprint.post("/api/positions/<int:position_id>/participants")
     @login_required
     def add_participant(position_id: int):
-        _require_kiosk_or_admin()
+        _require_kiosk()
         data = _payload()
         person = _verify_pin(
             int(data.get("person_id") or 0), str(data.get("pin") or "")
@@ -648,7 +653,7 @@ def create_live_position_blueprint(
     )
     @login_required
     def remove_participant(position_id: int, participant_id: int):
-        _require_kiosk_or_admin()
+        _require_kiosk()
         data = _payload()
         person = _verify_pin(
             int(data.get("person_id") or 0), str(data.get("pin") or "")
@@ -765,13 +770,13 @@ def create_live_position_blueprint(
     @blueprint.get("/api/state")
     @login_required
     def live_state():
-        _require_kiosk_or_admin()
+        _require_kiosk()
         return jsonify(_state_payload())
 
     @blueprint.get("/api/events")
     @login_required
     def live_events():
-        _require_kiosk_or_admin()
+        _require_kiosk()
 
         @stream_with_context
         def events():
