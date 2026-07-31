@@ -330,15 +330,15 @@
       });
     });
 
-    const rosterZoomStorageKey = 'atcroster-roster-zoom';
-    let rosterZoomPreference = 'fit';
+    const rosterZoomStorageKey = 'atcroster-roster-zoom-v2';
+    let rosterZoomPreference = '1';
     try {
       const savedRosterZoom = window.localStorage.getItem(rosterZoomStorageKey);
       if (['fit', '0.75', '0.90', '1'].includes(savedRosterZoom)) {
         rosterZoomPreference = savedRosterZoom;
       }
     } catch (_error) {
-      rosterZoomPreference = 'fit';
+      rosterZoomPreference = '1';
     }
 
     function markRosterZoomPreset(value) {
@@ -361,7 +361,7 @@
 
     function setRosterZoomPreset(value) {
       rosterZoomPreference = ['fit', '0.75', '0.90', '1'].includes(value)
-        ? value : 'fit';
+        ? value : '1';
       try {
         window.localStorage.setItem(rosterZoomStorageKey, rosterZoomPreference);
       } catch (_error) {
@@ -400,12 +400,12 @@
       if (!tableWidth) return;
 
       const dayCount = host && host.dataset ? Number(host.dataset.dayCount || 0) : 0;
-      let minScale = 0.55;
+      let minScale = 0.30;
       if (dayCount) {
         if (dayCount <= 29) {
-          minScale = 0.70;
+          minScale = 0.38;
         } else if (dayCount === 30) {
-          minScale = 0.62;
+          minScale = 0.34;
         }
       }
 

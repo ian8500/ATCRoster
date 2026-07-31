@@ -1890,10 +1890,10 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
 /* ==============================
    Responsive roster scaling
    ============================== */
-table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
-.roster .cell .code-input { font-size: calc(.9rem * var(--ui-scale)); }
-.roster .cell .annot-select { font-size: calc(.72rem * var(--ui-scale)); height:22px; }
-.roster th, .roster td { font-size: calc(.82rem * var(--ui-scale)); }
+table.roster { zoom:var(--ui-scale); }
+.roster .cell .code-input { font-size:.9rem; }
+.roster .cell .annot-select { font-size:.72rem; height:22px; }
+.roster th, .roster td { font-size:.82rem; }
 
 /* ==============================
    Today column highlight (screen)
@@ -1937,6 +1937,7 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
     background:#fff !important; color:#000 !important;
     border-color:#000 !important;
     font-size:0.74rem;
+    zoom:1 !important;
     transform:none !important;
   }
   thead{ display:table-header-group; }
