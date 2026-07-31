@@ -24,3 +24,16 @@ def test_roster_routes_are_no_longer_declared_in_legacy_module():
     source = (Path(__file__).parents[1] / "app.py").read_text()
     for path, _methods in ROSTER_ENDPOINTS.values():
         assert f'@app.route("{path}"' not in source
+
+
+def test_completed_roster_handlers_are_no_longer_in_legacy_module():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "app.py").read_text()
+    for handler in (
+        "roster_month_publish",
+        "roster_month_unpublish",
+        "roster_export_csv",
+        "roster_print_view",
+    ):
+        assert f"def {handler}(" not in source
