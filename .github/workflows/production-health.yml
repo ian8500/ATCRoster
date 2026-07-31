@@ -41,7 +41,9 @@ jobs:
             --retry 3 --retry-all-errors --retry-delay 5 \
             --max-time 15 --output /dev/null --write-out '%{url_effective}' \
             https://atcroster.com)"
-          [[ "$apex_destination" == "https://www.atcroster.com/" ]]
+          echo "Apex redirect reached: $apex_destination"
+          [[ "$apex_destination" == "https://www.atcroster.com" ||
+             "$apex_destination" == "https://www.atcroster.com/" ]]
 
           openssl x509 -checkend 1209600 -noout \
             -in <(echo | openssl s_client \
