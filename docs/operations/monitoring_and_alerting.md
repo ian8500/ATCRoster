@@ -7,6 +7,12 @@ Monitor from outside Railway and from a different provider/region:
 The repository's `production-health.yml` provides a baseline independent
 scheduled probe through GitHub Actions. It is not a substitute for a dedicated
 monitor with paging and a public status page; scheduled Actions can be delayed.
+Failed production probes and backup jobs create or update a single labelled
+GitHub incident, and a later successful check records recovery and closes it.
+`backup-freshness.yml` checks every three hours and opens an incident when no
+successful encrypted backup exists within the 26-hour threshold. Repository
+owners must enable GitHub email/mobile notifications for monitoring issues;
+GitHub issues are not a substitute for 24/7 paging.
 
 | Signal | Check | Interval | Alert |
 |---|---|---:|---|
