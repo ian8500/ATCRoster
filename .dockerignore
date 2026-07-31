@@ -4,8 +4,15 @@
 env
 __pycache__
 *.pyc
+.coverage
+.mypy_cache
+.pytest_cache
+.ruff_cache
 *.db
 instance
+tests
+docs
+deliverables
 1 Version to deploy
 2 Working Version
 3 Last Known Working

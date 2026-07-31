@@ -24,6 +24,22 @@ def test_generated_repository_artifacts_are_ignored_and_removed():
     assert not (ROOT / "app for website").exists()
 
 
+def test_production_container_excludes_local_quality_and_test_artifacts():
+    ignored = (ROOT / ".dockerignore").read_text().splitlines()
+
+    for path in {
+        ".coverage",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "instance",
+        "tests",
+        "docs",
+        "deliverables",
+    }:
+        assert path in ignored
+
+
 def test_authentication_blueprint_preserves_public_route_contract():
     from app import app
 

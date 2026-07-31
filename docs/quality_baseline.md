@@ -11,8 +11,9 @@ late imports, duplicate compatibility definitions, one lambda assignment,
 unused imports and one unused local. Two document/import scripts retain
 unused-import exceptions. New modules receive the default rule set.
 
-Formatting remains enforced on the already-formatted service modules and on
-newly extracted modules. Expand that list one module at a time; format
+Formatting remains enforced on the already-formatted service modules and the
+`atcroster` application-factory package. MyPy also checks the factory package
+alongside the existing typed services. Expand those lists one module at a time; format
 `app.py` only in a dedicated, behaviour-neutral change after its routes have
 been reduced.
 
