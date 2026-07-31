@@ -142,7 +142,7 @@
         const occupied = position.primary;
         const label = position.display_status.replace('_', ' ').toUpperCase();
         const buttons = position.display_status === 'closed'
-          ? '<button class="btn" data-operation="open">Open position</button>'
+          ? '<button class="btn" data-operation="logon">Log on</button>'
           : position.display_status === 'vacant'
             ? '<button class="btn" data-operation="logon">Log on</button><button class="btn btn-secondary" data-operation="close">Close</button>'
             : '<button class="btn" data-operation="handover">Hand over</button><button class="btn btn-secondary" data-operation="logoff">Log off</button><button class="btn btn-secondary" data-operation="logoff_close">Log off & close</button><button class="btn btn-secondary" data-operation="participant">Add secondary</button>';

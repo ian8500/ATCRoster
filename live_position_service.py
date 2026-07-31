@@ -253,8 +253,7 @@ class LivePositionService:
         timestamp = self.now()
         try:
             position = self._position_for_update(unit_id, position_id)
-            if self._latest_status(unit_id, position_id) != "open":
-                raise LivePositionConflict("The position is closed.")
+            position_was_closed = self._latest_status(unit_id, position_id) != "open"
             if self._open_session(unit_id, position_id):
                 raise LivePositionConflict("The position is already occupied.")
             participant_ids = [int(item["person_id"]) for item in (participants or [])]
@@ -281,6 +280,30 @@ class LivePositionService:
                 raise LivePositionValidationError("Training is not supported here.")
             if session_type == "assessment" and not position.assessment_supported:
                 raise LivePositionValidationError("Assessment is not supported here.")
+            if position_was_closed:
+                open_key = self.related_key(key, "position-opened")
+                self.db.session.add(
+                    self.models.PositionStatusEvent(
+                        unit_id=unit_id,
+                        position_id=position_id,
+                        status="open",
+                        occurred_at=timestamp,
+                        actor_id=actor_id,
+                        reason="Opened automatically on controller logon",
+                        transaction_key=open_key,
+                    )
+                )
+                self._audit(
+                    unit_id=unit_id,
+                    actor_id=actor_id,
+                    action="position_opened",
+                    occurred_at=timestamp,
+                    transaction_key=open_key,
+                    position_id=position_id,
+                    old={"status": "closed"},
+                    new={"status": "open"},
+                    reason="Opened automatically on controller logon",
+                )
             session = self.models.PositionSession(
                 unit_id=unit_id,
                 position_id=position_id,
