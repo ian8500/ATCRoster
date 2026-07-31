@@ -7,15 +7,68 @@ compatible while authentication can evolve outside ``app.py``.
 
 from __future__ import annotations
 
-from types import ModuleType
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request
-from flask import session, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from flask_login import login_required, login_user, logout_user
 from werkzeug.security import check_password_hash
 
 
-def create_auth_blueprint(core: ModuleType) -> Blueprint:
+@dataclass(frozen=True)
+class AuthDependencies:
+    """The deliberately small application surface required by login routes."""
+
+    db: Any
+    PlatformIdentity: Any
+    UnitMembership: Any
+    DatabaseRoutingMetadata: Any
+    Staff: Any
+    Unit: Any
+    PlatformMfaCredential: Any
+    MfaCredential: Any
+    validate_csrf: Callable[[], None]
+    normalized_login: Callable[[str], str]
+    login_rate_key: Callable[[str], str]
+    consume_rate_limit: Callable[[str, str], bool]
+    reset_rate_limit: Callable[[str, str], None]
+    security_event: Callable[..., None]
+    central_security_event: Callable[..., None]
+    bind_authenticated_unit: Callable[[int, str | None], Any]
+    canonical_login_redirect: Callable[..., str]
+    airport_login_endpoint: Callable[[Any], str]
+    initialize_authenticated_session: Callable[[Any], None]
+    record_successful_login: Callable[[Any], None]
+
+
+@dataclass(frozen=True)
+class OperationalPrincipal:
+    user: Any
+    identity: Any | None
+
+
+@dataclass(frozen=True)
+class PlatformPrincipal:
+    user: Any
+    identity: Any
+
+
+LoginPrincipal = OperationalPrincipal | PlatformPrincipal
+
+
+def create_auth_blueprint(dependencies: AuthDependencies) -> Blueprint:
     blueprint = Blueprint("authentication", __name__)
 
     @login_required
@@ -28,31 +81,40 @@ def create_auth_blueprint(core: ModuleType) -> Blueprint:
 
     def signin_form():
         if request.method == "POST":
-            core._validate_csrf()
-            username = core._normalized_login(request.form.get("username") or "")
-            password = (request.form.get("password") or "").strip()
-            rate_key = core._login_rate_key(username)
-            if not core._consume_rate_limit("password-login", username):
-                core._security_event("login_rate_limited", principal=rate_key[-16:])
+            dependencies.validate_csrf()
+            username = dependencies.normalized_login(request.form.get("username") or "")
+            # Passwords are opaque secrets. Trimming changes valid credentials
+            # and can unexpectedly authenticate a different submitted value.
+            password = request.form.get("password") or ""
+            rate_key = dependencies.login_rate_key(username)
+            if not dependencies.consume_rate_limit("password-login", username):
+                dependencies.security_event(
+                    "login_rate_limited", principal=rate_key[-16:]
+                )
                 abort(429, "Too many login attempts. Try again later.")
-            identity = core.PlatformIdentity.query.filter_by(username=username).first()
-            user = None
-            platform_login = False
+            identity = dependencies.PlatformIdentity.query.filter_by(
+                username=username
+            ).first()
+            principal: LoginPrincipal | None = None
             credentials_valid = False
             if identity:
                 credentials_valid = check_password_hash(
                     identity.password_hash, password
                 )
                 if credentials_valid:
-                    membership = core.UnitMembership.query.filter_by(
+                    membership = dependencies.UnitMembership.query.filter_by(
                         identity_id=identity.id, status="active"
                     ).first()
                     if membership and membership.person_id:
-                        routing = core.db.session.get(
-                            core.DatabaseRoutingMetadata, membership.unit_id
+                        routing = dependencies.db.session.get(
+                            dependencies.DatabaseRoutingMetadata,
+                            membership.unit_id,
                         )
-                        if core.DEPLOYMENT_ENV == "production" and not routing:
-                            core._security_event(
+                        if (
+                            current_app.config["ATCROSTER_ENVIRONMENT"] == "production"
+                            and not routing
+                        ):
+                            dependencies.security_event(
                                 "operational_route_missing",
                                 unit_id=membership.unit_id,
                             )
@@ -60,38 +122,47 @@ def create_auth_blueprint(core: ModuleType) -> Blueprint:
                                 503,
                                 "Operational database routing is unavailable.",
                             )
-                        g.tenant_context_token = core.bind_authenticated_unit(
+                        g.tenant_context_token = dependencies.bind_authenticated_unit(
                             membership.unit_id,
                             routing.secret_name if routing else None,
                         )
-                        user = core.db.session.get(core.Staff, membership.person_id)
+                        user = dependencies.db.session.get(
+                            dependencies.Staff, membership.person_id
+                        )
+                        if user:
+                            principal = OperationalPrincipal(user, identity)
                     else:
-                        user = identity
-                        platform_login = identity.public_id.startswith("platform-")
-            elif core.DEPLOYMENT_ENV != "production":
-                user = core.Staff.query.filter_by(username=username).first()
+                        if identity.public_id.startswith("platform-"):
+                            principal = PlatformPrincipal(identity, identity)
+            elif current_app.config.get("ATCROSTER_ENABLE_LEGACY_LOGIN", False):
+                user = dependencies.Staff.query.filter_by(username=username).first()
                 credentials_valid = bool(user and user.check_password(password))
+                if user:
+                    principal = OperationalPrincipal(user, None)
             else:
-                # Production authentication always begins in control. Unknown
+                # Authentication normally always begins in control. Unknown
                 # principals never trigger an operational database query.
                 credentials_valid = False
             if (
                 identity
                 and credentials_valid
-                and not user
+                and not principal
                 and not identity.public_id.startswith("platform-")
             ):
                 credentials_valid = False
-            if user and credentials_valid:
-                core._reset_rate_limit("password-login", username)
+            if principal and credentials_valid:
+                user = principal.user
+                dependencies.reset_rate_limit("password-login", username)
                 if user.membership_status != "active":
                     flash("This account is not active.", "error")
                     return render_template("login.html"), 403
-                login_unit = core.db.session.get(core.Unit, user.unit_id)
+                login_unit = dependencies.db.session.get(
+                    dependencies.Unit, user.unit_id
+                )
                 if user.role != "superadmin" and (
                     not login_unit or login_unit.status != "active"
                 ):
-                    core._security_event(
+                    dependencies.security_event(
                         "suspended_unit_login_blocked",
                         principal=rate_key[-16:],
                         unit_id=user.unit_id,
@@ -99,8 +170,8 @@ def create_auth_blueprint(core: ModuleType) -> Blueprint:
                     flash("This airport account is not active.", "error")
                     return render_template("login.html"), 403
                 session.clear()
-                if platform_login:
-                    credential = core.PlatformMfaCredential.query.filter_by(
+                if isinstance(principal, PlatformPrincipal):
+                    credential = dependencies.PlatformMfaCredential.query.filter_by(
                         identity_id=identity.id,
                         enabled=True,
                         reset_required=False,
@@ -108,18 +179,20 @@ def create_auth_blueprint(core: ModuleType) -> Blueprint:
                     session["_platform_mfa_identity_id"] = identity.id
                     session["_platform_mfa_user_id"] = user.id
                     session["_platform_mfa_rate_key"] = rate_key
-                    session["_platform_mfa_next"] = core._canonical_login_redirect(
-                        request.args.get("next"),
-                        default_endpoint="platform_admin",
-                        user_id=user.id,
+                    session["_platform_mfa_next"] = (
+                        dependencies.canonical_login_redirect(
+                            request.args.get("next"),
+                            default_endpoint="platform_admin",
+                            user_id=user.id,
+                        )
                     )
-                    core._central_security_event(
+                    dependencies.central_security_event(
                         "platform_password_verified",
                         "challenge",
                         identity.id,
                         rate_key[-16:],
                     )
-                    core.db.session.commit()
+                    dependencies.db.session.commit()
                     return redirect(
                         url_for(
                             "platform_mfa_challenge"
@@ -127,44 +200,44 @@ def create_auth_blueprint(core: ModuleType) -> Blueprint:
                             else "platform_mfa_setup"
                         )
                     )
-                credential = core.MfaCredential.query.filter_by(
+                credential = dependencies.MfaCredential.query.filter_by(
                     person_id=user.id, enabled=True
                 ).first()
                 if credential:
                     session["_mfa_user_id"] = user.id
                     session["_mfa_unit_id"] = user.unit_id
                     session["_mfa_rate_key"] = rate_key
-                    session["_mfa_next"] = core._canonical_login_redirect(
+                    session["_mfa_next"] = dependencies.canonical_login_redirect(
                         request.args.get("next"),
-                        default_endpoint=core._airport_login_endpoint(user),
+                        default_endpoint=dependencies.airport_login_endpoint(user),
                         user_id=user.id,
                     )
                     return redirect(url_for("mfa_challenge"))
                 login_user(user)
-                core._initialize_authenticated_session(user)
-                core._security_event(
+                dependencies.initialize_authenticated_session(user)
+                dependencies.security_event(
                     "login_succeeded",
                     principal=rate_key[-16:],
                     unit_id=user.unit_id,
                 )
-                core._record_successful_login(user)
+                dependencies.record_successful_login(user)
                 flash("Logged in successfully", "ok")
                 return redirect(
-                    core._canonical_login_redirect(
+                    dependencies.canonical_login_redirect(
                         request.args.get("next"),
-                        default_endpoint=core._airport_login_endpoint(user),
+                        default_endpoint=dependencies.airport_login_endpoint(user),
                         user_id=user.id,
                     )
                 )
             if identity:
-                core._central_security_event(
+                dependencies.central_security_event(
                     "platform_login_failed",
                     "denied",
                     identity.id,
                     rate_key[-16:],
                 )
-                core.db.session.commit()
-            core._security_event("login_failed", principal=rate_key[-16:])
+                dependencies.db.session.commit()
+            dependencies.security_event("login_failed", principal=rate_key[-16:])
             flash("Invalid username or password.", "error")
         return render_template("login.html")
 

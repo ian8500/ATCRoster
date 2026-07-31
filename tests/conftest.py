@@ -33,3 +33,9 @@ else:
                 pass
 
     atexit.register(_remove_test_database)
+
+
+# Most route tests intentionally exercise pre-control-plane fixture accounts.
+# Production and normal development remain fail-closed unless this migration
+# escape hatch is explicitly enabled.
+os.environ.setdefault("ATCROSTER_ENABLE_LEGACY_LOGIN", "true")
