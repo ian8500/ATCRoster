@@ -5887,112 +5887,6 @@ def _training_profile_allowed(person):
 
 
 @login_required
-def training_home():
-    unit_id = _current_unit_id()
-    if not training_enabled(unit_id):
-        abort(404)
-    own_sessions = TrainingSession.query.filter_by(
-        unit_id=unit_id, trainee_id=current_user.id
-    ).all()
-    own_minutes = sum(row.duration_minutes for row in own_sessions)
-    can_view_people = bool(
-        is_editor_user(current_user)
-        or can_manage_training(current_user)
-        or can_record_training(current_user)
-    )
-    people = []
-    if can_view_people:
-        people = Staff.query.filter_by(
-            unit_id=unit_id, is_operational=True
-        ).order_by(Staff.name).all()
-        people = [person for person in people if is_under_training(person)]
-    trainee_count = sum(1 for person in people if is_under_training(person))
-    return render_template(
-        "training_home.html", people=people,
-        own_minutes=own_minutes, can_view_people=can_view_people,
-        trainee_count=trainee_count,
-        own_under_training=is_under_training(current_user),
-    )
-
-
-@login_required
-def training_profile(sid):
-    unit_id = _current_unit_id()
-    if not training_enabled(unit_id):
-        abort(404)
-    person = Staff.query.filter_by(id=sid, unit_id=unit_id).first_or_404()
-    if not _training_profile_allowed(person):
-        abort(403)
-    if not is_under_training(person):
-        abort(404)
-    if request.method == "POST":
-        _validate_csrf()
-        if not can_record_training(current_user) or not is_under_training(person):
-            abort(403)
-        level = TrainingLevel.query.filter_by(
-            id=int(request.form.get("level_id") or 0), unit_id=unit_id,
-            is_active=True,
-        ).first_or_404()
-        try:
-            training_date = date.fromisoformat(request.form.get("training_date") or "")
-            duration_minutes = int(request.form.get("duration_minutes") or 0)
-        except (TypeError, ValueError):
-            abort(400, "Enter a valid training date and duration.")
-        if not 1 <= duration_minutes <= 1440:
-            abort(400, "Training duration must be between 1 and 1,440 minutes.")
-        session_row = TrainingSession(
-            unit_id=unit_id, trainee_id=person.id, ojti_id=current_user.id,
-            level_id=level.id, training_date=training_date,
-            duration_minutes=duration_minutes,
-            summary=(request.form.get("summary") or "").strip()[:4000],
-        )
-        db.session.add(session_row)
-        db.session.flush()
-        for objective in sorted(level.objectives, key=lambda row: row.position)[:15]:
-            raw_attainment = request.form.get(f"attainment_{objective.id}")
-            raw_assistance = request.form.get(f"assistance_{objective.id}")
-            if not raw_attainment and not raw_assistance:
-                continue
-            try:
-                attainment = int(raw_attainment or 0)
-                assistance = int(raw_assistance or 0)
-            except ValueError:
-                abort(400, "Objective scores must be whole numbers.")
-            if attainment not in {1, 2, 3, 4} or assistance not in {1, 2, 3, 4}:
-                abort(400, "Objective scores must be between 1 and 4.")
-            db.session.add(TrainingScore(
-                unit_id=unit_id, session_id=session_row.id,
-                objective_id=objective.id, attainment=attainment,
-                assistance=assistance,
-                safety_critical=bool(request.form.get(f"safety_{objective.id}")),
-                note=(request.form.get(f"note_{objective.id}") or "").strip()[:4000],
-            ))
-        db.session.commit()
-        flash("Training report saved.", "ok")
-        return redirect(url_for("training_profile", sid=person.id, level=level.id))
-
-    levels = TrainingLevel.query.filter_by(
-        unit_id=unit_id, is_active=True
-    ).order_by(TrainingLevel.sort_order, TrainingLevel.name).all()
-    selected_id = request.args.get("level", type=int)
-    selected = next((row for row in levels if row.id == selected_id), levels[0] if levels else None)
-    sessions = []
-    if selected:
-        sessions = TrainingSession.query.filter_by(
-            unit_id=unit_id, trainee_id=person.id, level_id=selected.id
-        ).order_by(TrainingSession.training_date.desc(), TrainingSession.id.desc()).all()
-    total_minutes = sum(row.duration_minutes for row in TrainingSession.query.filter_by(
-        unit_id=unit_id, trainee_id=person.id
-    ).all())
-    return render_template(
-        "training_profile.html", person=person, levels=levels,
-        selected_level=selected, sessions=sessions, total_minutes=total_minutes,
-        under_training=is_under_training(person),
-        can_record=can_record_training(current_user),
-    )
-
-
-@login_required
 def competency_home():
     unit_id = _current_unit_id()
     if not competency_enabled(unit_id):
@@ -10177,8 +10071,19 @@ app.register_blueprint(create_absence_requests_blueprint(
     )
 ))
 app.register_blueprint(create_training_blueprint(TrainingDependencies(
-    training_home=training_home,
-    training_profile=training_profile,
+    db=db,
+    Staff=Staff,
+    TrainingLevel=TrainingLevel,
+    TrainingSession=TrainingSession,
+    TrainingScore=TrainingScore,
+    current_unit_id=_current_unit_id,
+    training_enabled=training_enabled,
+    is_editor_user=is_editor_user,
+    can_manage_training=can_manage_training,
+    can_record_training=can_record_training,
+    is_under_training=is_under_training,
+    training_profile_allowed=_training_profile_allowed,
+    validate_csrf=_validate_csrf,
     competency_home=competency_home,
     competency_profile=competency_profile,
     training_admin=training_admin,
