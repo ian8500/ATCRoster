@@ -74,6 +74,7 @@
   (() => {
     const grid = document.getElementById('live-position-grid');
     const boardViewport = document.getElementById('live-position-board-viewport');
+    const warning = document.getElementById('live-position-warning');
     const connection = document.getElementById('live-position-connection');
     const refreshed = document.getElementById('live-position-refresh');
     const clock = document.getElementById('live-position-clock');
@@ -136,6 +137,7 @@
     if (window.ResizeObserver) new ResizeObserver(fitBoard).observe(boardViewport);
     const escapeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const render = (payload) => {
+      warning.hidden = true;
       const serverTime = Date.parse(payload.server_time);
       if (Number.isFinite(serverTime)) serverOffset = serverTime - Date.now();
       const renderPosition = (position) => {
@@ -221,9 +223,33 @@
       document.getElementById('live-position-action-error').hidden = true;
       dialog.showModal();
     };
-    grid.addEventListener('click', (event) => {
+    grid.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-operation]');
-      if (button) openAction(button);
+      if (!button) return;
+      const operation = button.dataset.operation;
+      if (operation === 'logoff' || operation === 'logoff_close') {
+        const tile = button.closest('[data-position-id]');
+        button.disabled = true;
+        try {
+          const response = await fetch(`/live-positions/api/positions/${tile.dataset.positionId}/logoff`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+            body: JSON.stringify({
+              close_position: operation === 'logoff_close',
+              request_key: crypto.randomUUID(),
+            }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'The controller could not be logged off.');
+          await refresh();
+        } catch (failure) {
+          warning.textContent = failure.message;
+          warning.hidden = false;
+          button.disabled = false;
+        }
+        return;
+      }
+      openAction(button);
     });
     document.querySelector('[data-dialog-close]').addEventListener('click', () => dialog.close());
     document.getElementById('live-position-support-role').addEventListener('change', populateSecondaryPeople);
