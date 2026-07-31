@@ -207,6 +207,9 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"primarySelect.disabled = operation === 'participant'" in kiosk_page.data
     assert b"operation === 'logoff' || operation === 'logoff_close'" in kiosk_page.data
     assert b"close_position: operation === 'logoff_close'" in kiosk_page.data
+    assert b"Log off all controllers" in kiosk_page.data
+    assert b"data-logoff-choice" in kiosk_page.data
+    assert b"position?.participants.length" in kiosk_page.data
     state = client.get("/live-positions/api/state")
     assert state.status_code == 200
     assert state.get_json()["positions"][0]["display_status"] == "closed"
@@ -288,6 +291,12 @@ def test_kiosk_controller_selection_runs_full_live_position_workflow(
         },
     )
     assert removed.status_code == 200
+    primary_only_state = client.get(
+        "/live-positions/api/state"
+    ).get_json()["positions"][0]
+    assert primary_only_state["primary"]["name"] == "Alex Controller"
+    assert primary_only_state["participants"] == []
+    assert primary_only_state["display_status"] == "operational"
     assessed = _action(
         client,
         csrf,
