@@ -4659,7 +4659,6 @@ def _send_roster_publication_emails(
     return sent, failed, len(unique_addresses)
 
 
-@app.route("/roster/<ym>/publish", methods=["POST"])
 @login_required
 def roster_month_publish(ym):
     if not _can_publish_roster(current_user):
@@ -4765,7 +4764,6 @@ def roster_month_publish(ym):
     return redirect(url_for("roster_month", ym=ym))
 
 
-@app.route("/roster/<ym>/unpublish", methods=["POST"])
 @login_required
 def roster_month_unpublish(ym):
     if not _can_publish_roster(current_user):
@@ -4944,7 +4942,6 @@ def module_home():
     )
 
 
-@app.route("/roster/<ym>")
 @login_required
 def roster_month(ym):
     year, month = parse_ym(ym)
@@ -5224,7 +5221,6 @@ def __can():
     }
 
 
-@app.route("/assign/<int:staff_id>/<ym>/<day>", methods=["POST"])
 @login_required
 @roster_edit_required
 def assign_cell(staff_id, ym, day):
@@ -5335,7 +5331,6 @@ def assign_cell(staff_id, ym, day):
     return redirect(url_for("roster_month", ym=ym))
 
 
-@app.route("/roster/<ym>/export")
 @login_required
 def roster_export_csv(ym):
     if not _consume_rate_limit(
@@ -5436,7 +5431,6 @@ def roster_export_csv(ym):
     )
 
 
-@app.route("/roster/<ym>/print")
 @login_required
 def roster_print_view(ym):
     return redirect(url_for("roster_month", ym=ym))
@@ -11324,6 +11318,7 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 from auth_blueprint import AuthDependencies, create_auth_blueprint
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
+from roster_blueprint import RosterViews, create_roster_blueprint
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
     db=db,
@@ -11365,6 +11360,14 @@ app.register_blueprint(create_reports_blueprint(ReportsDependencies(
     toil_accrued_used=_toil_accrued_used_in_range_half_days,
     group_consecutive_days=_group_consecutive_days,
     get_absence_types=get_absence_types,
+)))
+app.register_blueprint(create_roster_blueprint(RosterViews(
+    roster_month_publish=roster_month_publish,
+    roster_month_unpublish=roster_month_unpublish,
+    roster_month=roster_month,
+    assign_cell=assign_cell,
+    roster_export_csv=roster_export_csv,
+    roster_print_view=roster_print_view,
 )))
 app.register_blueprint(briefing_blueprint)
 
