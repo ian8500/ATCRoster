@@ -30,7 +30,6 @@ from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
     current_user, login_required
 )
-from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import HTTPException, SecurityError
 from sqlalchemy import text
@@ -38,7 +37,7 @@ from sqlalchemy.exc import IntegrityError
 from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
-from briefing_storage import configured_briefing_storage
+from atcroster import create_app, get_runtime_settings
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -56,121 +55,20 @@ except Exception:
     Cache = None
 
 # -------------------- App setup --------------------
-app = Flask(__name__)
+app = create_app()
+_runtime_settings = get_runtime_settings(app)
 
 # Writable ./instance folder (works locally & on PythonAnywhere)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
+INSTANCE_DIR = app.instance_path
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 
-# Secrets & DB config (env-overridable)
-# On PythonAnywhere set: FLASK_SECRET_KEY (and optionally DATABASE_URL)
-app.config["SECRET_KEY"] = os.environ.get(
-    "FLASK_SECRET_KEY", "fallback-change-me")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-    "DATABASE_URL",
-    f"sqlite:///{os.path.join(INSTANCE_DIR, 'roster.db')}"
-)
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_pre_ping": True,
-    "pool_recycle": 280,
-    "pool_size": 5,
-    "max_overflow": 5,
-    "pool_timeout": int(os.environ.get("ATCROSTER_DB_POOL_TIMEOUT_SECONDS", "10")),
-}
-if str(app.config["SQLALCHEMY_DATABASE_URI"]).startswith("postgresql"):
-    app.config["SQLALCHEMY_ENGINE_OPTIONS"]["connect_args"] = {
-        "connect_timeout": int(
-            os.environ.get("ATCROSTER_DB_CONNECT_TIMEOUT_SECONDS", "5")
-        ),
-        "options": (
-            "-c statement_timeout="
-            + str(int(os.environ.get(
-                "ATCROSTER_DB_STATEMENT_TIMEOUT_MS", "15000"
-            )))
-        ),
-    }
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["MAX_CONTENT_LENGTH"] = int(
-    os.environ.get("ATCROSTER_MAX_REQUEST_BYTES", 2 * 1024 * 1024)
-)
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_NAME"] = os.environ.get(
-    "ATCROSTER_SESSION_COOKIE_NAME",
-    "__Host-atcroster"
-    if os.environ.get("ATCROSTER_ENVIRONMENT", "").lower() == "production"
-    else "atcroster_session",
-)
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ATCROSTER_SECURE_COOKIES", "").lower() in {
-    "1", "true", "yes"
-}
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
-    minutes=int(os.environ.get("ATCROSTER_SESSION_ABSOLUTE_MINUTES", "720"))
-)
-
-# Make external URLs prefer https behind PA’s proxy
-app.config["PREFERRED_URL_SCHEME"] = "https"
-_trusted_proxy_hops = int(os.environ.get("ATCROSTER_TRUSTED_PROXY_HOPS", "0"))
-if not 0 <= _trusted_proxy_hops <= 3:
-    raise RuntimeError("ATCROSTER_TRUSTED_PROXY_HOPS must be between 0 and 3.")
-if _trusted_proxy_hops:
-    app.wsgi_app = ProxyFix(
-        app.wsgi_app, x_for=_trusted_proxy_hops,
-        x_proto=_trusted_proxy_hops, x_host=_trusted_proxy_hops,
-    )
-
-DEPLOYMENT_ENV = os.environ.get("ATCROSTER_ENVIRONMENT", "development").lower()
-FIELD_ENCRYPTION_KEY = os.environ.get("ATCROSTER_FIELD_ENCRYPTION_KEY", "")
-FIELD_ENCRYPTION_KEYS = os.environ.get("ATCROSTER_FIELD_ENCRYPTION_KEYS", "")
-if DEPLOYMENT_ENV == "production":
-    trusted_hosts = [
-        host.strip()
-        for host in os.environ.get("ATCROSTER_TRUSTED_HOSTS", "").split(",")
-        if host.strip()
-    ]
-    if not trusted_hosts:
-        raise RuntimeError("Production requires ATCROSTER_TRUSTED_HOSTS.")
-    app.config["TRUSTED_HOSTS"] = trusted_hosts
-    if "ATCROSTER_TRUSTED_PROXY_HOPS" not in os.environ:
-        raise RuntimeError(
-            "Production requires an explicit ATCROSTER_TRUSTED_PROXY_HOPS value."
-        )
-    if app.config["SECRET_KEY"] == "fallback-change-me" or len(
-        app.config["SECRET_KEY"]
-    ) < 32:
-        raise RuntimeError(
-            "Production requires FLASK_SECRET_KEY with at least 32 characters."
-        )
-    if str(app.config["SQLALCHEMY_DATABASE_URI"]).startswith("sqlite"):
-        raise RuntimeError("Production requires PostgreSQL; SQLite is not supported.")
-    if not app.config["SESSION_COOKIE_SECURE"]:
-        raise RuntimeError(
-            "Production requires ATCROSTER_SECURE_COOKIES=true."
-        )
-    if not FIELD_ENCRYPTION_KEY and not FIELD_ENCRYPTION_KEYS:
-        raise RuntimeError(
-            "Production requires ATCROSTER_FIELD_ENCRYPTION_KEYS."
-        )
-    if not FIELD_ENCRYPTION_KEYS:
-        FIELD_ENCRYPTION_KEYS = f"legacy:{FIELD_ENCRYPTION_KEY}"
-    if not os.environ.get("REDIS_URL"):
-        raise RuntimeError("Production requires REDIS_URL.")
-    # Validate controlled-document storage during process startup. Production
-    # must never fall back to the application's potentially ephemeral instance
-    # directory.
-    configured_briefing_storage(app.instance_path)
-else:
-    FIELD_ENCRYPTION_KEY = base64.urlsafe_b64encode(
-        hashlib.sha256(str(app.config["SECRET_KEY"]).encode()).digest()
-    ).decode()
-    FIELD_ENCRYPTION_KEYS = f"dev:{FIELD_ENCRYPTION_KEY}"
+DEPLOYMENT_ENV = _runtime_settings.deployment_environment
+FIELD_ENCRYPTION_KEY = _runtime_settings.field_encryption_key
+FIELD_ENCRYPTION_KEYS = _runtime_settings.field_encryption_keys
 
 if DEPLOYMENT_ENV == "production":
     import redis
-    from platform_provisioning import validate_token_encryption_config
-
-    validate_token_encryption_config()
     _rate_limiter = RedisRateLimiter(redis.from_url(
         os.environ["REDIS_URL"], socket_connect_timeout=2,
         socket_timeout=2, decode_responses=True,
