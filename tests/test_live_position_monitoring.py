@@ -251,15 +251,6 @@ def test_kiosk_controller_selection_runs_full_live_position_workflow(
     client = app.app.test_client()
     csrf = _login_kiosk(client)
     position = live_position_data["position_id"]
-    opened = _action(
-        client,
-        csrf,
-        f"/live-positions/api/positions/{position}/open",
-        {
-            "request_key": "open-workflow",
-        },
-    )
-    assert opened.status_code == 200
     logged_on = _action(
         client,
         csrf,
@@ -274,10 +265,16 @@ def test_kiosk_controller_selection_runs_full_live_position_workflow(
     assert logged_on.status_code == 200
     state = client.get("/live-positions/api/state").get_json()["positions"][0]
     assert state["display_status"] == "training"
+    assert state["physical_status"] == "open"
     assert state["primary"]["name"] == "Alex Controller"
     assert state["participants"][0]["role_label"] == "OJTI"
     assert "+00:00Z" not in state["primary"]["started_at"]
     participant_id = state["participants"][0]["id"]
+    with app.app.app_context():
+        opened = app.PositionStatusEvent.query.filter_by(
+            position_id=position, status="open"
+        ).one()
+        assert opened.reason == "Opened automatically on controller logon"
     removed = _action(
         client,
         csrf,
