@@ -102,6 +102,20 @@
 .operational-report-filters label { display:grid; gap:.35rem; }
 .operational-report-filters .btn { min-height:44px; }
 .operational-report-section { margin-top:1rem; overflow:hidden; }
+.operational-report-totals { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; margin-top:1rem; }
+.operational-report-totals article { display:grid; gap:.25rem; padding:1rem 1.15rem; border:1px solid var(--line); border-radius:12px; background:var(--card); }
+.operational-report-totals span, .operational-report-totals small { color:var(--text-muted); }
+.operational-report-totals strong { font-size:clamp(1.5rem,3vw,2.25rem); }
+.operational-position-breakdown { display:grid; gap:.75rem; margin-top:1.25rem; }
+.operational-position-breakdown > h2 { margin:0 0 .25rem; font-size:1.15rem; }
+.operational-position-detail { overflow:hidden; }
+.operational-position-detail > summary { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.15rem; cursor:pointer; list-style-position:inside; }
+.operational-position-detail > summary span { display:grid; gap:.15rem; }
+.operational-position-detail > summary span:last-child { text-align:right; }
+.operational-position-detail > summary small { color:var(--text-muted); }
+.operational-position-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:.75rem; padding:0 1.15rem 1rem; }
+.operational-position-metrics span { display:grid; gap:.2rem; padding:.65rem .75rem; border:1px solid var(--line); border-radius:8px; color:var(--text-muted); }
+.operational-position-metrics strong { color:var(--text); font-size:1.05rem; }
 .operational-report-table { min-width:900px; margin-bottom:0; }
 .operational-report-table th, .operational-report-table td { white-space:nowrap; vertical-align:middle; }
 .operational-report-table tfoot th { white-space:normal; color:var(--text-muted); }
@@ -111,7 +125,11 @@
   .operational-report-filters, .operational-report-header .btn, .report-output-actions, .operational-report-notes { display:none !important; }
   .operational-report-section { break-inside:avoid; border:0; }
   .operational-report-table { min-width:0; font-size:9pt; }
+  .operational-report-totals { grid-template-columns:repeat(3,1fr); }
+  .operational-position-detail { break-inside:avoid; }
+  .operational-position-detail:not([open]) > :not(summary) { display:block !important; }
 }
+@media (max-width:700px) { .operational-report-totals { grid-template-columns:1fr; } }
 .live-position-dialog label { display: grid; gap: .35rem; font-weight: 700; }
 .live-position-dialog input, .live-position-dialog select { min-height: 48px; border: 1px solid #64748b; border-radius: 8px; padding: .65rem; background: #f8fafc; color: #0f172a; font-size: 1rem; }
 .live-position-dialog__error { padding: .75rem; border: 2px solid #f87171; border-radius: 8px; background: #450a0a; }

@@ -501,6 +501,9 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     individual = client.get(f"/live-positions/reports/operational-activity?{query}")
     assert individual.status_code == 200
     assert b"Individual activity summary" in individual.data
+    assert b"Operational activity total" in individual.data
+    assert b"Breakdown by position" in individual.data
+    assert b"operational-position-detail" in individual.data
     assert b"Alex Controller" in individual.data
     assert b"01:30" in individual.data
     assert b"Sam Instructor" in individual.data
@@ -511,11 +514,13 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     )
     assert position.status_code == 200
     assert b"Position utilisation" in position.data
+    assert b"Total position occupancy" in position.data
     instruction = client.get(
         f"/live-positions/reports/operational-activity?{query}&report_type=instruction"
     )
     assert instruction.status_code == 200
     assert b"OJTI and assessor contribution" in instruction.data
+    assert b"Total contribution" in instruction.data
     assert b"100.0%" in instruction.data
 
 
