@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any, Callable
 
 from flask import (
@@ -21,7 +20,6 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
-from werkzeug.security import check_password_hash, generate_password_hash
 
 from live_position_service import (
     LivePositionConflict,
@@ -42,15 +40,11 @@ class LivePositionDependencies:
     PositionSessionParticipant: Any
     PositionParticipantRole: Any
     PositionSessionAudit: Any
-    ControllerKioskCredential: Any
     PositionEndorsement: Any
     Staff: Any
     utcnow: Callable[[], Any]
     is_admin_user: Callable[[Any], bool]
     live_position_enabled: Callable[[int], bool]
-    consume_rate_limit: Callable[..., bool]
-    reset_rate_limit: Callable[..., None]
-    security_event: Callable[..., None]
 
 
 def create_live_position_blueprint(
@@ -74,10 +68,12 @@ def create_live_position_blueprint(
         return LivePositionService(
             dependencies.db,
             LivePositionModels(
+                dependencies.Staff,
                 dependencies.OperationalPosition,
                 dependencies.PositionStatusEvent,
                 dependencies.PositionSession,
                 dependencies.PositionSessionParticipant,
+                dependencies.PositionParticipantRole,
                 dependencies.PositionSessionAudit,
             ),
             dependencies.utcnow,
@@ -97,64 +93,21 @@ def create_live_position_blueprint(
         except TypeError, ValueError:
             return default
 
-    def _audit_identity(
-        action: str,
-        actor_id: int,
-        requested_person_id: int,
-    ) -> None:
-        dependencies.db.session.add(
-            dependencies.PositionSessionAudit(
-                unit_id=_unit_id(),
-                actor_id=actor_id,
-                action=action,
-                occurred_at=dependencies.utcnow(),
-                new_value_json=(
-                    '{"requested_person_id":' + str(requested_person_id) + "}"
-                ),
-                transaction_key=LivePositionService.transaction_key(),
-            )
-        )
+    def _iso_timestamp(value: Any) -> str:
+        rendered = value.isoformat()
+        if rendered.endswith("+00:00"):
+            return rendered[:-6] + "Z"
+        return rendered if getattr(value, "tzinfo", None) else rendered + "Z"
 
-    def _verify_pin(person_id: int, pin: str) -> Any:
-        unit_id = _unit_id()
-        now = dependencies.utcnow()
-        if not dependencies.consume_rate_limit(
-            "controller-kiosk-pin",
-            f"{unit_id}:{person_id}",
-            limit=5,
-            window=timedelta(minutes=15),
-            fail_closed=True,
-        ):
-            dependencies.security_event(
-                "controller_kiosk_pin_rate_limited", unit_id=unit_id
-            )
-            abort(429, "Too many PIN attempts. Try again later.")
+    def _controller(person_id: int) -> Any:
         person = dependencies.Staff.query.filter_by(
-            id=person_id, unit_id=unit_id, membership_status="active"
+            id=person_id,
+            unit_id=_unit_id(),
+            membership_status="active",
+            is_operational=True,
         ).first()
-        credential = dependencies.ControllerKioskCredential.query.filter_by(
-            unit_id=unit_id, person_id=person_id, enabled=True
-        ).first()
-        valid = bool(
-            person
-            and credential
-            and (not credential.locked_until or credential.locked_until <= now)
-            and check_password_hash(credential.pin_hash, pin)
-        )
-        if not valid:
-            if credential:
-                credential.failed_attempts = int(credential.failed_attempts or 0) + 1
-                if credential.failed_attempts >= 5:
-                    credential.locked_until = now + timedelta(minutes=15)
-            _audit_identity("identity_verification_failed", current_user.id, person_id)
-            dependencies.db.session.commit()
-            dependencies.security_event("controller_kiosk_pin_failed", unit_id=unit_id)
-            abort(403, "Identity verification failed.")
-        credential.failed_attempts = 0
-        credential.locked_until = None
-        _audit_identity("identity_verified", person.id, person_id)
-        dependencies.db.session.commit()
-        dependencies.reset_rate_limit("controller-kiosk-pin", f"{unit_id}:{person_id}")
+        if not person:
+            raise LivePositionValidationError("Select an active controller.")
         return person
 
     def _validate_primary(person: Any) -> None:
@@ -199,6 +152,30 @@ def create_live_position_blueprint(
                 "A current assessor authority is required."
             )
 
+    def _secondary_selection(
+        data: dict[str, Any], *, required: bool = False
+    ) -> tuple[list[dict[str, int]], str]:
+        role_code = str(data.get("support_role") or "").strip().lower()
+        person_id = _int_field(data, "support_person_id")
+        if not role_code and not person_id and not required:
+            return [], "operational"
+        if role_code not in {"ojti", "assessor"} or not person_id:
+            raise LivePositionValidationError(
+                "Select both an OJTI or Assessor role and a secondary controller."
+            )
+        _ensure_participant_roles()
+        role = dependencies.PositionParticipantRole.query.filter_by(
+            unit_id=_unit_id(), code=role_code, is_active=True, is_primary=False
+        ).first()
+        if not role:
+            raise LivePositionValidationError("That secondary role is unavailable.")
+        person = _controller(person_id)
+        _validate_support(person, role)
+        return (
+            [{"person_id": person.id, "role_id": role.id}],
+            "training" if role.code == "ojti" else "assessment",
+        )
+
     def _mutation_error(error: Exception):
         status = 409 if isinstance(error, LivePositionConflict) else 422
         return jsonify({"ok": False, "error": str(error)}), status
@@ -208,10 +185,6 @@ def create_live_position_blueprint(
             ("primary", "Primary controller", True, True),
             ("ojti", "OJTI", False, False),
             ("assessor", "Assessor", False, False),
-            ("secondary", "Secondary controller", False, False),
-            ("examiner", "Examiner", False, False),
-            ("safety_controller", "Safety controller", False, False),
-            ("observer", "Observer", False, False),
         )
         existing = {
             row.code
@@ -242,63 +215,6 @@ def create_live_position_blueprint(
         if not dependencies.is_admin_user(current_user):
             abort(403)
         return redirect(url_for("administration_home"))
-
-    @blueprint.route("/admin/controller-pins", methods=["GET", "POST"])
-    @login_required
-    def controller_pins():
-        _require_module()
-        if not dependencies.is_admin_user(current_user):
-            abort(403)
-        if request.method == "POST":
-            data = _payload()
-            person_id = int(data.get("person_id") or 0)
-            pin = str(data.get("pin") or "")
-            person = dependencies.Staff.query.filter_by(
-                id=person_id, unit_id=_unit_id(), membership_status="active"
-            ).first_or_404()
-            if not pin.isdigit() or not 4 <= len(pin) <= 8:
-                flash("PINs must contain 4 to 8 digits.", "error")
-            else:
-                credential = dependencies.ControllerKioskCredential.query.filter_by(
-                    unit_id=_unit_id(), person_id=person.id
-                ).first()
-                if not credential:
-                    credential = dependencies.ControllerKioskCredential(
-                        unit_id=_unit_id(),
-                        person_id=person.id,
-                        pin_hash="",
-                        changed_at=dependencies.utcnow(),
-                    )
-                    dependencies.db.session.add(credential)
-                credential.pin_hash = generate_password_hash(pin)
-                credential.enabled = True
-                credential.failed_attempts = 0
-                credential.locked_until = None
-                credential.changed_at = dependencies.utcnow()
-                _audit_identity("controller_pin_changed", current_user.id, person.id)
-                dependencies.db.session.commit()
-                flash(f"Kiosk PIN updated for {person.name}.", "ok")
-                return redirect(url_for("live_position.controller_pins"))
-        people = (
-            dependencies.Staff.query.filter_by(
-                unit_id=_unit_id(),
-                membership_status="active",
-                is_operational=True,
-            )
-            .order_by(dependencies.Staff.name)
-            .all()
-        )
-        configured = {
-            row.person_id
-            for row in dependencies.ControllerKioskCredential.query.filter_by(
-                unit_id=_unit_id(), enabled=True
-            ).all()
-        }
-        return render_template(
-            "live_position/controller_pins.html",
-            people=people,
-            configured=configured,
-        )
 
     @blueprint.route("/admin/positions", methods=["GET", "POST"])
     @login_required
@@ -465,12 +381,6 @@ def create_live_position_blueprint(
     def controllers():
         _require_kiosk()
         _ensure_participant_roles()
-        configured_ids = {
-            row.person_id
-            for row in dependencies.ControllerKioskCredential.query.filter_by(
-                unit_id=_unit_id(), enabled=True
-            ).all()
-        }
         people = (
             dependencies.Staff.query.filter_by(
                 unit_id=_unit_id(),
@@ -480,23 +390,16 @@ def create_live_position_blueprint(
             .order_by(dependencies.Staff.name)
             .all()
         )
-        roles = (
-            dependencies.PositionParticipantRole.query.filter_by(
-                unit_id=_unit_id(), is_active=True, is_primary=False
-            )
-            .order_by(dependencies.PositionParticipantRole.label)
-            .all()
-        )
         return jsonify(
             {
                 "controllers": [
-                    {"id": person.id, "name": person.name}
+                    {
+                        "id": person.id,
+                        "name": person.name,
+                        "is_ojti": bool(person.has_ojti),
+                        "is_assessor": bool(person.has_assessor),
+                    }
                     for person in people
-                    if person.id in configured_ids
-                ],
-                "roles": [
-                    {"id": role.id, "code": role.code, "label": role.label}
-                    for role in roles
                 ],
             }
         )
@@ -506,14 +409,12 @@ def create_live_position_blueprint(
     def open_position(position_id: int):
         _require_kiosk()
         data = _payload()
-        actor = _verify_pin(int(data.get("person_id") or 0), str(data.get("pin") or ""))
         try:
             _service().set_position_open(
                 unit_id=_unit_id(),
                 position_id=position_id,
-                actor_id=actor.id,
+                actor_id=current_user.id,
                 open_position=True,
-                reason=str(data.get("reason") or ""),
                 request_key=_request_key(data),
             )
             return jsonify({"ok": True})
@@ -525,14 +426,12 @@ def create_live_position_blueprint(
     def close_position(position_id: int):
         _require_kiosk()
         data = _payload()
-        actor = _verify_pin(int(data.get("person_id") or 0), str(data.get("pin") or ""))
         try:
             _service().set_position_open(
                 unit_id=_unit_id(),
                 position_id=position_id,
-                actor_id=actor.id,
+                actor_id=current_user.id,
                 open_position=False,
-                reason=str(data.get("reason") or ""),
                 request_key=_request_key(data),
             )
             return jsonify({"ok": True})
@@ -544,18 +443,18 @@ def create_live_position_blueprint(
     def logon(position_id: int):
         _require_kiosk()
         data = _payload()
-        person = _verify_pin(
-            int(data.get("person_id") or 0), str(data.get("pin") or "")
-        )
         try:
+            person = _controller(_int_field(data, "person_id"))
             _validate_primary(person)
+            participants, session_type = _secondary_selection(data)
             _service().start_session(
                 unit_id=_unit_id(),
                 position_id=position_id,
                 person_id=person.id,
-                actor_id=person.id,
-                session_type=str(data.get("session_type") or "operational"),
+                actor_id=current_user.id,
+                session_type=session_type,
                 request_key=_request_key(data),
+                participants=participants,
             )
             return jsonify({"ok": True})
         except (LivePositionConflict, LivePositionValidationError) as error:
@@ -566,32 +465,30 @@ def create_live_position_blueprint(
     def logoff(position_id: int):
         _require_kiosk()
         data = _payload()
-        person = _verify_pin(
-            int(data.get("person_id") or 0), str(data.get("pin") or "")
-        )
         active = dependencies.PositionSession.query.filter_by(
             unit_id=_unit_id(),
             position_id=position_id,
             ended_at=None,
             is_void=False,
         ).first()
-        if not active or active.primary_person_id != person.id:
-            abort(403, "Only the active primary controller may log off.")
+        if not active:
+            return _mutation_error(
+                LivePositionConflict("The position is not occupied.")
+            )
         try:
             if str(data.get("close_position") or "").lower() in {"1", "true", "yes"}:
                 _service().set_position_open(
                     unit_id=_unit_id(),
                     position_id=position_id,
-                    actor_id=person.id,
+                    actor_id=current_user.id,
                     open_position=False,
-                    reason=str(data.get("reason") or ""),
                     request_key=_request_key(data),
                 )
             else:
                 _service().end_session(
                     unit_id=_unit_id(),
                     position_id=position_id,
-                    actor_id=person.id,
+                    actor_id=current_user.id,
                     request_key=_request_key(data),
                 )
             return jsonify({"ok": True})
@@ -603,18 +500,18 @@ def create_live_position_blueprint(
     def handover(position_id: int):
         _require_kiosk()
         data = _payload()
-        incoming = _verify_pin(
-            int(data.get("person_id") or 0), str(data.get("pin") or "")
-        )
         try:
+            incoming = _controller(_int_field(data, "person_id"))
             _validate_primary(incoming)
+            participants, session_type = _secondary_selection(data)
             _service().handover(
                 unit_id=_unit_id(),
                 position_id=position_id,
                 incoming_person_id=incoming.id,
-                actor_id=incoming.id,
-                session_type=str(data.get("session_type") or "operational"),
+                actor_id=current_user.id,
+                session_type=session_type,
                 request_key=_request_key(data),
+                participants=participants,
             )
             return jsonify({"ok": True})
         except (LivePositionConflict, LivePositionValidationError) as error:
@@ -625,23 +522,15 @@ def create_live_position_blueprint(
     def add_participant(position_id: int):
         _require_kiosk()
         data = _payload()
-        person = _verify_pin(
-            int(data.get("person_id") or 0), str(data.get("pin") or "")
-        )
-        role = dependencies.PositionParticipantRole.query.filter_by(
-            id=int(data.get("role_id") or 0),
-            unit_id=_unit_id(),
-            is_active=True,
-            is_primary=False,
-        ).first_or_404()
         try:
-            _validate_support(person, role)
+            participants, _session_type = _secondary_selection(data, required=True)
+            participant = participants[0]
             row = _service().add_participant(
                 unit_id=_unit_id(),
                 position_id=position_id,
-                person_id=person.id,
-                role_id=role.id,
-                actor_id=person.id,
+                person_id=participant["person_id"],
+                role_id=participant["role_id"],
+                actor_id=current_user.id,
                 request_key=_request_key(data),
             )
             return jsonify({"ok": True, "participant_id": row.id})
@@ -655,20 +544,19 @@ def create_live_position_blueprint(
     def remove_participant(position_id: int, participant_id: int):
         _require_kiosk()
         data = _payload()
-        person = _verify_pin(
-            int(data.get("person_id") or 0), str(data.get("pin") or "")
-        )
         participant = dependencies.PositionSessionParticipant.query.filter_by(
             id=participant_id, unit_id=_unit_id(), ended_at=None
         ).first()
-        if not participant or participant.person_id != person.id:
-            abort(403, "Only the active participant may log off.")
+        if not participant:
+            return _mutation_error(
+                LivePositionConflict("The secondary controller is no longer active.")
+            )
         try:
             _service().end_participant(
                 unit_id=_unit_id(),
                 position_id=position_id,
                 participant_id=participant_id,
-                actor_id=person.id,
+                actor_id=current_user.id,
                 request_key=_request_key(data),
             )
             return jsonify({"ok": True})
@@ -730,7 +618,7 @@ def create_live_position_blueprint(
                             "person_name": person.name if person else "Unknown",
                             "role_id": row.role_id,
                             "role_label": role.label if role else "Supporting",
-                            "started_at": row.started_at.isoformat() + "Z",
+                            "started_at": _iso_timestamp(row.started_at),
                         }
                     )
             physical_status = status_event.status if status_event else "closed"
@@ -752,9 +640,9 @@ def create_live_position_blueprint(
                         {
                             "id": primary.id,
                             "name": primary.name,
-                            "started_at": session.started_at.isoformat() + "Z",
+                            "started_at": _iso_timestamp(session.started_at),
                             "due_off_at": (
-                                session.due_off_at.isoformat() + "Z"
+                                _iso_timestamp(session.due_off_at)
                                 if session.due_off_at
                                 else None
                             ),
@@ -765,7 +653,7 @@ def create_live_position_blueprint(
                     "participants": participants,
                 }
             )
-        return {"server_time": now.isoformat() + "Z", "positions": state}
+        return {"server_time": _iso_timestamp(now), "positions": state}
 
     @blueprint.get("/api/state")
     @login_required

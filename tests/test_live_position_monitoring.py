@@ -6,7 +6,6 @@ import pytest
 import app
 from conftest import finish_operational_login
 from live_position_service import LivePositionModels, LivePositionService
-from werkzeug.security import generate_password_hash
 
 
 @pytest.fixture()
@@ -43,6 +42,7 @@ def live_position_data():
             medical_expiry=date(2027, 7, 31),
             tower_ue_expiry=date(2027, 7, 31),
             has_ojti=True,
+            has_assessor=True,
         )
         admin = app.Staff(
             unit_id=1,
@@ -106,22 +106,6 @@ def live_position_data():
                 status="active",
             )
         )
-        app.db.session.add_all(
-            [
-                app.ControllerKioskCredential(
-                    unit_id=1,
-                    person_id=controller.id,
-                    pin_hash=generate_password_hash("1234"),
-                    changed_at=datetime.now(),
-                ),
-                app.ControllerKioskCredential(
-                    unit_id=1,
-                    person_id=supporter.id,
-                    pin_hash=generate_password_hash("5678"),
-                    changed_at=datetime.now(),
-                ),
-            ]
-        )
         app.db.session.commit()
         yield {
             "kiosk_id": kiosk.id,
@@ -138,10 +122,12 @@ def _service(now):
     return LivePositionService(
         app.db,
         LivePositionModels(
+            app.Staff,
             app.OperationalPosition,
             app.PositionStatusEvent,
             app.PositionSession,
             app.PositionSessionParticipant,
+            app.PositionParticipantRole,
             app.PositionSessionAudit,
         ),
         lambda: now,
@@ -239,7 +225,9 @@ def _action(client, csrf, path, payload):
     )
 
 
-def test_kiosk_pin_authorises_full_live_position_workflow(live_position_data):
+def test_kiosk_controller_selection_runs_full_live_position_workflow(
+    live_position_data,
+):
     client = app.app.test_client()
     csrf = _login_kiosk(client)
     position = live_position_data["position_id"]
@@ -248,8 +236,6 @@ def test_kiosk_pin_authorises_full_live_position_workflow(live_position_data):
         csrf,
         f"/live-positions/api/positions/{position}/open",
         {
-            "person_id": live_position_data["controller_id"],
-            "pin": "1234",
             "request_key": "open-workflow",
         },
     )
@@ -260,48 +246,56 @@ def test_kiosk_pin_authorises_full_live_position_workflow(live_position_data):
         f"/live-positions/api/positions/{position}/logon",
         {
             "person_id": live_position_data["controller_id"],
-            "pin": "1234",
-            "session_type": "training",
+            "support_person_id": live_position_data["supporter_id"],
+            "support_role": "ojti",
             "request_key": "logon-workflow",
         },
     )
     assert logged_on.status_code == 200
-    supported = _action(
-        client,
-        csrf,
-        f"/live-positions/api/positions/{position}/participants",
-        {
-            "person_id": live_position_data["supporter_id"],
-            "pin": "5678",
-            "role_id": live_position_data["role_id"],
-            "request_key": "support-workflow",
-        },
-    )
-    assert supported.status_code == 200
     state = client.get("/live-positions/api/state").get_json()["positions"][0]
     assert state["display_status"] == "training"
     assert state["primary"]["name"] == "Alex Controller"
     assert state["participants"][0]["role_label"] == "OJTI"
-    participant_id = supported.get_json()["participant_id"]
+    assert "+00:00Z" not in state["primary"]["started_at"]
+    participant_id = state["participants"][0]["id"]
     removed = _action(
         client,
         csrf,
         f"/live-positions/api/positions/{position}/participants/{participant_id}/logoff",
         {
-            "person_id": live_position_data["supporter_id"],
-            "pin": "5678",
             "request_key": "support-logoff-workflow",
         },
     )
     assert removed.status_code == 200
+    assessed = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{position}/participants",
+        {
+            "support_person_id": live_position_data["supporter_id"],
+            "support_role": "assessor",
+            "request_key": "assessor-workflow",
+        },
+    )
+    assert assessed.status_code == 200
+    assessed_state = client.get("/live-positions/api/state").get_json()["positions"][0]
+    assert assessed_state["display_status"] == "assessment"
+    assert assessed_state["participants"][0]["role_label"] == "Assessor"
+    assert (
+        _action(
+            client,
+            csrf,
+            f"/live-positions/api/positions/{position}/participants/{assessed.get_json()['participant_id']}/logoff",
+            {"request_key": "assessor-logoff-workflow"},
+        ).status_code
+        == 200
+    )
     handed_over = _action(
         client,
         csrf,
         f"/live-positions/api/positions/{position}/handover",
         {
             "person_id": live_position_data["supporter_id"],
-            "pin": "5678",
-            "session_type": "operational",
             "request_key": "handover-workflow",
         },
     )
@@ -317,8 +311,6 @@ def test_kiosk_pin_authorises_full_live_position_workflow(live_position_data):
         csrf,
         f"/live-positions/api/positions/{position}/logoff",
         {
-            "person_id": live_position_data["supporter_id"],
-            "pin": "5678",
             "close_position": True,
             "request_key": "close-workflow",
         },
@@ -332,25 +324,97 @@ def test_kiosk_pin_authorises_full_live_position_workflow(live_position_data):
     )
 
 
-def test_wrong_pin_is_generic_and_audited(live_position_data):
+def test_kiosk_actions_do_not_request_or_require_controller_pins(
+    live_position_data,
+):
     client = app.app.test_client()
     csrf = _login_kiosk(client)
+    page = client.get("/live-positions/kiosk")
+    assert b"Controller PIN" not in page.data
+    assert b"Reason or note" not in page.data
     response = _action(
         client,
         csrf,
         f"/live-positions/api/positions/{live_position_data['position_id']}/open",
         {
-            "person_id": live_position_data["controller_id"],
-            "pin": "9999",
-            "request_key": "wrong-pin",
+            "request_key": "no-pin-required",
         },
     )
-    assert response.status_code == 403
+    assert response.status_code == 200
+
+
+def test_controller_cannot_be_logged_on_to_two_positions(live_position_data):
+    client = app.app.test_client()
+    csrf = _login_kiosk(client)
     with app.app.app_context():
-        audit = app.PositionSessionAudit.query.filter_by(
-            action="identity_verification_failed"
-        ).one()
-        assert "requested_person_id" in audit.new_value_json
+        second = app.OperationalPosition(
+            unit_id=1, code="GMC", label="Ground", display_order=2
+        )
+        app.db.session.add(second)
+        app.db.session.commit()
+        second_id = second.id
+    for position_id, request_key in (
+        (live_position_data["position_id"], "open-first"),
+        (second_id, "open-second"),
+    ):
+        assert (
+            _action(
+                client,
+                csrf,
+                f"/live-positions/api/positions/{position_id}/open",
+                {"request_key": request_key},
+            ).status_code
+            == 200
+        )
+    first = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{live_position_data['position_id']}/logon",
+        {
+            "person_id": live_position_data["controller_id"],
+            "request_key": "first-logon",
+        },
+    )
+    assert first.status_code == 200
+    duplicate = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{second_id}/logon",
+        {
+            "person_id": live_position_data["controller_id"],
+            "request_key": "duplicate-logon",
+        },
+    )
+    assert duplicate.status_code == 409
+    assert "already logged on" in duplicate.get_json()["error"]
+
+
+def test_secondary_role_requires_the_matching_qualification(live_position_data):
+    client = app.app.test_client()
+    csrf = _login_kiosk(client)
+    position = live_position_data["position_id"]
+    assert (
+        _action(
+            client,
+            csrf,
+            f"/live-positions/api/positions/{position}/open",
+            {"request_key": "open-qualification-check"},
+        ).status_code
+        == 200
+    )
+    rejected = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{position}/logon",
+        {
+            "person_id": live_position_data["supporter_id"],
+            "support_person_id": live_position_data["controller_id"],
+            "support_role": "ojti",
+            "request_key": "unqualified-ojti",
+        },
+    )
+    assert rejected.status_code == 422
+    assert "OJTI" in rejected.get_json()["error"]
 
 
 def test_admin_can_configure_currency_category_and_position(live_position_data):

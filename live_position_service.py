@@ -26,10 +26,12 @@ class LivePositionValidationError(ValueError):
 
 @dataclass(frozen=True)
 class LivePositionModels:
+    Staff: Any
     OperationalPosition: Any
     PositionStatusEvent: Any
     PositionSession: Any
     PositionSessionParticipant: Any
+    PositionParticipantRole: Any
     PositionSessionAudit: Any
 
 
@@ -77,6 +79,28 @@ class LivePositionService:
             .first()
         )
 
+    def _lock_available_person(self, unit_id: int, person_id: int) -> None:
+        person = (
+            self.models.Staff.query.filter_by(id=person_id, unit_id=unit_id)
+            .with_for_update()
+            .first()
+        )
+        if not person:
+            raise LivePositionValidationError("Unknown controller.")
+        primary = self.models.PositionSession.query.filter_by(
+            unit_id=unit_id,
+            primary_person_id=person_id,
+            ended_at=None,
+            is_void=False,
+        ).first()
+        supporting = self.models.PositionSessionParticipant.query.filter_by(
+            unit_id=unit_id, person_id=person_id, ended_at=None
+        ).first()
+        if primary or supporting:
+            raise LivePositionConflict(
+                f"{person.name} is already logged on to another position."
+            )
+
     def _latest_status(self, unit_id: int, position_id: int) -> str:
         event = (
             self.models.PositionStatusEvent.query.filter_by(
@@ -89,6 +113,25 @@ class LivePositionService:
             .first()
         )
         return event.status if event else "closed"
+
+    def _participant_session_type(self, unit_id: int, session_id: int) -> str:
+        rows = self.models.PositionSessionParticipant.query.filter_by(
+            unit_id=unit_id, session_id=session_id, ended_at=None
+        ).all()
+        codes = {
+            role.code
+            for row in rows
+            if (
+                role := self.db.session.get(
+                    self.models.PositionParticipantRole, row.role_id
+                )
+            )
+        }
+        if "assessor" in codes:
+            return "assessment"
+        if "ojti" in codes:
+            return "training"
+        return "operational"
 
     def _audit(
         self,
@@ -214,6 +257,26 @@ class LivePositionService:
                 raise LivePositionConflict("The position is closed.")
             if self._open_session(unit_id, position_id):
                 raise LivePositionConflict("The position is already occupied.")
+            participant_ids = [int(item["person_id"]) for item in (participants or [])]
+            if person_id in participant_ids or len(participant_ids) != len(
+                set(participant_ids)
+            ):
+                raise LivePositionValidationError(
+                    "Primary and secondary controllers must be different people."
+                )
+            for active_person_id in sorted([person_id, *participant_ids]):
+                self._lock_available_person(unit_id, active_person_id)
+            if participant_ids and not position.supporting_participants_allowed:
+                raise LivePositionValidationError(
+                    "Secondary controllers are not permitted on this position."
+                )
+            if (
+                len(participant_ids) > 1
+                and not position.multiple_supporting_participants_allowed
+            ):
+                raise LivePositionValidationError(
+                    "This position permits only one secondary controller."
+                )
             if session_type == "training" and not position.training_supported:
                 raise LivePositionValidationError("Training is not supported here.")
             if session_type == "assessment" and not position.assessment_supported:
@@ -359,6 +422,7 @@ class LivePositionService:
             )
         if any(row.person_id == person_id for row in active):
             raise LivePositionConflict("This participant is already logged on.")
+        self._lock_available_person(unit_id, person_id)
         participant = self.models.PositionSessionParticipant(
             unit_id=unit_id,
             session_id=session.id,
@@ -369,6 +433,7 @@ class LivePositionService:
         )
         self.db.session.add(participant)
         self.db.session.flush()
+        session.session_type = self._participant_session_type(unit_id, session.id)
         self._audit(
             unit_id=unit_id,
             actor_id=actor_id,
@@ -428,6 +493,7 @@ class LivePositionService:
             raise LivePositionConflict("The participant is no longer active.")
         participant.ended_at = timestamp
         participant.ended_reason = "logoff"
+        session.session_type = self._participant_session_type(unit_id, session.id)
         self._audit(
             unit_id=unit_id,
             actor_id=actor_id,
@@ -451,6 +517,7 @@ class LivePositionService:
         actor_id: int,
         session_type: str = "operational",
         request_key: str | None = None,
+        participants: list[dict[str, int]] | None = None,
     ) -> Any:
         key = self.transaction_key(request_key)
         existing = self.models.PositionSession.query.filter_by(
@@ -463,6 +530,23 @@ class LivePositionService:
         outgoing = self._open_session(unit_id, position_id)
         if not outgoing:
             raise LivePositionConflict("The position is not occupied.")
+        participant_ids = [int(item["person_id"]) for item in (participants or [])]
+        if incoming_person_id in participant_ids or len(participant_ids) != len(
+            set(participant_ids)
+        ):
+            raise LivePositionValidationError(
+                "Primary and secondary controllers must be different people."
+            )
+        for active_person_id in sorted([incoming_person_id, *participant_ids]):
+            self._lock_available_person(unit_id, active_person_id)
+        if participant_ids and not position.supporting_participants_allowed:
+            raise LivePositionValidationError(
+                "Secondary controllers are not permitted on this position."
+            )
+        if session_type == "training" and not position.training_supported:
+            raise LivePositionValidationError("Training is not supported here.")
+        if session_type == "assessment" and not position.assessment_supported:
+            raise LivePositionValidationError("Assessment is not supported here.")
         self._end_session_records(outgoing, timestamp, "handover", key)
         incoming = self.models.PositionSession(
             unit_id=unit_id,
@@ -476,6 +560,19 @@ class LivePositionService:
         )
         self.db.session.add(incoming)
         self.db.session.flush()
+        for participant in participants or []:
+            self.db.session.add(
+                self.models.PositionSessionParticipant(
+                    unit_id=unit_id,
+                    session_id=incoming.id,
+                    person_id=participant["person_id"],
+                    role_id=participant["role_id"],
+                    started_at=timestamp,
+                    transaction_key=self.related_key(
+                        key, f"incoming-participant:{participant['person_id']}"
+                    ),
+                )
+            )
         self._audit(
             unit_id=unit_id,
             actor_id=actor_id,

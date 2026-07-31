@@ -5776,6 +5776,7 @@ def admin_staff_edit(sid):
         s.is_operational = bool(request.form.get("operational"))
         s.is_trainee = bool(request.form.get("trainee"))
         s.has_ojti = bool(request.form.get("ojti"))
+        s.has_assessor = bool(request.form.get("has_assessor"))
 
         # NEW flags
         s.is_wm = bool(request.form.get("is_wm"))
@@ -9681,12 +9682,9 @@ app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     PositionSessionParticipant=PositionSessionParticipant,
     PositionParticipantRole=PositionParticipantRole,
     PositionSessionAudit=PositionSessionAudit,
-    ControllerKioskCredential=ControllerKioskCredential,
     PositionEndorsement=PositionEndorsement, Staff=Staff,
     utcnow=utcnow, is_admin_user=is_admin_user,
     live_position_enabled=live_position_enabled,
-    consume_rate_limit=_consume_rate_limit, reset_rate_limit=_reset_rate_limit,
-    security_event=_security_event,
 )))
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(

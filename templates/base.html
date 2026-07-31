@@ -12,7 +12,7 @@
   {% set in_competency_module = request.endpoint and request.endpoint.startswith('competency_') %}
   {% set in_shared_admin = request.endpoint in (
     'administration_home', 'unit_accounts', 'kiosk_accounts',
-    'live_position.position_configuration', 'live_position.controller_pins'
+    'live_position.position_configuration'
   ) %}
   {% set report_endpoints = (
     'report_leave', 'report_leave_year', 'report_sickness', 'report_fatigue',
@@ -98,7 +98,6 @@
               {% if has_live_position_module %}
                 <a href="{{ url_for('kiosk_accounts') }}" class="nav-link {% if request.endpoint == 'kiosk_accounts' %}active{% endif %}"><i class="fa-solid fa-display" aria-hidden="true"></i> Kiosk accounts</a>
                 <a href="{{ url_for('live_position.position_configuration') }}" class="nav-link {% if request.endpoint == 'live_position.position_configuration' %}active{% endif %}"><i class="fa-solid fa-tower-broadcast" aria-hidden="true"></i> Positions</a>
-                <a href="{{ url_for('live_position.controller_pins') }}" class="nav-link {% if request.endpoint == 'live_position.controller_pins' %}active{% endif %}"><i class="fa-solid fa-key" aria-hidden="true"></i> Kiosk PINs</a>
               {% endif %}
             {% elif in_briefing_module %}
               {% include "briefing/_nav_links.html" %}
