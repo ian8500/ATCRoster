@@ -204,7 +204,8 @@ def create_auth_blueprint(dependencies: AuthDependencies) -> Blueprint:
                     dependencies.initialize_authenticated_session(user)
                     dependencies.security_event(
                         "position_monitor_login_succeeded",
-                        principal=rate_key[-16:], unit_id=user.unit_id,
+                        principal=rate_key[-16:],
+                        unit_id=user.unit_id,
                     )
                     dependencies.record_successful_login(user)
                     return redirect(url_for(dependencies.airport_login_endpoint(user)))

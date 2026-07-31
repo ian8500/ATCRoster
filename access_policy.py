@@ -18,7 +18,7 @@ def is_editor(user) -> bool:
 def permissions_for(user) -> dict[str, bool]:
     try:
         raw = json.loads(getattr(user, "permissions_json", "") or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except TypeError, ValueError, json.JSONDecodeError:
         return {}
     if not isinstance(raw, dict):
         return {}
