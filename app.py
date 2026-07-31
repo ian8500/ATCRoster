@@ -66,6 +66,19 @@ from absence_requests import (
     request_month_is_locked,
     safe_admin_month,
 )
+from access_policy import (
+    has_permission,
+    is_admin,
+    is_editor,
+    is_trainee,
+    may_apply_annotations,
+    may_edit_roster,
+    may_manage_training,
+    may_override_roster_conflicts,
+    may_record_training,
+    may_send_unit_messages,
+    permissions_for,
+)
 from atcroster import create_app, get_runtime_settings
 from tenancy import (
     authenticated_unit_id,
@@ -2257,51 +2270,31 @@ _load_month_roster_fast = _memoize(seconds=300)(_load_month_roster_core)
 
 
 def is_admin_user(u) -> bool:
-    return bool(getattr(u, "is_admin", False) or getattr(u, "role", "") == "admin")
+    return is_admin(u)
 
 
 def is_editor_user(u) -> bool:
-    # admin counts as editor
-    return getattr(u, "role", "") in ("editor", "admin")
+    return is_editor(u)
 
 
 def user_permissions(u) -> dict[str, bool]:
-    try:
-        raw = json.loads(getattr(u, "permissions_json", "") or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return {}
-    return {
-        str(key): bool(value)
-        for key, value in raw.items()
-        if isinstance(key, str)
-    } if isinstance(raw, dict) else {}
+    return permissions_for(u)
 
 
 def has_unit_permission(u, permission: str) -> bool:
-    return bool(user_permissions(u).get(permission, False))
+    return has_permission(u, permission)
 
 
 def is_under_training(person) -> bool:
-    return bool(
-        getattr(person, "is_trainee", False)
-        or getattr(person, "tower_ut", False)
-        or getattr(person, "radar_ut", False)
-        or getattr(person, "met_ut", False)
-    )
+    return is_trainee(person)
 
 
 def can_record_training(u) -> bool:
-    return bool(
-        is_admin_user(u) or getattr(u, "has_ojti", False)
-        or getattr(u, "has_assessor", False)
-    )
+    return may_record_training(u)
 
 
 def can_manage_training(u) -> bool:
-    return bool(
-        is_admin_user(u) or getattr(u, "has_assessor", False)
-        or getattr(u, "is_wm", False) or getattr(u, "is_dwm", False)
-    )
+    return may_manage_training(u)
 
 
 def training_enabled(unit_id: int) -> bool:
@@ -2320,39 +2313,19 @@ def competency_enabled(unit_id: int) -> bool:
 
 
 def can_edit_roster(u) -> bool:
-    return (
-        is_admin_user(u)
-        or is_editor_user(u)
-        or (
-            (
-                bool(getattr(u, "is_wm", False))
-                or bool(getattr(u, "is_dwm", False))
-            )
-            and has_unit_permission(u, "edit_roster")
-        )
-    )
+    return may_edit_roster(u)
 
 
 def can_apply_annotations(u) -> bool:
-    return (
-        is_admin_user(u)
-        or is_editor_user(u)
-        or has_unit_permission(u, "apply_annotations")
-    )
+    return may_apply_annotations(u)
 
 
 def can_send_unit_messages(u) -> bool:
-    return bool(
-        is_admin_user(u)
-        or getattr(u, "is_wm", False)
-        or getattr(u, "is_dwm", False)
-    )
+    return may_send_unit_messages(u)
 
 
 def can_override_roster_conflicts(u) -> bool:
-    return is_admin_user(u) or has_unit_permission(
-        u, "override_roster_conflicts"
-    )
+    return may_override_roster_conflicts(u)
 
 
 def tenant_get(model, record_id: int):
