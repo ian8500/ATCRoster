@@ -4,54 +4,44 @@ Evidence date: 31 July 2026
 
 ## Current state
 
-The Railway project `ATCRoster Production` contains two persistent
-environments whose names do not match their current responsibilities.
+Reconciliation was completed on 31 July 2026. The Railway project
+`ATCRoster Production` now has two correctly named, physically isolated
+environments.
 
-### `pilot-staging` is the public production stack
+### `production`
 
 It contains:
 
-- `web`, serving `www.atcroster.com`, `pilot.atcroster.com` and the Railway
-  service domain;
+- `web`, serving `www.atcroster.com` and its Railway service domain;
 - control PostgreSQL;
 - `Postgres-IWLD`, the additional operational PostgreSQL service;
-- Redis;
-- a provisioning worker;
+- `redis`;
+- `worker`;
 - the private `briefing-documents` bucket;
 - configuration names for control and two operational databases, Redis,
   versioned encryption keys, trusted hosts/proxies, private briefing storage,
   SMTP and optional SMS.
 
-Its web and worker deployments succeeded on 30 July 2026 using the current
-multi-database migration and service commands.
+### `staging`
 
-### `production` is a legacy stack
+It contains independent `staging-web`, `staging-worker`,
+`staging-control-db`, `staging-airport-db`, `staging-redis` and
+`staging-briefing-documents` resources. It uses fresh secrets and synthetic
+acceptance data only. `pilot.atcroster.com` points to this environment.
 
-It contains only:
+The obsolete two-service environment was backed up and deleted. Production
+data, variables and storage were not copied into staging.
 
-- `web`, exposed at its Railway-generated domain;
-- one PostgreSQL service.
-
-Its web service runs repository commit `57b0189` from 24 July 2026. Its
-variable-name inventory lacks Redis, trusted hosts/proxy configuration,
-versioned token encryption, operational database routes, worker configuration
-and durable briefing storage required by current `main`. Deploying current
-`main` into this environment without first provisioning those dependencies
-must fail closed.
-
-No secret values were copied or recorded during this inventory.
-
-## Safety decision
+## Continuing safety rules
 
 Do not:
 
-- deploy current `main` to the legacy `production` web service;
 - copy production secret values into source control, logs or tickets;
-- duplicate the public environment if that would clone personal or
-  operational data into a staging context;
-- move `www.atcroster.com` until the target has passed database, Redis, worker,
-  storage and authenticated smoke tests;
-- delete either environment until backup and data ownership are verified.
+- copy personal or operational production data into staging;
+- attach `www.atcroster.com` to staging;
+- share the locally retained synthetic staging credential;
+- promote a staging release until database, Redis, worker, storage and
+  authenticated smoke tests pass.
 
 ## Reconciliation procedure
 
@@ -141,13 +131,17 @@ fresh backup evidence.
 
 ## Completion evidence
 
-Reconciliation is complete only when:
+Completed on 31 July 2026:
 
 - Railway has one clearly named production environment containing web,
   worker, Redis, control PostgreSQL, per-airport PostgreSQL and private object
   storage;
 - `www.atcroster.com` points only to that environment;
 - a separate staging environment uses synthetic data and independent secrets;
-- both health workflows target the intended environments;
-- backups, restore evidence, smoke tests, image digests and rollback ownership
-  are recorded.
+- `pilot.atcroster.com` points only to staging;
+- the staging liveness, readiness and authenticated tenant-routing smoke tests
+  passed;
+- the production readiness check remained healthy throughout;
+- the obsolete database was exported in PostgreSQL custom format before its
+  environment was deleted;
+- the scheduled staging health workflow targets `pilot.atcroster.com`.

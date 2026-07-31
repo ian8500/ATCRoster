@@ -1,4 +1,4 @@
-name: Pilot staging health
+name: Staging health
 
 on:
   schedule:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pilot-staging-health
+  group: staging-health
   cancel-in-progress: true
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Check liveness and readiness
         env:
-          STAGING_ORIGIN: https://web-pilot-staging.up.railway.app
+          STAGING_ORIGIN: https://pilot.atcroster.com
         run: |
           set -euo pipefail
           curl --fail --show-error --silent \
