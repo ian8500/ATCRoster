@@ -1,6 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Roster {{ month_title }}{% endblock %}
 
+{% macro annotation_badge(staff, roster_day, value, detail, editable, shift_line=false) -%}
+  {% set dialog_id = 'annotation-detail-' ~ staff.id ~ '-' ~ roster_day.strftime('%Y%m%d') %}
+  <div class="annotation-display{% if shift_line %} annotation-display--shift-line{% endif %}{% if detail %} annotation-display--has-detail{% endif %}">
+    {% if editable %}
+      <button type="button" class="annotation-code annotation-code--editable"
+              data-annotation-dialog-open="{{ dialog_id }}"
+              title="{% if detail %}{{ detail }} — click to edit{% else %}Click to add annotation text{% endif %}"
+              aria-label="{% if detail %}Edit text for {{ value }}{% else %}Add text for {{ value }}{% endif %}">
+        {{ value }}
+      </button>
+    {% else %}
+      <span class="annotation-code" tabindex="0"
+            {% if detail %}title="{{ detail }}"{% endif %}
+            aria-label="{{ value }}{% if detail %}: {{ detail }}{% endif %}">{{ value }}</span>
+    {% endif %}
+    {% if editable %}
+      <form class="annotation-remove-form" method="post"
+            action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" name="annotation" value="__remove__"
+                title="Remove {{ value }} annotation"
+                aria-label="Remove {{ value }} annotation">×</button>
+      </form>
+      <dialog class="annotation-dialog" id="{{ dialog_id }}"
+              aria-labelledby="{{ dialog_id }}-title">
+        <form method="post" action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="annotation" value="{{ value }}">
+          <input type="hidden" name="annotation_detail_update" value="1">
+          <div class="annotation-dialog__header">
+            <div>
+              <span class="admin-step">Annotation text</span>
+              <h3 id="{{ dialog_id }}-title">{{ staff.name }} · {{ roster_day.strftime('%d %B %Y') }}</h3>
+            </div>
+            <button type="button" class="annotation-dialog__close"
+                    data-annotation-dialog-close aria-label="Close annotation editor">×</button>
+          </div>
+          <label for="{{ dialog_id }}-text">Text shown when the {{ value }} annotation is hovered over</label>
+          <textarea id="{{ dialog_id }}-text" name="annotation_note" maxlength="140"
+                    rows="6" placeholder="Add clear, concise context for this annotation">{{ detail }}</textarea>
+          <div class="annotation-dialog__count"><span data-annotation-character-count>{{ detail|length }}</span>/140 characters</div>
+          <div class="annotation-dialog__actions">
+            <button type="button" class="btn btn-sm" data-annotation-dialog-close>Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm">Save text</button>
+          </div>
+        </form>
+      </dialog>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
 {% block content %}
 <style>
   :root { --today-col: rgba(255,255,0,.85); }
@@ -64,16 +115,15 @@
 
 <h2>ATC Roster – {{ month_title }}</h2>
 
-<div class="month-nav" style="margin:.5rem 0 1rem;">
+<div class="month-nav roster-month-nav">
   {% if prev_ym %}
     <a class="btn ghost" href="{{ url_for('roster_month', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
   {% else %}
-    <span class="btn ghost" style="opacity:.4; pointer-events:none">&larr; —</span>
+    <span class="btn ghost disabled-nav-control">&larr; —</span>
   {% endif %}
-  <a class="btn ghost" href="{{ url_for('roster_month', ym=next_ym) }}" style="margin-left:.5rem;">{{ next_ym }} &rarr;</a>
+  <a class="btn ghost roster-next-link" href="{{ url_for('roster_month', ym=next_ym) }}">{{ next_ym }} &rarr;</a>
 
-  <a class="btn" href="{{ url_for('roster_export_csv', ym=ym) }}" style="margin-left:1rem">Export CSV</a>
-  {% if can_edit %}<a class="btn ghost" href="{{ url_for('bulk_annotations') }}">Bulk annotations</a>{% endif %}
+  <a class="btn roster-export-link" href="{{ url_for('roster_export_csv', ym=ym) }}">Export CSV</a>
   <button class="btn" data-command="print-roster">Print</button>
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
@@ -91,7 +141,7 @@
 </div>
 
 <!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
-<div id="roster"
+<div id="roster" class="roster-status-frame {{ 'roster-status-frame--published' if roster_publication else 'roster-status-frame--draft' }}"
      data-can-edit="{{ '1' if can_edit else '0' }}"
      data-readonly="{{ '1' if readonly else '0' }}"
      data-day-count="{{ days|length }}">
@@ -139,9 +189,15 @@
         {% for d in days %}
           {% set code = a_map.get(s.id, {}).get(d, "") %}          
           {% set f = fatigue.get(s.id, {}).get(d) %}
-          {% set ann  = ann_map.get(s.id, {}).get(d, "") %}
+          {% set ann = ann_map.get(s.id, {}).get(d, "") %}
+          {% set ann_note = ann_note_map.get(s.id, {}).get(d, "") %}
+          {% set applied_request = applied_request_map.get((s.id, d)) %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
-          <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}">
+          <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
+              {% if applied_request %}title="Applied from an approved shift request" aria-label="{{ s.name }}, {{ d.strftime('%d %B %Y') }}, {{ code }}, applied from an approved shift request"{% endif %}>
+            {% if applied_request %}
+              <span class="request-applied-marker" aria-hidden="true"></span>
+            {% endif %}
             {% if f %}
               <span class="fatigue-hazard" tabindex="0" role="img"
                     aria-label="Fatigue warning: {{ f|join('; ') }}">
@@ -152,8 +208,11 @@
                 </span>
               </span>
             {% endif %}
-            <!-- SHIFT CODE -->
-            <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+            <!-- SHIFT CODE (an annotation occupies this line when no shift exists) -->
+            {% if ann and not code %}
+              {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly, true) }}
+            {% else %}
+            <form class="shift-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
                 name="code"
@@ -189,6 +248,7 @@
                 </optgroup>
               </select>
             </form>
+            {% endif %}
 
             {% set req_info = req_pending_map.get((s.id, d)) %}
             {% if req_info %}
@@ -198,22 +258,23 @@
             {% endif %}
 
             <!-- ANNOTATION -->
-            <form method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
+            {% if not ann %}
+            <form class="annotation-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select
                 name="annotation"
-                class="annot-select {% if ann %}has-annotation{% endif %}"
-                data-auto-submit="true"
+                class="annot-select"
+                data-annotation-select
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 title="Annotate"
                 aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"
               >
-                <option value="" {% if not ann %}selected{% endif %}>—</option>
+                <option value="" selected>—</option>
                 {% for group, opts in annotation_groups.items() %}
                   {% if opts %}
                   <optgroup label="{{ group }}">
                     {% for opt in opts %}
-                      <option value="{{ opt.code }}" {% if ann==opt.code %}selected{% endif %}>
+                      <option value="{{ opt.code }}" data-note-required="{{ 'yes' if opt.note_required else 'no' }}">
                         {{ opt.label }} ({{ opt.code }}){% if opt.toil_half_days %} · {{ "%+.1f"|format(opt.toil_half_days / 2) }} day TOIL{% endif %}{% if opt.description %} — {{ opt.description }}{% endif %}
                       </option>
                     {% endfor %}
@@ -221,12 +282,16 @@
                   {% endif %}
                 {% endfor %}
               </select>
-              {% if ann %}<small class="annotation-current">Current: {{ ann }}</small>{% endif %}
-              <input name="annotation_note" class="annotation-note"
+              <input name="annotation_note" class="annotation-note" hidden
                      maxlength="140" value=""
                      placeholder="Annotation note (when required)"
                      aria-label="{{ s.name }} annotation note on {{ d.strftime('%d %B %Y') }}">
+              <button type="submit" class="btn btn-sm annotation-apply" hidden>Apply annotation</button>
             </form>
+            {% endif %}
+            {% if ann and code %}
+              {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly) }}
+            {% endif %}
           </td>
         {% endfor %}
       </tr>
@@ -241,13 +306,13 @@
         {% set dday = counters[d]["D"] %}
         {% set a = counters[d]["A"] %}
         {% set n = counters[d]["N"] %}
-        {% set total = m + dday + a + n %}
+        {% set total = m + dday + a + (n if night_active[d] else 0) %}
         <td class="totcell{% if d == today %} is-today{% endif %}">
-          <div><strong>Total {{ total }}</strong></div>
-          <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ requirement.req_m if requirement else 0 }}</div>
-          <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ requirement.req_d if requirement else 0 }}</div>
-          <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ requirement.req_a if requirement else 0 }}</div>
-          <div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ requirement.req_n if requirement else 0 }}</div>
+          <div class="daily-total"><strong>Total {{ total }}</strong></div>
+          <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ req_by_day[d]['M'] }}</div>
+          <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ req_by_day[d]['D'] }}</div>
+          <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ req_by_day[d]['A'] }}</div>
+          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ req_by_day[d]['N'] }}</div>{% endif %}
         </td>
       {% endfor %}
     </tr>
@@ -255,7 +320,101 @@
 </table>
 </div> <!-- /#roster -->
 
+{% if special_requirements %}
+  <section class="roster-special-requirements" aria-labelledby="special-requirements-title">
+    <div>
+      <span class="eyebrow">Date-specific coverage</span>
+      <h3 id="special-requirements-title">Special staffing requirements</h3>
+    </div>
+    <div class="roster-special-requirements__list">
+      {% for special in special_requirements %}
+        <article>
+          <div><strong>{{ special.day.strftime('%A %d %B') }}</strong><span>{{ special.label }}</span></div>
+          <div class="special-requirement-values" aria-label="Required staffing">
+            <span>M {{ special.req_m }}</span><span>D {{ special.req_d }}</span><span>A {{ special.req_a }}</span>
+            {% if night_active[special.day] %}<span>N {{ special.req_n }}</span>{% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+
+{% if roster_publication %}
+  <div class="roster-state-note roster-state-note--published" role="status">
+    <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+    <span><strong>Published roster</strong> · Published {{ roster_publication.published_at.strftime('%d %B %Y') }}</span>
+    {% if can_publish_roster %}
+      <form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}"
+            data-confirm="Undo publication for the {{ month_title }} roster? It will return to Draft and staff will be notified.">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm" type="submit">Undo publication</button>
+      </form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="roster-state-note roster-state-note--draft" role="status">
+    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+    <span><strong>Draft roster</strong> · This roster is a draft and may be subject to change.</span>
+    {% if can_publish_roster %}
+      <form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}"
+            data-confirm="Publish the {{ month_title }} roster? Staff will see it as the current published roster.">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm" type="submit">Publish roster</button>
+      </form>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="roster-expiry-key" aria-label="UE and medical date colour guide">
+  <strong>UE / Medical</strong>
+  <span class="roster-key-chip exp-green" title="More than 90 days remaining">&gt;90 days</span>
+  <span class="roster-key-chip exp-amber" title="90 days or fewer remaining">&lt;90 days</span>
+  <span class="roster-key-chip exp-red" title="The recorded date has expired">Expired</span>
+  <span class="roster-key-chip exp-orange" title="Under training">UT</span>
+  <span class="roster-key-divider" aria-hidden="true"></span>
+  <span class="roster-key-chip roster-key-chip--request"
+        title="Shift applied through an approved request">Requested shift</span>
+</div>
+
 <script nonce="{{ csp_nonce() }}">
   function printRoster(){ window.print(); }
+  document.querySelectorAll('[data-annotation-select]').forEach((select) => {
+    select.addEventListener('change', () => {
+      const form = select.form;
+      const option = select.selectedOptions[0];
+      const needsNote = option?.dataset.noteRequired === 'yes';
+      const note = form.querySelector('.annotation-note');
+      const apply = form.querySelector('.annotation-apply');
+      note.hidden = !needsNote;
+      apply.hidden = !needsNote;
+      note.required = needsNote;
+      if (needsNote) note.focus();
+      else form.requestSubmit();
+    });
+  });
+  document.querySelectorAll('[data-annotation-dialog-open]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const dialog = document.getElementById(button.dataset.annotationDialogOpen);
+      if (!dialog) return;
+      dialog.showModal();
+      const textarea = dialog.querySelector('textarea');
+      textarea?.focus();
+      textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+    });
+  });
+  document.querySelectorAll('.annotation-dialog').forEach((dialog) => {
+    dialog.querySelectorAll('[data-annotation-dialog-close]').forEach((button) => {
+      button.addEventListener('click', () => dialog.close());
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    const textarea = dialog.querySelector('textarea');
+    const counter = dialog.querySelector('[data-annotation-character-count]');
+    textarea?.addEventListener('input', () => {
+      if (counter) counter.textContent = textarea.value.length;
+    });
+  });
 </script>
 {% endblock %}

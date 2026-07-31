@@ -1,8 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Sickness (12 months){% endblock %}
 {% block content %}
-<h1><i class="fa-solid fa-stethoscope"></i> Sickness (last 12 months)</h1>
-<p class="muted">Period: {{ start }} → {{ end }}</p>
+<section class="compliance-hero">
+  <div><span class="admin-step">Sickness reporting</span><h2>Sickness · last 12 months</h2><p>Recorded absence from {{ start }} to {{ end }}.</p></div>
+  <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>
+</section>
+
+<form class="report-filter card" method="get">
+  <label for="sickness-watch">Filter by watch</label>
+  <select id="sickness-watch" name="watch_id">
+    <option value="">All users</option>
+    {% for watch in watches %}
+      <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-primary" type="submit">Apply filter</button>
+</form>
 
 <div class="table-scroll">
   <table class="table">
@@ -19,6 +32,9 @@
         </tr>
         {% endif %}
       {% endfor %}
+      {% if not has_sickness %}
+        <tr><td colspan="{{ 5 + sickness_types|length }}">No sickness is recorded for this selection.</td></tr>
+      {% endif %}
       <tr class="totals"><td colspan="2"><strong>Totals</strong></td>{% for item in sickness_types %}<td class="ta-right"><strong>{{ totals.get(item.code, 0) }}</strong></td>{% endfor %}<td class="ta-right"><strong>{{ totals.values()|sum }}</strong></td><td></td></tr>
     </tbody>
   </table>

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Training · {{ person.name }}{% endblock %}
+{% block content %}
+<section class="training-hero">
+  <div>
+    <span class="admin-step">Active training record</span>
+    <h2>{{ person.name }}</h2>
+    <p>{{ person.staff_no }}{% if person.watch %} · {{ person.watch.name }}{% endif %}</p>
+  </div>
+  <div class="training-total"><span>Cumulative training</span><strong>{{ "%.1f"|format(total_minutes / 60) }} h</strong></div>
+</section>
+
+<nav class="training-level-tabs" aria-label="Training levels">
+  {% for level in levels %}
+    <a href="{{ url_for('training_profile', sid=person.id, level=level.id) }}" class="{% if selected_level and level.id == selected_level.id %}active{% endif %}">{{ level.name }}</a>
+  {% endfor %}
+</nav>
+
+{% if selected_level %}
+<section class="card training-grid-card">
+  <div class="card-hd">{{ selected_level.name }} progress</div>
+  <div class="training-grid-wrap">
+    <table class="training-grid">
+      <thead><tr><th>Date / OJTI</th>{% for objective in selected_level.objectives|sort(attribute='position') %}<th title="{{ objective.description }}">{{ objective.position }}</th>{% endfor %}<th>Hours</th></tr></thead>
+      <tbody>
+      {% for report in sessions %}
+        <tr>
+          <th><time>{{ report.training_date.strftime('%d %b %Y') }}</time><small>{{ report.ojti.name }}</small></th>
+          {% for objective in selected_level.objectives|sort(attribute='position') %}
+            {% set found = namespace(score=none) %}
+            {% for score in report.scores %}{% if score.objective_id == objective.id %}{% set found.score = score %}{% endif %}{% endfor %}
+            {% if found.score %}
+            <td>
+              <details class="training-score score-{{ found.score.attainment }} {% if found.score.safety_critical %}safety-critical{% endif %}">
+                <summary aria-expanded="false" aria-label="{{ objective.title }}: attainment {{ found.score.attainment }}, assistance {{ found.score.assistance }}">{{ found.score.attainment }}{% if found.score.safety_critical %}<i class="fa-solid fa-triangle-exclamation"></i>{% endif %}</summary>
+                <div><strong>{{ objective.title }}</strong><p>{{ objective.description }}</p><span>Attainment {{ found.score.attainment }}/4 · Assistance {{ found.score.assistance }}/4</span>{% if found.score.note %}<p>{{ found.score.note }}</p>{% endif %}</div>
+              </details>
+            </td>
+            {% else %}<td class="score-empty">—</td>{% endif %}
+          {% endfor %}
+          <td>{{ "%.1f"|format(report.duration_minutes / 60) }}</td>
+        </tr>
+      {% else %}<tr><td colspan="17" class="empty-state">No reports recorded for this level.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if can_record %}
+<section class="card mt-3">
+  <div class="card-hd">Add training report</div>
+  <form method="post" class="card-bd training-report-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="record_session">
+    <input type="hidden" name="level_id" value="{{ selected_level.id }}">
+    <div class="grid grid-3">
+      <label>Date<input type="date" name="training_date" required></label>
+      <label>Duration (minutes)<input type="number" name="duration_minutes" min="1" max="1440" required></label>
+      <label>Summary<input name="summary" maxlength="4000"></label>
+    </div>
+    <div class="objective-entry-grid">
+    {% for objective in selected_level.objectives|sort(attribute='position') %}
+      <fieldset>
+        <legend title="{{ objective.description }}">{{ objective.position }}. {{ objective.title }}</legend>
+        <label>Attainment<select name="attainment_{{ objective.id }}"><option value="">Not observed</option><option value="4">Fully achieved</option><option value="3">Mostly achieved</option><option value="2">Partly achieved</option><option value="1">Not achieved</option></select></label>
+        <label>Assistance<select name="assistance_{{ objective.id }}"><option value="">Not observed</option><option value="4">Independent</option><option value="3">Prompted</option><option value="2">Assisted</option><option value="1">Instructor intervened</option></select></label>
+        <label>Note<textarea name="note_{{ objective.id }}" rows="2"></textarea></label>
+        <label class="safety-toggle"><input type="checkbox" name="safety_{{ objective.id }}"> Safety-critical event</label>
+      </fieldset>
+    {% endfor %}
+    </div>
+    <button class="btn btn-primary" type="submit">Save training report</button>
+  </form>
+</section>
+{% endif %}
+{% else %}
+<section class="card"><div class="card-bd empty-state">No training levels have been configured yet.</div></section>
+{% endif %}
+{% endblock %}

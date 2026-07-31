@@ -2,84 +2,64 @@
 {% block title %}Admin{% endblock %}
 
 {% block content %}
-<div class="admin-intro">
+<section class="compliance-hero">
   <div>
-    <span class="admin-eyebrow">Unit administration</span>
-    <h2 class="page-title">Manage this airport</h2>
-    <p class="intro-lead">Set up the roster, people and staffing rules. Changes only affect {{ current_unit.name if current_unit else 'this airport' }}.</p>
+    <span class="admin-step">Airport configuration</span>
+    <h2>Administration</h2>
+    <p>Manage the people, roster rules and operational settings for {{ current_unit.name }}.</p>
   </div>
-  <a class="btn" href="{{ url_for('unit_accounts') }}"><i class="fa-solid fa-users"></i> Manage accounts</a>
-</div>
+</section>
 
-<nav class="admin-section-nav" aria-label="Administration sections">
-  <button type="button" class="admin-section-tab active" data-admin-section="overview" aria-controls="admin-overview" aria-selected="true">
-    <i class="fa-solid fa-table-cells-large"></i><span>Overview</span>
-  </button>
-  <button type="button" class="admin-section-tab" data-admin-section="roster-setup" aria-controls="admin-roster-setup" aria-selected="false">
-    <i class="fa-solid fa-people-group"></i><span>Cycle & watches</span>
-  </button>
-  <button type="button" class="admin-section-tab" data-admin-section="requirements" aria-controls="admin-requirements" aria-selected="false">
-    <i class="fa-solid fa-chart-column"></i><span>Staffing levels</span>
-  </button>
-  <button type="button" class="admin-section-tab" data-admin-section="shifts" aria-controls="admin-shifts" aria-selected="false">
-    <i class="fa-solid fa-clock"></i><span>Shift types</span>
-  </button>
-  <button type="button" class="admin-section-tab" data-admin-section="staff" aria-controls="admin-staff" aria-selected="false">
-    <i class="fa-solid fa-user-group"></i><span>People</span>
-  </button>
-  <button type="button" class="admin-section-tab" data-admin-section="tools" aria-controls="admin-tools" aria-selected="false">
-    <i class="fa-solid fa-screwdriver-wrench"></i><span>Other settings</span>
-  </button>
-</nav>
+{% set admin_nav_interactive = true %}
+{% include "_admin_nav.html" %}
 
 <div class="admin-workspace">
-  <section id="admin-overview" class="admin-panel active" data-admin-panel="overview">
+  <div class="admin-selection-prompt" data-admin-selection-prompt>
+    <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
+    <strong>Select an administration function</strong>
+    <span>Choose an option from the toolbar above to begin.</span>
+  </div>
+
+  <section id="admin-sms" class="admin-panel" data-admin-panel="sms" hidden>
     <header class="admin-panel-heading">
-      <div><span class="admin-step">At a glance</span><h3>Airport setup</h3><p>Work through any item marked “Needs attention”. You can return and change these settings at any time.</p></div>
+      <div>
+        <span class="admin-step">Operational messaging</span>
+        <h3>SMS numbers</h3>
+        <p>Choose the approved numbers this airport can send from and the operational numbers staff may message.</p>
+      </div>
     </header>
-    <div class="admin-readiness" aria-label="Airport setup progress">
-      <div class="admin-readiness__summary">
-        <strong>{{ setup_complete_count }} of {{ setup_checks|length }} areas ready</strong>
-        <span>{{ 'Core setup is complete' if setup_complete_count == setup_checks|length else 'Complete the remaining areas before publishing a roster' }}</span>
+    <form method="post" class="card card-body roster-setup-card">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="form" value="sms_settings">
+      <div class="setup-walkthrough">
+        <article><span>1</span><div><strong>Add Twilio sender numbers</strong><small>Twilio only permits numbers owned by, or approved for, your Twilio account.</small></div></article>
+        <article><span>2</span><div><strong>Add operational destinations</strong><small>These can be unit mobiles or telephones capable of receiving SMS.</small></div></article>
+        <article><span>3</span><div><strong>Choose defaults</strong><small>The Messages page preselects these, but an authorised sender can choose another configured option.</small></div></article>
       </div>
-      <div class="admin-readiness__bar" aria-hidden="true"><span style="width:{{ (setup_complete_count / setup_checks|length * 100)|round|int }}%"></span></div>
-      <div class="admin-readiness__checks">
-        {% for check in setup_checks %}
-        <button type="button" data-open-admin-section="{{ check.section }}" class="{{ 'is-ready' if check.complete else 'needs-attention' }}">
-          <i class="fa-solid {{ 'fa-circle-check' if check.complete else 'fa-circle-exclamation' }}" aria-hidden="true"></i>
-          <span><strong>{{ check.label }}</strong><small>{{ 'Ready' if check.complete else 'Needs attention' }}</small></span>
-          <span class="admin-check-action">{{ 'Review' if check.complete else check.action }}</span>
-        </button>
-        {% endfor %}
+      <div class="admin-form-grid">
+        <label>Approved sender numbers
+          <textarea name="sms_sender_numbers" rows="6" placeholder="Operations | +447700900123">{% for item in sms_senders %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
+          <small>One per line as “Name | +international number”. These must be Twilio-owned sender numbers; arbitrary caller ID is not allowed.</small>
+        </label>
+        <label>Operational destination numbers
+          <textarea name="sms_operational_numbers" rows="6" placeholder="Duty desk | +441412345678">{% for item in sms_operational_numbers %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
+          <small>One per line. These appear as named destinations on the Messages page.</small>
+        </label>
+        <label>Default sender
+          <input name="sms_default_sender" list="sms-sender-options" value="{{ sms_default_sender }}" placeholder="Leave blank to use the first sender">
+          <datalist id="sms-sender-options">{% for item in sms_senders %}<option value="{{ item.number }}">{{ item.label }}</option>{% endfor %}</datalist>
+          <small>Paste one of the sender numbers above, or leave blank to use the first.</small>
+        </label>
+        <label>Default operational destination
+          <input name="sms_default_operational_number" list="sms-operational-options" value="{{ sms_default_operational_number }}" placeholder="Leave blank to use the first destination">
+          <datalist id="sms-operational-options">{% for item in sms_operational_numbers %}<option value="{{ item.number }}">{{ item.label }}</option>{% endfor %}</datalist>
+          <small>Paste one of the destination numbers above, or leave blank to use the first.</small>
+        </label>
       </div>
-    </div>
-    <div class="admin-overview-grid">
-      <button type="button" class="admin-overview-card" data-open-admin-section="roster-setup">
-        <span class="admin-overview-icon"><i class="fa-solid fa-people-group"></i></span>
-        <span><strong>Roster cycle and watches</strong><small>{{ watches|length }} watches · repeating duties and night opening</small></span>
-        <i class="fa-solid fa-arrow-right"></i>
-      </button>
-      <button type="button" class="admin-overview-card" data-open-admin-section="requirements">
-        <span class="admin-overview-icon"><i class="fa-solid fa-chart-column"></i></span>
-        <span><strong>Minimum staffing levels</strong><small>{{ configured_requirements }} of {{ months|length }} planning months set</small></span>
-        <i class="fa-solid fa-arrow-right"></i>
-      </button>
-      <button type="button" class="admin-overview-card" data-open-admin-section="shifts">
-        <span class="admin-overview-icon"><i class="fa-solid fa-clock"></i></span>
-        <span><strong>Shift types and daily totals</strong><small>{{ shifts|length }} shift types · {{ mapped_working_shift_count }}/{{ working_shift_count }} working shifts counted</small></span>
-        <i class="fa-solid fa-arrow-right"></i>
-      </button>
-      <button type="button" class="admin-overview-card" data-open-admin-section="staff">
-        <span class="admin-overview-icon"><i class="fa-solid fa-user-group"></i></span>
-        <span><strong>People and roster access</strong><small>{{ staff|length }} people on this airport roster</small></span>
-        <i class="fa-solid fa-arrow-right"></i>
-      </button>
-      <button type="button" class="admin-overview-card" data-open-admin-section="tools">
-        <span class="admin-overview-icon"><i class="fa-solid fa-screwdriver-wrench"></i></span>
-        <span><strong>Other settings and audit</strong><small>Codes, automation, TOIL and change history</small></span>
-        <i class="fa-solid fa-arrow-right"></i>
-      </button>
-    </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save SMS settings</button>
+      </div>
+    </form>
   </section>
 
   <section id="admin-roster-setup" class="admin-panel" data-admin-panel="roster-setup" hidden>
@@ -147,7 +127,7 @@
               <button type="button" class="btn btn-sm" data-clear-pattern>Use unit pattern</button>
             </div>
           </div>
-          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor" value="{{ watch.pattern_anchor.isoformat() if watch.pattern_anchor else '' }}"><small>Required only when this watch has its own pattern.</small></label>
+          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor" value="{{ watch.pattern_anchor.isoformat() if watch.pattern_anchor else '' }}"><small>This phases the watch even when it inherits the unit pattern.</small></label>
           <button class="btn btn-primary" type="submit">Save {{ watch.name }}</button>
         </form>
         <form method="post" class="admin-danger-action" data-confirm="Delete {{ watch.name }}?">
@@ -164,7 +144,7 @@
         <form method="post">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="form" value="watch_new">
-          <label>Watch name<input name="name" maxlength="32" placeholder="e.g. Swanwick A" required></label>
+          <label>Watch name<input name="name" maxlength="32" placeholder="e.g. A" required></label>
           <div class="pattern-builder pattern-builder--compact" data-pattern-builder>
             <input type="hidden" name="pattern_csv" value="" data-pattern-value>
             <span class="field-label">Optional watch-specific pattern</span>
@@ -175,7 +155,7 @@
               <button type="button" class="btn btn-sm" data-clear-pattern>Clear</button>
             </div>
           </div>
-          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor"></label>
+          <label>Pattern day 1 starts on<input type="date" name="pattern_anchor"><small>This phases either the unit pattern or the optional watch pattern.</small></label>
           <button class="btn btn-primary" type="submit">Add watch</button>
         </form>
       </article>
@@ -190,24 +170,85 @@
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="req">
       <div class="table-scroll admin-requirements-table">
-        <table class="mini admin-table">
-          <thead><tr><th>Month</th><th>Morning (M)</th><th>Day (D)</th><th>Afternoon (A)</th><th>Night (N)</th></tr></thead>
+        <table class="mini admin-table requirements-matrix">
+          <thead>
+            <tr>
+              <th rowspan="2">Month</th>
+              <th colspan="4" class="requirements-day-group requirements-day-group--weekday">Monday–Friday</th>
+              <th colspan="4" class="requirements-day-group requirements-day-group--saturday">Saturday</th>
+              <th colspan="4" class="requirements-day-group requirements-day-group--sunday">Sunday</th>
+              <th rowspan="2">Apply</th>
+            </tr>
+            <tr>
+              {% for day_type in ['weekday', 'saturday', 'sunday'] %}
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }} requirements-day-cell--start" title="Morning">M</th>
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }}" title="Day">D</th>
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }}" title="Afternoon">A</th>
+                <th class="requirements-day-cell requirements-day-cell--{{ day_type }}" title="Night">N</th>
+              {% endfor %}
+            </tr>
+          </thead>
           <tbody>
           {% for y,m in months %}
             {% set r = requirements_by_month.get((y,m)) %}
-            <tr>
+            <tr data-requirement-row>
               <td class="table-label"><input type="hidden" name="ym" value="{{ '%04d-%02d'|format(y,m) }}">{{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }} {{ y }}</td>
-              <td><input type="number" min="0" name="req_m" value="{{ r.req_m if r else 0 }}" class="table-input" aria-label="Morning requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
-              <td><input type="number" min="0" name="req_d" value="{{ r.req_d if r else 0 }}" class="table-input" aria-label="Day requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
-              <td><input type="number" min="0" name="req_a" value="{{ r.req_a if r else 0 }}" class="table-input" aria-label="Afternoon requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
-              <td><input type="number" min="0" name="req_n" value="{{ r.req_n if r else 0 }}" class="table-input" aria-label="Night requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
+              {% for prefix, day_name, day_type in [('', 'weekday', 'weekday'), ('sat_', 'Saturday', 'saturday'), ('sun_', 'Sunday', 'sunday')] %}
+                {% for code, duty_name in [('m', 'Morning'), ('d', 'Day'), ('a', 'Afternoon'), ('n', 'Night')] %}
+                  {% set field = 'req_' ~ prefix ~ code %}
+                  <td class="requirements-day-cell requirements-day-cell--{{ day_type }}{% if loop.first %} requirements-day-cell--start{% endif %}"><input type="number" min="0" name="{{ field }}" value="{{ r|attr(field) if r else 0 }}" class="table-input" aria-label="{{ duty_name }} {{ day_name }} requirement for {{ '%04d-%02d'|format(y,m) }}"></td>
+                {% endfor %}
+              {% endfor %}
+              <td class="table-actions">
+                <button type="button" class="btn btn-sm requirements-copy-button"
+                        data-copy-requirements-below
+                        aria-label="Copy {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }} {{ y }} requirements to every month below"
+                        {% if loop.last %}disabled title="There are no months below this row"{% endif %}>
+                  <i class="fa-solid fa-arrow-down" aria-hidden="true"></i> Copy below
+                </button>
+              </td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
       </div>
-      <div class="admin-sticky-actions"><span>Changes apply to this airport only.</span><button class="btn btn-primary" type="submit">Save requirements</button></div>
+      <p class="requirements-copy-status" data-requirements-copy-status aria-live="polite">Copied values are not saved until you select Save requirements.</p>
+      <div class="admin-sticky-actions"><button class="btn btn-primary" type="submit">Save requirements</button></div>
     </form>
+
+    <div class="section-body special-requirements">
+      <div class="special-requirements__intro">
+        <div><h4>Special date requirements</h4><p>Override the normal weekday or weekend level for one date, such as Christmas Day or a major event.</p></div>
+      </div>
+      <form method="post" class="special-requirements__form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form" value="special_requirement">
+        <label>Date<input type="date" name="special_day" required></label>
+        <label>Reason<input name="special_label" maxlength="80" placeholder="e.g. Christmas Day" required></label>
+        {% for code, name in [('m', 'Morning'), ('d', 'Day'), ('a', 'Afternoon'), ('n', 'Night')] %}
+          <label>{{ name }} ({{ code|upper }})<input type="number" min="0" name="special_req_{{ code }}" value="0" required></label>
+        {% endfor %}
+        <button class="btn btn-primary" type="submit">Add special date</button>
+      </form>
+      <div class="special-requirements__list">
+        {% for special in special_requirements %}
+          <article class="special-requirement-row">
+            <div><strong>{{ special.day.strftime('%d %B %Y') }}</strong><span>{{ special.label }}</span></div>
+            <div class="special-requirement-values">
+              <span>M {{ special.req_m }}</span><span>D {{ special.req_d }}</span><span>A {{ special.req_a }}</span><span>N {{ special.req_n }}</span>
+            </div>
+            <form method="post" data-confirm="Remove the special requirements for {{ special.day.strftime('%d %B %Y') }}?">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form" value="special_requirement_delete">
+              <input type="hidden" name="special_requirement_id" value="{{ special.id }}">
+              <button class="btn btn-sm" type="submit">Delete</button>
+            </form>
+          </article>
+        {% else %}
+          <p class="empty-state">No special date requirements have been added.</p>
+        {% endfor %}
+      </div>
+    </div>
   </section>
 
   <section id="admin-shifts" class="admin-panel" data-admin-panel="shifts" hidden>
@@ -235,29 +276,6 @@
         <div class="form-actions"><button class="btn btn-primary" type="submit">Create shift</button></div>
       </form>
     </div>
-
-    <details class="card card-body counter-mapping-card">
-      <summary><span><strong>Which shifts count toward staffing?</strong><small>Required for accurate daily totals and coverage warnings</small></span></summary>
-      <form method="post" class="advanced-panel__content">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="form" value="counter_mapping">
-        <p class="text-muted">For each working shift, choose the staffing total it should increase. Choose “Does not count” for leave, training, standby, office and support duties.</p>
-        <div class="counter-mapping-grid">
-          {% for shift in shifts %}
-          <label>
-            <span><strong>{{ shift.code }}</strong><small>{{ shift.name }}</small></span>
-            <select name="counter_group_{{ shift.id }}">
-              <option value="" {% if not shift_counter_mapping.get(shift.code) %}selected{% endif %}>Does not count</option>
-              {% for group, label in [('M','Morning'),('D','Day'),('A','Afternoon'),('N','Night')] %}
-                <option value="{{ group }}" {% if shift_counter_mapping.get(shift.code) == group %}selected{% endif %}>{{ label }} ({{ group }})</option>
-              {% endfor %}
-            </select>
-          </label>
-          {% endfor %}
-        </div>
-        <div class="form-actions"><button class="btn btn-primary" type="submit">Save staffing totals</button></div>
-      </form>
-    </details>
 
     <div class="admin-shift-list">
       {% for sh in shifts %}
@@ -294,6 +312,29 @@
       </details>
       {% endfor %}
     </div>
+
+    <details class="card card-body counter-mapping-card">
+      <summary><span><strong>Which shifts count toward staffing?</strong></span></summary>
+      <form method="post" class="advanced-panel__content">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form" value="counter_mapping">
+        <p class="text-muted">For each working shift, choose the staffing total it should increase. Choose “Does not count” for leave, training, standby, office and support duties.</p>
+        <div class="counter-mapping-grid">
+          {% for shift in shifts %}
+          <label>
+            <span><strong>{{ shift.code }}</strong><small>{{ shift.name }}</small></span>
+            <select name="counter_group_{{ shift.id }}">
+              <option value="" {% if not shift_counter_mapping.get(shift.code) %}selected{% endif %}>Does not count</option>
+              {% for group, label in [('M','Morning'),('D','Day'),('A','Afternoon'),('N','Night')] %}
+                <option value="{{ group }}" {% if shift_counter_mapping.get(shift.code) == group %}selected{% endif %}>{{ label }} ({{ group }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Save staffing totals</button></div>
+      </form>
+    </details>
   </section>
 
   <section id="admin-staff" class="admin-panel" data-admin-panel="staff" hidden>
@@ -336,28 +377,16 @@
     <p class="admin-empty-search" data-empty-search hidden>No staff match that search.</p>
   </section>
 
-  <section id="admin-tools" class="admin-panel" data-admin-panel="tools" hidden>
-    <header class="admin-panel-heading"><div><span class="admin-step">Other settings</span><h3>Specialist administration</h3><p>These settings are used less often. Leave them unchanged unless you know the operational requirement.</p></div></header>
-    <div class="admin-tool-grid">
-      <a href="{{ url_for('admin_reference') }}"><i class="fa-solid fa-tags"></i><span><strong>Roster codes and annotations</strong><small>Guided setup for labels used on the roster</small></span></a>
-      <a href="{{ url_for('bulk_annotations') }}"><i class="fa-solid fa-table-cells"></i><span><strong>Bulk annotations</strong><small>Preview and apply annotations across a date range</small></span></a>
-      <a href="{{ url_for('admin_toil_new') }}"><i class="fa-solid fa-clock-rotate-left"></i><span><strong>Manual TOIL</strong><small>Record a balance adjustment</small></span></a>
-      <a href="{{ url_for('change_log_page') }}"><i class="fa-solid fa-list-check"></i><span><strong>Change log</strong><small>Review administrative history</small></span></a>
-      <a href="{{ url_for('unit_accounts') }}"><i class="fa-solid fa-users-gear"></i><span><strong>Login accounts</strong><small>Usage, limits and deactivation</small></span></a>
-      <a href="{{ url_for('unit_onboarding') }}"><i class="fa-solid fa-plane-circle-check"></i><span><strong>Onboarding</strong><small>Airport setup checklist</small></span></a>
-      <a href="{{ url_for('compliance_centre') }}"><i class="fa-solid fa-shield-heart"></i><span><strong>Compliance centre</strong><small>Explainable fatigue findings and evidence export</small></span></a>
-      <a href="{{ url_for('admin_fatigue_rules') }}"><i class="fa-solid fa-gauge-high"></i><span><strong>Fatigue monitoring rules</strong><small>Review system rules and add local warning logic</small></span></a>
-    </div>
-  </section>
 </div>
 
 <script nonce="{{ csp_nonce() }}">
 (() => {
   const tabs = [...document.querySelectorAll('[data-admin-section]')];
   const panels = [...document.querySelectorAll('[data-admin-panel]')];
+  const prompt = document.querySelector('[data-admin-selection-prompt]');
   const valid = new Set(tabs.map(tab => tab.dataset.adminSection));
   const show = (name, updateUrl = true) => {
-    if (!valid.has(name)) name = 'overview';
+    if (!valid.has(name)) name = 'roster-setup';
     tabs.forEach(tab => {
       const selected = tab.dataset.adminSection === name;
       tab.classList.toggle('active', selected);
@@ -368,14 +397,13 @@
       panel.classList.toggle('active', selected);
       panel.hidden = !selected;
     });
+    if (prompt) prompt.hidden = true;
     localStorage.setItem('atc-admin-section', name);
     if (updateUrl) history.replaceState(null, '', `#${name}`);
-    document.querySelector('.admin-workspace')?.scrollIntoView({behavior:'smooth', block:'start'});
   };
-  const initial = location.hash.slice(1) || localStorage.getItem('atc-admin-section') || 'overview';
-  show(initial, false);
+  const initial = location.hash.slice(1);
+  if (valid.has(initial)) show(initial, false);
   tabs.forEach(tab => tab.addEventListener('click', () => show(tab.dataset.adminSection)));
-  document.querySelectorAll('[data-open-admin-section]').forEach(button => button.addEventListener('click', () => show(button.dataset.openAdminSection)));
   const toggle = (buttonSelector, drawerSelector) => {
     const button = document.querySelector(buttonSelector);
     const drawer = document.querySelector(drawerSelector);
@@ -399,6 +427,43 @@
       if (matches) visible++;
     });
     if (empty) empty.hidden = visible !== 0;
+  });
+  const requirementRows = [
+    ...document.querySelectorAll('[data-requirement-row]')
+  ];
+  const requirementFields = [
+    'req_m', 'req_d', 'req_a', 'req_n',
+    'req_sat_m', 'req_sat_d', 'req_sat_a', 'req_sat_n',
+    'req_sun_m', 'req_sun_d', 'req_sun_a', 'req_sun_n'
+  ];
+  const copyStatus = document.querySelector(
+    '[data-requirements-copy-status]'
+  );
+  requirementRows.forEach((row, rowIndex) => {
+    const button = row.querySelector('[data-copy-requirements-below]');
+    button?.addEventListener('click', () => {
+      const sourceValues = Object.fromEntries(
+        requirementFields.map(name => [
+          name, row.querySelector(`[name="${name}"]`).value
+        ])
+      );
+      const laterRows = requirementRows.slice(rowIndex + 1);
+      laterRows.forEach(laterRow => {
+        requirementFields.forEach(name => {
+          const input = laterRow.querySelector(`[name="${name}"]`);
+          input.value = sourceValues[name];
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        laterRow.classList.add('requirements-row--copied');
+      });
+      if (copyStatus) {
+        const month = row.querySelector('[name="ym"]').value;
+        copyStatus.textContent = (
+          `Copied ${month} requirements to ${laterRows.length} month` +
+          `${laterRows.length === 1 ? '' : 's'} below. Review and save.`
+        );
+      }
+    });
   });
   document.querySelectorAll('[data-pattern-builder]').forEach(builder => {
     const input = builder.querySelector('[data-pattern-value]');

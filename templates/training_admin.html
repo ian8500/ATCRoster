@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Training configuration{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Training administration</span><h2>Levels & objectives</h2><p>Configure up to 15 objective boxes for each training level. Descriptions appear on hover and click.</p></div></section>
+<form method="post" class="card mb-3"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create_level"><div class="card-bd training-create-level"><label>New level name<input name="name" placeholder="e.g. Tower — Level 1" required></label><button class="btn btn-primary">Create with 15 objectives</button></div></form>
+{% for level in levels %}
+<form method="post" class="card mb-3">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="save_objectives"><input type="hidden" name="level_id" value="{{ level.id }}">
+  <div class="card-hd">{{ level.name }}</div>
+  <div class="card-bd objective-admin-grid">
+  {% for objective in level.objectives|sort(attribute='position') %}
+    <fieldset><legend>Box {{ objective.position }}</legend><label>Short label<input name="title_{{ objective.id }}" value="{{ objective.title }}" required></label><label>Hover / detail text<textarea name="description_{{ objective.id }}" rows="3">{{ objective.description }}</textarea></label></fieldset>
+  {% endfor %}
+  </div>
+  <div class="card-bd"><button class="btn btn-primary">Save {{ level.name }}</button></div>
+</form>
+{% else %}<div class="card"><div class="card-bd empty-state">Create the first training level to configure its objectives.</div></div>{% endfor %}
+{% endblock %}

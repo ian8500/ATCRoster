@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}My briefing{% endblock %}
+{% macro briefing_card(delivery, item) %}
+  {% if item.kind == 'daily' %}
+    <article class="briefing-card">
+      <div class="briefing-card__meta">
+        <span class="status-chip">Brief of the day</span>
+      </div>
+      <h3>{{ item.title }}</h3>
+      {% if item.body %}
+        <div class="briefing-daily-text" data-daily-text>{{ item.body|e|replace('\n', '<br>')|safe }}</div>
+        <button class="briefing-daily-expand" type="button" data-daily-expand hidden aria-expanded="false">
+          <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+          <span>Expand</span>
+        </button>
+      {% endif %}
+      <div class="briefing-card__footer">
+        <small>Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }} · Expires {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small>
+      </div>
+    </article>
+  {% else %}
+    <article class="briefing-card briefing-card--compact{% if item.mandatory %} briefing-card--mandatory{% endif %} briefing-card--clickable"
+      data-briefing-card data-open-url="{{ url_for('briefing.view_item', item_id=item.id) }}" role="link" tabindex="0" aria-label="Open {{ item.title }}">
+      <div class="briefing-card__compact-copy">
+        <h3>{{ item.title }}</h3>
+        <small>
+          Effective {{ item.effective_at.strftime('%d %b %Y %H:%M') }}
+          <span aria-hidden="true">→</span>
+          Ends {{ item.expires_at.strftime('%d %b %Y %H:%M') }}
+        </small>
+      </div>
+      <div class="briefing-card__compact-actions">
+        {% if delivery.acknowledged_at %}
+          <form method="post" action="{{ url_for('briefing.archive_item', item_id=item.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm" type="submit" title="Archive" aria-label="Archive {{ item.title }}"><i class="fa-solid fa-box-archive"></i></button>
+          </form>
+          <form method="post" action="{{ url_for('briefing.delete_item', item_id=item.id) }}" data-confirm="Remove this briefing from your personal view? The audit record will be retained.">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm" type="submit" title="Delete" aria-label="Delete {{ item.title }}"><i class="fa-solid fa-trash"></i></button>
+          </form>
+        {% endif %}
+        <i class="fa-solid fa-chevron-right briefing-card__open-indicator" aria-hidden="true"></i>
+      </div>
+    </article>
+  {% endif %}
+{% endmacro %}
+{% block content %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Operational briefing</span>
+    <h2>My briefing</h2>
+    <p>Current instructions and temporary briefs selected for you.</p>
+  </div>
+</section>
+
+<div class="briefing-sections">
+  {% for section in (
+    {'title': 'Brief of the Day.', 'icon': 'fa-bullhorn', 'rows': daily_deliveries, 'empty': 'There are no Briefs of the Day are active.'},
+    {'title': 'Mandatory Messages', 'icon': 'fa-triangle-exclamation', 'rows': mandatory_deliveries, 'empty': "You have no current 'mandatory messages'."},
+    {'title': 'Other Messages', 'icon': 'fa-inbox', 'rows': other_deliveries, 'empty': "You have no current 'other messages'."}
+  ) %}
+    <section class="briefing-section">
+      <header class="briefing-section__header">
+        <h3><i class="fa-solid {{ section.icon }}" aria-hidden="true"></i> {{ section.title }}</h3>
+        <span>{{ section.rows|length }}</span>
+      </header>
+      <div class="briefing-list">
+        {% for delivery, item in section.rows %}
+          {{ briefing_card(delivery, item) }}
+        {% else %}
+          <div class="briefing-section__empty"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> {{ section.empty }}</div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+</div>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const isControl = target => target.closest('a, button, input, select, textarea, form, label');
+  document.querySelectorAll('[data-briefing-card]').forEach(card => {
+    card.addEventListener('click', event => {
+      if (!isControl(event.target)) window.location.assign(card.dataset.openUrl);
+    });
+    card.addEventListener('keydown', event => {
+      if ((event.key === 'Enter' || event.key === ' ') && !isControl(event.target)) {
+        event.preventDefault();
+        window.location.assign(card.dataset.openUrl);
+      }
+    });
+  });
+  document.querySelectorAll('[data-daily-expand]').forEach(button => {
+    const text = button.previousElementSibling;
+    if (text.scrollHeight > text.clientHeight + 1) {
+      text.classList.add('is-overflowing');
+      button.hidden = false;
+    }
+    button.addEventListener('click', () => {
+      const expanded = text.classList.toggle('is-expanded');
+      button.setAttribute('aria-expanded', String(expanded));
+      button.querySelector('span').textContent = expanded ? 'Collapse' : 'Expand';
+      button.querySelector('i').classList.toggle('fa-chevron-down', !expanded);
+      button.querySelector('i').classList.toggle('fa-chevron-up', expanded);
+    });
+  });
+})();
+</script>
+{% endblock %}

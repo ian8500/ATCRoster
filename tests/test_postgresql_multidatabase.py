@@ -54,9 +54,9 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     dispose_operational_engines()
     for url in (CONTROL_URL, AIRPORT_A_URL, AIRPORT_B_URL):
         _reset_postgres(url)
-    assert upgrade_database(CONTROL_URL, "control") == "20260726_13"
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260726_13"
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260726_13"
+    assert upgrade_database(CONTROL_URL, "control") == "20260730_28"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260730_28"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260730_28"
     secret_a = "ATCROSTER_UNIT_1_DATABASE_URL"
     secret_b = "ATCROSTER_UNIT_2_DATABASE_URL"
     monkeypatch.setenv(secret_a, AIRPORT_A_URL)
@@ -106,10 +106,18 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
         db.session.commit()
     client_a = app.app.test_client()
     client_b = app.app.test_client()
+    client_a.get("/login")
+    client_b.get("/login")
+    with client_a.session_transaction() as session:
+        token_a = session["_csrf_token"]
+    with client_b.session_transaction() as session:
+        token_b = session["_csrf_token"]
     assert client_a.post("/login", data={
+        "_csrf_token": token_a,
         "username": "postgres-a", "password": "Physical-Test-2026!",
     }).status_code == 302
     assert client_b.post("/login", data={
+        "_csrf_token": token_b,
         "username": "postgres-b", "password": "Physical-Test-2026!",
     }).status_code == 302
     page_a = client_a.get("/requests")
@@ -127,9 +135,28 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     )
     assert "platform_identity" in control_tables
     assert "staff" not in control_tables
+    assert "special_requirement" not in control_tables
+    assert "sms_audit" not in control_tables
     assert "staff" in airport_a_tables and "staff" in airport_b_tables
+    assert (
+        "special_requirement" in airport_a_tables
+        and "special_requirement" in airport_b_tables
+    )
+    assert "sms_audit" in airport_a_tables and "sms_audit" in airport_b_tables
+    for table in (
+        "training_level", "training_objective",
+        "training_session", "training_score",
+    ):
+        assert table in airport_a_tables and table in airport_b_tables
     assert "platform_identity" not in airport_a_tables
     assert "unit" not in airport_a_tables
+    assert "special_requirement" in app.OPERATIONAL_TABLE_NAMES
+    assert "sms_audit" in app.OPERATIONAL_TABLE_NAMES
+    for table in (
+        "training_level", "training_objective",
+        "training_session", "training_score",
+    ):
+        assert table in app.OPERATIONAL_TABLE_NAMES
 
     # Two independent workers use separate PostgreSQL sessions. The second
     # cannot claim or migrate the airport while the first owns its lease.

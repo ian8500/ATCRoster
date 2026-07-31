@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Briefing administration{% endblock %}
+{% macro register_rows(items, empty_message) %}
+  {% for item in items %}
+    <tr><td><strong>{{ item.title }}</strong><br><small>v{{ item.version }} · {{ item.created_by_name }}</small></td><td>{{ item.message_type_name or item.kind|title }}</td><td>{{ item.effective_at.strftime('%d %b %Y %H:%M') }}<br><small>to {{ item.expires_at.strftime('%d %b %Y %H:%M') }}</small></td><td>{{ item.status|title }}</td><td>
+      {% if item.status == 'draft' %}<form method="post" action="{{ url_for('briefing.publish', item_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Publish</button></form>{% endif %}
+      {% if item.status == 'published' %}<form method="post" action="{{ url_for('briefing.withdraw', item_id=item.id) }}" data-confirm="Withdraw this briefing? The audit history will be retained."><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm">Withdraw</button></form>{% endif %}
+    </td></tr>
+  {% else %}
+    <tr><td colspan="5">{{ empty_message }}</td></tr>
+  {% endfor %}
+{% endmacro %}
+{% block content %}
+<section class="compliance-hero">
+  <div><span class="admin-step">Briefing administration</span><h2>Publish briefing material</h2><p>Upload controlled instructions or issue a temporary brief of the day.</p></div>
+</section>
+<div class="alert {{ 'alert-success' if storage_ok else 'alert-warning' }}">
+  <strong>Document storage:</strong> {{ storage_message }}.
+  {% if not storage_ok %}Instruction uploads are unavailable until storage is restored.{% endif %}
+</div>
+
+<section class="card">
+  <div class="card-hd">Create briefing</div>
+  <div class="card-bd">
+    <form method="post" enctype="multipart/form-data" class="briefing-form" data-briefing-upload-form>
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Briefing type *
+        <select name="kind" data-briefing-kind>
+          <option value="instruction">Uploaded instruction</option>
+          <option value="daily">Brief of the day</option>
+        </select>
+      </label>
+      <label data-message-type-field>Instruction message type *
+        <select name="message_type_id">
+          <option value="">Choose a message type</option>
+          {% for message_type in message_types if message_type.active %}
+            <option value="{{ message_type.id }}">{{ message_type.name }}</option>
+          {% endfor %}
+        </select>
+        {% if not message_types|selectattr('active')|list %}
+          <small>Add an active message type below before creating an instruction.</small>
+        {% endif %}
+      </label>
+      <label>Briefing title *
+        <input name="title" maxlength="160" required>
+      </label>
+      <label data-document-field>PDF or Word document *
+        <input type="file" name="document" accept=".pdf,.docx">
+      </label>
+      <label data-text-field hidden>Brief text *
+        <textarea name="body" rows="6" maxlength="4000"></textarea>
+      </label>
+      <div class="briefing-form__dates">
+        <label>Effective date and time *
+          <input type="datetime-local" name="effective_at" required>
+        </label>
+        <label>Expiry date and time *
+          <input type="datetime-local" name="expires_at" required>
+        </label>
+      </div>
+      <label>User group *
+        <select name="target_scope" data-target-scope>
+          <option value="all">Everyone</option>
+          <option value="operational">All operational staff</option>
+          <option value="watch">Selected watches</option>
+          <option value="role">Selected roles</option>
+          <option value="individual">Named individuals</option>
+        </select>
+      </label>
+      <fieldset data-target-detail="watch" hidden><legend>Watches</legend>
+        {% for watch in watches %}<label><input type="checkbox" name="watch_ids" value="{{ watch.id }}"> {{ watch.name }}</label>{% endfor %}
+      </fieldset>
+      <fieldset data-target-detail="role" hidden><legend>Roles</legend>
+        <label><input type="checkbox" name="roles" value="admin"> Administrators</label>
+        <label><input type="checkbox" name="roles" value="editor"> Roster editors</label>
+        <label><input type="checkbox" name="roles" value="user"> Operational users</label>
+      </fieldset>
+      <fieldset data-target-detail="individual" hidden><legend>Individuals</legend>
+        <div class="briefing-recipient-grid">{% for person in people %}<label><input type="checkbox" name="staff_ids" value="{{ person.id }}"> {{ person.name }}</label>{% endfor %}</div>
+      </fieldset>
+      <label class="check-label" data-mandatory-field><input type="checkbox" name="mandatory" value="yes"> Mandatory acknowledgement</label>
+      <div class="d-flex gap-2">
+        <button class="btn" name="action" value="draft" type="submit">Save draft</button>
+        <button class="btn btn-primary" name="action" value="publish" type="submit">Publish now</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<div class="briefing-upload-progress" data-briefing-upload-progress hidden role="status" aria-live="polite" aria-busy="true">
+  <div class="briefing-upload-progress__panel">
+    <span class="briefing-upload-progress__worker" aria-hidden="true">
+      <svg viewBox="0 0 64 64" focusable="false">
+        <path d="M18 28a14 14 0 0 1 28 0"></path>
+        <path d="M15 28h34M23 28v-7M41 28v-7"></path>
+        <circle cx="32" cy="35" r="9"></circle>
+        <path d="M15 59c2-10 8-15 17-15s15 5 17 15M25 48l7 6 7-6"></path>
+      </svg>
+    </span>
+    <strong data-briefing-progress-title>Uploading briefing…</strong>
+    <p>Please keep this page open while the document is securely stored and published.</p>
+    <span class="briefing-upload-progress__bar" aria-hidden="true"><span></span></span>
+  </div>
+</div>
+
+<section class="card mt-3">
+  <div class="card-hd">Briefing register · Current instructions</div>
+  <div class="table-responsive"><table class="table">
+    <thead><tr><th>Title</th><th>Type</th><th>Effective</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>
+      {{ register_rows(current_items, 'No current instructions.') }}
+    </tbody>
+  </table></div>
+</section>
+
+<details class="card mt-3 briefing-history">
+  <summary class="card-hd">
+    <span>Older instructions</span>
+    <small>Browse by expiry year and month</small>
+  </summary>
+  <div class="card-bd briefing-history__years">
+    {% for year_group in historic_years %}
+      <details class="briefing-history__year" data-briefing-history-year="{{ year_group.year }}">
+        <summary><strong>{{ year_group.year }}</strong><span>{{ year_group.count }} instruction{{ '' if year_group.count == 1 else 's' }}</span></summary>
+        <div class="briefing-history__months">
+          {% for month_group in year_group.months %}
+            <details class="briefing-history__month" data-briefing-history-month="{{ month_group.number }}">
+              <summary><strong>{{ month_group.label }}</strong><span>{{ month_group.rows|length }}</span></summary>
+              <div class="table-responsive"><table class="table">
+                <thead><tr><th>Title</th><th>Type</th><th>Effective</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>{{ register_rows(month_group.rows, 'No instructions expired in this month.') }}</tbody>
+              </table></div>
+            </details>
+          {% endfor %}
+        </div>
+      </details>
+    {% else %}
+      <p class="mb-0 text-muted">There are no older instructions.</p>
+    {% endfor %}
+  </div>
+</details>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const kind = document.querySelector('[data-briefing-kind]');
+  const scope = document.querySelector('[data-target-scope]');
+  const uploadForm = document.querySelector('[data-briefing-upload-form]');
+  const uploadProgress = document.querySelector('[data-briefing-upload-progress]');
+  const updateKind = () => {
+    const documentField = document.querySelector('[data-document-field]');
+    const textField = document.querySelector('[data-text-field]');
+    const messageTypeField = document.querySelector('[data-message-type-field]');
+    const mandatoryField = document.querySelector('[data-mandatory-field]');
+    const instruction = kind.value === 'instruction';
+    documentField.hidden = !instruction;
+    textField.hidden = instruction;
+    messageTypeField.hidden = !instruction;
+    mandatoryField.hidden = !instruction;
+    if (!instruction) mandatoryField.querySelector('input').checked = false;
+    documentField.querySelector('input').required = instruction;
+    textField.querySelector('textarea').required = !instruction;
+    messageTypeField.querySelector('select').required = instruction;
+  };
+  const updateScope = () => document.querySelectorAll('[data-target-detail]').forEach(field => {
+    field.hidden = field.dataset.targetDetail !== scope.value;
+  });
+  kind.addEventListener('change', updateKind); scope.addEventListener('change', updateScope);
+  uploadForm.addEventListener('submit', () => {
+    const instruction = kind.value === 'instruction';
+    uploadProgress.querySelector('[data-briefing-progress-title]').textContent =
+      instruction ? 'Uploading briefing…' : 'Saving briefing…';
+    uploadProgress.hidden = false;
+    document.body.classList.add('briefing-upload-active');
+  });
+  updateKind(); updateScope();
+})();
+</script>
+{% endblock %}

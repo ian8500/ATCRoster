@@ -15,6 +15,7 @@ def register_saas_models(db, utcnow):
         public_id = db.Column(db.String(64), unique=True, nullable=False)
         username = db.Column(db.String(120), unique=True, nullable=False)
         password_hash = db.Column(db.String(255), nullable=False)
+        email = db.Column(db.String(254), nullable=False, default="")
         mfa_secret_encrypted = db.Column(db.Text)
         created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
         last_active_at = db.Column(db.DateTime)
@@ -133,6 +134,26 @@ def register_saas_models(db, utcnow):
         compensation_state = db.Column(db.String(40), nullable=False, default="")
         created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
         updated_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    class RecoveryRequest(db.Model):
+        __tablename__ = "recovery_request"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), index=True)
+        identity_id = db.Column(
+            db.Integer, db.ForeignKey("platform_identity.id"), index=True
+        )
+        person_id = db.Column(db.Integer)
+        approval_token_digest = db.Column(
+            db.String(64), unique=True, nullable=False
+        )
+        reset_token_digest = db.Column(db.String(64), unique=True)
+        state = db.Column(
+            db.String(24), nullable=False, default="pending_approval"
+        )
+        expires_at = db.Column(db.DateTime, nullable=False)
+        approved_at = db.Column(db.DateTime)
+        completed_at = db.Column(db.DateTime)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
     class DatabaseRoutingMetadata(db.Model):
         __tablename__ = "database_routing_metadata"

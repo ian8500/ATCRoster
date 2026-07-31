@@ -62,7 +62,11 @@ def test_superadmin_requires_central_mfa_before_platform_access():
     with app.app.app_context():
         _platform_account()
     client = app.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        login_token = session["_csrf_token"]
     password = client.post("/login", data={
+        "_csrf_token": login_token,
         "username": "security.platform",
         "password": "Platform-Security-2026!",
     })
@@ -286,3 +290,26 @@ def test_global_identity_duplicate_creates_no_operational_staff(
                     "GLOBAL.USER", "Duplicate-Password-2026!",
                 )
             assert Staff.query.count() == 0
+            workflow = SignupWorkflow.query.filter_by(
+                invitation_id=invitation.id
+            ).one()
+            assert workflow.state == "failed"
+            assert workflow.compensation_state == "pending"
+            assert workflow.identity_id is None
+
+            app._run_invitation_signup(
+                invitation,
+                unit,
+                "Duplicate Person",
+                "available.user",
+                "Duplicate-Password-2026!",
+            )
+            assert Staff.query.filter_by(
+                username="available.user"
+            ).count() == 1
+        workflow = SignupWorkflow.query.filter_by(
+            invitation_id=invitation.id
+        ).one()
+        assert workflow.state == "completed"
+        assert workflow.normalized_username == "available.user"
+        assert db.session.get(SecureInvitation, invitation.id).accepted_at

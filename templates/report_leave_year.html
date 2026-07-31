@@ -1,7 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Leave Year{% endblock %}
 {% block content %}
-<h1><i class="fa-solid fa-calendar-check"></i> Leave Year (as of {{ today }})</h1>
+<section class="compliance-hero">
+  <div><span class="admin-step">Leave reporting</span><h2>Leave year</h2><p>Entitlement and balances as of {{ today }}.</p></div>
+  <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>
+</section>
+
+<form class="report-filter card" method="get">
+  <label for="leave-year-watch">Filter by watch</label>
+  <select id="leave-year-watch" name="watch_id">
+    <option value="">All users</option>
+    {% for watch in watches %}
+      <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-primary" type="submit">Apply filter</button>
+</form>
 
 <div class="table-scroll">
   <table class="table">
@@ -29,6 +43,8 @@
           <td class="ta-right">{{ '%.1f' % r.toil_used_days }}</td>
           <td class="ta-right"><strong>{{ '%.1f' % r.toil_balance_days }}</strong></td>
         </tr>
+      {% else %}
+        <tr><td colspan="12">No users are assigned to this watch.</td></tr>
       {% endfor %}
     </tbody>
   </table>

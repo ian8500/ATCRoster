@@ -200,9 +200,46 @@ def create_fresh_schema():
         sa.Column('req_d', sa.Integer()),
         sa.Column('req_a', sa.Integer()),
         sa.Column('req_n', sa.Integer()),
+        sa.Column('req_sat_m', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sat_d', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sat_a', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sat_n', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_m', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_d', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_a', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('req_sun_n', sa.Integer(), nullable=False, server_default='0'),
         sa.UniqueConstraint('unit_id', 'year', 'month', name='uniq_unit_year_month'),
     )
     op.create_index('ix_requirement_unit_id', 'requirement', ['unit_id'], unique=False)
+    op.create_table('special_requirement',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('unit_id', sa.Integer(), sa.ForeignKey('unit.id'), nullable=False),
+        sa.Column('day', sa.Date(), nullable=False),
+        sa.Column('label', sa.String(80), nullable=False),
+        sa.Column('req_m', sa.Integer(), nullable=False),
+        sa.Column('req_d', sa.Integer(), nullable=False),
+        sa.Column('req_a', sa.Integer(), nullable=False),
+        sa.Column('req_n', sa.Integer(), nullable=False),
+        sa.UniqueConstraint('unit_id', 'day', name='uniq_unit_special_requirement_day'),
+    )
+    op.create_index('ix_special_requirement_unit_id', 'special_requirement', ['unit_id'], unique=False)
+    op.create_index('ix_special_requirement_day', 'special_requirement', ['day'], unique=False)
+    op.create_table('sms_audit',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('unit_id', sa.Integer(), nullable=False),
+        sa.Column('sent_at', sa.DateTime(), nullable=False),
+        sa.Column('sent_by_staff_id', sa.Integer(), nullable=False),
+        sa.Column('sent_by_name', sa.String(80), nullable=False),
+        sa.Column('sender_number', sa.String(20), nullable=False),
+        sa.Column('recipient_number', sa.String(20), nullable=False),
+        sa.Column('recipient_label', sa.String(120), nullable=False),
+        sa.Column('message_type', sa.String(30), nullable=False),
+        sa.Column('message_content', sa.Text(), nullable=False),
+        sa.Column('provider_message_id', sa.String(64), nullable=False),
+    )
+    op.create_index('ix_sms_audit_unit_id', 'sms_audit', ['unit_id'], unique=False)
+    op.create_index('ix_sms_audit_sent_at', 'sms_audit', ['sent_at'], unique=False)
+    op.create_index('ix_sms_audit_sent_by_staff_id', 'sms_audit', ['sent_by_staff_id'], unique=False)
     op.create_table('roster_publication',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('unit_id', sa.Integer(), sa.ForeignKey('unit.id'), nullable=False),
@@ -552,6 +589,7 @@ def create_fresh_schema():
         sa.Column('admin_response', sa.String()),
         sa.Column('responded_by_id', sa.Integer()),
         sa.Column('responded_at', sa.DateTime()),
+        sa.Column('dismissed_by_requester_at', sa.DateTime()),
         sa.Column('status', sa.String(20)),
         sa.UniqueConstraint('staff_id', 'day', name='uniq_shift_request_staff_day'),
     )

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Cookie notice{% endblock %}
+{% block content %}
+<article class="legal-page card"><div class="card-bd">
+  <p class="admin-step">Legal information</p>
+  <h1>Cookie and local-storage notice</h1>
+  <p class="legal-meta">Effective {{ policy_date }}</p>
+  <p>ATCRoster does not currently use advertising or analytics cookies. It uses storage that is necessary to authenticate users, protect forms and preserve requested interface settings.</p>
+
+  <h2>Technologies used</h2>
+  <div class="table-responsive"><table class="table">
+    <thead><tr><th>Name or category</th><th>Purpose</th><th>Duration</th></tr></thead>
+    <tbody>
+      <tr><td><code>__Host-atcroster</code> or <code>atcroster_session</code></td><td>Authentication, security, MFA state, messages and CSRF protection.</td><td>Session/maximum configured session lifetime.</td></tr>
+      <tr><td>Roster zoom and interface preferences</td><td>Remember settings expressly chosen on this device.</td><td>Until cleared in browser settings.</td></tr>
+      <tr><td>Service-worker cache</td><td>Cache application assets for reliable and efficient loading.</td><td>Until replaced by a new version or cleared.</td></tr>
+    </tbody>
+  </table></div>
+  <p>These technologies are limited to providing and securing the service you request, so ATCRoster does not present a consent banner for them. If optional analytics, advertising or other non-essential technology is introduced, it must remain disabled until an appropriate consent mechanism is deployed and this notice is updated.</p>
+  <h2>Your controls</h2>
+  <p>You can clear cookies and site data in your browser. Blocking necessary storage will prevent login or make parts of the roster interface unavailable.</p>
+  <h2>Contact</h2>
+  {% if privacy_email %}<p>Questions may be sent to <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>.</p>{% else %}<p>Contact your Unit Administrator for escalation to {{ legal_entity }}.</p>{% endif %}
+</div></article>
+{% endblock %}

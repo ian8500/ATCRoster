@@ -2,7 +2,7 @@
 {% block title %}Unit Messages{% endblock %}
 {% block content %}
 <section class="compliance-hero">
-  <div><span class="admin-step">Operational communications</span><h2>Send unit messages</h2><p>Send an SMS to one person, a watch, or every active member of this airport.</p></div>
+  <div><span class="admin-step">Operational communications</span><h2>Send unit messages</h2><p>Send an SMS to one person, a watch, everyone, or a configured operational number.</p></div>
 </section>
 
 {% if not sms_ready %}
@@ -14,23 +14,36 @@
   <div class="card-bd">
     <form method="post" class="publication-release-form" data-confirm="Send this SMS message now?">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Send from
+        <select name="sender_number" required>
+          {% for item in sender_options %}<option value="{{ item.number }}" {% if selected_sender == item.number %}selected{% endif %}>{{ item.label }} · {{ item.number }}</option>{% endfor %}
+        </select>
+        <small>Only sender numbers approved in this airport’s Admin settings can be used.</small>
+      </label>
       <label>Recipients
         <select name="scope" id="message-scope">
-          <option value="individual" {% if selected_scope == 'individual' %}selected{% endif %}>One person</option>
-          <option value="watch" {% if selected_scope == 'watch' %}selected{% endif %}>A watch</option>
-          <option value="all" {% if selected_scope == 'all' %}selected{% endif %}>Everyone at this airport</option>
+          <option value="all" {% if selected_scope == 'all' %}selected{% endif %}>Whole unit</option>
+          <option value="watch" {% if selected_scope == 'watch' %}selected{% endif %}>Watch</option>
+          <option value="individual" {% if selected_scope == 'individual' %}selected{% endif %}>Individual</option>
+          <option value="operational" {% if selected_scope == 'operational' %}selected{% endif %}>Operational number</option>
         </select>
       </label>
-      <label>Person
-        <select name="recipient_id">
+      <label data-recipient-detail="individual" {% if selected_scope != 'individual' %}hidden{% endif %}>Individual
+        <select name="recipient_id" {% if selected_scope != 'individual' %}disabled{% endif %}>
           <option value="">Choose a person</option>
           {% for person in people %}<option value="{{ person.id }}" {% if selected_recipient == person.id|string %}selected{% endif %}>{{ person.name }}{% if not person.phone_number %} · no mobile{% endif %}</option>{% endfor %}
         </select>
       </label>
-      <label>Watch
-        <select name="watch_id">
+      <label data-recipient-detail="watch" {% if selected_scope != 'watch' %}hidden{% endif %}>Watch
+        <select name="watch_id" {% if selected_scope != 'watch' %}disabled{% endif %}>
           <option value="">Choose a watch</option>
           {% for watch in watches %}<option value="{{ watch.id }}" {% if selected_watch == watch.id|string %}selected{% endif %}>{{ watch.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label data-recipient-detail="operational" {% if selected_scope != 'operational' %}hidden{% endif %}>Operational number
+        <select name="operational_number" {% if selected_scope != 'operational' %}disabled{% endif %}>
+          <option value="">Choose an operational number</option>
+          {% for item in operational_options %}<option value="{{ item.number }}" {% if selected_operational == item.number %}selected{% endif %}>{{ item.label }} · {{ item.number }}</option>{% endfor %}
         </select>
       </label>
       <label>Message
@@ -49,6 +62,24 @@
 </section>
 
 {% if preview %}
-<section class="card mt-3"><div class="card-hd">Messages prepared</div><div class="card-bd">{% for person, body in preview %}<p><strong>{{ person.name }}</strong><br>{{ body }}</p>{% endfor %}</div></section>
+<section class="card mt-3"><div class="card-hd">Messages prepared</div><div class="card-bd">{% for recipient_name, body in preview %}<p><strong>{{ recipient_name }}</strong><br>{{ body }}</p>{% endfor %}</div></section>
 {% endif %}
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const scope = document.querySelector('#message-scope');
+  const details = [...document.querySelectorAll('[data-recipient-detail]')];
+  if (!scope) return;
+  const updateRecipientDetails = () => {
+    details.forEach(detail => {
+      const visible = detail.dataset.recipientDetail === scope.value;
+      detail.hidden = !visible;
+      detail.querySelectorAll('select, input').forEach(control => {
+        control.disabled = !visible;
+      });
+    });
+  };
+  scope.addEventListener('change', updateRecipientDetails);
+  updateRecipientDetails();
+})();
+</script>
 {% endblock %}

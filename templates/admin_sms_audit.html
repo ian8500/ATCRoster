@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}SMS Audit{% endblock %}
+{% block content %}
+<section class="compliance-hero">
+  <div>
+    <span class="admin-step">Operational communications</span>
+    <h2>SMS audit</h2>
+    <p>Delivered messages sent from this airport. This record is visible only to Unit Administrators.</p>
+  </div>
+</section>
+
+{% include "_admin_nav.html" %}
+
+<section class="card">
+  <div class="card-hd">Successful SMS deliveries</div>
+  <div class="card-bd">
+    <div class="table-scroll">
+      <table class="mini admin-table">
+        <thead>
+          <tr>
+            <th>Sent</th>
+            <th>Sent by</th>
+            <th>From</th>
+            <th>To</th>
+            <th>Type</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.sent_at.strftime('%d/%m/%Y %H:%M') }}</td>
+            <td>{{ row.sent_by_name }}</td>
+            <td><span class="mono">{{ row.sender_number }}</span></td>
+            <td>{{ row.recipient_label }}<br><small class="mono">{{ row.recipient_number }}</small></td>
+            <td>{{ row.message_type.replace('_', ' ')|title }}</td>
+            <td class="sms-audit-message">{{ row.message_content }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">No successful SMS deliveries have been recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted mt-3">The most recent 1,000 deliveries are shown. Failed sends are not recorded as delivered messages.</p>
+  </div>
+</section>
+{% endblock %}

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ staff.name }}{% endblock %}
 {% block content %}
-<section class="profile-hero">
+<section class="compliance-hero profile-page-hero">
   <div>
-    <span class="admin-step">My operational dashboard</span>
+    <span class="admin-step">My profile</span>
     <h2>{{ staff.name }}</h2>
     <p>{{ staff.watch.name if staff.watch else 'No watch assigned' }} · {{ staff.staff_no }}</p>
   </div>
@@ -18,15 +18,30 @@
   {% endif %}
 </section>
 
-<div class="profile-action-grid">
-  <a href="{{ url_for('requests_page') }}"><i class="fa-solid fa-calendar-plus"></i><span><strong>Request a shift</strong><small>Submit or review requests</small></span></a>
-  <a href="{{ url_for('calendar_feed', sid=staff.id, token=staff.calendar_token) if staff.calendar_token else '#' }}"><i class="fa-regular fa-calendar"></i><span><strong>Roster calendar</strong><small>Subscribe on your phone</small></span></a>
-  <a href="{{ url_for('password_change') }}"><i class="fa-solid fa-key"></i><span><strong>Security</strong><small>Change your password</small></span></a>
-  <a href="{{ url_for('mfa_setup') }}"><i class="fa-solid fa-shield-halved"></i><span><strong>Multi-factor authentication</strong><small>Protect your account</small></span></a>
-</div>
+<nav class="admin-section-nav profile-section-nav" aria-label="Profile functions">
+  <button type="button" class="admin-section-tab" data-profile-section="overview" aria-controls="profile-overview" aria-selected="false"><i class="fa-solid fa-gauge"></i><span>Overview</span></button>
+  <button type="button" class="admin-section-tab" data-profile-section="notifications" aria-controls="profile-notifications" aria-selected="false"><i class="fa-solid fa-bell"></i><span>Notifications</span></button>
+  <button type="button" class="admin-section-tab" data-profile-section="qualifications" aria-controls="profile-qualifications" aria-selected="false"><i class="fa-solid fa-id-card"></i><span>Qualifications</span></button>
+  {% if staff.id == current_user.id %}
+  <button type="button" class="admin-section-tab" data-profile-section="contact" aria-controls="profile-contact" aria-selected="false"><i class="fa-solid fa-address-card"></i><span>Contact</span></button>
+  {% endif %}
+  <button type="button" class="admin-section-tab" data-profile-section="calendar" aria-controls="profile-calendar" aria-selected="false"><i class="fa-regular fa-calendar"></i><span>Calendar</span></button>
+  {% if staff.id == current_user.id %}
+  <button type="button" class="admin-section-tab" data-profile-section="security" aria-controls="profile-security" aria-selected="false"><i class="fa-solid fa-key"></i><span>Security</span></button>
+  <button type="button" class="admin-section-tab" data-profile-section="mfa" aria-controls="profile-mfa" aria-selected="false"><i class="fa-solid fa-shield-halved"></i><span>MFA</span></button>
+  {% endif %}
+</nav>
 
-<div class="profile-dashboard">
-  <section class="card">
+<div class="profile-workspace">
+  <div class="admin-selection-prompt" data-profile-selection-prompt>
+    <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
+    <strong>Select a profile function</strong>
+    <span>Choose an option from the toolbar above.</span>
+  </div>
+
+  <section id="profile-overview" class="profile-panel" data-profile-panel="overview" hidden>
+    <div class="profile-dashboard">
+    <section class="card">
     <div class="card-hd">Upcoming roster</div>
     <div class="card-bd profile-timeline">
       {% for assignment in upcoming %}
@@ -41,51 +56,82 @@
     </div>
   </section>
 
-  <section class="card">
+    <section class="card">
+      <div class="card-hd">Personal summary</div>
+      <div class="card-bd profile-stats">
+        <div><span>Rostered this month</span><strong>{{ hours_this_month }}h</strong></div>
+        <div><span>Annual leave, 12 months</span><strong>{{ al_days }}</strong></div>
+        <div><span>Sickness, 12 months</span><strong>{{ sick_days }}</strong></div>
+        <div><span>Role</span><strong>{{ staff.role|title }}</strong></div>
+      </div>
+    </section>
+    </div>
+  </section>
+
+  <section id="profile-notifications" class="profile-panel" data-profile-panel="notifications" hidden>
+    <section class="card">
     <div class="card-hd d-flex justify-content-between align-items-center">
       <span>Notifications {% if unread_notifications %}<span class="status-pill warning">{{ unread_notifications }} new</span>{% endif %}</span>
       {% if unread_notifications %}
         <form method="post" action="{{ url_for('notifications_read') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm" type="submit">Mark read</button>
+          <button class="btn btn-sm" type="submit">Mark all as read</button>
         </form>
       {% endif %}
     </div>
     <div class="card-bd profile-notifications">
       {% for item in notifications %}
         <article class="{{ 'unread' if not item.read_at else '' }}">
-          <strong>{{ item.kind|replace('_',' ')|title }}</strong>
-          <p>{{ item.message }}</p>
-          <small>{{ item.created_at.strftime('%d %b %Y %H:%M') }}</small>
+          <div class="profile-notification-copy">
+            <strong>{{ item.kind|replace('_',' ')|title }}</strong>
+            <p>{{ item.message }}</p>
+            <small>{{ item.created_at.strftime('%d %b %Y %H:%M') }}</small>
+          </div>
+          <div class="profile-notification-actions">
+            {% if not item.read_at %}
+              <form method="post" action="{{ url_for('notification_read', notification_id=item.id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm" type="submit">Mark as read</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('notification_delete', notification_id=item.id) }}" data-confirm="Delete this notification?">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm profile-notification-delete" type="submit">Delete</button>
+              </form>
+            {% endif %}
+          </div>
         </article>
       {% else %}
         <p>No notifications.</p>
       {% endfor %}
     </div>
+    </section>
   </section>
 
-  <section class="card">
-    <div class="card-hd">Recent requests</div>
-    <div class="card-bd profile-requests">
-      {% for item in recent_requests %}
-        <div><span>{{ item.day.strftime('%d %b') }} · {{ item.code }}</span><span class="status-pill {{ item.status }}">{{ item.status }}</span></div>
-      {% else %}
-        <p>No shift requests yet.</p>
-      {% endfor %}
+  {% if staff.id == current_user.id %}
+  <section id="profile-contact" class="profile-panel" data-profile-panel="contact" hidden>
+    <section class="card">
+    <div class="card-hd">Contact details</div>
+    <div class="card-bd">
+      <p class="text-muted">Your email is used for account recovery. Your phone number is used for authorised roster and overtime SMS messages.</p>
+      <form method="post" class="profile-contact-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <label>Email address
+          <input type="email" name="email" value="{{ staff.email or '' }}" autocomplete="email" required>
+        </label>
+        <label>Phone number
+          <input type="tel" name="phone_number" value="{{ staff.phone_number or '' }}" autocomplete="tel" maxlength="30" placeholder="+44…">
+          <small>Use the international country code where possible.</small>
+        </label>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Save contact details</button></div>
+      </form>
     </div>
+    </section>
   </section>
+  {% endif %}
 
-  <section class="card">
-    <div class="card-hd">Personal summary</div>
-    <div class="card-bd profile-stats">
-      <div><span>Rostered this month</span><strong>{{ hours_this_month }}h</strong></div>
-      <div><span>Annual leave, 12 months</span><strong>{{ al_days }}</strong></div>
-      <div><span>Sickness, 12 months</span><strong>{{ sick_days }}</strong></div>
-      <div><span>Role</span><strong>{{ staff.role|title }}</strong></div>
-    </div>
-  </section>
-
-  <section class="card">
+  <section id="profile-qualifications" class="profile-panel" data-profile-panel="qualifications" hidden>
+    <section class="card">
     <div class="card-hd">Qualifications</div>
     <div class="card-bd profile-stats">
       <div><span>Tower UE</span><strong>{{ staff.tower_ue_expiry or '—' }}</strong></div>
@@ -93,9 +139,11 @@
       <div><span>MET</span><strong>{{ staff.met_ue_expiry or '—' }}</strong></div>
       <div><span>Medical</span><strong>{{ staff.medical_expiry or '—' }}</strong></div>
     </div>
+    </section>
   </section>
 
-  <section class="card">
+  <section id="profile-calendar" class="profile-panel" data-profile-panel="calendar" hidden>
+    <section class="card" id="calendar-subscription">
     <div class="card-hd">Calendar subscription</div>
     <div class="card-bd">
       {% if cal_link %}
@@ -117,6 +165,86 @@
         </form>
       {% endif %}
     </div>
+    </section>
   </section>
+
+  {% if staff.id == current_user.id %}
+  <section id="profile-security" class="profile-panel" data-profile-panel="security" hidden>
+    <section class="card">
+      <div class="card-hd">Change password</div>
+      <div class="card-bd">
+        <p class="text-muted">Use at least 12 characters and choose a password you do not use for another service.</p>
+        <form method="post" action="{{ url_for('password_change') }}" class="profile-security-form">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <label>Current password<input type="password" name="current_password" autocomplete="current-password" required></label>
+          <label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label>
+          <label>Confirm new password<input type="password" name="confirm_password" autocomplete="new-password" minlength="12" required></label>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Change password</button></div>
+        </form>
+      </div>
+    </section>
+  </section>
+
+  <section id="profile-mfa" class="profile-panel" data-profile-panel="mfa" hidden>
+    <section class="card">
+      <div class="card-hd">Multi-factor authentication</div>
+      <div class="card-bd">
+        {% if mfa_recovery_codes %}
+          <h3>Save your recovery codes</h3>
+          <p>These codes are displayed once. Store them in an approved password manager.</p>
+          <div class="recovery-code-grid">{% for code in mfa_recovery_codes %}<code>{{ code }}</code>{% endfor %}</div>
+        {% elif mfa_enabled %}
+          <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> Multi-factor authentication is enabled.</p>
+          <p>Contact an authorised administrator through the approved support process if access must be recovered.</p>
+        {% else %}
+          <h3>Protect your account</h3>
+          <ol class="compliance-workflow">
+            <li>Open your authenticator app and choose <strong>Scan QR code</strong>.</li>
+            <li>Scan the QR code below.</li>
+            <li>Enter the current six-digit code to confirm setup.</li>
+          </ol>
+          {% if mfa_qr_data_uri %}
+          <figure class="mfa-qr">
+            <img src="{{ mfa_qr_data_uri }}" alt="QR code for adding ATCRoster to your authenticator app" width="240" height="240">
+            <figcaption>Use Microsoft Authenticator, Google Authenticator, Authy or another TOTP app.</figcaption>
+          </figure>
+          {% endif %}
+          <details><summary>Enter a setup key instead</summary><code class="mfa-secret">{{ mfa_secret }}</code></details>
+          <form method="post" action="{{ url_for('mfa_setup') }}" class="profile-mfa-form mt-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <label>Current six-digit code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+            <button class="btn btn-primary" type="submit">Enable MFA</button>
+          </form>
+        {% endif %}
+      </div>
+    </section>
+  </section>
+  {% endif %}
 </div>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const tabs = [...document.querySelectorAll('[data-profile-section]')];
+  const panels = [...document.querySelectorAll('[data-profile-panel]')];
+  const prompt = document.querySelector('[data-profile-selection-prompt]');
+  const valid = new Set(tabs.map(tab => tab.dataset.profileSection));
+  const show = name => {
+    if (!valid.has(name)) return;
+    tabs.forEach(tab => {
+      const selected = tab.dataset.profileSection === name;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+    });
+    panels.forEach(panel => {
+      const selected = panel.dataset.profilePanel === name;
+      panel.hidden = !selected;
+    });
+    if (prompt) prompt.hidden = true;
+    history.replaceState(null, '', `#${name}`);
+  };
+  const initial = location.hash.slice(1);
+  if (valid.has(initial)) show(initial);
+  tabs.forEach(tab => tab.addEventListener('click', () => show(tab.dataset.profileSection)));
+})();
+</script>
 {% endblock %}

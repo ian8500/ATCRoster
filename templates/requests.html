@@ -1,8 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Shift Requests{% endblock %}
 {% block content %}
-<div class="container my-4">
-  <h2 class="mb-3">Shift Requests</h2>
+<div class="page-shell">
+  <section class="compliance-hero">
+    <div><span class="admin-step">Roster preferences</span><h2>Shift requests</h2><p>Request a future duty and track the manager’s decision in one place.</p></div>
+  </section>
+  {% if is_admin and pending_request_count %}
+    <div class="request-attention-banner" role="status">
+      <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+      <strong>{{ pending_request_count }} shift request{{ '' if pending_request_count == 1 else 's' }} awaiting your decision</strong>
+      <span>Review the pending items below and either approve them onto the roster or refuse them.</span>
+    </div>
+  {% endif %}
 
   {# Flash messages #}
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -47,8 +56,9 @@
         </div>
       </form>
       <div class="form-text mt-2">
-        Requests are accepted from {{ first_allowed.isoformat() }} to
-        {{ last_allowed.isoformat() }}. This airport locks each request month
+        Requests are currently accepted from {{ first_allowed.strftime('%-d %B %Y') }} to
+        {{ last_allowed.strftime('%-d %B %Y') }}. These dates update automatically each month.
+        This airport locks each request month
         on day {{ request_lock_day }} of the preceding month (the platform
         default is day 20).
       </div>
@@ -66,11 +76,11 @@
       <table class="table table-sm align-middle mb-0">
         <thead>
           <tr>
-            <th style="width: 120px;">Date</th>
-            <th style="width: 110px;">Month</th>
-            <th style="width: 120px;">Code</th>
+            <th class="request-col-date">Date</th>
+            <th class="request-col-month">Month</th>
+            <th class="request-col-code">Code</th>
             <th>Status</th>
-            <th style="width: 200px;">Actions</th>
+            <th class="request-col-actions">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -82,7 +92,7 @@
                   <td>{{ "%04d-%02d"|format(day.year, day.month) }}</td>
                   <td>{{ req.code }}</td>
                   <td>
-                    <span class="badge {% if (req.status or 'pending') == 'approved' %}bg-success{% elif (req.status or 'pending') in ['rejected','cancelled'] %}bg-danger{% elif (req.status or 'pending') == 'fulfilled' %}bg-secondary{% else %}bg-warning text-dark{% endif %}"
+                    <span class="status-pill {% if (req.status or 'pending') == 'approved' %}success{% elif (req.status or 'pending') in ['rejected','cancelled'] %}danger{% elif (req.status or 'pending') == 'fulfilled' %}muted{% else %}warning{% endif %}"
                           role="status" aria-label="Request status: {{ req.status or 'pending' }}">
                       {{ (req.status or 'pending')|capitalize }}
                     </span>
@@ -105,22 +115,18 @@
                     {% else %}
                       —
                     {% endif %}
-
-                    {% if current_user.is_admin_role %}
-                      <form method="post" action="{{ url_for('admin_request_respond', rid=req.id) }}" class="d-inline ms-2">
+                    {% if (req.status or 'pending') in ['fulfilled', 'rejected'] %}
+                      <form method="post" class="d-inline"
+                            data-confirm="Remove this completed request from your list?">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="ym" value="{{ admin_ym or '' }}">
-                        <div class="input-group input-group-sm" style="max-width: 520px;">
-                          <select class="form-select" name="status" aria-label="Status for {{ req.staff.name }} on {{ day.strftime('%d %B %Y') }}">
-                            {% for st in ['approved','rejected','cancelled'] %}
-                              <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
-                            {% endfor %}
-                          </select>
-                          <input class="form-control" name="admin_response" aria-label="Response to {{ req.staff.name }} for {{ day.strftime('%d %B %Y') }}" placeholder="Comment to requester" value="{{ req.admin_response or '' }}">
-                          <button class="btn btn-secondary" type="submit">Respond</button>
-                        </div>
+                        <input type="hidden" name="form" value="dismiss">
+                        <input type="hidden" name="rid" value="{{ req.id }}">
+                        <button class="btn btn-outline-secondary request-delete-btn" type="submit">
+                          Delete
+                        </button>
                       </form>
                     {% endif %}
+
                   </td>
                 </tr>
               {% endfor %}
@@ -142,7 +148,7 @@
     <hr class="my-4">
     <div class="d-flex align-items-center mb-2">
       <h3 class="mb-0">All Requests – {{ admin_month_title }}</h3>
-      <span class="badge bg-secondary ms-2">Total: {{ admin_total }}</span>
+      <span class="status-pill muted ms-2">Total: {{ admin_total }}</span>
     </div>
 
     <div class="month-nav my-2">
@@ -168,8 +174,8 @@
                   <th>Staff</th>
                   <th>Code</th>
                   <th>Status</th>
-                  <th>Admin response</th>
-                  <th style="width: 280px;">Actions</th>
+                  <th>Manager comment</th>
+                  <th class="request-col-decision">Decision</th>
                 </tr>
               </thead>
               <tbody>
@@ -178,26 +184,36 @@
                   <td>{{ req.staff.name }}</td>
                   <td>{{ req.code }}</td>
                   <td>{{ (req.status or 'pending')|capitalize }}</td>
-                  <td>{{ req.admin_response or '' }}</td>
+                  <td>{{ req.admin_response or '—' }}</td>
                   <td>
-                    <form method="post" action="{{ url_for('admin_request_respond', rid=req.id) }}" class="d-inline">
-                      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                      <input type="hidden" name="ym" value="{{ admin_ym }}">
-                      <div class="input-group input-group-sm">
-                        <select class="form-select" name="status">
-                          {% for st in ['approved','rejected','cancelled'] %}
-                            <option value="{{ st }}" {% if (req.status or 'pending') == st %}selected{% endif %}>{{ st|capitalize }}</option>
-                          {% endfor %}
-                        </select>
-                        <input class="form-control" name="admin_response" placeholder="Comment to requester" value="{{ req.admin_response or '' }}">
-                        <button class="btn btn-secondary" name="action" value="status" type="submit">Save status</button>
-                      </div>
-                      {% if (req.status or 'pending') == 'pending' %}
-                        <button class="btn btn-success btn-sm mt-1" name="action" value="approve_only" type="submit">Approve only</button>
-                        <button class="btn btn-primary btn-sm mt-1" name="action" value="approve_apply" type="submit">Approve and apply to roster</button>
-                        <label class="small ms-2"><input type="checkbox" name="confirm_override" value="yes"> Confirm permitted conflict override</label>
-                      {% endif %}
-                    </form>
+                    {% if (req.status or 'pending') in ['pending', 'approved'] %}
+                      <form method="post" action="{{ url_for('admin_request_respond', rid=req.id) }}" class="request-decision-form">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="ym" value="{{ admin_ym }}">
+                        <label class="visually-hidden" for="request-comment-{{ req.id }}">Optional comment for {{ req.staff.name }}</label>
+                        <input id="request-comment-{{ req.id }}" class="form-control form-control-sm"
+                               name="admin_response" maxlength="500"
+                               placeholder="Optional comment to {{ req.staff.name }}">
+                        <div class="request-decision-actions">
+                          {% if req.staff_id == current_user.id and active_admin_count > 1 %}
+                            <span class="self-approval-note">Another administrator must approve your request.</span>
+                          {% else %}
+                            <button class="btn btn-primary btn-sm" name="action" value="approve"
+                                    type="submit"
+                                    data-confirm="Approve this request and add {{ req.code }} to the roster for {{ day.strftime('%d %B %Y') }}?">
+                              Approve and add to roster
+                            </button>
+                          {% endif %}
+                          <button class="btn btn-danger btn-sm" name="action" value="refuse"
+                                  type="submit"
+                                  data-confirm="Refuse this shift request?">
+                            Refuse
+                          </button>
+                        </div>
+                      </form>
+                    {% else %}
+                      <span class="text-muted small">Decision complete</span>
+                    {% endif %}
                   </td>
                 </tr>
               {% endfor %}

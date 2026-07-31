@@ -29,6 +29,15 @@ aggregates only.
 
 ## Roles and privacy
 
+Public legal information is available without signing in at `/privacy`,
+`/cookies`, `/terms`, and `/subprocessors`. The controller/processor agreement,
+DPIA, retention schedule, rights procedure, special-category policy, incident
+procedure, and launch-owner actions are maintained in
+[`docs/legal`](docs/legal/README.md). The airport/ATS unit normally controls its
+workforce and operational records; IDAviation normally processes those records
+to provide ATCRoster and separately controls limited platform-security,
+support, contracting, and billing records.
+
 | Role | Intended access |
 | --- | --- |
 | `SuperAdmin` | Airport account metadata, plans, feature flags, database health, migration state, storage, and aggregate activity. No personnel or roster data. |
@@ -67,16 +76,25 @@ After signing in:
 - Use **Reports** for fatigue, sickness, leave-year, overtime, swap, and
   extension information.
 - Use **Qualification compliance** at `/compliance`.
-- Use **Compliance** at `/compliance-centre` for explainable fatigue findings
-  and the regulator/auditor evidence export.
+- Review automatic fatigue findings directly on the relevant roster cells.
 - Use **Coverage heatmap** at `/planning/coverage/YYYY-MM`.
 - Use **Roster scenarios** at `/planning/scenarios`.
 - Use **Airport onboarding** at `/unit/onboarding`.
+- Use **Forgot username** or **Forgot password** on the login page when access
+  is lost. Username reminders go to the account email; accounts without an
+  email are referred to the airport administrators. Password resets use a
+  two-stage process: an airport administrator approves the request, then the
+  account holder receives a separate, expiring reset link. Unit Admin requests
+  are approved by a Super Admin.
 
 The shared interface includes:
 
 - a compact mobile **Menu** that keeps the current page and airport context
   visible;
+- a consistent Messages-style page banner, Inter typography, dark surface
+  palette, form controls, cards and data tables across every operational,
+  reporting and administration workspace (the roster retains its specialist
+  dense-grid sizing);
 - keyboard skip navigation, visible focus states and reduced-motion support;
 - persistent roster zoom presets at 75%, 90%, 100% and **Fit width**;
 - clear success/error announcements and purpose-built 400, 403, 404 and 500
@@ -107,7 +125,11 @@ attention. It is divided into focused sections:
 - **Roster setup** defines the unit base cycle, the weekdays on which night
   duties operate, and the unit's named watches.
 - **Staffing levels** edits monthly Morning, Day, Afternoon, and Night minimums
-  across a rolling 24-month planning window.
+  for weekdays, Saturdays, and Sundays across a rolling 24-month planning
+  window. **Copy below** repeats all twelve values into every later row for
+  review before saving. A special-date calendar adds one-day overrides for
+  events such as Christmas Day; those dates are identified in a dedicated
+  section beneath the relevant monthly roster.
 - **Shifts** creates shift definitions and keeps existing definitions collapsed
   until an administrator chooses one to edit. Its **Roster count mapping**
   assigns every created shift to the Morning, Day, Afternoon, Night, or
@@ -136,8 +158,9 @@ Configure the repeating roster in **Admin → Roster setup**:
 2. Select the weekdays on which the unit operates a night duty. An `N` that
    falls on a closed night is displayed as `OFF` without shifting the
    underlying cycle.
-3. Add and name the required watches. A watch may inherit the unit pattern or
-   define its own pattern and day-1 date.
+3. Add and name the required watches. Every watch has its own day-1 date,
+   which phases the inherited unit pattern; a watch may instead define a
+   different pattern while retaining that watch-specific phase.
 
 Pattern precedence is **personal ATCO override → effective watch pattern →
 unit base pattern**. Personal patterns are configured on the ATCO profile and
@@ -147,7 +170,9 @@ The roster footer does not infer custom codes by their first letter. In
 **Admin → Shifts → Roster count mapping**, explicitly map each operational
 shift to `M`, `D`, `A`, or `N`; map leave, training, standby and support codes
 to **Not counted**. The same mapping is used by the on-screen totals, CSV
-export, coverage heatmap and publication readiness checks.
+export, coverage heatmap and publication readiness checks. A pattern letter
+does not count unless the airport has created the corresponding working shift,
+and Night totals are suppressed on weekdays when night operations are closed.
 
 To move an ATCO, open their Admin profile and use **Schedule a watch move**.
 On the effective date, roster generation picks up the new watch and its
@@ -183,7 +208,10 @@ two authorised unit users.
 
 Open a month from **Roster**. Each row represents a person and each column a
 date. Requirement indicators show whether coverage meets the configured
-minimum for Morning, Day, Afternoon, and Night duties.
+minimum for Morning, Day, Afternoon, and Night duties. Weekdays, Saturdays,
+and Sundays can use different monthly minimums. A date-specific special
+requirement takes priority over those defaults and is listed beneath the
+roster with its reason and required staffing.
 
 ### Editing a cell
 
@@ -199,6 +227,19 @@ When a cell is changed to the exact shift requested by a pending or approved
 request, the request is retained, marked `fulfilled`, and linked to the
 assignment.
 
+A shift applied through the approval workflow has a blue outline and small
+blue corner marker on the roster. Hovering the cell identifies it as applied
+from an approved shift request. The marker remains only while the linked
+assignment still contains the requested shift code; a later manual change
+does not misleadingly retain the request highlight.
+
+The main navigation shows an unread-notification count on **Profile** for
+every user. Unit Admins also see the number of pending or approved requests
+still requiring a decision on **Requests**. An administrator cannot approve
+their own request while another active Unit Admin is available; the sole
+active administrator may approve their own request so a single-admin airport
+cannot become operationally blocked.
+
 ### Roster request badges
 
 - Pending requests use a warning-style badge and accessible pending label.
@@ -207,32 +248,30 @@ assignment.
 - Rejected, cancelled, and fulfilled requests do not appear as active roster
   badges.
 
-### Publication and acknowledgement
+### Monthly roster publication
 
-Open **Published** or `/publications/YYYY-MM`. The page presents a simple
-readiness, current release, and publish flow. A Unit Admin can publish the
-current month after checking:
+Every monthly roster has one clear status directly above the roster grid:
 
-- every operational controller has an explicit assignment for every day;
-- working shifts do not violate their configured required qualification;
-- Morning, Day, Afternoon and Night staffing against the configured requirement;
-- explainable fatigue and optional assurance findings.
+- **Draft roster** — the roster may be subject to change.
+- **Published roster** — shows the date on which the current roster was
+  published.
 
-Missing assignments and required-qualification failures block publication.
-Coverage, fatigue, position, break-plan and other assurance findings remain
-visible as advisories and require an accountable manager rationale of at least
-20 characters; they do not force a unit through an unrelated setup workflow.
-The manager also confirms the release declaration.
+Unit Admins, Watch Managers and Duty Watch Managers can select **Publish
+roster** from the Draft banner. Publication records an immutable snapshot,
+captures the publishing manager and time in the audit trail, and notifies the
+unit’s other active operational staff.
 
-Publication creates an immutable JSON snapshot containing the roster and its
-release-assurance summary, records the declaration in the change log, and
-notifies active operational staff.
+The same authorised grades can select **Undo publication** beside a Published
+status. The month immediately returns to Draft, operational staff are
+notified, and the withdrawn publication remains in the audit history rather
+than being deleted.
 
-Publishing a replacement marks the previous version `superseded`; it does not
-delete it. Staff acknowledge the active version, and acknowledgements remain
-tied to that exact version. The publication screen lists staff still awaiting
-acknowledgement. A rollback must create or restore an auditable version; it
-must not erase intervening history.
+If any roster assignment or annotation changes after publication, the live
+month automatically displays as Draft again because it no longer matches the
+published snapshot. Publishing the updated month creates a new version and
+marks the previous version as superseded. Publication is managed only from the
+monthly roster; there is no separate publication centre or acknowledgement
+workflow.
 
 ## Shift requests
 
@@ -269,25 +308,25 @@ removed with a forged form submission.
 
 ### Admin decisions
 
-Valid states are:
+Each pending request has two clear manager actions:
 
-- `pending`
-- `approved`
-- `rejected`
-- `fulfilled`
-- `cancelled`
+- **Approve and add to roster** creates or updates the assignment immediately.
+- **Refuse** records that the request was not accepted.
 
-**Approve only** records the decision without changing the roster.
+When decisions are outstanding, Unit Admins see an orange count on the main
+**Requests** tab and an attention banner on the Requests page. Both clear
+automatically when no pending requests remain.
 
-**Approve and apply to roster** checks the shift, airport ownership, roster
-lock, qualifications, and fatigue rules. Permitted conflicts are shown as
-warnings and require explicit override confirmation. A successful application
-creates or updates the assignment, records its ID, and marks the request
-`fulfilled`.
+The manager can add an optional comment to either decision. The requester
+receives an in-app notification that explains the outcome and includes that
+comment. Internally, an approved-and-rostered request is retained as
+`fulfilled` and a refused request as `rejected`, preserving reporting and
+audit compatibility.
 
-The selected admin month is preserved after an action. The requester receives
-an in-app notification when a request becomes pending again, approved,
-rejected, or fulfilled.
+The requester can select **Delete from my list** for fulfilled or rejected
+requests. This removes the completed item from their personal Requests view
+without deleting the operational decision or audit history visible to
+authorised managers.
 
 Every transition records actor, UTC timestamp, old value, new value, and
 reason in the request audit.
@@ -319,6 +358,12 @@ definitions. Watch and deputy watch managers receive only their explicitly
 configured permissions. Unit-Admin-only annotations return a permission error
 for other roles.
 
+On the roster, the annotation selector returns to **—** after each action and
+the applied code appears once as a compact yellow label beneath the shift.
+Select the pencil beside that label to add or edit optional detail; the detail
+is shown when the code is hovered or keyboard-focused. Use **Remove [code]**
+in the selector to clear an applied annotation.
+
 Application/removal and definition changes are audited. TOIL updates and the
 annotation assignment occur in one database transaction. Optional transaction
 keys make retries idempotent so TOIL is not applied twice.
@@ -346,22 +391,15 @@ Configure warning periods per qualification type; the standard defaults are
 180, 90, 60, and 30 days. Assignment and request-application checks must use
 the current airport’s qualification records only.
 
-### Fatigue and Compliance Centre
+### Fatigue monitoring
 
-Unit Admins and roster editors open `/compliance-centre?ym=YYYY-MM` to review:
+Automatic fatigue findings remain visible on the affected roster cells, with
+the rule explanation available from the cell warning. Rest days and any other
+shift marked non-working are never displayed as fatigue-warning cells. The
+standalone Compliance Centre is not part of the application navigation.
 
-- total and critical fatigue findings;
-- affected controllers;
-- the source date, assigned shift and rule explanation;
-- findings grouped by controller and by frequent rule.
-
-The **Evidence CSV** export records airport, month, ATCO, date, severity, rule
-and the explainable finding. It is intended to support competent human review,
-not declare a roster legally compliant. Correct the roster or record an
-authorised decision through the controlled change process before publication.
-
-Unit Admins use **Compliance → Manage rules** (or
-`/admin/fatigue-rules`) to control fatigue monitoring:
+Unit Admins use **Admin → Fatigue rules** (`/admin/fatigue-rules`) to control
+roster monitoring:
 
 - review the nine system-rule families and their plain-language names;
 - edit airport-specific thresholds including duty hours, rolling periods,
@@ -376,9 +414,9 @@ Unit Admins use **Compliance → Manage rules** (or
 
 Custom rules require a name, limit and severity. Rules measured over time also
 require a review period in days. They are evaluated for every operational ATCO
-and feed both roster-cell warnings and the Compliance Centre. No code or JSON
-editing is required. Changing a rule affects future calculations; it does not
-rewrite historical roster assignments.
+and feed the roster-cell warnings. No code or JSON editing is required.
+Changing a rule affects future calculations; it does not rewrite historical
+roster assignments.
 
 Fatigue configuration is stored against the authenticated airport’s unit ID.
 An administrator cannot read or change another airport’s thresholds, names,
@@ -405,8 +443,7 @@ position is short; or when a high/unfit fatigue report remains open.
 
 The standalone in-app fatigue self-report form is not enabled. Controllers
 should use the unit’s established fit-for-duty reporting procedure and Safety
-Management System. Automatic roster warnings and the Compliance Centre remain
-available.
+Management System. Automatic roster warnings remain available.
 
 ## Coverage and scenario planning
 
@@ -431,7 +468,15 @@ step.
 - Configure Twilio before sending overtime or unit SMS messages.
 - **Messages** is available only to Admin, WM and DWM users. It can target one
   person, a named watch, or all active airport users with a custom message or
-  a personalised today-shift reminder.
+  a personalised today-shift reminder. Unit Admins configure approved Twilio
+  sender numbers, named operational destination numbers, and defaults in
+  **Admin → SMS settings**. The Messages page preselects those defaults and
+  lets the sender choose another airport-approved number.
+- Every successful unit, operational, shift-reminder, and overtime SMS is
+  retained in the airport-isolated **Admin → SMS audit**. The audit records
+  who initiated it, the actual sender and recipient numbers, delivery time,
+  message type, provider reference and exact message content. Only Unit
+  Administrators can view it; failed sends are not shown as delivered.
 - Reports include fatigue, sickness, leave year, overtime, swaps, extensions,
   and CSV exports.
 
@@ -450,6 +495,11 @@ TWILIO_FROM_NUMBER
 ```
 
 When they are absent, SMS sending is disabled.
+
+Twilio never chooses a random sender. Each configured sender must be a number
+owned by or approved for the Twilio account. Airport settings are tenant
+scoped; one airport cannot select another airport's sender or operational
+destination. Enter numbers in E.164 format, for example `+447700900123`.
 
 ### Calendar subscription
 
@@ -706,6 +756,15 @@ record before go-live.
 
 ## Security operations
 
+### Account-recovery email
+
+Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_FROM_ADDRESS`, and `SMTP_USE_TLS` before enabling recovery in
+production. Set `ATCROSTER_SUPPORT_EMAIL` to the monitored Super Admin mailbox.
+Every person should have a unique registered email in **Admin → People**.
+Recovery responses deliberately do not reveal whether an account or address
+exists. Approval and reset links are single-use and expire automatically.
+
 - CSRF tokens protect shift-request and annotation-definition changes.
 - IDs, dates, status values, comments, codes, and suffixes are validated on
   the server.
@@ -785,7 +844,8 @@ used in production. The seed command creates:
 
 - three isolated airport tenants and a platform-control account;
 - 42 operational ATCOs across four watches;
-- Unit Admin, Roster Editor and Staff User accounts;
+- Unit Admin, Roster Editor, Watch Manager, Duty Watch Manager and Staff User
+  accounts;
 - four complete rolling roster months;
 - leave, sickness, requests, notifications, qualifications, annotations and
   TOIL examples;
@@ -818,6 +878,23 @@ acceptance and evidence plan.
 
 Deployment, monitoring, backup, restore, incident and upgrade procedures are
 in [docs/production_runbook.md](docs/production_runbook.md).
+
+The visual language, component hierarchy, colour roles and responsive rules are
+defined in the [interface design system](docs/design_system.md). New UI work
+must preserve its restrained operational appearance and the distinct semantic
+colours used by the roster.
+
+Live-service ownership, monitoring/alerting, support, incident communications
+and controlled release procedures are collected in the
+[production operations pack](docs/operations/README.md). A scheduled
+production health probe checks the public live, ready and login endpoints; a
+dedicated pager/status service is still required for a contractual service.
+
+Pricing assumptions, customer onboarding, training, demo, draft service levels,
+customer readiness and a customer-facing assurance summary are collected in
+the [commercial-launch pack](docs/commercial/README.md). Draft prices and
+service targets are not approved offers until costs, coverage and legal review
+are complete.
 
 The accountable-manager product assessment and remaining operational roadmap
 are recorded in [docs/atc_manager_review.md](docs/atc_manager_review.md).

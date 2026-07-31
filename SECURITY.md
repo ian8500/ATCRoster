@@ -22,6 +22,11 @@ copying operational personnel data into the report.
 - TOTP MFA is supported with secrets encrypted using a deployment Fernet key;
   production forces unenrolled users through MFA setup.
 - Privileged and sensitive write routes use CSRF tokens.
+- Browser-facing unsafe methods (`POST`, `PUT`, `PATCH`, and `DELETE`) are
+  denied by default unless the request carries the session CSRF token,
+  including login, recovery and logout. There are currently no exemptions;
+  any future machine-to-machine exception must use a separately authenticated
+  boundary and be documented here.
 - Login rotates session state.
 - Cookies are HTTP-only and SameSite=Lax. Production deployments must set
   `ATCROSTER_SECURE_COOKIES=true`.
