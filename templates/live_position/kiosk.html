@@ -190,7 +190,7 @@
       grid.innerHTML = [...grouped.entries()]
         .sort((a, b) => operationalGroupPriority(a[0]) - operationalGroupPriority(b[0]) || a[1].order - b[1].order || a[0].localeCompare(b[0]))
         .map(([name, group]) => `<section class="live-position-group">
-          <header class="live-position-group__header"><h2>${escapeText(name)}</h2><span>${group.positions.length} position${group.positions.length === 1 ? '' : 's'}</span></header>
+          <header class="live-position-group__header"><h2>${escapeText(name)}</h2></header>
           <div class="live-position-grid">${group.positions.map(renderPosition).join('')}</div>
         </section>`).join('') || '<p class="empty-state">No active operational positions are configured.</p>';
       connection.innerHTML = '<span aria-hidden="true">●</span> Connected';
