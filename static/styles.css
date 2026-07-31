@@ -746,6 +746,26 @@ table.roster tbody tr:hover{background:rgba(84,118,192,.12);}
 th.sticky{position:sticky; top:0; background:var(--head); color:#fff; z-index:2;}
 th.sticky.left{left:0; z-index:3; background:var(--head);}
 
+.roster th.col-name,
+.roster td.col-name{
+  position:sticky;
+  left:0;
+}
+
+.roster th.col-name{
+  z-index:6;
+}
+
+.roster td.col-name{
+  z-index:4;
+  background:var(--card);
+  box-shadow:4px 0 8px rgba(0,0,0,.18);
+}
+
+.roster tbody tr:hover td.col-name{
+  background:#202b45;
+}
+
 .roster th.dayhead{font-weight:bold; background:var(--head2); color:#fff;}
 .roster th.dayhead .dow{font-size:0.7rem; font-weight:normal; opacity:0.85;}
 
@@ -1921,7 +1941,14 @@ table.roster { transform-origin: top left; transform: scale(var(--ui-scale)); }
   }
   thead{ display:table-header-group; }
   tfoot{ display:table-footer-group; }
-  th.sticky{ position:static !important; top:auto !important; }
+  th.sticky,
+  .roster th.col-name,
+  .roster td.col-name{
+    position:static !important;
+    top:auto !important;
+    left:auto !important;
+    box-shadow:none !important;
+  }
 
   th, td{
     background:#fff !important;
