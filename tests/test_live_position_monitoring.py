@@ -299,9 +299,9 @@ def test_kiosk_controller_selection_runs_full_live_position_workflow(
         },
     )
     assert removed.status_code == 200
-    primary_only_state = client.get(
-        "/live-positions/api/state"
-    ).get_json()["positions"][0]
+    primary_only_state = client.get("/live-positions/api/state").get_json()[
+        "positions"
+    ][0]
     assert primary_only_state["primary"]["name"] == "Alex Controller"
     assert primary_only_state["participants"] == []
     assert primary_only_state["display_status"] == "operational"
@@ -453,6 +453,68 @@ def test_secondary_role_requires_the_matching_qualification(live_position_data):
     )
     assert rejected.status_code == 422
     assert "OJTI" in rejected.get_json()["error"]
+
+
+def test_operational_activity_reports_split_solo_and_ojti_time(live_position_data):
+    with app.app.app_context():
+        session_row = app.PositionSession(
+            unit_id=1,
+            position_id=live_position_data["position_id"],
+            primary_person_id=live_position_data["controller_id"],
+            session_type="training",
+            started_at=datetime(2026, 7, 30, 8, 0),
+            ended_at=datetime(2026, 7, 30, 10, 0),
+            created_by_id=live_position_data["kiosk_id"],
+            transaction_key="activity-report-session",
+        )
+        app.db.session.add(session_row)
+        app.db.session.flush()
+        app.db.session.add(
+            app.PositionSessionParticipant(
+                unit_id=1,
+                session_id=session_row.id,
+                person_id=live_position_data["supporter_id"],
+                role_id=live_position_data["role_id"],
+                started_at=datetime(2026, 7, 30, 9, 0),
+                ended_at=datetime(2026, 7, 30, 9, 30),
+                transaction_key="activity-report-participant",
+            )
+        )
+        app.db.session.commit()
+
+    client = app.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as browser_session:
+        csrf = browser_session["_csrf_token"]
+    client.post(
+        "/login",
+        data={
+            "_csrf_token": csrf,
+            "username": "live-admin",
+            "password": "admin-password",
+        },
+    )
+    finish_operational_login(client)
+    query = "start=2026-07-30&end=2026-07-30"
+    individual = client.get(f"/live-positions/reports/operational-activity?{query}")
+    assert individual.status_code == 200
+    assert b"Individual activity summary" in individual.data
+    assert b"Alex Controller" in individual.data
+    assert b"01:30" in individual.data
+    assert b"Sam Instructor" in individual.data
+    assert b"00:30" in individual.data
+    assert b"75.0%" in individual.data
+    position = client.get(
+        f"/live-positions/reports/operational-activity?{query}&report_type=position"
+    )
+    assert position.status_code == 200
+    assert b"Position utilisation" in position.data
+    instruction = client.get(
+        f"/live-positions/reports/operational-activity?{query}&report_type=instruction"
+    )
+    assert instruction.status_code == 200
+    assert b"OJTI and assessor contribution" in instruction.data
+    assert b"100.0%" in instruction.data
 
 
 def test_admin_can_configure_currency_category_and_position(live_position_data):

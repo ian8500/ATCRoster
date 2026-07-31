@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#11161d">
   {% set in_briefing_module = request.endpoint and request.endpoint.startswith('briefing.') %}
   {% set in_training_module = request.endpoint and request.endpoint.startswith('training_') %}
-  {% set in_competency_module = request.endpoint and request.endpoint.startswith('competency_') %}
+  {% set in_competency_module = request.endpoint and (request.endpoint.startswith('competency_') or (request.endpoint == 'live_position.operational_activity' and has_competency_module)) %}
   {% set in_shared_admin = request.endpoint in (
     'administration_home', 'unit_accounts', 'kiosk_accounts',
     'live_position.position_configuration'
@@ -17,6 +17,7 @@
   {% set report_endpoints = (
     'report_leave', 'report_leave_year', 'report_sickness', 'report_fatigue',
     'metrics', 'coverage_heatmap', 'operations_assurance', 'training_analytics',
+    'live_position.operational_activity',
     'admin_sms_audit', 'briefing.audit', 'briefing.assurance'
   ) %}
   <title>{% block title %}{% endblock %} – {{ 'ATC Administration' if in_shared_admin else ('ATC Competency' if in_competency_module else ('ATC Training' if in_training_module else ('ATC Briefing' if in_briefing_module else 'ATC Roster'))) }}</title>
@@ -134,6 +135,9 @@
             {% if is_admin or is_editor %}
               <a href="{{ url_for('leave') }}" class="nav-link roster-nav__admin-start {% if request.endpoint == 'leave' %}active{% endif %}"><i class="fa-solid fa-user-clock" aria-hidden="true"></i> Leave / Sickness</a>
               <a href="{{ url_for('reports_index') }}" class="nav-link {% if request.endpoint in ('reports_index','report_leave','report_fatigue','report_leave_year','report_leave_month','report_sickness') %}active{% endif %}"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Reports</a>
+            {% endif %}
+            {% if has_live_position_module and not has_competency_module %}
+              <a href="{{ url_for('live_position.operational_activity') }}" class="nav-link {% if request.endpoint == 'live_position.operational_activity' %}active{% endif %}"><i class="fa-solid fa-headset" aria-hidden="true"></i> Operational activity</a>
             {% endif %}
             {% if is_admin %}
               <a href="{{ url_for('admin') }}" class="nav-link {% if request.endpoint == 'admin' %}active{% endif %}"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Roster setup</a>

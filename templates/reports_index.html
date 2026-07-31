@@ -42,6 +42,13 @@
       <span>Every annotation available for this airport</span>
     </a>
 
+    {% if has_live_position_module and not has_competency_module %}
+    <a class="btn report-menu-item" href="{{ url_for('live_position.operational_activity') }}">
+      <strong>Operational Activity</strong>
+      <span>Solo, OJTI, assessment and position utilisation</span>
+    </a>
+    {% endif %}
+
   </div>
 </section>
 
