@@ -268,6 +268,25 @@
       const button = event.target.closest('[data-operation]');
       if (!button) return;
       const operation = button.dataset.operation;
+      if (operation === 'close') {
+        const tile = button.closest('[data-position-id]');
+        button.disabled = true;
+        try {
+          const response = await fetch(`/live-positions/api/positions/${tile.dataset.positionId}/close`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+            body: JSON.stringify({request_key: crypto.randomUUID()}),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'The position could not be closed.');
+          await refresh();
+        } catch (failure) {
+          warning.textContent = failure.message;
+          warning.hidden = false;
+          button.disabled = false;
+        }
+        return;
+      }
       if (operation === 'logoff' || operation === 'logoff_close') {
         const tile = button.closest('[data-position-id]');
         const position = livePositions.get(Number(tile.dataset.positionId));
