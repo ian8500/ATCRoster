@@ -333,11 +333,170 @@ def register_saas_models(db, utcnow):
         code = db.Column(db.String(30), nullable=False)
         label = db.Column(db.String(120), nullable=False)
         description = db.Column(db.Text, nullable=False, default="")
+        display_order = db.Column(db.Integer, nullable=False, default=100)
+        group_name = db.Column(db.String(80), nullable=False, default="")
+        currency_category_id = db.Column(
+            db.Integer, db.ForeignKey("position_currency_category.id")
+        )
+        supporting_participants_allowed = db.Column(
+            db.Boolean, nullable=False, default=True
+        )
+        multiple_supporting_participants_allowed = db.Column(
+            db.Boolean, nullable=False, default=True
+        )
+        training_supported = db.Column(db.Boolean, nullable=False, default=True)
+        assessment_supported = db.Column(db.Boolean, nullable=False, default=True)
         is_safety_critical = db.Column(db.Boolean, nullable=False, default=True)
         is_active = db.Column(db.Boolean, nullable=False, default=True)
         __table_args__ = (
             db.UniqueConstraint("unit_id", "code", name="uq_position_unit_code"),
         )
+
+    class PositionCurrencyCategory(db.Model):
+        __tablename__ = "position_currency_category"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True
+        )
+        code = db.Column(db.String(30), nullable=False)
+        label = db.Column(db.String(120), nullable=False)
+        description = db.Column(db.Text, nullable=False, default="")
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
+        __table_args__ = (
+            db.UniqueConstraint(
+                "unit_id", "code", name="uq_position_currency_category_code"
+            ),
+        )
+
+    class PositionParticipantRole(db.Model):
+        __tablename__ = "position_participant_role"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True
+        )
+        code = db.Column(db.String(30), nullable=False)
+        label = db.Column(db.String(80), nullable=False)
+        is_primary = db.Column(db.Boolean, nullable=False, default=False)
+        counts_for_currency = db.Column(db.Boolean, nullable=False, default=False)
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
+        __table_args__ = (
+            db.UniqueConstraint(
+                "unit_id", "code", name="uq_position_participant_role_code"
+            ),
+        )
+
+    class PositionStatusEvent(db.Model):
+        __tablename__ = "position_status_event"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True
+        )
+        position_id = db.Column(
+            db.Integer, db.ForeignKey("operational_position.id"),
+            nullable=False, index=True,
+        )
+        status = db.Column(db.String(20), nullable=False)
+        occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow, index=True)
+        actor_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False)
+        reason = db.Column(db.String(250), nullable=False, default="")
+        transaction_key = db.Column(db.String(64), nullable=False, unique=True)
+
+    class PositionSession(db.Model):
+        __tablename__ = "position_session"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True
+        )
+        position_id = db.Column(
+            db.Integer, db.ForeignKey("operational_position.id"),
+            nullable=False, index=True,
+        )
+        primary_person_id = db.Column(
+            db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True
+        )
+        session_type = db.Column(db.String(20), nullable=False, default="operational")
+        started_at = db.Column(db.DateTime, nullable=False, default=utcnow, index=True)
+        ended_at = db.Column(db.DateTime, index=True)
+        ended_reason = db.Column(db.String(40), nullable=False, default="")
+        maximum_duration_seconds = db.Column(db.Integer)
+        warning_threshold_seconds = db.Column(db.Integer)
+        due_off_at = db.Column(db.DateTime)
+        currency_category_id = db.Column(
+            db.Integer, db.ForeignKey("position_currency_category.id")
+        )
+        created_by_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False)
+        corrected_at = db.Column(db.DateTime)
+        corrected_by_id = db.Column(db.Integer, db.ForeignKey("staff.id"))
+        correction_reason = db.Column(db.String(500), nullable=False, default="")
+        is_void = db.Column(db.Boolean, nullable=False, default=False)
+        version = db.Column(db.Integer, nullable=False, default=1)
+        transaction_key = db.Column(db.String(64), nullable=False, unique=True)
+        __table_args__ = (
+            db.CheckConstraint(
+                "ended_at IS NULL OR ended_at >= started_at",
+                name="ck_position_session_time_order",
+            ),
+        )
+
+    class PositionSessionParticipant(db.Model):
+        __tablename__ = "position_session_participant"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True
+        )
+        session_id = db.Column(
+            db.Integer, db.ForeignKey("position_session.id"), nullable=False, index=True
+        )
+        person_id = db.Column(
+            db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True
+        )
+        role_id = db.Column(
+            db.Integer, db.ForeignKey("position_participant_role.id"),
+            nullable=False, index=True,
+        )
+        started_at = db.Column(db.DateTime, nullable=False, default=utcnow, index=True)
+        ended_at = db.Column(db.DateTime, index=True)
+        ended_reason = db.Column(db.String(40), nullable=False, default="")
+        transaction_key = db.Column(db.String(64), nullable=False, unique=True)
+        __table_args__ = (
+            db.CheckConstraint(
+                "ended_at IS NULL OR ended_at >= started_at",
+                name="ck_position_participant_time_order",
+            ),
+        )
+
+    class ControllerKioskCredential(db.Model):
+        __tablename__ = "controller_kiosk_credential"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True
+        )
+        person_id = db.Column(
+            db.Integer, db.ForeignKey("staff.id"), nullable=False, unique=True
+        )
+        pin_hash = db.Column(db.String(255), nullable=False)
+        enabled = db.Column(db.Boolean, nullable=False, default=True)
+        failed_attempts = db.Column(db.Integer, nullable=False, default=0)
+        locked_until = db.Column(db.DateTime)
+        changed_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    class PositionSessionAudit(db.Model):
+        __tablename__ = "position_session_audit"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True
+        )
+        session_id = db.Column(db.Integer, db.ForeignKey("position_session.id"), index=True)
+        position_id = db.Column(
+            db.Integer, db.ForeignKey("operational_position.id"), index=True
+        )
+        actor_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False)
+        action = db.Column(db.String(40), nullable=False, index=True)
+        occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow, index=True)
+        old_value_json = db.Column(db.Text, nullable=False, default="{}")
+        new_value_json = db.Column(db.Text, nullable=False, default="{}")
+        reason = db.Column(db.String(500), nullable=False, default="")
+        transaction_key = db.Column(db.String(64), nullable=False, index=True)
 
     class PositionEndorsement(db.Model):
         __tablename__ = "position_endorsement"
