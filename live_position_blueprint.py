@@ -36,6 +36,7 @@ class LivePositionDependencies:
     db: Any
     Unit: Any
     OperationalPosition: Any
+    PositionCurrencyCategory: Any
     PositionStatusEvent: Any
     PositionSession: Any
     PositionSessionParticipant: Any
@@ -86,6 +87,12 @@ def create_live_position_blueprint(
         return str(
             data.get("request_key") or request.headers.get("Idempotency-Key", "")
         )
+
+    def _int_field(data: dict[str, Any], name: str, default: int = 0) -> int:
+        try:
+            return int(data.get(name) or default)
+        except TypeError, ValueError:
+            return default
 
     def _audit_identity(
         action: str,
@@ -287,6 +294,158 @@ def create_live_position_blueprint(
             "live_position/controller_pins.html",
             people=people,
             configured=configured,
+        )
+
+    @blueprint.route("/admin/positions", methods=["GET", "POST"])
+    @login_required
+    def position_configuration():
+        if not dependencies.is_admin_user(current_user):
+            abort(403)
+        unit_id = _unit_id()
+        if request.method == "POST":
+            data = _payload()
+            action = str(data.get("action") or "")
+            if action == "create_category":
+                code = str(data.get("category_code") or "").strip().upper()
+                label = str(data.get("category_label") or "").strip()
+                if not code or not label:
+                    flash("Enter a category code and display name.", "error")
+                elif dependencies.PositionCurrencyCategory.query.filter_by(
+                    unit_id=unit_id, code=code
+                ).first():
+                    flash("That currency-category code is already in use.", "error")
+                else:
+                    dependencies.db.session.add(
+                        dependencies.PositionCurrencyCategory(
+                            unit_id=unit_id,
+                            code=code[:30],
+                            label=label[:120],
+                            description=str(
+                                data.get("category_description") or ""
+                            ).strip(),
+                            is_active=True,
+                        )
+                    )
+                    dependencies.db.session.commit()
+                    flash("Currency category added.", "ok")
+                    return redirect(url_for("live_position.position_configuration"))
+            elif action in {"create_position", "update_position"}:
+                position_id = _int_field(data, "position_id")
+                position = (
+                    dependencies.OperationalPosition.query.filter_by(
+                        id=position_id, unit_id=unit_id
+                    ).first_or_404()
+                    if action == "update_position"
+                    else dependencies.OperationalPosition(unit_id=unit_id)
+                )
+                code = str(data.get("code") or "").strip().upper()
+                label = str(data.get("label") or "").strip()
+                duplicate = dependencies.OperationalPosition.query.filter(
+                    dependencies.OperationalPosition.unit_id == unit_id,
+                    dependencies.OperationalPosition.code == code,
+                    dependencies.OperationalPosition.id != (position.id or 0),
+                ).first()
+                category_id = _int_field(data, "currency_category_id")
+                category = (
+                    dependencies.PositionCurrencyCategory.query.filter_by(
+                        id=category_id, unit_id=unit_id, is_active=True
+                    ).first()
+                    if category_id
+                    else None
+                )
+                requested_active = str(data.get("is_active") or "") == "on"
+                occupied = bool(
+                    position.id
+                    and dependencies.PositionSession.query.filter_by(
+                        unit_id=unit_id,
+                        position_id=position.id,
+                        ended_at=None,
+                        is_void=False,
+                    ).first()
+                )
+                if not code or not label:
+                    flash("Enter a position code and display name.", "error")
+                elif duplicate:
+                    flash("That position code is already in use.", "error")
+                elif category_id and not category:
+                    flash("Select a valid currency category.", "error")
+                elif occupied and not requested_active:
+                    flash(
+                        "Log off and close this position before making it inactive.",
+                        "error",
+                    )
+                else:
+                    if action == "create_position":
+                        dependencies.db.session.add(position)
+                    position.code = code[:30]
+                    position.label = label[:120]
+                    position.description = str(data.get("description") or "").strip()
+                    position.display_order = max(
+                        0, _int_field(data, "display_order", 100)
+                    )
+                    position.group_name = str(data.get("group_name") or "").strip()[:80]
+                    position.currency_category_id = category.id if category else None
+                    position.supporting_participants_allowed = (
+                        str(data.get("supporting_participants_allowed") or "") == "on"
+                    )
+                    position.multiple_supporting_participants_allowed = (
+                        str(data.get("multiple_supporting_participants_allowed") or "")
+                        == "on"
+                    )
+                    position.training_supported = (
+                        str(data.get("training_supported") or "") == "on"
+                    )
+                    position.assessment_supported = (
+                        str(data.get("assessment_supported") or "") == "on"
+                    )
+                    position.is_safety_critical = (
+                        str(data.get("is_safety_critical") or "") == "on"
+                    )
+                    position.is_active = requested_active
+                    dependencies.db.session.flush()
+                    dependencies.db.session.add(
+                        dependencies.PositionSessionAudit(
+                            unit_id=unit_id,
+                            position_id=position.id,
+                            actor_id=current_user.id,
+                            action="position_configured",
+                            occurred_at=dependencies.utcnow(),
+                            new_value_json=json.dumps(
+                                {
+                                    "code": position.code,
+                                    "label": position.label,
+                                    "is_active": position.is_active,
+                                },
+                                sort_keys=True,
+                            ),
+                            transaction_key=LivePositionService.transaction_key(),
+                        )
+                    )
+                    dependencies.db.session.commit()
+                    flash(
+                        "Position updated."
+                        if action == "update_position"
+                        else "Position added.",
+                        "ok",
+                    )
+                    return redirect(url_for("live_position.position_configuration"))
+        categories = (
+            dependencies.PositionCurrencyCategory.query.filter_by(unit_id=unit_id)
+            .order_by(dependencies.PositionCurrencyCategory.label)
+            .all()
+        )
+        positions = (
+            dependencies.OperationalPosition.query.filter_by(unit_id=unit_id)
+            .order_by(
+                dependencies.OperationalPosition.display_order,
+                dependencies.OperationalPosition.code,
+            )
+            .all()
+        )
+        return render_template(
+            "live_position/position_configuration.html",
+            positions=positions,
+            categories=categories,
         )
 
     @blueprint.get("/kiosk")

@@ -3,6 +3,7 @@ from datetime import date, datetime
 import pytest
 
 import app
+from conftest import finish_operational_login
 from live_position_service import LivePositionModels, LivePositionService
 from werkzeug.security import generate_password_hash
 
@@ -42,9 +43,18 @@ def live_position_data():
             tower_ue_expiry=date(2027, 7, 31),
             has_ojti=True,
         )
+        admin = app.Staff(
+            unit_id=1,
+            username="live-admin",
+            name="Live Administrator",
+            staff_no="ADMIN-1",
+            role="admin",
+            is_operational=False,
+        )
         kiosk.set_password("secure-kiosk-password")
         controller.set_password("controller-password")
         supporter.set_password("supporter-password")
+        admin.set_password("admin-password")
         position = app.OperationalPosition(
             unit_id=1,
             code="AIR",
@@ -56,7 +66,9 @@ def live_position_data():
             label="OJTI",
             is_primary=False,
         )
-        app.db.session.add_all([unit, kiosk, controller, supporter, position, role])
+        app.db.session.add_all(
+            [unit, kiosk, controller, supporter, admin, position, role]
+        )
         app.db.session.flush()
         identity = app.PlatformIdentity(
             public_id="test-position-screen",
@@ -65,12 +77,28 @@ def live_position_data():
         )
         app.db.session.add(identity)
         app.db.session.flush()
+        admin_identity = app.PlatformIdentity(
+            public_id="test-live-admin",
+            username=admin.username,
+            password_hash=admin.password_hash,
+        )
+        app.db.session.add(admin_identity)
+        app.db.session.flush()
         app.db.session.add(
             app.UnitMembership(
                 identity_id=identity.id,
                 unit_id=1,
                 person_id=kiosk.id,
                 role="StaffUser",
+                status="active",
+            )
+        )
+        app.db.session.add(
+            app.UnitMembership(
+                identity_id=admin_identity.id,
+                unit_id=1,
+                person_id=admin.id,
+                role="UnitAdmin",
                 status="active",
             )
         )
@@ -319,3 +347,63 @@ def test_wrong_pin_is_generic_and_audited(live_position_data):
             action="identity_verification_failed"
         ).one()
         assert "requested_person_id" in audit.new_value_json
+
+
+def test_admin_can_configure_currency_category_and_position(live_position_data):
+    client = app.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    response = client.post(
+        "/login",
+        data={
+            "_csrf_token": csrf,
+            "username": "live-admin",
+            "password": "admin-password",
+        },
+    )
+    assert response.status_code == 302
+    finish_operational_login(client)
+    module = client.get("/live-positions/")
+    assert module.status_code == 200
+    assert b"/live-positions/admin/positions" in module.data
+    assert b"Coming in the next build stage" in module.data
+    page = client.get("/live-positions/admin/positions")
+    assert page.status_code == 200
+    with client.session_transaction() as session:
+        csrf = session["_csrf_token"]
+    category = client.post(
+        "/live-positions/admin/positions",
+        data={
+            "_csrf_token": csrf,
+            "action": "create_category",
+            "category_code": "TWR",
+            "category_label": "Tower",
+        },
+    )
+    assert category.status_code == 302
+    with app.app.app_context():
+        category_id = app.PositionCurrencyCategory.query.filter_by(code="TWR").one().id
+    position = client.post(
+        "/live-positions/admin/positions",
+        data={
+            "_csrf_token": csrf,
+            "action": "create_position",
+            "code": "GMC",
+            "label": "Ground Movement Control",
+            "display_order": "10",
+            "group_name": "Tower",
+            "currency_category_id": str(category_id),
+            "supporting_participants_allowed": "on",
+            "multiple_supporting_participants_allowed": "on",
+            "training_supported": "on",
+            "assessment_supported": "on",
+            "is_safety_critical": "on",
+            "is_active": "on",
+        },
+    )
+    assert position.status_code == 302
+    with app.app.app_context():
+        configured = app.OperationalPosition.query.filter_by(code="GMC").one()
+        assert configured.label == "Ground Movement Control"
+        assert configured.currency_category_id == category_id
