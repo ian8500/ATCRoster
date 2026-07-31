@@ -44,6 +44,19 @@ from reporting import (
     group_consecutive_days,
     leave_summary_for_month,
 )
+from roster_logic import (
+    add_months,
+    daily_requirements,
+    expand_pattern,
+    iter_year_months,
+    month_days,
+    normalise_assignment_snapshot,
+    parse_year_month,
+    roster_lock_date,
+    roster_month_is_locked,
+    shift_minutes,
+    validated_pattern,
+)
 from atcroster import create_app, get_runtime_settings
 from tenancy import (
     authenticated_unit_id,
@@ -2367,10 +2380,7 @@ def month_has_data(year: int, month: int) -> bool:
 
 
 def month_range(year: int, month: int):
-    start = date(year, month, 1)
-    stop = date(year + (month // 12), (month % 12) + 1, 1)
-    days = (stop - start).days
-    return start, [start + timedelta(d) for d in range(days)]
+    return month_days(year, month)
 
 
 def watch_id_for_staff_on(staff_id: int, on_date: date) -> int | None:
@@ -2400,8 +2410,7 @@ def _watch_id_for_staff_on(
 
 
 def parse_ym(ym: str):
-    y, m = ym.split("-")
-    return int(y), int(m)
+    return parse_year_month(ym)
 
 
 def get_shift(code: str, unit_id: int | None = None):
@@ -2432,30 +2441,11 @@ DEFAULT_BASE_PATTERN = "M,M,A,A,N,N,OFF,OFF,OFF,OFF"
 
 
 def _expand_pattern(raw_value: str | None) -> list[str]:
-    """Expand a stored CSV pattern, retaining legacy multiplier support."""
-    raw = [p.strip()
-           for p in (raw_value or "").split(",") if p.strip()]
-    out = []
-    for tok in raw:
-        tok_u = tok.upper()
-        m = re.match(r"^\s*(\d+)\s*[x\*]\s*([A-Z]+)\s*$", tok_u)
-        m2 = re.match(r"^\s*([A-Z]+)\s*[x\*]\s*(\d+)\s*$", tok_u)
-        if m:
-            n, code = int(m.group(1)), m.group(2)
-            out.extend([code] * n)
-        elif m2:
-            code, n = m2.group(1), int(m2.group(2))
-            out.extend([code] * n)
-        else:
-            out.append(tok_u)
-    return out
+    return expand_pattern(raw_value)
 
 
 def _validated_pattern(raw_value: str | None) -> list[str]:
-    values = _expand_pattern(raw_value)
-    if not values or any(value not in PATTERN_CODES for value in values):
-        return []
-    return values
+    return validated_pattern(raw_value)
 
 
 def _effective_watch(staff: Staff, on_date: date) -> Watch | None:
@@ -2625,13 +2615,7 @@ def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
 
 
 def shift_duration_minutes(shift: ShiftType):
-    if not shift or not shift.start_time or not shift.end_time:
-        return 0
-    dt0 = datetime.combine(date(2000, 1, 1), shift.start_time)
-    dt1 = datetime.combine(date(2000, 1, 1), shift.end_time)
-    if dt1 <= dt0:
-        dt1 += timedelta(days=1)
-    return int((dt1 - dt0).total_seconds() // 60)
+    return shift_minutes(shift)
 
 
 def ensure_month_requirement(year, month, default=(4, 4, 4, 2)):
@@ -2658,22 +2642,7 @@ def requirements_for_day(
     day: date,
     special: SpecialRequirement | None = None,
 ) -> dict[str, int]:
-    """Return the effective M/D/A/N requirement for one roster date."""
-    source = special or requirement
-    if not source:
-        return {code: 0 for code in ("M", "D", "A", "N")}
-    prefix = ""
-    if not special:
-        prefix = "sat_" if day.weekday() == 5 else (
-            "sun_" if day.weekday() == 6 else ""
-        )
-    return {
-        code: max(
-            0,
-            int(getattr(source, f"req_{prefix}{code.lower()}", 0) or 0),
-        )
-        for code in ("M", "D", "A", "N")
-    }
+    return daily_requirements(requirement, day, special)
 
 # Idempotent month generation that preserves manual entries
 
@@ -3365,16 +3334,7 @@ def would_trigger_fatigue(staff: Staff, day: date, code: str):
 
 
 def _year_month_iter(start_date: date, end_date: date):
-    y, m = start_date.year, start_date.month
-    last = date(end_date.year, end_date.month, 1)
-    cur = date(y, m, 1)
-    while cur <= last:
-        yield y, m
-        m += 1
-        if m == 13:
-            m = 1
-            y += 1
-        cur = date(y, m, 1)
+    yield from iter_year_months(start_date, end_date)
 
 
 def generate_range(start_day: date, end_day: date):
@@ -4265,21 +4225,15 @@ def log_change(entity_type: str, entity_id: int, field: str, old, new, note: str
 
 
 def _month_add(y: int, m: int, delta: int) -> Tuple[int, int]:
-    idx = y * 12 + (m - 1) + delta
-    ny = idx // 12
-    nm = idx % 12 + 1
-    return ny, nm
+    return add_months(y, m, delta)
 
 
 def lock_date_for_month(y: int, m: int) -> date:
-    ly, lm = _month_add(y, m, -2)
-    return date(ly, lm, 20)
+    return roster_lock_date(y, m)
 
 
 def is_month_locked(y: int, m: int, today: Optional[date] = None) -> bool:
-    if today is None:
-        today = date.today()
-    return today >= lock_date_for_month(y, m)
+    return roster_month_is_locked(y, m, today)
 
 
 # Source protection: we never overwrite these
@@ -4551,17 +4505,10 @@ def _publication_matches_live_roster(publication, year: int, month: int) -> bool
     except (TypeError, json.JSONDecodeError):
         return False
     live_rows = _roster_snapshot(year, month)["assignments"]
-    normalise = lambda rows: sorted(
-        (
-            int(row["staff_id"]),
-            str(row["day"]),
-            str(row.get("code") or ""),
-            str(row.get("annotation") or ""),
-        )
-        for row in rows
-    )
     try:
-        return normalise(published_rows) == normalise(live_rows)
+        return normalise_assignment_snapshot(
+            published_rows
+        ) == normalise_assignment_snapshot(live_rows)
     except (KeyError, TypeError, ValueError):
         return False
 
