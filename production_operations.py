@@ -63,7 +63,7 @@ class JsonFormatter(logging.Formatter):
             payload.update(
                 {key: fields[key] for key in SAFE_EVENT_FIELDS if key in fields}
             )
-        if record.exc_info:
+        if record.exc_info and record.exc_info[0] is not None:
             payload["exception_class"] = record.exc_info[0].__name__
         return json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str)
 

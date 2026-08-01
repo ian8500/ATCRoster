@@ -15,6 +15,9 @@ def main() -> None:
                 "--host=0.0.0.0",
                 "--port=8080",
                 "--threads=8",
+                "--channel-timeout=60",
+                "--cleanup-interval=30",
+                "--connection-limit=200",
                 "wsgi:application",
             ],
         )

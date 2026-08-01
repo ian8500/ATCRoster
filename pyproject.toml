@@ -10,6 +10,9 @@ select = ["E4", "E7", "E9", "F"]
 "app.py" = ["E402", "E731", "F401", "F811", "F841"]
 "scripts/build_roster_briefing_manual.py" = ["F401"]
 "scripts/import_first_unit.py" = ["F401"]
+# Several integration modules intentionally set database environment variables
+# before importing the legacy application module.
+"tests/*.py" = ["E402"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"

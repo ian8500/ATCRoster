@@ -69,3 +69,19 @@ def test_templates_do_not_reintroduce_inline_style_attributes():
             if "<style" in line and 'nonce="{{ csp_nonce() }}"' not in line:
                 offenders.append(f"{path.relative_to(ROOT)}:unnonced-style")
     assert offenders == []
+
+
+def test_quality_workflow_discovers_sources_and_builds_supported_pythons_and_sbom():
+    workflow = (ROOT / ".github/workflows/quality.yml").read_text()
+    assert "workflow_dispatch:" in workflow
+    assert 'python-version: ["3.12", "3.14"]' in workflow
+    assert "git ls-files -z '*.py' | xargs -0 ruff check" in workflow
+    assert "format: cyclonedx" in workflow
+    assert "verify_release_candidate.py" in workflow
+
+
+def test_worker_readiness_requires_database_heartbeat_not_only_process_liveness():
+    source = (ROOT / "scripts/run_worker_service.py").read_text()
+    assert "worker_heartbeat" in source
+    assert "last_seen_at" in source
+    assert 'self.path == "/health/ready" and worker_ready()' in source
