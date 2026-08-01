@@ -105,7 +105,7 @@ def upgrade_database(database_url: str, schema_role: str) -> str:
         raise RuntimeError("Combined schema migrations are forbidden in production.")
     previous = os.environ.get("DATABASE_URL")
     previous_role = os.environ.get("ATCROSTER_SCHEMA_ROLE")
-    os.environ["DATABASE_URL"] = database_url
+    os.environ["DATABASE_URL"] = _sqlalchemy_database_url(database_url)
     os.environ["ATCROSTER_SCHEMA_ROLE"] = schema_role
     try:
         config = Config(str(REPOSITORY / "alembic.ini"))
