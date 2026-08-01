@@ -23,6 +23,11 @@ table recreated by a migration may receive default owner privileges. Never put
 passwords, raw reset/invitation tokens, MFA secrets, session cookies, encryption
 keys or unnecessary health details in audit summaries.
 
+The repeatable apply/verification procedure and role separation are defined in
+`docs/operations/database-roles.md` and implemented by
+`scripts/apply_runtime_database_grants.py` and
+`scripts/verify_runtime_database_grants.py`.
+
 Retention and authorised erasure require a separately approved administrative
 procedure using a dedicated role, with exported evidence and legal/privacy
 approval. They must not be implemented as an ordinary application endpoint.

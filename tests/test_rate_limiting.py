@@ -27,8 +27,56 @@ class _FailingRedis:
     def pipeline(self, transaction=True):
         raise ConnectionError("offline")
 
+    def ping(self):
+        raise TimeoutError("timed out")
+
 
 def test_redis_limiter_reports_unavailability_without_leaking_details():
     limiter = RedisRateLimiter(_FailingRedis())
     with pytest.raises(LimiterUnavailable, match="shared limiter unavailable"):
         limiter.consume("opaque", 3, 60)
+    with pytest.raises(LimiterUnavailable, match="shared limiter unavailable"):
+        limiter.verify()
+
+
+class _Pipeline:
+    def __init__(self, result):
+        self.result = result
+
+    def incr(self, _key):
+        return self
+
+    def expire(self, _key, _seconds, nx=True):
+        return self
+
+    def execute(self):
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+class _RecoveringRedis:
+    def __init__(self, results):
+        self.results = iter(results)
+
+    def pipeline(self, transaction=True):
+        return _Pipeline(next(self.results))
+
+    def ping(self):
+        return True
+
+
+@pytest.mark.parametrize("result", [["not-a-number", True], [], None])
+def test_redis_limiter_rejects_malformed_responses(result):
+    limiter = RedisRateLimiter(_RecoveringRedis([result]))
+    with pytest.raises(LimiterUnavailable, match="shared limiter unavailable"):
+        limiter.consume("opaque", 3, 60)
+
+
+def test_redis_limiter_recovers_after_intermittent_timeout():
+    limiter = RedisRateLimiter(
+        _RecoveringRedis([TimeoutError("slow"), [1, True]])
+    )
+    with pytest.raises(LimiterUnavailable):
+        limiter.consume("opaque", 3, 60)
+    assert limiter.consume("opaque", 3, 60) is True

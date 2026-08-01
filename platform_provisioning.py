@@ -27,6 +27,47 @@ from scripts.migrate_all_databases import (
 )
 
 ACTIVE_STATES = ("queued", "running", "retry_wait")
+
+
+def worker_health_snapshot(application, *, stale_after_seconds: int) -> dict:
+    """Return non-sensitive worker and queue signals for deployment probes."""
+    now = application.utcnow()
+    cutoff = now - timedelta(seconds=max(60, stale_after_seconds))
+    queued_states = ("queued", "retry_wait")
+    active_workers = application.WorkerHeartbeat.query.filter(
+        application.WorkerHeartbeat.last_seen_at >= cutoff
+    ).count()
+    stale_workers = application.WorkerHeartbeat.query.filter(
+        application.WorkerHeartbeat.last_seen_at < cutoff
+    ).count()
+    queue_depth = application.ProvisioningJob.query.filter(
+        application.ProvisioningJob.state.in_(queued_states)
+    ).count()
+    oldest = (
+        application.ProvisioningJob.query.filter(
+            application.ProvisioningJob.state.in_(queued_states)
+        )
+        .order_by(application.ProvisioningJob.created_at)
+        .first()
+    )
+    latest_success = (
+        application.ProvisioningJob.query.filter_by(state="completed")
+        .order_by(application.ProvisioningJob.updated_at.desc())
+        .first()
+    )
+    oldest_age = max(0, int((now - oldest.created_at).total_seconds())) if oldest else 0
+    return {
+        "status": "ready" if active_workers else "unavailable",
+        "active_workers": active_workers,
+        "stale_workers": stale_workers,
+        "queue_depth": queue_depth,
+        "oldest_queued_age_seconds": oldest_age,
+        "last_successful_job_at": (
+            latest_success.updated_at.isoformat() + "Z" if latest_success else None
+        ),
+    }
+
+
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
 REQUIRED_OPERATIONAL_TABLES = frozenset({"staff", "assignment", "shift_type"})
 _development_tokens: dict[int, str] = {}

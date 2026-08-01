@@ -20,6 +20,7 @@
       <form class="annotation-remove-form" method="post"
             action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((staff.id, roster_day), 0) }}">
         <button type="submit" name="annotation" value="__remove__"
                 title="Remove {{ value }} annotation"
                 aria-label="Remove {{ value }} annotation">×</button>
@@ -28,6 +29,7 @@
               aria-labelledby="{{ dialog_id }}-title">
         <form method="post" action="{{ url_for('assign_cell', staff_id=staff.id, ym=ym, day=roster_day.isoformat()) }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((staff.id, roster_day), 0) }}">
           <input type="hidden" name="annotation" value="{{ value }}">
           <input type="hidden" name="annotation_detail_update" value="1">
           <div class="annotation-dialog__header">
@@ -53,7 +55,7 @@
 {%- endmacro %}
 
 {% block content %}
-<style>
+<style nonce="{{ csp_nonce() }}">
   :root { --today-col: rgba(255,255,0,.85); }
 
   /* Ensure cells can host absolutely-positioned overlays */
@@ -214,6 +216,7 @@
             {% else %}
             <form class="shift-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((s.id, d), 0) }}">
               <select
                 name="code"
                 class="code-input code-len-{{ code|length }} {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
@@ -261,6 +264,7 @@
             {% if not ann %}
             <form class="annotation-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((s.id, d), 0) }}">
               <select
                 name="annotation"
                 class="annot-select"

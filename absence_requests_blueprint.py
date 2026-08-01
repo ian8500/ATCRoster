@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import hashlib
 import re
 from typing import Any, Callable
 
@@ -51,6 +52,8 @@ class AbsenceRequestDependencies:
     staff_has_shift_qualification: Callable
     can_override_roster_conflicts: Callable
     notify_requester: Callable
+    lock_roster_month: Callable[[int, int, int], Any]
+    record_toil_transaction: Callable[..., Any]
 
 
 def create_absence_requests_blueprint(
@@ -167,9 +170,18 @@ def create_absence_requests_blueprint(
                             "",
                         )
                         dependencies.db.session.add(a)
-                        # deduct TOIL balance (half-days)
-                        s.toil_half_days = int(
-                            (s.toil_half_days or 0) - used_per_day_half
+                        dependencies.db.session.flush()
+                        dependencies.record_toil_transaction(
+                            s.id,
+                            -used_per_day_half,
+                            f"TOIL use {lv_type} on {cur.isoformat()}",
+                            current_user.id,
+                            transaction_key=hashlib.sha256(
+                                f"leave-toil:{dependencies.current_unit_id()}:"
+                                f"{s.id}:{cur.isoformat()}:{lv_type}".encode()
+                            ).hexdigest(),
+                            source_type="leave_form",
+                            source_id=a.id,
                         )
                         cur += timedelta(days=1)
                     dependencies.db.session.commit()
@@ -365,8 +377,20 @@ def create_absence_requests_blueprint(
                     a = dependencies.Assignment(staff=s, day=day)
                 a.code, a.source, a.note, a.annotation = code, "manual", "toil use", ""
                 dependencies.db.session.add(a)
+                dependencies.db.session.flush()
                 used_half = 2 if code == "TOU8" else 1
-                s.toil_half_days = int((s.toil_half_days or 0) - used_half)
+                dependencies.record_toil_transaction(
+                    s.id,
+                    -used_half,
+                    f"TOIL use {code} on {day.isoformat()}",
+                    current_user.id,
+                    transaction_key=hashlib.sha256(
+                        f"toil-use:{dependencies.current_unit_id()}:"
+                        f"{s.id}:{day.isoformat()}:{code}".encode()
+                    ).hexdigest(),
+                    source_type="toil_use",
+                    source_id=a.id,
+                )
                 dependencies.db.session.commit()
                 flash(f"TOIL used: {code} on {day.isoformat()}.", "ok")
                 return redirect(url_for("leave", ym=ym_param))
@@ -667,9 +691,12 @@ def create_absence_requests_blueprint(
             abort(403)
         dependencies.validate_csrf()
         unit_id = dependencies.current_unit_id()
-        r = dependencies.ShiftRequest.query.filter_by(
-            id=rid, unit_id=unit_id
-        ).first_or_404()
+        r = (
+            dependencies.ShiftRequest.query.filter_by(id=rid, unit_id=unit_id)
+            .with_for_update()
+            .first_or_404()
+        )
+        dependencies.lock_roster_month(unit_id, r.day.year, r.day.month)
         action = (request.form.get("action") or "status").strip()
         if action not in {
             "approve",

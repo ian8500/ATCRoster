@@ -8,18 +8,54 @@ import os
 import subprocess
 import threading
 
+from sqlalchemy import create_engine, text
+
 
 def main() -> None:
     worker = subprocess.Popen(
         ["python", "scripts/run_provisioning_worker.py"],
     )
+    database_url = os.environ.get("CONTROL_DATABASE_URL") or os.environ.get(
+        "DATABASE_URL", ""
+    )
+    engine = create_engine(database_url, pool_pre_ping=True, pool_timeout=5)
+
+    def worker_ready() -> bool:
+        if worker.poll() is not None:
+            return False
+        try:
+            with engine.connect() as connection:
+                return bool(
+                    connection.execute(
+                        text(
+                            "SELECT EXISTS (SELECT 1 FROM worker_heartbeat "
+                            "WHERE process_type='provisioning' "
+                            "AND last_seen_at >= CURRENT_TIMESTAMP - "
+                            "(:seconds * INTERVAL '1 second'))"
+                        ),
+                        {
+                            "seconds": max(
+                                60,
+                                int(
+                                    os.environ.get(
+                                        "ATCROSTER_PROVISIONING_LEASE_SECONDS", "120"
+                                    )
+                                )
+                                * 2,
+                            )
+                        },
+                    ).scalar()
+                )
+        except Exception:
+            return False
 
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-            healthy = worker.poll() is None
             if self.path not in {"/health/live", "/health/ready"}:
                 status, payload = 404, {"status": "not_found"}
-            elif healthy:
+            elif self.path == "/health/live" and worker.poll() is None:
+                status, payload = 200, {"status": "ok"}
+            elif self.path == "/health/ready" and worker_ready():
                 status, payload = 200, {"status": "ready"}
             else:
                 status, payload = 503, {"status": "not_ready"}
@@ -50,6 +86,7 @@ def main() -> None:
     try:
         server.serve_forever()
     finally:
+        engine.dispose()
         if worker.poll() is None:
             worker.terminate()
             worker.wait(timeout=15)

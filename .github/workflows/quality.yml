@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,25 +12,29 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -r requirements-dev.txt
       - name: Formatting, lint and static analysis
         run: |
-          ruff format --check atcroster absence_requests.py absence_requests_blueprint.py access_policy.py rate_limiting.py reporting.py reports_blueprint.py roster_blueprint.py roster_logic.py platform_provisioning.py signup_locking.py scripts/migrate_all_databases.py scripts/run_provisioning_worker.py auth_blueprint.py live_position_blueprint.py live_position_service.py operations_blueprint.py training_blueprint.py
-          ruff check atcroster absence_requests.py absence_requests_blueprint.py access_policy.py app.py account_limits.py auth_blueprint.py briefing_module.py briefing_storage.py live_position_blueprint.py live_position_service.py operations_blueprint.py platform_provisioning.py rate_limiting.py reporting.py reports_blueprint.py roster_blueprint.py roster_logic.py saas_models.py signup_locking.py tenancy.py training_blueprint.py wsgi.py scripts/*.py
-          mypy --ignore-missing-imports --follow-imports=skip atcroster rate_limiting.py signup_locking.py
+          git ls-files -z '*.py' | xargs -0 ruff check
+          mypy --ignore-missing-imports --follow-imports=skip atcroster production_operations.py rate_limiting.py signup_locking.py
       - run: pip-audit -r requirements-prod.txt
       - name: Full maintained-application security scan
-        run: |
-          bandit -q -ll -r atcroster absence_requests.py absence_requests_blueprint.py access_policy.py app.py account_limits.py auth_blueprint.py briefing_module.py briefing_storage.py live_position_blueprint.py live_position_service.py operations_blueprint.py platform_provisioning.py rate_limiting.py reporting.py reports_blueprint.py roster_blueprint.py roster_logic.py saas_models.py signup_locking.py tenancy.py training_blueprint.py wsgi.py scripts
+        run: bandit -q -ll -s B101 -r . -x ./tests,./migrations,./instance
       - name: Compile every Python source file
         run: python -m compileall -q -x '(/instance/|/.git/)' .
       - run: python -m pytest --cov --cov-report=term-missing -q
+      - name: Release-candidate facts
+        run: python scripts/verify_release_candidate.py
       - name: Verify fresh split migrations
         run: |
           control_db="$(mktemp -u).db"
@@ -56,6 +61,18 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: atcroster:test
+          format: cyclonedx
+          output: sbom.cdx.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: atcroster-sbom-${{ github.sha }}
+          path: sbom.cdx.json
+          if-no-files-found: error
 
   postgres-multidatabase:
     runs-on: ubuntu-latest

@@ -12,6 +12,7 @@ import re
 import io
 import csv
 import secrets
+import sys
 from functools import lru_cache
 from datetime import date, datetime, time, timedelta, timezone
 import json
@@ -57,6 +58,15 @@ from roster_logic import (
     shift_minutes,
     validated_pattern,
 )
+from toil_service import apply_toil_transaction
+from production_operations import (
+    MetricsRegistry,
+    begin_request,
+    configure_production_logging,
+    finish_request,
+    register_operations_routes,
+    structured_event,
+)
 from absence_requests import (
     add_months as add_request_months,
     group_sickness_instances,
@@ -99,6 +109,8 @@ except Exception:
 # -------------------- App setup --------------------
 app = create_app()
 _runtime_settings = get_runtime_settings(app)
+configure_production_logging(app, _runtime_settings.deployment_environment)
+_operational_metrics = MetricsRegistry()
 
 # Writable local instance folder for development and tests.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -111,10 +123,14 @@ FIELD_ENCRYPTION_KEYS = _runtime_settings.field_encryption_keys
 
 if DEPLOYMENT_ENV == "production":
     import redis
-    _rate_limiter = RedisRateLimiter(redis.from_url(
-        os.environ["REDIS_URL"], socket_connect_timeout=2,
-        socket_timeout=2, decode_responses=True,
-    ))
+    _rate_limiter = RedisRateLimiter(
+        redis.from_url(
+            os.environ["REDIS_URL"], socket_connect_timeout=2,
+            socket_timeout=2, decode_responses=True,
+        ),
+        prefix=f"atcroster:{DEPLOYMENT_ENV}:limit",
+    )
+    _rate_limiter.verify()
 else:
     _rate_limiter = MemoryRateLimiter()
 
@@ -239,6 +255,7 @@ app.jinja_env.globals["csp_nonce"] = csp_nonce
 @app.before_request
 def _start_request_tenant_boundary():
     clear_request_context()
+    g.metrics_started_at = begin_request(_operational_metrics)
 
 
 @app.before_request
@@ -304,48 +321,6 @@ def subprocessor_notice():
     return render_template("subprocessors.html", **_legal_context())
 
 
-@app.get("/health/live")
-def health_live():
-    return jsonify({
-        "status": "ok",
-        "service": "atcroster",
-        "environment": DEPLOYMENT_ENV,
-    })
-
-
-@app.get("/health/ready")
-def health_ready():
-    try:
-        connection = db.session.connection()
-        connection.execute(text("SELECT 1"))
-        from sqlalchemy import inspect
-        from alembic.config import Config as AlembicConfig
-        from alembic.runtime.migration import MigrationContext
-        from alembic.script import ScriptDirectory
-        from migrations.fresh_schema import CONTROL_TABLES
-
-        present = set(inspect(connection).get_table_names())
-        revision = MigrationContext.configure(connection).get_current_revision()
-        expected_revision = ScriptDirectory.from_config(
-            AlembicConfig("alembic.ini")
-        ).get_current_head()
-        if (
-            not CONTROL_TABLES.issubset(present)
-            or (
-                DEPLOYMENT_ENV == "production"
-                and revision != expected_revision
-            )
-        ):
-            return jsonify({"status": "not_ready"}), 503
-        return jsonify({"status": "ready"})
-    except Exception:
-        app.logger.error(
-            "readiness_check_failed request_id=%s",
-            getattr(g, "request_id", ""),
-        )
-        return jsonify({"status": "not_ready"}), 503
-
-
 @app.errorhandler(500)
 def _internal_error(error):
     app.logger.error(
@@ -389,6 +364,7 @@ def _bad_request(error):
         )
     description = getattr(error, "description", "") or ""
     if "CSRF" in description:
+        _security_event("csrf_rejected", route=request.endpoint or "unmatched")
         message = (
             "This page or form has expired. Reload the page and try the action "
             "once more."
@@ -413,6 +389,12 @@ def _bad_request(error):
 
 @app.errorhandler(403)
 def _forbidden(_error):
+    _security_event(
+        "forbidden_role_action",
+        route=request.endpoint or "unmatched",
+        unit_id=getattr(current_user, "unit_id", None),
+        actor_id=getattr(current_user, "id", None),
+    )
     is_platform_admin = (
         getattr(current_user, "is_authenticated", False)
         and getattr(current_user, "role", "") == "superadmin"
@@ -476,6 +458,7 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "position_participant_role", "position_status_event",
     "position_session", "position_session_participant",
     "controller_kiosk_credential", "position_session_audit",
+    "toil_transaction",
 })
 
 
@@ -596,6 +579,7 @@ def _bind_tenant_context():
         allowed_platform_endpoints = {
             "platform_admin", "logout", "password_change",
             "platform_worker_health",
+            "internal_metrics", "internal_health",
             "static", "favicon", "health_live", "health_ready",
         }
         if request.endpoint == "index":
@@ -672,10 +656,14 @@ def _security_headers(response):
         "object-src 'none'; "
         "img-src 'self' data:; "
         "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com "
+        f"style-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
+        "https://fonts.googleapis.com "
         "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+        "style-src-attr 'none'; "
         f"script-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
-        "https://cdn.jsdelivr.net",
+        "https://cdn.jsdelivr.net; "
+        "connect-src 'self'; worker-src 'self'; manifest-src 'self'"
+        + ("; upgrade-insecure-requests" if DEPLOYMENT_ENV == "production" else ""),
     )
     if request.is_secure or DEPLOYMENT_ENV == "production":
         response.headers.setdefault(
@@ -683,6 +671,34 @@ def _security_headers(response):
         )
     if current_user.is_authenticated:
         response.headers.setdefault("Cache-Control", "no-store, private")
+    started_at = getattr(g, "metrics_started_at", None)
+    if started_at is not None:
+        route = request.endpoint or "unmatched"
+        duration = finish_request(
+            _operational_metrics,
+            started_at,
+            route=route,
+            method=request.method,
+            status=response.status_code,
+        )
+        g.metrics_started_at = None
+        if DEPLOYMENT_ENV == "production":
+            app.logger.info(
+                "request_completed",
+                extra={
+                    "structured_fields": {
+                        "request_id": getattr(g, "request_id", ""),
+                        "route": route,
+                        "unit_id": getattr(current_user, "unit_id", None),
+                        "actor_id": getattr(current_user, "id", None),
+                        "outcome": (
+                            "success" if response.status_code < 400 else "error"
+                        ),
+                        "http_status": response.status_code,
+                        "duration_ms": round(duration * 1000, 2),
+                    }
+                },
+            )
     return response
 
 
@@ -1404,6 +1420,7 @@ class Staff(UserMixin, db.Model):
     leave_carryover_days = db.Column(db.Integer, default=0)
     __table_args__ = (
         db.UniqueConstraint("unit_id", "staff_no", name="uq_staff_unit_number"),
+        db.UniqueConstraint("unit_id", "id", name="uq_staff_unit_id"),
     )
 
 
@@ -1570,6 +1587,7 @@ class Assignment(db.Model):
     annotation = db.Column(db.String(20), default="")
     # User-facing detail for the annotation. Kept separate from system notes.
     annotation_note = db.Column(db.String(140), default="")
+    version = db.Column(db.Integer, nullable=False, default=1)
     __table_args__ = (db.UniqueConstraint(
         "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),)
 
@@ -1702,6 +1720,7 @@ PositionRequirement = SaaS.PositionRequirement
 BreakPlan = SaaS.BreakPlan
 AchievedDuty = SaaS.AchievedDuty
 FatigueReport = SaaS.FatigueReport
+ToilTransaction = SaaS.ToilTransaction
 RosterRuleVersion = SaaS.RosterRuleVersion
 MfaCredential = SaaS.MfaCredential
 
@@ -1733,6 +1752,7 @@ TENANT_OPERATIONAL_MODELS = (
     BriefingAudit,
     BriefingAssuranceRun,
     TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
+    ToilTransaction,
 )
 
 APPEND_ONLY_AUDIT_MODELS = (
@@ -1744,6 +1764,7 @@ APPEND_ONLY_AUDIT_MODELS = (
     CentralSecurityAudit,
     PositionSessionAudit,
     BriefingAudit,
+    ToilTransaction,
 )
 
 
@@ -2430,6 +2451,24 @@ def month_has_data(year: int, month: int) -> bool:
     return db.session.query(Assignment.id)\
         .filter(Assignment.day >= start, Assignment.day < end)\
         .limit(1).first() is not None
+
+
+def _lock_roster_month(unit_id: int, year: int, month: int) -> Requirement:
+    """Serialise assignment, request and publication changes for one month."""
+    requirement = (
+        Requirement.query.filter_by(unit_id=unit_id, year=year, month=month)
+        .with_for_update()
+        .first()
+    )
+    if requirement is None:
+        ensure_month_requirement(year, month)
+        db.session.flush()
+        requirement = (
+            Requirement.query.filter_by(unit_id=unit_id, year=year, month=month)
+            .with_for_update()
+            .one()
+        )
+    return requirement
 
 
 def month_range(year: int, month: int):
@@ -6969,15 +7008,55 @@ def _toil_accrual_half_days_from_annotation(parsed):
         return 0
 
 
-def _apply_toil_annotation_delta(staff: Staff, old_annot: str, new_annot: str):
+def _record_toil_transaction(
+    person_id: int,
+    delta_half_days: int,
+    reason: str,
+    actor_id: int,
+    transaction_key: str | None = None,
+    source_type: str = "manual",
+    source_id: int | None = None,
+):
+    return apply_toil_transaction(
+        db,
+        Staff,
+        ToilTransaction,
+        unit_id=_current_unit_id(),
+        person_id=person_id,
+        delta_half_days=delta_half_days,
+        reason=reason,
+        actor_id=actor_id,
+        utcnow=utcnow,
+        transaction_key=transaction_key,
+        source_type=source_type,
+        source_id=source_id,
+    )
+
+
+def _apply_toil_annotation_delta(
+    staff: Staff,
+    old_annot: str,
+    new_annot: str,
+    *,
+    actor_id: int,
+    transaction_key: str | None = None,
+    source_id: int | None = None,
+):
     old_half = _toil_accrual_half_days_from_annotation(
         parse_annotation(old_annot))
     new_half = _toil_accrual_half_days_from_annotation(
         parse_annotation(new_annot))
     delta = new_half - old_half
     if delta:
-        s = tenant_get(Staff, staff.id)
-        s.toil_half_days = int((s.toil_half_days or 0) + delta)
+        _record_toil_transaction(
+            staff.id,
+            delta,
+            "Roster annotation TOIL adjustment",
+            actor_id,
+            transaction_key=transaction_key,
+            source_type="assignment_annotation",
+            source_id=source_id,
+        )
 
 
 def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_day: date):
@@ -7622,24 +7701,22 @@ def platform_admin():
 def platform_worker_health():
     if getattr(current_user, "role", "") != "superadmin":
         abort(403)
-    cutoff = utcnow() - timedelta(
-        seconds=max(
-            60,
+    from platform_provisioning import worker_health_snapshot
+
+    snapshot = worker_health_snapshot(
+        sys.modules[__name__],
+        stale_after_seconds=(
             int(os.environ.get("ATCROSTER_PROVISIONING_LEASE_SECONDS", "120"))
-            * 2,
-        )
+            * 2
+        ),
     )
-    active = WorkerHeartbeat.query.filter(
-        WorkerHeartbeat.last_seen_at >= cutoff
-    ).count()
-    stale = WorkerHeartbeat.query.filter(
-        WorkerHeartbeat.last_seen_at < cutoff
-    ).count()
-    return jsonify({
-        "status": "ready" if active else "unavailable",
-        "active_workers": active,
-        "stale_workers": stale,
-    }), 200 if active else 503
+    _operational_metrics.set("worker_queue_depth", snapshot["queue_depth"])
+    _operational_metrics.set(
+        "worker_oldest_queued_age_seconds",
+        snapshot["oldest_queued_age_seconds"],
+    )
+    _operational_metrics.set("stale_workers", snapshot["stale_workers"])
+    return jsonify(snapshot), 200 if snapshot["status"] == "ready" else 503
 
 
 @app.route("/unit/accounts", methods=["GET", "POST"])
@@ -8831,7 +8908,18 @@ def admin_toil_new():
         if amount <= 0 or half <= 0:
             flash("Enter an adjustment greater than zero.", "error")
             return redirect(url_for("admin_toil_new"))
-        s.toil_half_days = int((s.toil_half_days or 0) + direction * half)
+        try:
+            _record_toil_transaction(
+                s.id,
+                direction * half,
+                note,
+                current_user.id,
+                transaction_key=request.form.get("transaction_key"),
+                source_type="manual_admin",
+            )
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("admin_toil_new"))
         db.session.commit()
         verb = "added to" if direction > 0 else "deducted from"
         flash(
@@ -8839,7 +8927,9 @@ def admin_toil_new():
             "ok",
         )
         return redirect(url_for("admin_toil_new"))
-    return render_template("admin_toil_new.html", atcos=atcos)
+    return render_template(
+        "admin_toil_new.html", atcos=atcos, transaction_key=secrets.token_hex(24)
+    )
 
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
@@ -8883,15 +8973,18 @@ def _reset_rate_limit(scope: str, subject: object) -> None:
 
 
 def _security_event(event: str, **safe_fields) -> None:
-    payload = {
-        "event": event,
-        "request_id": getattr(g, "request_id", ""),
-        "occurred_at": utcnow().isoformat(),
+    if "login_failed" in event or event == "mfa_login_failed":
+        _operational_metrics.add("login_failures_total", event=event)
+    if "rate_limit" in event:
+        _operational_metrics.add("rate_limit_events_total", event=event)
+    if event == "rate_limiter_unavailable":
+        _operational_metrics.add("redis_failures_total", operation="rate_limit")
+    structured_event(
+        app.logger,
+        event,
+        request_id=getattr(g, "request_id", ""),
         **safe_fields,
-    }
-    app.logger.warning("security_event %s", json.dumps(
-        payload, sort_keys=True, default=str
-    ))
+    )
 
 
 def _current_auth_stamp(user) -> str:
@@ -9811,6 +9904,7 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     watch_id_for_staff_on=watch_id_for_staff_on,
     roster_fatigue_flags=roster_fatigue_flags_for_range,
     get_annotation_groups=get_annotation_groups,
+    lock_roster_month=_lock_roster_month,
 )))
 app.register_blueprint(create_absence_requests_blueprint(
     AbsenceRequestDependencies(
@@ -9843,6 +9937,8 @@ app.register_blueprint(create_absence_requests_blueprint(
         staff_has_shift_qualification=_staff_has_shift_qualification,
         can_override_roster_conflicts=can_override_roster_conflicts,
         notify_requester=_notify_requester,
+        lock_roster_month=_lock_roster_month,
+        record_toil_transaction=_record_toil_transaction,
     )
 ))
 app.register_blueprint(create_training_blueprint(TrainingDependencies(
@@ -9896,6 +9992,32 @@ app.register_blueprint(create_operations_blueprint(OperationsDependencies(
     Scenario=Scenario,
 )))
 app.register_blueprint(briefing_blueprint)
+
+from migrations.fresh_schema import CONTROL_TABLES
+
+
+def _operational_routes_ready() -> bool:
+    active_units = Unit.query.filter(
+        Unit.status == "active", Unit.code != "CTRL"
+    ).all()
+    for unit in active_units:
+        routing = db.session.get(DatabaseRoutingMetadata, unit.id)
+        if not routing or not routing.secret_name or not os.environ.get(
+            routing.secret_name
+        ):
+            return False
+    return True
+
+
+register_operations_routes(
+    app,
+    db=db,
+    environment=DEPLOYMENT_ENV,
+    limiter=_rate_limiter,
+    metrics=_operational_metrics,
+    required_tables=CONTROL_TABLES,
+    additional_readiness_check=_operational_routes_ready,
+)
 
 # -------------------- WSGI entry point --------------------
 # Compatibility alias for WSGI servers that import ``application``.

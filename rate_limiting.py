@@ -55,14 +55,26 @@ class RedisRateLimiter:
             pipe = self.redis.pipeline(transaction=True)
             pipe.incr(redis_key)
             pipe.expire(redis_key, window_seconds, nx=True)
-            count, _ = pipe.execute()
+            result = pipe.execute()
+            if not isinstance(result, (list, tuple)) or len(result) != 2:
+                raise ValueError("malformed limiter response")
+            count = int(result[0])
+            if count < 1:
+                raise ValueError("invalid limiter counter")
         except Exception as exc:
             raise LimiterUnavailable("shared limiter unavailable") from exc
-        return int(count) <= int(limit)
+        return count <= int(limit)
 
     def reset(self, key: str) -> None:
         try:
             self.redis.delete(f"{self.prefix}:{key}")
+        except Exception as exc:
+            raise LimiterUnavailable("shared limiter unavailable") from exc
+
+    def verify(self) -> None:
+        try:
+            if self.redis.ping() is not True:
+                raise ValueError("unexpected Redis PING response")
         except Exception as exc:
             raise LimiterUnavailable("shared limiter unavailable") from exc
 

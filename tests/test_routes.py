@@ -699,6 +699,41 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         assert b"Published roster" in response.data
 
 
+def test_stale_roster_cell_version_is_rejected(client):
+    login(client)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=admin.id, day=date(2025, 4, 2)
+        ).one()
+        stale_version = assignment.version
+        staff_id = admin.id
+    first = client.post(
+        f"/assign/{staff_id}/2025-04/2025-04-02",
+        data={
+            "_csrf_token": csrf(client),
+            "code": "A",
+            "assignment_version": stale_version,
+        },
+    )
+    assert first.status_code == 302
+    stale = client.post(
+        f"/assign/{staff_id}/2025-04/2025-04-02",
+        data={
+            "_csrf_token": csrf(client),
+            "code": "N",
+            "assignment_version": stale_version,
+        },
+    )
+    assert stale.status_code == 409
+    with app.app.app_context():
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=staff_id, day=date(2025, 4, 2)
+        ).one()
+        assert assignment.code == "A"
+        assert assignment.version == stale_version + 1
+
+
 def test_roster_publication_emails_every_registered_unit_user(
     client, monkeypatch,
 ):
@@ -748,6 +783,9 @@ def test_security_headers_are_present(client):
     policy = response.headers["Content-Security-Policy"]
     assert "script-src 'self' 'nonce-" in policy
     assert "script-src 'self' 'unsafe-inline'" not in policy
+    assert "'unsafe-inline'" not in policy
+    assert "style-src-attr 'none'" in policy
+    assert "connect-src 'self'" in policy
 
 
 def test_role_permission_matrix_and_cross_airport_isolation():

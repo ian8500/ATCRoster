@@ -1,8 +1,7 @@
-import json
 import os
 import sys
 import tempfile
-from datetime import date, time, timedelta
+from datetime import date, time
 
 import pytest
 from conftest import finish_operational_login
@@ -37,15 +36,10 @@ from app import (
     is_month_locked,
     lock_date_for_month,
     refresh_shift_cache,
-    _cycle_day_for,
     db,
-    Assignment,
-    Requirement,
     ShiftRequest,
     ShiftType,
     Staff,
-    Watch,
-    ensure_shift,
 )
 
 
