@@ -8,6 +8,19 @@ from datetime import date, timedelta
 from typing import Any, Callable, Iterable
 
 
+SPREADSHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def csv_safe_cell(value: object) -> object:
+    """Neutralise text that spreadsheet applications may execute as a formula."""
+    if not isinstance(value, str):
+        return value
+    candidate = value.lstrip(" \t\r\n")
+    if candidate.startswith(SPREADSHEET_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
 def compute_annotation_metrics(
     start_day: date,
     end_day: date,
