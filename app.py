@@ -91,6 +91,7 @@ from access_policy import (
 )
 from atcroster import create_app, get_runtime_settings
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
+from atcroster.public import public_blueprint
 from atcroster.security.headers import (
     SecurityHeaderDependencies,
     csp_nonce,
@@ -269,55 +270,7 @@ def _enforce_csrf():
         _validate_csrf()
 
 
-@app.route("/favicon.ico")
-def favicon():
-    return send_from_directory(
-        app.static_folder, "favicon.svg", mimetype="image/svg+xml"
-    )
-
-
-def _legal_context() -> dict[str, str]:
-    """Public contact details used by the legal and privacy notices."""
-    return {
-        "legal_entity": os.environ.get(
-            "ATCROSTER_LEGAL_ENTITY",
-            "Ian John Dickson trading as IDAviation",
-        ).strip(),
-        "privacy_email": os.environ.get(
-            "ATCROSTER_PRIVACY_EMAIL",
-            os.environ.get(
-                "ATCROSTER_SUPPORT_EMAIL", "privacy@atcroster.com"
-            ),
-        ).strip(),
-        "legal_address": os.environ.get(
-            "ATCROSTER_LEGAL_ADDRESS",
-            "Flat 0/2, 24 Caird Drive, Glasgow, Scotland, G11 5DT",
-        ).strip(),
-        "company_number": os.environ.get(
-            "ATCROSTER_COMPANY_NUMBER", ""
-        ).strip(),
-        "policy_date": "27 July 2026",
-    }
-
-
-@app.get("/privacy")
-def privacy_notice():
-    return render_template("privacy.html", **_legal_context())
-
-
-@app.get("/cookies")
-def cookie_notice():
-    return render_template("cookies.html", **_legal_context())
-
-
-@app.get("/terms")
-def terms_of_service():
-    return render_template("terms.html", **_legal_context())
-
-
-@app.get("/subprocessors")
-def subprocessor_notice():
-    return render_template("subprocessors.html", **_legal_context())
+app.register_blueprint(public_blueprint)
 
 
 _error_handlers = register_error_handlers(
