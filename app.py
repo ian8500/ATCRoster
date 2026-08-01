@@ -90,6 +90,7 @@ from access_policy import (
     permissions_for,
 )
 from atcroster import create_app, get_runtime_settings
+from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.security.headers import (
     SecurityHeaderDependencies,
     csp_nonce,
@@ -319,123 +320,18 @@ def subprocessor_notice():
     return render_template("subprocessors.html", **_legal_context())
 
 
-@app.errorhandler(500)
-def _internal_error(error):
-    app.logger.error(
-        "unhandled_request_error request_id=%s path=%s",
-        getattr(g, "request_id", ""), request.path, exc_info=error,
-    )
-    module_context = _module_error_navigation()
-    return render_template(
-        "error.html", request_id=getattr(g, "request_id", ""),
-        **module_context,
-    ), 500
-
-
-def _module_error_navigation() -> dict[str, str]:
-    """Keep module errors inside the module instead of linking to Roster."""
-    if request.path.startswith("/briefing"):
-        return {
-            "home_url": url_for("briefing.home"),
-            "home_label": "Return to briefing",
-        }
-    if request.path.startswith("/training"):
-        return {
-            "home_url": url_for("training_home"),
-            "home_label": "Return to training",
-        }
-    if request.path.startswith("/competency"):
-        return {
-            "home_url": url_for("competency_home"),
-            "home_label": "Return to competency",
-        }
-    return {}
-
-
-@app.errorhandler(400)
-def _bad_request(error):
-    if isinstance(error, SecurityError):
-        return Response(
-            "Bad Request: untrusted host.",
-            status=400,
-            content_type="text/plain; charset=utf-8",
+_error_handlers = register_error_handlers(
+    app,
+    ErrorHandlerDependencies(
+        security_event=lambda event, **safe_fields: _security_event(
+            event, **safe_fields
         )
-    description = getattr(error, "description", "") or ""
-    if "CSRF" in description:
-        _security_event("csrf_rejected", route=request.endpoint or "unmatched")
-        message = (
-            "This page or form has expired. Reload the page and try the action "
-            "once more."
-        )
-    elif description and not description.startswith(
-        "The browser (or proxy) sent a request"
-    ):
-        message = description
-    else:
-        message = (
-            "The request was not valid. Check the entered values and try again."
-        )
-    return render_template(
-        "error.html",
-        status_code=400,
-        error_title="We could not validate that request",
-        error_message=message,
-        request_id=getattr(g, "request_id", ""),
-        **_module_error_navigation(),
-    ), 400
-
-
-@app.errorhandler(403)
-def _forbidden(_error):
-    _security_event(
-        "forbidden_role_action",
-        route=request.endpoint or "unmatched",
-        unit_id=getattr(current_user, "unit_id", None),
-        actor_id=getattr(current_user, "id", None),
-    )
-    is_platform_admin = (
-        getattr(current_user, "is_authenticated", False)
-        and getattr(current_user, "role", "") == "superadmin"
-    )
-    module_context = _module_error_navigation()
-    return render_template(
-        "error.html",
-        status_code=403,
-        error_title="You do not have access to this area",
-        error_message=(
-            "Platform administrators cannot access airport personnel or "
-            "operational roster data. Return to Platform Administration."
-            if is_platform_admin
-            else (
-                "Your account role does not permit this action. Ask your Unit "
-                "Administrator for access."
-            )
-        ),
-        home_url=(
-            url_for("platform_admin") if is_platform_admin
-            else module_context.get("home_url", url_for("index"))
-        ),
-        home_label=(
-            "Return to Platform Administration"
-            if is_platform_admin
-            else module_context.get("home_label", "Return to roster")
-        ),
-        request_id=getattr(g, "request_id", ""),
-    ), 403
-
-
-@app.errorhandler(404)
-def _not_found(_error):
-    return render_template(
-        "error.html",
-        status_code=404,
-        error_title="That page or record was not found",
-        error_message=(
-            "It may have moved, been removed, or belong to a different airport."
-        ),
-        request_id=getattr(g, "request_id", ""),
-        **_module_error_navigation(),
-    ), 404
+    ),
+)
+_bad_request = _error_handlers[400]
+_forbidden = _error_handlers[403]
+_not_found = _error_handlers[404]
+_internal_error = _error_handlers[500]
 
 OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_setting", "annotation_type", "watch", "staff", "shift_type",
