@@ -92,6 +92,7 @@ from access_policy import (
 from atcroster import create_app, get_runtime_settings
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.public import public_blueprint
+from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.headers import (
     SecurityHeaderDependencies,
     csp_nonce,
@@ -234,40 +235,13 @@ def _current_unit_id() -> int:
     return int(getattr(current_user, "unit_id", 0) or 0)
 
 
-def csrf_token() -> str:
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["_csrf_token"] = token
-    return token
-
-
-def _validate_csrf() -> None:
-    supplied = request.form.get("_csrf_token") or request.headers.get("X-CSRF-Token")
-    expected = session.get("_csrf_token")
-    if not expected or not supplied or not secrets.compare_digest(str(expected), str(supplied)):
-        abort(400, "Invalid or missing CSRF token.")
-
-
-app.jinja_env.globals["csrf_token"] = csrf_token
-
-
 @app.before_request
 def _start_request_tenant_boundary():
     clear_request_context()
     g.metrics_started_at = begin_request(_operational_metrics)
 
 
-@app.before_request
-def _enforce_csrf():
-    """Apply a default-deny CSRF boundary to every browser mutation.
-
-    There are currently no exempt unsafe routes. New machine-to-machine
-    endpoints must use a separate authenticated blueprint and document any
-    exemption explicitly rather than weakening this browser boundary.
-    """
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        _validate_csrf()
+_validate_csrf, _enforce_csrf = register_csrf_protection(app)
 
 
 app.register_blueprint(public_blueprint)
