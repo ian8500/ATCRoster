@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, time as datetime_time, timedelta
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import (
     Blueprint,
@@ -128,6 +129,61 @@ def create_live_position_blueprint(
             return rendered[:-6] + "Z"
         return rendered if getattr(value, "tzinfo", None) else rendered + "Z"
 
+    def _position_time_matrix(position: Any) -> dict[str, int]:
+        try:
+            raw = json.loads(position.maximum_session_duration_matrix_json or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        matrix: dict[str, int] = {}
+        for key, value in raw.items():
+            try:
+                weekday, hour = (int(part) for part in str(key).split(":"))
+                minutes = int(value)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= weekday <= 6 and 0 <= hour <= 23 and 1 <= minutes <= 1440:
+                matrix[f"{weekday}:{hour}"] = minutes
+        return matrix
+
+    def _matrix_from_form(data: dict[str, Any]) -> dict[str, int]:
+        matrix: dict[str, int] = {}
+        for weekday in range(7):
+            for hour in range(24):
+                raw = str(data.get(f"allowance_{weekday}_{hour}") or "").strip()
+                if not raw:
+                    continue
+                try:
+                    minutes = int(raw)
+                except ValueError as error:
+                    raise LivePositionValidationError(
+                        "Matrix allowances must be whole minutes."
+                    ) from error
+                if not 1 <= minutes <= 1440:
+                    raise LivePositionValidationError(
+                        "Matrix allowances must be between 1 and 1,440 minutes."
+                    )
+                matrix[f"{weekday}:{hour}"] = minutes
+        return matrix
+
+    def _allowance_minutes(position: Any, at: datetime | None = None) -> int:
+        unit = dependencies.db.session.get(dependencies.Unit, _unit_id())
+        moment = at or dependencies.utcnow()
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        try:
+            local_timezone = ZoneInfo(
+                getattr(unit, "timezone", "Europe/London") or "Europe/London"
+            )
+        except ZoneInfoNotFoundError:
+            local_timezone = timezone.utc
+        local_moment = moment.astimezone(local_timezone)
+        return _position_time_matrix(position).get(
+            f"{local_moment.weekday()}:{local_moment.hour}",
+            position.maximum_session_duration_minutes,
+        )
+
     def _controller(person_id: int) -> Any:
         person = dependencies.Staff.query.filter_by(
             id=person_id,
@@ -138,6 +194,14 @@ def create_live_position_blueprint(
         if not person:
             raise LivePositionValidationError("Select an active controller.")
         return person
+
+    def _configured_position(position_id: int) -> Any:
+        position = dependencies.OperationalPosition.query.filter_by(
+            id=position_id, unit_id=_unit_id(), is_active=True
+        ).first()
+        if not position:
+            raise LivePositionValidationError("Unknown or inactive position.")
+        return position
 
     def _validate_primary(person: Any) -> None:
         today = dependencies.utcnow().date()
@@ -650,6 +714,11 @@ def create_live_position_blueprint(
                     else None
                 )
                 requested_active = str(data.get("is_active") or "") == "on"
+                try:
+                    allowance_matrix = _matrix_from_form(data)
+                except LivePositionValidationError as error:
+                    allowance_matrix = None
+                    flash(str(error), "error")
                 occupied = bool(
                     position.id
                     and dependencies.PositionSession.query.filter_by(
@@ -667,6 +736,8 @@ def create_live_position_blueprint(
                     flash("Select a valid currency category.", "error")
                 elif group_id and not group:
                     flash("Select a valid position group.", "error")
+                elif allowance_matrix is None:
+                    pass
                 elif occupied and not requested_active:
                     flash(
                         "Log off and close this position before making it inactive.",
@@ -687,6 +758,9 @@ def create_live_position_blueprint(
                             1440,
                             _int_field(data, "maximum_session_duration_minutes", 120),
                         ),
+                    )
+                    position.maximum_session_duration_matrix_json = json.dumps(
+                        allowance_matrix, sort_keys=True
                     )
                     position.group_name = group.name if group else ""
                     position.currency_category_id = category.id if category else None
@@ -720,6 +794,10 @@ def create_live_position_blueprint(
                                     "code": position.code,
                                     "label": position.label,
                                     "is_active": position.is_active,
+                                    "maximum_session_duration_minutes": (
+                                        position.maximum_session_duration_minutes
+                                    ),
+                                    "maximum_session_duration_matrix": allowance_matrix,
                                 },
                                 sort_keys=True,
                             ),
@@ -760,6 +838,19 @@ def create_live_position_blueprint(
             positions=positions,
             groups=groups,
             categories=categories,
+            position_matrices={
+                position.id: _position_time_matrix(position) for position in positions
+            },
+            weekdays=(
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+            ),
+            matrix_hours=range(24),
         )
 
     @blueprint.get("/kiosk")
@@ -840,12 +931,14 @@ def create_live_position_blueprint(
             person = _controller(_int_field(data, "person_id"))
             _validate_primary(person)
             participants, session_type = _secondary_selection(data)
+            position = _configured_position(position_id)
             _service().start_session(
                 unit_id=_unit_id(),
                 position_id=position_id,
                 person_id=person.id,
                 actor_id=current_user.id,
                 session_type=session_type,
+                maximum_duration_seconds=_allowance_minutes(position) * 60,
                 request_key=_request_key(data),
                 participants=participants,
             )
@@ -897,12 +990,14 @@ def create_live_position_blueprint(
             incoming = _controller(_int_field(data, "person_id"))
             _validate_primary(incoming)
             participants, session_type = _secondary_selection(data)
+            position = _configured_position(position_id)
             _service().handover(
                 unit_id=_unit_id(),
                 position_id=position_id,
                 incoming_person_id=incoming.id,
                 actor_id=current_user.id,
                 session_type=session_type,
+                maximum_duration_seconds=_allowance_minutes(position) * 60,
                 request_key=_request_key(data),
                 participants=participants,
             )
@@ -1009,7 +1104,10 @@ def create_live_position_blueprint(
             maximum_duration_seconds = (
                 session.maximum_duration_seconds
                 if session and session.maximum_duration_seconds
-                else position.maximum_session_duration_minutes * 60
+                else _allowance_minutes(
+                    position, session.started_at if session else now
+                )
+                * 60
             )
             if session:
                 for row in dependencies.PositionSessionParticipant.query.filter_by(

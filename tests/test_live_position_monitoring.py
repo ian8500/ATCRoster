@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import json
 import re
 
 import pytest
@@ -263,6 +264,49 @@ def _action(client, csrf, path, payload):
 def test_kiosk_controller_selection_runs_full_live_position_workflow(
     live_position_data,
 ):
+    admin_client = app.app.test_client()
+    admin_client.get("/login")
+    with admin_client.session_transaction() as browser_session:
+        admin_csrf = browser_session["_csrf_token"]
+    admin_client.post(
+        "/login",
+        data={
+            "_csrf_token": admin_csrf,
+            "username": "live-admin",
+            "password": "admin-password",
+        },
+    )
+    finish_operational_login(admin_client)
+    with admin_client.session_transaction() as browser_session:
+        admin_csrf = browser_session["_csrf_token"]
+    matrix_update = {
+        "_csrf_token": admin_csrf,
+        "action": "update_position",
+        "position_id": str(live_position_data["position_id"]),
+        "code": "AIR",
+        "label": "Aerodrome Control",
+        "display_order": "100",
+        "maximum_session_duration_minutes": "120",
+        "supporting_participants_allowed": "on",
+        "multiple_supporting_participants_allowed": "on",
+        "training_supported": "on",
+        "assessment_supported": "on",
+        "is_safety_critical": "on",
+        "is_active": "on",
+    }
+    matrix_update.update(
+        {
+            f"allowance_{weekday}_{hour}": "75"
+            for weekday in range(7)
+            for hour in range(24)
+        }
+    )
+    assert (
+        admin_client.post(
+            "/live-positions/admin/positions", data=matrix_update
+        ).status_code
+        == 302
+    )
     client = app.app.test_client()
     csrf = _login_kiosk(client)
     position = live_position_data["position_id"]
@@ -281,8 +325,8 @@ def test_kiosk_controller_selection_runs_full_live_position_workflow(
     state = client.get("/live-positions/api/state").get_json()["positions"][0]
     assert state["display_status"] == "training"
     assert state["physical_status"] == "open"
-    assert state["primary"]["maximum_duration_seconds"] == 7200
-    assert state["participants"][0]["maximum_duration_seconds"] == 7200
+    assert state["primary"]["maximum_duration_seconds"] == 4500
+    assert state["participants"][0]["maximum_duration_seconds"] == 4500
     assert state["primary"]["name"] == "Alex Controller"
     assert state["participants"][0]["role_label"] == "OJTI"
     assert "+00:00Z" not in state["primary"]["started_at"]
@@ -340,12 +384,11 @@ def test_kiosk_controller_selection_runs_full_live_position_workflow(
         },
     )
     assert handed_over.status_code == 200
-    assert (
-        client.get("/live-positions/api/state").get_json()["positions"][0]["primary"][
-            "name"
-        ]
-        == "Sam Instructor"
-    )
+    handover_state = client.get("/live-positions/api/state").get_json()["positions"][0][
+        "primary"
+    ]
+    assert handover_state["name"] == "Sam Instructor"
+    assert handover_state["maximum_duration_seconds"] == 4500
     ended = _action(
         client,
         csrf,
@@ -548,6 +591,8 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
     assert client.get("/live-positions/kiosk").status_code == 403
     page = client.get("/live-positions/admin/positions")
     assert page.status_code == 200
+    assert b"Maximum-time weekly matrix" in page.data
+    assert b"airport\xe2\x80\x99s local timezone" in page.data
     with client.session_transaction() as session:
         csrf = session["_csrf_token"]
     group = client.post(
@@ -582,6 +627,7 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
             "label": "Ground Movement Control",
             "display_order": "10",
             "maximum_session_duration_minutes": "90",
+            "allowance_0_8": "75",
             "position_group_id": str(group_id),
             "currency_category_id": str(category_id),
             "supporting_participants_allowed": "on",
@@ -598,6 +644,9 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
         assert configured.label == "Ground Movement Control"
         assert configured.group_name == "Radar"
         assert configured.maximum_session_duration_minutes == 90
+        assert json.loads(configured.maximum_session_duration_matrix_json) == {
+            "0:8": 75
+        }
         assert configured.currency_category_id == category_id
     page = client.get("/live-positions/admin/positions")
     assert b'<option value="%d" selected>Radar</option>' % group_id in page.data

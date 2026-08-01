@@ -31,7 +31,7 @@
     <label>Short code<input name="code" maxlength="30" placeholder="AIR" required></label>
     <label>Display name<input name="label" maxlength="120" placeholder="Aerodrome Control" required></label>
     <label>Display order<input name="display_order" type="number" min="0" value="100"></label>
-    <label>Maximum controller time (minutes)<input name="maximum_session_duration_minutes" type="number" min="1" max="1440" value="120" required></label>
+    <label>Default maximum controller time (minutes)<input name="maximum_session_duration_minutes" type="number" min="1" max="1440" value="120" required></label>
     <label>Position group
       <select name="position_group_id"><option value="">No group</option>{% for group in groups if group.is_active %}<option value="{{ group.id }}">{{ group.name }}</option>{% endfor %}</select>
     </label>
@@ -62,7 +62,23 @@
       <label>Short code<input name="code" maxlength="30" value="{{ position.code }}" required></label>
       <label>Display name<input name="label" maxlength="120" value="{{ position.label }}" required></label>
       <label>Display order<input name="display_order" type="number" min="0" value="{{ position.display_order }}"></label>
-      <label>Maximum controller time (minutes)<input name="maximum_session_duration_minutes" type="number" min="1" max="1440" value="{{ position.maximum_session_duration_minutes }}" required></label>
+      <label>Default maximum controller time (minutes)<input name="maximum_session_duration_minutes" type="number" min="1" max="1440" value="{{ position.maximum_session_duration_minutes }}" required></label>
+      <details class="live-position-time-matrix">
+        <summary><strong>Maximum-time weekly matrix</strong><span>{{ position_matrices[position.id]|length }} hourly override{{ '' if position_matrices[position.id]|length == 1 else 's' }}</span></summary>
+        <p>Times use the airport’s local timezone. Leave a cell blank to use the default maximum of <strong>{{ position.maximum_session_duration_minutes }} minutes</strong>. The allowance is selected from the hour in which the controller logs on.</p>
+        <div class="live-position-time-matrix__scroll">
+          <table>
+            <thead><tr><th scope="col">Day</th>{% for hour in matrix_hours %}<th scope="col">{{ '%02d'|format(hour) }}</th>{% endfor %}</tr></thead>
+            <tbody>
+            {% for weekday in weekdays %}
+              {% set weekday_index = loop.index0 %}
+              <tr><th scope="row">{{ weekday }}</th>{% for hour in matrix_hours %}{% set matrix_key = weekday_index ~ ':' ~ hour %}<td><input type="number" name="allowance_{{ weekday_index }}_{{ hour }}" min="1" max="1440" value="{{ position_matrices[position.id].get(matrix_key, '') }}" placeholder="{{ position.maximum_session_duration_minutes }}" aria-label="{{ weekday }} {{ '%02d:00'|format(hour) }} maximum minutes"></td>{% endfor %}</tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <small>Each column begins at the displayed hour; for example, 14 covers logons from 14:00 to 14:59 local time.</small>
+      </details>
       <label>Position group
         <select name="position_group_id"><option value="">No group</option>{% for group in groups if group.is_active %}<option value="{{ group.id }}" {% if group.name == position.group_name %}selected{% endif %}>{{ group.name }}</option>{% endfor %}</select>
       </label>
