@@ -57,6 +57,7 @@ from roster_logic import (
     shift_minutes,
     validated_pattern,
 )
+from toil_service import apply_toil_transaction
 from absence_requests import (
     add_months as add_request_months,
     group_sickness_instances,
@@ -111,10 +112,14 @@ FIELD_ENCRYPTION_KEYS = _runtime_settings.field_encryption_keys
 
 if DEPLOYMENT_ENV == "production":
     import redis
-    _rate_limiter = RedisRateLimiter(redis.from_url(
-        os.environ["REDIS_URL"], socket_connect_timeout=2,
-        socket_timeout=2, decode_responses=True,
-    ))
+    _rate_limiter = RedisRateLimiter(
+        redis.from_url(
+            os.environ["REDIS_URL"], socket_connect_timeout=2,
+            socket_timeout=2, decode_responses=True,
+        ),
+        prefix=f"atcroster:{DEPLOYMENT_ENV}:limit",
+    )
+    _rate_limiter.verify()
 else:
     _rate_limiter = MemoryRateLimiter()
 
@@ -476,6 +481,7 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "position_participant_role", "position_status_event",
     "position_session", "position_session_participant",
     "controller_kiosk_credential", "position_session_audit",
+    "toil_transaction",
 })
 
 
@@ -1404,6 +1410,7 @@ class Staff(UserMixin, db.Model):
     leave_carryover_days = db.Column(db.Integer, default=0)
     __table_args__ = (
         db.UniqueConstraint("unit_id", "staff_no", name="uq_staff_unit_number"),
+        db.UniqueConstraint("unit_id", "id", name="uq_staff_unit_id"),
     )
 
 
@@ -1570,6 +1577,7 @@ class Assignment(db.Model):
     annotation = db.Column(db.String(20), default="")
     # User-facing detail for the annotation. Kept separate from system notes.
     annotation_note = db.Column(db.String(140), default="")
+    version = db.Column(db.Integer, nullable=False, default=1)
     __table_args__ = (db.UniqueConstraint(
         "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),)
 
@@ -1702,6 +1710,7 @@ PositionRequirement = SaaS.PositionRequirement
 BreakPlan = SaaS.BreakPlan
 AchievedDuty = SaaS.AchievedDuty
 FatigueReport = SaaS.FatigueReport
+ToilTransaction = SaaS.ToilTransaction
 RosterRuleVersion = SaaS.RosterRuleVersion
 MfaCredential = SaaS.MfaCredential
 
@@ -1733,6 +1742,7 @@ TENANT_OPERATIONAL_MODELS = (
     BriefingAudit,
     BriefingAssuranceRun,
     TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
+    ToilTransaction,
 )
 
 APPEND_ONLY_AUDIT_MODELS = (
@@ -1744,6 +1754,7 @@ APPEND_ONLY_AUDIT_MODELS = (
     CentralSecurityAudit,
     PositionSessionAudit,
     BriefingAudit,
+    ToilTransaction,
 )
 
 
@@ -2430,6 +2441,24 @@ def month_has_data(year: int, month: int) -> bool:
     return db.session.query(Assignment.id)\
         .filter(Assignment.day >= start, Assignment.day < end)\
         .limit(1).first() is not None
+
+
+def _lock_roster_month(unit_id: int, year: int, month: int) -> Requirement:
+    """Serialise assignment, request and publication changes for one month."""
+    requirement = (
+        Requirement.query.filter_by(unit_id=unit_id, year=year, month=month)
+        .with_for_update()
+        .first()
+    )
+    if requirement is None:
+        ensure_month_requirement(year, month)
+        db.session.flush()
+        requirement = (
+            Requirement.query.filter_by(unit_id=unit_id, year=year, month=month)
+            .with_for_update()
+            .one()
+        )
+    return requirement
 
 
 def month_range(year: int, month: int):
@@ -6969,15 +6998,55 @@ def _toil_accrual_half_days_from_annotation(parsed):
         return 0
 
 
-def _apply_toil_annotation_delta(staff: Staff, old_annot: str, new_annot: str):
+def _record_toil_transaction(
+    person_id: int,
+    delta_half_days: int,
+    reason: str,
+    actor_id: int,
+    transaction_key: str | None = None,
+    source_type: str = "manual",
+    source_id: int | None = None,
+):
+    return apply_toil_transaction(
+        db,
+        Staff,
+        ToilTransaction,
+        unit_id=_current_unit_id(),
+        person_id=person_id,
+        delta_half_days=delta_half_days,
+        reason=reason,
+        actor_id=actor_id,
+        utcnow=utcnow,
+        transaction_key=transaction_key,
+        source_type=source_type,
+        source_id=source_id,
+    )
+
+
+def _apply_toil_annotation_delta(
+    staff: Staff,
+    old_annot: str,
+    new_annot: str,
+    *,
+    actor_id: int,
+    transaction_key: str | None = None,
+    source_id: int | None = None,
+):
     old_half = _toil_accrual_half_days_from_annotation(
         parse_annotation(old_annot))
     new_half = _toil_accrual_half_days_from_annotation(
         parse_annotation(new_annot))
     delta = new_half - old_half
     if delta:
-        s = tenant_get(Staff, staff.id)
-        s.toil_half_days = int((s.toil_half_days or 0) + delta)
+        _record_toil_transaction(
+            staff.id,
+            delta,
+            "Roster annotation TOIL adjustment",
+            actor_id,
+            transaction_key=transaction_key,
+            source_type="assignment_annotation",
+            source_id=source_id,
+        )
 
 
 def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_day: date):
@@ -7622,24 +7691,16 @@ def platform_admin():
 def platform_worker_health():
     if getattr(current_user, "role", "") != "superadmin":
         abort(403)
-    cutoff = utcnow() - timedelta(
-        seconds=max(
-            60,
+    from platform_provisioning import worker_health_snapshot
+
+    snapshot = worker_health_snapshot(
+        sys.modules[__name__],
+        stale_after_seconds=(
             int(os.environ.get("ATCROSTER_PROVISIONING_LEASE_SECONDS", "120"))
-            * 2,
-        )
+            * 2
+        ),
     )
-    active = WorkerHeartbeat.query.filter(
-        WorkerHeartbeat.last_seen_at >= cutoff
-    ).count()
-    stale = WorkerHeartbeat.query.filter(
-        WorkerHeartbeat.last_seen_at < cutoff
-    ).count()
-    return jsonify({
-        "status": "ready" if active else "unavailable",
-        "active_workers": active,
-        "stale_workers": stale,
-    }), 200 if active else 503
+    return jsonify(snapshot), 200 if snapshot["status"] == "ready" else 503
 
 
 @app.route("/unit/accounts", methods=["GET", "POST"])
@@ -8831,7 +8892,18 @@ def admin_toil_new():
         if amount <= 0 or half <= 0:
             flash("Enter an adjustment greater than zero.", "error")
             return redirect(url_for("admin_toil_new"))
-        s.toil_half_days = int((s.toil_half_days or 0) + direction * half)
+        try:
+            _record_toil_transaction(
+                s.id,
+                direction * half,
+                note,
+                current_user.id,
+                transaction_key=request.form.get("transaction_key"),
+                source_type="manual_admin",
+            )
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("admin_toil_new"))
         db.session.commit()
         verb = "added to" if direction > 0 else "deducted from"
         flash(
@@ -8839,7 +8911,9 @@ def admin_toil_new():
             "ok",
         )
         return redirect(url_for("admin_toil_new"))
-    return render_template("admin_toil_new.html", atcos=atcos)
+    return render_template(
+        "admin_toil_new.html", atcos=atcos, transaction_key=secrets.token_hex(24)
+    )
 
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
@@ -9811,6 +9885,7 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     watch_id_for_staff_on=watch_id_for_staff_on,
     roster_fatigue_flags=roster_fatigue_flags_for_range,
     get_annotation_groups=get_annotation_groups,
+    lock_roster_month=_lock_roster_month,
 )))
 app.register_blueprint(create_absence_requests_blueprint(
     AbsenceRequestDependencies(
@@ -9843,6 +9918,8 @@ app.register_blueprint(create_absence_requests_blueprint(
         staff_has_shift_qualification=_staff_has_shift_qualification,
         can_override_roster_conflicts=can_override_roster_conflicts,
         notify_requester=_notify_requester,
+        lock_roster_month=_lock_roster_month,
+        record_toil_transaction=_record_toil_transaction,
     )
 ))
 app.register_blueprint(create_training_blueprint(TrainingDependencies(

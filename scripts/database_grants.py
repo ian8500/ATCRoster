@@ -21,6 +21,7 @@ AUDIT_TABLES = frozenset(
         "request_audit",
         "sms_audit",
         "super_admin_audit",
+        "toil_transaction",
     }
 )
 RUNTIME_TABLE_PRIVILEGES = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE"})

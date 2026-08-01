@@ -18,6 +18,7 @@ from platform_provisioning import (
     TokenEnvelopeError,
     pop_one_time_token,
     store_one_time_token,
+    worker_health_snapshot,
 )
 
 
@@ -68,15 +69,16 @@ def test_worker_completes_once_and_token_is_one_time(tmp_path, monkeypatch):
         assert invitations[0].active_bootstrap_key == "active"
     assert pop_one_time_token(job_id, unit_id)
     assert pop_one_time_token(job_id, unit_id) is None
-    operational = create_engine(
-        f"sqlite:///{tmp_path / 'operational.db'}"
-    )
+    operational = create_engine(f"sqlite:///{tmp_path / 'operational.db'}")
     try:
         with operational.connect() as connection:
-            info = connection.execute(text(
-                "SELECT label, tags FROM annotation_type "
-                "WHERE unit_id = :unit_id AND code = 'INFO'"
-            ), {"unit_id": unit_id}).one()
+            info = connection.execute(
+                text(
+                    "SELECT label, tags FROM annotation_type "
+                    "WHERE unit_id = :unit_id AND code = 'INFO'"
+                ),
+                {"unit_id": unit_id},
+            ).one()
         assert info.label == "Information"
         assert "report_exclude" in info.tags
     finally:
@@ -145,3 +147,54 @@ def test_token_envelope_store_failure_is_safe(monkeypatch):
     )
     with pytest.raises(TokenEnvelopeError, match="store"):
         store_one_time_token(93, 17, "one-time")
+
+
+def test_retry_exhaustion_is_terminal_and_operator_can_create_new_job(
+    tmp_path, monkeypatch
+):
+    with app.app.app_context():
+        unit_id, job_id = _job(tmp_path, monkeypatch)
+        job = db.session.get(ProvisioningJob, job_id)
+        job.attempt_count = 4
+        db.session.commit()
+    monkeypatch.delenv(f"ATCROSTER_UNIT_{unit_id}_DATABASE_URL", raising=False)
+    assert ProvisioningWorker(app.app).run_once()
+    with app.app.app_context():
+        job = db.session.get(ProvisioningJob, job_id)
+        assert job.state == "failed"
+        assert job.active_key is None
+        assert job.last_error_code == "database_secret_unavailable"
+        replacement = ProvisioningJob(
+            unit_id=unit_id,
+            idempotency_key=hashlib.sha256(b"operator-retry").hexdigest(),
+            state="queued",
+            active_key="active",
+            next_attempt_at=app.utcnow(),
+        )
+        db.session.add(replacement)
+        db.session.commit()
+        assert replacement.id != job_id
+
+
+def test_worker_health_reports_queue_age_depth_and_last_success(tmp_path, monkeypatch):
+    with app.app.app_context():
+        _unit_id, job_id = _job(tmp_path, monkeypatch)
+        job = db.session.get(ProvisioningJob, job_id)
+        job.created_at = app.utcnow() - app.timedelta(minutes=3)
+        db.session.add(
+            app.WorkerHeartbeat(
+                worker_id="healthy-worker", state="idle", last_seen_at=app.utcnow()
+            )
+        )
+        db.session.commit()
+        queued = worker_health_snapshot(app, stale_after_seconds=120)
+        assert queued["status"] == "ready"
+        assert queued["queue_depth"] == 1
+        assert queued["oldest_queued_age_seconds"] >= 179
+        assert queued["last_successful_job_at"] is None
+
+    assert ProvisioningWorker(app.app).run_once()
+    with app.app.app_context():
+        completed = worker_health_snapshot(app, stale_after_seconds=120)
+        assert completed["queue_depth"] == 0
+        assert completed["last_successful_job_at"].endswith("Z")

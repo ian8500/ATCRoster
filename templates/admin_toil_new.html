@@ -11,6 +11,7 @@
 </section>
 <form method="post" class="card card-body admin-form-grid">
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="transaction_key" value="{{ transaction_key }}">
   <label>Who is the adjustment for?
   <select name="staff_id" required>
     {% for s in atcos %}
@@ -31,7 +32,7 @@
   </select>
   </label>
   <label>Reason or reference
-  <input type="text" name="note" placeholder="Why is this adjustment being made?">
+  <input type="text" name="note" required maxlength="500" placeholder="Why is this adjustment being made?">
   </label>
   <div class="form-actions"><button type="submit" class="btn btn-primary">Record TOIL adjustment</button></div>
 </form>

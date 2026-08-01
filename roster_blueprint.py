@@ -22,6 +22,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from sqlalchemy.exc import IntegrityError
 from reporting import csv_safe_cell
 
 
@@ -71,6 +72,7 @@ class RosterDependencies:
     watch_id_for_staff_on: Callable[[int, date], int | None]
     roster_fatigue_flags: Callable[..., dict]
     get_annotation_groups: Callable[[], list]
+    lock_roster_month: Callable[[int, int, int], Any]
 
 
 def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
@@ -86,6 +88,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         if not dependencies.month_has_data(year, month):
             dependencies.ensure_month_requirement(year, month)
             dependencies.generate_month(year, month)
+        dependencies.lock_roster_month(unit_id, year, month)
         active = dependencies.active_publication(year, month)
         if active and dependencies.publication_matches_live(active, year, month):
             flash(
@@ -191,6 +194,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         dependencies.validate_csrf()
         year, month = dependencies.parse_year_month(ym)
         unit_id = dependencies.current_unit_id()
+        dependencies.lock_roster_month(unit_id, year, month)
         publication = dependencies.active_publication(year, month)
         if not publication:
             flash("This roster is already in Draft.", "info")
@@ -359,6 +363,15 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             unit_id, year, month
         )
         assignment_map: dict[int, dict[date, str]] = {}
+        assignment_version_map: dict[tuple[int, date], int] = {
+            (assignment.staff_id, assignment.day): assignment.version
+            for assignment in dependencies.Assignment.query.filter(
+                dependencies.Assignment.unit_id == unit_id,
+                dependencies.Assignment.day >= date(year, month, 1),
+                dependencies.Assignment.day
+                < date(*dependencies.add_months(year, month, 1), 1),
+            ).all()
+        }
         annotation_map: dict[int, dict[date, str]] = {}
         annotation_note_map: dict[int, dict[date, str]] = {}
         for staff_id, day_map in assignment_tuples.items():
@@ -557,6 +570,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             days=days,
             staff=staff,
             a_map=assignment_map,
+            assignment_version_map=assignment_version_map,
             ann_map=annotation_map,
             ann_note_map=annotation_note_map,
             req_by_day=requirements,
@@ -600,12 +614,27 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         except (TypeError, ValueError):
             abort(400, "Invalid roster date.")
         unit_id = dependencies.current_unit_id()
+        dependencies.lock_roster_month(unit_id, year, month)
         person = dependencies.Staff.query.filter_by(
             id=staff_id, unit_id=unit_id
         ).first_or_404()
-        assignment = dependencies.Assignment.query.filter_by(
-            unit_id=unit_id, staff_id=staff_id, day=duty_day
-        ).first()
+        assignment = (
+            dependencies.Assignment.query.filter_by(
+                unit_id=unit_id, staff_id=staff_id, day=duty_day
+            )
+            .with_for_update()
+            .first()
+        )
+        current_version = assignment.version if assignment else 0
+        raw_version = request.form.get("assignment_version")
+        try:
+            submitted_version = (
+                current_version if raw_version is None else int(raw_version)
+            )
+        except (TypeError, ValueError):
+            abort(400, "Invalid roster cell version.")
+        if submitted_version != current_version:
+            abort(409, "This roster cell changed after the page was loaded.")
         if assignment is None:
             assignment = dependencies.Assignment(
                 unit_id=unit_id,
@@ -676,10 +705,14 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                     ).first()
                 ):
                     return redirect(url_for("roster_month", ym=ym))
+                dependencies.db.session.flush()
                 dependencies.apply_toil_annotation_delta(
                     staff=person,
                     old_annot=old_value,
                     new_annot=new_value,
+                    actor_id=current_user.id,
+                    transaction_key=transaction_key or None,
+                    source_id=assignment.id,
                 )
                 assignment.annotation = new_value
                 assignment.annotation_note = annotation_note if new_value else ""
@@ -713,7 +746,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                             new_value=annotation_note,
                         )
                     )
-        dependencies.db.session.commit()
+        assignment.version = current_version + 1
+        try:
+            dependencies.db.session.commit()
+        except IntegrityError:
+            dependencies.db.session.rollback()
+            abort(409, "This roster cell changed concurrently.")
         return redirect(url_for("roster_month", ym=ym))
 
     @blueprint.record_once

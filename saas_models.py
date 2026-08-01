@@ -625,6 +625,33 @@ def register_saas_models(db, utcnow):
         reviewed_at = db.Column(db.DateTime)
         closed_at = db.Column(db.DateTime)
 
+    class ToilTransaction(db.Model):
+        __tablename__ = "toil_transaction"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        person_id = db.Column(db.Integer, nullable=False, index=True)
+        delta_half_days = db.Column(db.Integer, nullable=False)
+        balance_after_half_days = db.Column(db.Integer, nullable=False)
+        reason = db.Column(db.String(500), nullable=False)
+        source_type = db.Column(db.String(40), nullable=False)
+        source_id = db.Column(db.Integer)
+        actor_id = db.Column(db.Integer, nullable=False)
+        transaction_key = db.Column(db.String(64), nullable=False)
+        occurred_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        __table_args__ = (
+            db.ForeignKeyConstraint(
+                ["unit_id", "person_id"],
+                ["staff.unit_id", "staff.id"],
+                name="fk_toil_transaction_person_unit",
+            ),
+            db.UniqueConstraint(
+                "unit_id", "transaction_key", name="uq_toil_transaction_unit_key"
+            ),
+            db.CheckConstraint(
+                "delta_half_days <> 0", name="ck_toil_transaction_nonzero"
+            ),
+        )
+
     class RosterRuleVersion(db.Model):
         __tablename__ = "roster_rule_version"
         id = db.Column(db.Integer, primary_key=True)

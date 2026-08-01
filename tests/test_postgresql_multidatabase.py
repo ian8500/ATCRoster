@@ -46,7 +46,8 @@ from scripts.database_grants import (  # noqa: E402
 )
 import platform_provisioning  # noqa: E402
 from platform_provisioning import ProvisioningWorker  # noqa: E402
-from tenancy import dispose_operational_engines  # noqa: E402
+from tenancy import dispose_operational_engines, operational_unit_context  # noqa: E402
+from toil_service import apply_toil_transaction  # noqa: E402
 from tests.test_physical_database_isolation import (  # noqa: E402
     _seed_operational_unit,
 )
@@ -90,9 +91,9 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     dispose_operational_engines()
     for url in (CONTROL_URL, AIRPORT_A_URL, AIRPORT_B_URL):
         _reset_postgres(url)
-    assert upgrade_database(CONTROL_URL, "control") == "20260801_35"
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_35"
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260801_35"
+    assert upgrade_database(CONTROL_URL, "control") == "20260801_37"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260801_37"
     secret_a = "ATCROSTER_UNIT_1_DATABASE_URL"
     secret_b = "ATCROSTER_UNIT_2_DATABASE_URL"
     monkeypatch.setenv(secret_a, AIRPORT_A_URL)
@@ -274,7 +275,7 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
 def test_generated_postgresql_backup_restores_and_preserves_key_records(tmp_path):
     _reset_postgres(AIRPORT_A_URL)
     _reset_postgres(RESTORE_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_35"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
     source = create_engine(AIRPORT_A_URL)
     with source.begin() as connection:
         connection.execute(
@@ -291,7 +292,7 @@ def test_generated_postgresql_backup_restores_and_preserves_key_records(tmp_path
         AIRPORT_A_URL, tmp_path, "airport-test", "operational"
     )
     result = restore_backup(archive, metadata, RESTORE_URL)
-    assert result.alembic_revision == "20260801_35"
+    assert result.alembic_revision == "20260801_37"
     restored = create_engine(RESTORE_URL)
     try:
         with restored.connect() as connection:
@@ -324,7 +325,7 @@ def _insert_staff(connection, unit_id, username):
 
 def test_postgresql_rejects_cross_unit_operational_relationships():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_35"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
     engine = create_engine(AIRPORT_A_URL)
     try:
         with engine.begin() as connection:
@@ -372,9 +373,73 @@ def test_tenant_integrity_migration_refuses_inconsistent_legacy_data():
         engine.dispose()
 
 
+def test_postgresql_concurrent_toil_retry_changes_balance_once(monkeypatch):
+    _reset_postgres(AIRPORT_A_URL)
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
+    engine = create_engine(AIRPORT_A_URL)
+    with engine.begin() as connection:
+        person_id = _insert_staff(connection, 1, "toil-concurrency")
+    engine.dispose()
+    secret_name = "ATCROSTER_TEST_TOIL_DATABASE_URL"
+    monkeypatch.setenv(secret_name, AIRPORT_A_URL)
+    dispose_operational_engines()
+    barrier = threading.Barrier(2)
+    row_ids = []
+    errors = []
+
+    def apply_once():
+        try:
+            with app.app.app_context(), operational_unit_context(1, secret_name):
+                barrier.wait(timeout=10)
+                row = apply_toil_transaction(
+                    app.db,
+                    app.Staff,
+                    app.ToilTransaction,
+                    unit_id=1,
+                    person_id=person_id,
+                    delta_half_days=2,
+                    reason="Concurrent integration test",
+                    actor_id=person_id,
+                    utcnow=app.utcnow,
+                    transaction_key="same-toil-retry",
+                    source_type="integration_test",
+                )
+                app.db.session.commit()
+                row_ids.append(row.id)
+                app.db.session.remove()
+        except Exception as error:  # pragma: no cover - asserted below
+            errors.append(error)
+
+    first = threading.Thread(target=apply_once)
+    second = threading.Thread(target=apply_once)
+    first.start()
+    second.start()
+    first.join(timeout=20)
+    second.join(timeout=20)
+    assert not first.is_alive() and not second.is_alive()
+    assert errors == []
+    assert len(set(row_ids)) == 1
+    check = create_engine(AIRPORT_A_URL)
+    try:
+        with check.connect() as connection:
+            assert connection.execute(
+                text("SELECT toil_half_days FROM staff WHERE id=:id"),
+                {"id": person_id},
+            ).scalar_one() == 2
+            assert connection.execute(
+                text(
+                    "SELECT count(*) FROM toil_transaction "
+                    "WHERE unit_id=1 AND transaction_key='same-toil-retry'"
+                )
+            ).scalar_one() == 1
+    finally:
+        check.dispose()
+        dispose_operational_engines()
+
+
 def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
     _reset_postgres(AIRPORT_B_URL)
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260801_35"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260801_37"
     role = f"atcroster_runtime_{os.getpid()}"
     password = "runtime-integration-only"
     owner_dsn = str(
