@@ -12,9 +12,7 @@
   </div>
 </section>
 
-<div class="onboarding-progress" role="progressbar" aria-valuenow="{{ readiness_percent }}" aria-valuemin="0" aria-valuemax="100">
-  <span style="width:{{ readiness_percent }}%"></span>
-</div>
+<progress class="onboarding-progress" max="100" value="{{ readiness_percent }}">{{ readiness_percent }}%</progress>
 
 {% if unit.onboarding_step < 100 %}
 <section class="card onboarding-welcome">

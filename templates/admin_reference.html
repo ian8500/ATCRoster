@@ -58,7 +58,7 @@
         {% for ann in annotations %}
         <details class="annotation-edit-row">
           <summary>
-            <span class="annotation-colour-dot" style="--annotation-colour:{{ ann.colour or '#6c757d' }}" aria-hidden="true"></span>
+            <input class="annotation-colour-dot" type="color" value="{{ ann.colour or '#6c757d' }}" disabled tabindex="-1" aria-hidden="true">
             <strong>{{ ann.code }}</strong>
             <span>{{ ann.label }}</span>
             <small>{{ ann.category }}</small>

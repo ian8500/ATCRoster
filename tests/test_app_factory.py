@@ -5,7 +5,6 @@ from copy import deepcopy
 import pytest
 
 from atcroster import create_app, get_runtime_settings
-from atcroster.config import load_flask_config
 
 
 def production_config() -> dict[str, object]:
@@ -20,6 +19,7 @@ def production_config() -> dict[str, object]:
         "SESSION_COOKIE_SECURE": True,
         "TRUSTED_HOSTS": ["example.invalid"],
         "REDIS_URL": "redis://example.invalid/0",
+        "ATCROSTER_INTERNAL_METRICS_TOKEN": "metrics-test-token-with-32-characters",
     }
 
 
@@ -56,6 +56,7 @@ def test_create_app_returns_isolated_configured_applications():
             "FIELD_ENCRYPTION_KEYS",
         ),
         ({"REDIS_URL": ""}, "REDIS_URL"),
+        ({"ATCROSTER_INTERNAL_METRICS_TOKEN": "short"}, "METRICS_TOKEN"),
     ],
 )
 def test_production_configuration_fails_closed(update, message):

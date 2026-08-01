@@ -55,7 +55,7 @@
 {%- endmacro %}
 
 {% block content %}
-<style>
+<style nonce="{{ csp_nonce() }}">
   :root { --today-col: rgba(255,255,0,.85); }
 
   /* Ensure cells can host absolutely-positioned overlays */

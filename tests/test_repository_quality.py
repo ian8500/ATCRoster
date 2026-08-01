@@ -56,3 +56,16 @@ def test_authentication_blueprint_preserves_public_route_contract():
     assert "GET" not in routes["logout"][1]
     assert app.view_functions["login"].__module__ == "auth_blueprint"
     assert app.view_functions["logout"].__module__ == "auth_blueprint"
+
+
+def test_templates_do_not_reintroduce_inline_style_attributes():
+    templates = ROOT / "templates"
+    offenders = []
+    for path in templates.rglob("*.html"):
+        text = path.read_text()
+        if "style=" in text:
+            offenders.append(str(path.relative_to(ROOT)))
+        for line in text.splitlines():
+            if "<style" in line and 'nonce="{{ csp_nonce() }}"' not in line:
+                offenders.append(f"{path.relative_to(ROOT)}:unnonced-style")
+    assert offenders == []

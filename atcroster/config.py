@@ -86,6 +86,9 @@ def load_flask_config(
             ]
             or None
         ),
+        "ATCROSTER_INTERNAL_METRICS_TOKEN": environ.get(
+            "ATCROSTER_INTERNAL_METRICS_TOKEN", ""
+        ),
     }
 
 
@@ -174,6 +177,12 @@ def _validate_production_config(
         raise RuntimeError("Production requires ATCROSTER_FIELD_ENCRYPTION_KEYS.")
     if not environ.get("REDIS_URL") and not config.get("REDIS_URL"):
         raise RuntimeError("Production requires REDIS_URL.")
+    metrics_token = str(config.get("ATCROSTER_INTERNAL_METRICS_TOKEN", ""))
+    if len(metrics_token) < 32:
+        raise RuntimeError(
+            "Production requires ATCROSTER_INTERNAL_METRICS_TOKEN with at least "
+            "32 characters."
+        )
 
 
 def environment_snapshot() -> dict[str, str]:

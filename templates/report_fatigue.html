@@ -2,7 +2,7 @@
 {% block title %}Fatigue Findings – {{ month_title }}{% endblock %}
 
 {% block extra_head %}
-<style>
+<style nonce="{{ csp_nonce() }}">
   .page-wrap { width:100%; }
   .actions { display:flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 16px; }
   .actions a, .actions button {

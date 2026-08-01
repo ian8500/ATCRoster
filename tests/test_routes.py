@@ -783,6 +783,9 @@ def test_security_headers_are_present(client):
     policy = response.headers["Content-Security-Policy"]
     assert "script-src 'self' 'nonce-" in policy
     assert "script-src 'self' 'unsafe-inline'" not in policy
+    assert "'unsafe-inline'" not in policy
+    assert "style-src-attr 'none'" in policy
+    assert "connect-src 'self'" in policy
 
 
 def test_role_permission_matrix_and_cross_airport_isolation():

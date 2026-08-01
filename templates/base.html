@@ -27,7 +27,7 @@
   <link rel="stylesheet" href="{{ asset_url('styles.css') }}">
 
   <!-- Preserve colours and force landscape when printing -->
-  <style>
+  <style nonce="{{ csp_nonce() }}">
     *{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @page { size: A4 landscape; margin:10mm; }
     {% if unit_branding and unit_branding.primary_colour %}

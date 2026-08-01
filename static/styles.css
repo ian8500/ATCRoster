@@ -3661,6 +3661,16 @@ table:not(.roster) td {
 @media(max-width:900px){.training-profile-fields,.objective-entry-grid,.objective-admin-grid{grid-template-columns:1fr 1fr}.analytics-layout{grid-template-columns:1fr}}
 @media(max-width:900px){.training-module-summary{grid-template-columns:1fr}.training-people-grid{grid-template-columns:1fr}.main-nav .training-nav__admin-start{margin-left:0}}
 @media(max-width:620px){.training-hero,.training-module-hero{align-items:stretch;flex-direction:column}.training-total{text-align:left}.training-profile-fields,.objective-entry-grid,.objective-admin-grid{grid-template-columns:1fr}.analytics-bars>div{grid-template-columns:1fr 48px}.analytics-track{grid-column:1/-1}.training-create-level{align-items:stretch;flex-direction:column}.training-people-grid>a{grid-template-columns:42px 1fr 14px}.training-people-grid .status-pill{grid-column:2}}
+
+/* Native progress and colour controls avoid CSP-blocked inline style attributes. */
+.annotation-colour-dot{width:14px;height:14px;padding:0;border:0;border-radius:50%;overflow:hidden;pointer-events:none}
+.onboarding-progress{width:100%;border:0}
+.analytics-track{width:100%;border:0}
+.onboarding-progress::-webkit-progress-bar,.analytics-track::-webkit-progress-bar{background:rgba(255,255,255,.08)}
+.onboarding-progress::-webkit-progress-value{background:linear-gradient(90deg,#3f8ddd,#61d59a)}
+.onboarding-progress::-moz-progress-bar{background:linear-gradient(90deg,#3f8ddd,#61d59a)}
+.analytics-track::-webkit-progress-value{background:linear-gradient(90deg,#eb676f,#f1b34c,#52c77d)}
+.analytics-track::-moz-progress-bar{background:linear-gradient(90deg,#eb676f,#f1b34c,#52c77d)}
 .assurance-exception{background:rgba(239,107,115,.08)}
 .briefing-report-fold>summary{display:flex;width:100%;align-items:center;justify-content:space-between;gap:1rem;cursor:pointer;list-style:none;user-select:none}.briefing-report-fold>summary::-webkit-details-marker{display:none}.briefing-report-fold>summary::after{content:"";width:.58rem;height:.58rem;flex:0 0 .58rem;margin:0 .2rem 0 .25rem;border-right:2px solid #72d6bd;border-bottom:2px solid #72d6bd;transform:rotate(45deg) translateY(-2px);transition:transform .15s ease}.briefing-report-fold[open]>summary::after{transform:rotate(225deg) translate(-2px,-2px)}.briefing-report-fold>summary small{margin-left:auto;color:var(--muted, #aeb8c2);font-weight:400}.briefing-report-fold>summary:hover{background:#1c232c}.briefing-report-fold>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.briefing-report-fold[open]>summary{border-bottom:1px solid var(--border, #39434f)}
 .briefing-previous-reports{display:grid;gap:.65rem}.briefing-previous-report{display:grid;grid-template-columns:minmax(170px,.7fr) minmax(0,2fr) auto;align-items:center;gap:1rem;padding:.8rem;border:1px solid var(--border, #39434f);border-radius:10px}.briefing-previous-report__title small{display:block;color:var(--muted, #aeb8c2)}.briefing-previous-report__findings{display:flex;flex-wrap:wrap;gap:.4rem}.briefing-previous-report__findings span{padding:.2rem .5rem;border-radius:999px;background:rgba(255,255,255,.07);font-size:.76rem}.briefing-previous-report form{margin:0}

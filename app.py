@@ -58,6 +58,14 @@ from roster_logic import (
     validated_pattern,
 )
 from toil_service import apply_toil_transaction
+from production_operations import (
+    MetricsRegistry,
+    begin_request,
+    configure_production_logging,
+    finish_request,
+    register_operations_routes,
+    structured_event,
+)
 from absence_requests import (
     add_months as add_request_months,
     group_sickness_instances,
@@ -100,6 +108,8 @@ except Exception:
 # -------------------- App setup --------------------
 app = create_app()
 _runtime_settings = get_runtime_settings(app)
+configure_production_logging(app, _runtime_settings.deployment_environment)
+_operational_metrics = MetricsRegistry()
 
 # Writable local instance folder for development and tests.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -244,6 +254,7 @@ app.jinja_env.globals["csp_nonce"] = csp_nonce
 @app.before_request
 def _start_request_tenant_boundary():
     clear_request_context()
+    g.metrics_started_at = begin_request(_operational_metrics)
 
 
 @app.before_request
@@ -309,48 +320,6 @@ def subprocessor_notice():
     return render_template("subprocessors.html", **_legal_context())
 
 
-@app.get("/health/live")
-def health_live():
-    return jsonify({
-        "status": "ok",
-        "service": "atcroster",
-        "environment": DEPLOYMENT_ENV,
-    })
-
-
-@app.get("/health/ready")
-def health_ready():
-    try:
-        connection = db.session.connection()
-        connection.execute(text("SELECT 1"))
-        from sqlalchemy import inspect
-        from alembic.config import Config as AlembicConfig
-        from alembic.runtime.migration import MigrationContext
-        from alembic.script import ScriptDirectory
-        from migrations.fresh_schema import CONTROL_TABLES
-
-        present = set(inspect(connection).get_table_names())
-        revision = MigrationContext.configure(connection).get_current_revision()
-        expected_revision = ScriptDirectory.from_config(
-            AlembicConfig("alembic.ini")
-        ).get_current_head()
-        if (
-            not CONTROL_TABLES.issubset(present)
-            or (
-                DEPLOYMENT_ENV == "production"
-                and revision != expected_revision
-            )
-        ):
-            return jsonify({"status": "not_ready"}), 503
-        return jsonify({"status": "ready"})
-    except Exception:
-        app.logger.error(
-            "readiness_check_failed request_id=%s",
-            getattr(g, "request_id", ""),
-        )
-        return jsonify({"status": "not_ready"}), 503
-
-
 @app.errorhandler(500)
 def _internal_error(error):
     app.logger.error(
@@ -394,6 +363,7 @@ def _bad_request(error):
         )
     description = getattr(error, "description", "") or ""
     if "CSRF" in description:
+        _security_event("csrf_rejected", route=request.endpoint or "unmatched")
         message = (
             "This page or form has expired. Reload the page and try the action "
             "once more."
@@ -418,6 +388,12 @@ def _bad_request(error):
 
 @app.errorhandler(403)
 def _forbidden(_error):
+    _security_event(
+        "forbidden_role_action",
+        route=request.endpoint or "unmatched",
+        unit_id=getattr(current_user, "unit_id", None),
+        actor_id=getattr(current_user, "id", None),
+    )
     is_platform_admin = (
         getattr(current_user, "is_authenticated", False)
         and getattr(current_user, "role", "") == "superadmin"
@@ -602,6 +578,7 @@ def _bind_tenant_context():
         allowed_platform_endpoints = {
             "platform_admin", "logout", "password_change",
             "platform_worker_health",
+            "internal_metrics", "internal_health",
             "static", "favicon", "health_live", "health_ready",
         }
         if request.endpoint == "index":
@@ -678,10 +655,14 @@ def _security_headers(response):
         "object-src 'none'; "
         "img-src 'self' data:; "
         "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com "
+        f"style-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
+        "https://fonts.googleapis.com "
         "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+        "style-src-attr 'none'; "
         f"script-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
-        "https://cdn.jsdelivr.net",
+        "https://cdn.jsdelivr.net; "
+        "connect-src 'self'; worker-src 'self'; manifest-src 'self'"
+        + ("; upgrade-insecure-requests" if DEPLOYMENT_ENV == "production" else ""),
     )
     if request.is_secure or DEPLOYMENT_ENV == "production":
         response.headers.setdefault(
@@ -689,6 +670,34 @@ def _security_headers(response):
         )
     if current_user.is_authenticated:
         response.headers.setdefault("Cache-Control", "no-store, private")
+    started_at = getattr(g, "metrics_started_at", None)
+    if started_at is not None:
+        route = request.endpoint or "unmatched"
+        duration = finish_request(
+            _operational_metrics,
+            started_at,
+            route=route,
+            method=request.method,
+            status=response.status_code,
+        )
+        g.metrics_started_at = None
+        if DEPLOYMENT_ENV == "production":
+            app.logger.info(
+                "request_completed",
+                extra={
+                    "structured_fields": {
+                        "request_id": getattr(g, "request_id", ""),
+                        "route": route,
+                        "unit_id": getattr(current_user, "unit_id", None),
+                        "actor_id": getattr(current_user, "id", None),
+                        "outcome": (
+                            "success" if response.status_code < 400 else "error"
+                        ),
+                        "http_status": response.status_code,
+                        "duration_ms": round(duration * 1000, 2),
+                    }
+                },
+            )
     return response
 
 
@@ -7700,6 +7709,12 @@ def platform_worker_health():
             * 2
         ),
     )
+    _operational_metrics.set("worker_queue_depth", snapshot["queue_depth"])
+    _operational_metrics.set(
+        "worker_oldest_queued_age_seconds",
+        snapshot["oldest_queued_age_seconds"],
+    )
+    _operational_metrics.set("stale_workers", snapshot["stale_workers"])
     return jsonify(snapshot), 200 if snapshot["status"] == "ready" else 503
 
 
@@ -8957,15 +8972,18 @@ def _reset_rate_limit(scope: str, subject: object) -> None:
 
 
 def _security_event(event: str, **safe_fields) -> None:
-    payload = {
-        "event": event,
-        "request_id": getattr(g, "request_id", ""),
-        "occurred_at": utcnow().isoformat(),
+    if "login_failed" in event or event == "mfa_login_failed":
+        _operational_metrics.add("login_failures_total", event=event)
+    if "rate_limit" in event:
+        _operational_metrics.add("rate_limit_events_total", event=event)
+    if event == "rate_limiter_unavailable":
+        _operational_metrics.add("redis_failures_total", operation="rate_limit")
+    structured_event(
+        app.logger,
+        event,
+        request_id=getattr(g, "request_id", ""),
         **safe_fields,
-    }
-    app.logger.warning("security_event %s", json.dumps(
-        payload, sort_keys=True, default=str
-    ))
+    )
 
 
 def _current_auth_stamp(user) -> str:
@@ -9973,6 +9991,32 @@ app.register_blueprint(create_operations_blueprint(OperationsDependencies(
     Scenario=Scenario,
 )))
 app.register_blueprint(briefing_blueprint)
+
+from migrations.fresh_schema import CONTROL_TABLES
+
+
+def _operational_routes_ready() -> bool:
+    active_units = Unit.query.filter(
+        Unit.status == "active", Unit.code != "CTRL"
+    ).all()
+    for unit in active_units:
+        routing = db.session.get(DatabaseRoutingMetadata, unit.id)
+        if not routing or not routing.secret_name or not os.environ.get(
+            routing.secret_name
+        ):
+            return False
+    return True
+
+
+register_operations_routes(
+    app,
+    db=db,
+    environment=DEPLOYMENT_ENV,
+    limiter=_rate_limiter,
+    metrics=_operational_metrics,
+    required_tables=CONTROL_TABLES,
+    additional_readiness_check=_operational_routes_ready,
+)
 
 # -------------------- WSGI entry point --------------------
 # Compatibility alias for WSGI servers that import ``application``.
