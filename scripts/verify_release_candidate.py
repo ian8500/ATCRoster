@@ -56,7 +56,9 @@ def main() -> int:
     args = parser.parse_args()
 
     commit_code, commit = command("git", "rev-parse", "HEAD")
-    status_code, dirty_output = command("git", "status", "--porcelain")
+    status_code, dirty_output = command(
+        "git", "status", "--porcelain", "--", ".", ":(exclude)instance"
+    )
     heads_code, heads_output = command(sys.executable, "-m", "alembic", "heads")
     heads = [line.split()[0] for line in heads_output.splitlines() if line.strip()]
     environment = {
