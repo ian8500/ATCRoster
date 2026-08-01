@@ -19,7 +19,19 @@ Provider administrators and the database owner remain technically able to
 alter evidence. Their accounts require provider MFA, access logging and an
 approved break-glass procedure; this is outside application enforcement.
 
-## Apply after every migration
+## Controlled deployment
+
+Railway web and worker services contain only runtime database URLs. Migration
+owner URLs are stored as protected GitHub environment secrets named
+`CONTROL_DATABASE_OWNER_URL` and `OPERATIONAL_DATABASE_OWNER_URL`. The
+controlled-promotion workflow migrates with those credentials, reapplies and
+verifies runtime grants, and only then deploys the application services.
+
+Do not restore Railway's per-service pre-deploy migration command: Railway
+runs it in the application service environment and that would require exposing
+owner credentials to web and worker processes.
+
+## Manual application after a migration
 
 Create the roles and passwords through the managed PostgreSQL control plane.
 Do not store them in the repository. Set the migration-owner database URL in a
@@ -64,4 +76,3 @@ The PostgreSQL integration suite creates a real login role and proves:
 - audit update/delete fails with `InsufficientPrivilege`;
 - schema creation (representing migration authority) fails;
 - programmatic privilege verification passes.
-

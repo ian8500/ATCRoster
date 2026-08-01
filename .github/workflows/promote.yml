@@ -63,6 +63,9 @@ jobs:
       APP_ORIGIN: https://pilot.atcroster.com
       ACCEPTANCE_USERNAME: ${{ secrets.STAGING_USERNAME }}
       ACCEPTANCE_PASSWORD: ${{ secrets.STAGING_PASSWORD }}
+      CONTROL_DATABASE_URL: ${{ secrets.CONTROL_DATABASE_OWNER_URL }}
+      ATCROSTER_UNIT_1_DATABASE_URL: ${{ secrets.OPERATIONAL_DATABASE_OWNER_URL }}
+      ATCROSTER_RUNTIME_DATABASE_ROLE: atcroster_runtime
     steps:
       - name: Check out the exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,6 +75,23 @@ jobs:
 
       - name: Install pinned Railway CLI
         run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+
+      - name: Use supported migration Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-prod.txt
+
+      - name: Migrate and enforce database grants
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements-prod.txt
+          python scripts/migrate_all_databases.py
+          python scripts/apply_runtime_database_grants.py \
+            --database-url-env CONTROL_DATABASE_URL
+          python scripts/apply_runtime_database_grants.py \
+            --database-url-env ATCROSTER_UNIT_1_DATABASE_URL
 
       - name: Deploy web and worker
         env:
@@ -214,6 +234,10 @@ jobs:
       RAILWAY_WEB_SERVICE: 0a09e66c-43f6-4a8f-995e-97066c29cf07
       RAILWAY_WORKER_SERVICE: 1a7871f2-7b28-4abf-b78c-ed92532e9e27
       APP_ORIGIN: https://www.atcroster.com
+      CONTROL_DATABASE_URL: ${{ secrets.CONTROL_DATABASE_OWNER_URL }}
+      ATCROSTER_UNIT_1_DATABASE_URL: ${{ secrets.OPERATIONAL_DATABASE_OWNER_URL }}
+      ATCROSTER_UNIT_2_DATABASE_URL: ${{ secrets.OPERATIONAL_DATABASE_OWNER_URL }}
+      ATCROSTER_RUNTIME_DATABASE_ROLE: atcroster_runtime
     steps:
       - name: Check out the accepted commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -223,6 +247,23 @@ jobs:
 
       - name: Install pinned Railway CLI
         run: npm install --global "@railway/cli@$RAILWAY_CLI_VERSION"
+
+      - name: Use supported migration Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-prod.txt
+
+      - name: Migrate and enforce database grants
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements-prod.txt
+          python scripts/migrate_all_databases.py
+          python scripts/apply_runtime_database_grants.py \
+            --database-url-env CONTROL_DATABASE_URL
+          python scripts/apply_runtime_database_grants.py \
+            --database-url-env ATCROSTER_UNIT_1_DATABASE_URL
 
       - name: Deploy accepted web and worker
         env:
