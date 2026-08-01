@@ -5,7 +5,11 @@ import pytest
 
 import app
 from conftest import finish_operational_login
-from live_position_service import LivePositionModels, LivePositionService
+from live_position_service import (
+    LivePositionModels,
+    LivePositionService,
+    LivePositionValidationError,
+)
 
 
 @pytest.fixture()
@@ -113,6 +117,7 @@ def live_position_data():
         app.db.session.commit()
         yield {
             "kiosk_id": kiosk.id,
+            "admin_id": admin.id,
             "controller_id": controller.id,
             "supporter_id": supporter.id,
             "position_id": position.id,
@@ -175,6 +180,51 @@ def test_atomic_position_lifecycle_is_audited_and_idempotent(live_position_data)
         )
         assert ended.ended_at == moment
         assert app.PositionSessionAudit.query.count() == 3
+
+
+def test_service_rejects_unverified_actor_and_cross_unit_participant_role(
+    live_position_data,
+):
+    moment = datetime(2026, 7, 31, 8, 30)
+    with app.app.app_context():
+        service = _service(moment)
+        with pytest.raises(
+            LivePositionValidationError,
+            match="active kiosk account",
+        ):
+            service.set_position_open(
+                unit_id=1,
+                position_id=live_position_data["position_id"],
+                actor_id=live_position_data["admin_id"],
+                open_position=True,
+            )
+
+        other_unit = app.Unit(id=2, code="OTHER", name="Other Airport")
+        other_role = app.PositionParticipantRole(
+            unit_id=2,
+            code="ojti",
+            label="Other OJTI",
+            is_primary=False,
+        )
+        app.db.session.add_all([other_unit, other_role])
+        app.db.session.commit()
+
+        with pytest.raises(
+            LivePositionValidationError,
+            match="supporting participant role",
+        ):
+            service.start_session(
+                unit_id=1,
+                position_id=live_position_data["position_id"],
+                person_id=live_position_data["controller_id"],
+                actor_id=live_position_data["kiosk_id"],
+                participants=[
+                    {
+                        "person_id": live_position_data["supporter_id"],
+                        "role_id": other_role.id,
+                    }
+                ],
+            )
 
 
 def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(

@@ -55,6 +55,29 @@ class LivePositionService:
     def related_key(key: str, suffix: str) -> str:
         return hashlib.sha256(f"{key}:{suffix}".encode()).hexdigest()
 
+    def _verified_actor(self, unit_id: int, actor_id: int) -> Any:
+        actor = self.models.Staff.query.filter_by(
+            id=actor_id,
+            unit_id=unit_id,
+            membership_status="active",
+            role="position_monitor",
+        ).first()
+        if not actor:
+            raise LivePositionValidationError(
+                "An active kiosk account for this unit is required."
+            )
+        return actor
+
+    def _participant_role(self, unit_id: int, role_id: int) -> Any:
+        role = self.models.PositionParticipantRole.query.filter_by(
+            id=role_id, unit_id=unit_id, is_active=True, is_primary=False
+        ).first()
+        if not role:
+            raise LivePositionValidationError(
+                "Unknown or inactive supporting participant role."
+            )
+        return role
+
     def _position_for_update(self, unit_id: int, position_id: int) -> Any:
         position = (
             self.models.OperationalPosition.query.filter_by(
@@ -81,7 +104,12 @@ class LivePositionService:
 
     def _lock_available_person(self, unit_id: int, person_id: int) -> None:
         person = (
-            self.models.Staff.query.filter_by(id=person_id, unit_id=unit_id)
+            self.models.Staff.query.filter_by(
+                id=person_id,
+                unit_id=unit_id,
+                membership_status="active",
+                is_operational=True,
+            )
             .with_for_update()
             .first()
         )
@@ -122,9 +150,9 @@ class LivePositionService:
             role.code
             for row in rows
             if (
-                role := self.db.session.get(
-                    self.models.PositionParticipantRole, row.role_id
-                )
+                role := self.models.PositionParticipantRole.query.filter_by(
+                    id=row.role_id, unit_id=unit_id
+                ).first()
             )
         }
         if "assessor" in codes:
@@ -172,9 +200,10 @@ class LivePositionService:
         reason: str = "",
         request_key: str | None = None,
     ) -> Any:
+        self._verified_actor(unit_id, actor_id)
         key = self.transaction_key(request_key)
         existing = self.models.PositionStatusEvent.query.filter_by(
-            transaction_key=key
+            unit_id=unit_id, transaction_key=key
         ).first()
         if existing:
             return existing
@@ -242,11 +271,12 @@ class LivePositionService:
         request_key: str | None = None,
         participants: list[dict[str, int]] | None = None,
     ) -> Any:
+        self._verified_actor(unit_id, actor_id)
         if session_type not in {"operational", "training", "assessment", "supervised"}:
             raise LivePositionValidationError("Unsupported session type.")
         key = self.transaction_key(request_key)
         existing = self.models.PositionSession.query.filter_by(
-            transaction_key=key
+            unit_id=unit_id, transaction_key=key
         ).first()
         if existing:
             return existing
@@ -257,6 +287,8 @@ class LivePositionService:
             if self._open_session(unit_id, position_id):
                 raise LivePositionConflict("The position is already occupied.")
             participant_ids = [int(item["person_id"]) for item in (participants or [])]
+            for participant in participants or []:
+                self._participant_role(unit_id, int(participant["role_id"]))
             if person_id in participant_ids or len(participant_ids) != len(
                 set(participant_ids)
             ):
@@ -390,12 +422,15 @@ class LivePositionService:
         reason: str = "logoff",
         request_key: str | None = None,
     ) -> Any:
+        self._verified_actor(unit_id, actor_id)
         key = self.transaction_key(request_key)
         audit = self.models.PositionSessionAudit.query.filter_by(
-            transaction_key=key, action="session_ended"
+            unit_id=unit_id, transaction_key=key, action="session_ended"
         ).first()
         if audit and audit.session_id:
-            return self.db.session.get(self.models.PositionSession, audit.session_id)
+            return self.models.PositionSession.query.filter_by(
+                id=audit.session_id, unit_id=unit_id
+            ).first()
         timestamp = self.now()
         self._position_for_update(unit_id, position_id)
         session = self._open_session(unit_id, position_id)
@@ -425,9 +460,11 @@ class LivePositionService:
         actor_id: int,
         request_key: str | None = None,
     ) -> Any:
+        self._verified_actor(unit_id, actor_id)
+        self._participant_role(unit_id, role_id)
         key = self.transaction_key(request_key)
         existing = self.models.PositionSessionParticipant.query.filter_by(
-            transaction_key=key
+            unit_id=unit_id, transaction_key=key
         ).first()
         if existing:
             return existing
@@ -498,14 +535,17 @@ class LivePositionService:
         actor_id: int,
         request_key: str | None = None,
     ) -> Any:
+        self._verified_actor(unit_id, actor_id)
         key = self.transaction_key(request_key)
         prior = self.models.PositionSessionAudit.query.filter_by(
-            transaction_key=key, action="participant_removed"
+            unit_id=unit_id,
+            transaction_key=key,
+            action="participant_removed",
         ).first()
         if prior:
-            return self.db.session.get(
-                self.models.PositionSessionParticipant, participant_id
-            )
+            return self.models.PositionSessionParticipant.query.filter_by(
+                id=participant_id, unit_id=unit_id
+            ).first()
         timestamp = self.now()
         session = self._open_session(unit_id, position_id)
         if not session:
@@ -551,9 +591,11 @@ class LivePositionService:
         request_key: str | None = None,
         participants: list[dict[str, int]] | None = None,
     ) -> Any:
+        self._verified_actor(unit_id, actor_id)
         key = self.transaction_key(request_key)
         existing = self.models.PositionSession.query.filter_by(
-            transaction_key=self.related_key(key, "incoming")
+            unit_id=unit_id,
+            transaction_key=self.related_key(key, "incoming"),
         ).first()
         if existing:
             return existing
@@ -563,6 +605,8 @@ class LivePositionService:
         if not outgoing:
             raise LivePositionConflict("The position is not occupied.")
         participant_ids = [int(item["person_id"]) for item in (participants or [])]
+        for participant in participants or []:
+            self._participant_role(unit_id, int(participant["role_id"]))
         if incoming_person_id in participant_ids or len(participant_ids) != len(
             set(participant_ids)
         ):
