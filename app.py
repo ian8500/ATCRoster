@@ -526,6 +526,11 @@ def _bind_tenant_context():
     g.csp_nonce = secrets.token_urlsafe(18)
     g.tenant_context_token = None
     g.platform_control_token = None
+    if session.get("_user_id") and not current_user.is_authenticated:
+        # Flask-Login treats a principal rejected by the user loader as
+        # anonymous but otherwise leaves the stale signed session cookie in
+        # place. Remove it immediately when a membership/account is disabled.
+        session.clear()
     if current_user.is_authenticated:
         now_epoch = int(utcnow().timestamp())
         idle_limit = int(
@@ -8882,14 +8887,21 @@ def _current_auth_stamp(user) -> str:
             identity_id=user.id
         ).first()
     else:
-        # Airport MFA lives in the operational database and is deliberately
-        # excluded from this control-plane stamp. Its reset workflow revokes
-        # the affected login directly; querying it here would make the stamp
-        # dependent on request routing state.
-        credential = None
+        # The user loader binds the verified membership's operational route
+        # before this is called. Including airport MFA state ensures that
+        # enrolment, replacement or reset revokes every previously issued
+        # browser session for that person.
+        credential = MfaCredential.query.filter_by(person_id=user.id).first()
+    enrolled_at = getattr(credential, "enrolled_at", None)
+    if enrolled_at and enrolled_at.tzinfo is not None:
+        enrolled_at = enrolled_at.astimezone(timezone.utc).replace(tzinfo=None)
     parts.extend([
         str(bool(credential and credential.enabled)),
         str(bool(getattr(credential, "reset_required", False))),
+        hashlib.sha256(
+            str(getattr(credential, "encrypted_secret", "")).encode()
+        ).hexdigest(),
+        enrolled_at.isoformat() if enrolled_at else "",
     ])
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 
