@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, inspect, text
 CONTROL_URL = os.environ.get("ATCROSTER_TEST_CONTROL_DATABASE_URL")
 AIRPORT_A_URL = os.environ.get("ATCROSTER_TEST_A_DATABASE_URL")
 AIRPORT_B_URL = os.environ.get("ATCROSTER_TEST_B_DATABASE_URL")
+RESTORE_URL = os.environ.get("ATCROSTER_TEST_RESTORE_DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(
     not all((CONTROL_URL, AIRPORT_A_URL, AIRPORT_B_URL)),
@@ -30,6 +31,7 @@ from app import (  # noqa: E402
     db,
 )
 from scripts.migrate_all_databases import upgrade_database  # noqa: E402
+from scripts.database_backup import create_backup, restore_backup  # noqa: E402
 import platform_provisioning  # noqa: E402
 from platform_provisioning import ProvisioningWorker  # noqa: E402
 from tenancy import dispose_operational_engines  # noqa: E402
@@ -198,3 +200,34 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
         ).one()
         assert completed.state == "completed"
     dispose_operational_engines()
+
+
+@pytest.mark.skipif(not RESTORE_URL, reason="restore test database URL is required")
+def test_generated_postgresql_backup_restores_and_preserves_key_records(tmp_path):
+    _reset_postgres(AIRPORT_A_URL)
+    _reset_postgres(RESTORE_URL)
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_34"
+    source = create_engine(AIRPORT_A_URL)
+    with source.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE recovery_probe "
+            "(id INTEGER PRIMARY KEY, value TEXT NOT NULL)"
+        ))
+        connection.execute(text(
+            "INSERT INTO recovery_probe (id, value) "
+            "VALUES (1, 'verified')"
+        ))
+    source.dispose()
+    archive, metadata = create_backup(
+        AIRPORT_A_URL, tmp_path, "airport-test", "operational"
+    )
+    result = restore_backup(archive, metadata, RESTORE_URL)
+    assert result.alembic_revision == "20260801_34"
+    restored = create_engine(RESTORE_URL)
+    try:
+        with restored.connect() as connection:
+            assert connection.execute(text(
+                "SELECT value FROM recovery_probe WHERE id=1"
+            )).scalar_one() == "verified"
+    finally:
+        restored.dispose()
