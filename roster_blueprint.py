@@ -597,7 +597,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             year, month = dependencies.parse_year_month(ym)
             if duty_day.year != year or duty_day.month != month:
                 raise ValueError
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             abort(400, "Invalid roster date.")
         unit_id = dependencies.current_unit_id()
         person = dependencies.Staff.query.filter_by(

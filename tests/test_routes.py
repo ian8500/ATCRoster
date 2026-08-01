@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pyotp
 import pytest
+from sqlalchemy.exc import IntegrityError
 from conftest import finish_operational_login
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -23,8 +24,10 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 import app
 from app import (
+    AnnotationAudit,
     AnnotationType,
     Assignment,
+    ChangeLog,
     ShiftType,
     Staff,
     StaffWatchHistory,
@@ -256,6 +259,14 @@ def acknowledge_reports(client):
     )
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/reports")
+
+
+def copy_authenticated_session(source_client, target_client):
+    with source_client.session_transaction() as source_session:
+        values = dict(source_session)
+    with target_client.session_transaction() as target_session:
+        target_session.clear()
+        target_session.update(values)
 
 
 def test_reports_require_sensitive_data_acknowledgement(client):
@@ -2223,6 +2234,149 @@ def test_privilege_change_forces_existing_session_invalidation(client):
             ).one()
             admin.role = "admin"
             db.session.commit()
+
+
+def test_password_change_revokes_another_existing_session(client):
+    other_client = app.app.test_client()
+    login(client)
+    copy_authenticated_session(client, other_client)
+    response = client.post(
+        "/password",
+        data={
+            "_csrf_token": csrf(client),
+            "current_password": ADMIN_CREDENTIALS["password"],
+            "new_password": "replacement-password-2026",
+            "confirm_password": "replacement-password-2026",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    try:
+        revoked = other_client.get("/", follow_redirects=False)
+        assert revoked.status_code == 302
+        assert "/login" in revoked.headers["Location"]
+        with other_client.session_transaction() as browser_session:
+            assert "_user_id" not in browser_session
+    finally:
+        with app.app.app_context():
+            person = Staff.query.filter_by(
+                username=ADMIN_CREDENTIALS["username"]
+            ).one()
+            person.set_password(ADMIN_CREDENTIALS["password"])
+            identity = app.PlatformIdentity.query.filter_by(
+                username=ADMIN_CREDENTIALS["username"]
+            ).one()
+            identity.password_hash = person.password_hash
+            db.session.commit()
+
+
+def test_airport_mfa_change_revokes_another_existing_session(client):
+    other_client = app.app.test_client()
+    login(client)
+    copy_authenticated_session(client, other_client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        credential = app.MfaCredential.query.filter_by(
+            person_id=person.id
+        ).one()
+        original_secret = credential.encrypted_secret
+        credential.encrypted_secret = app._encrypt_field(pyotp.random_base32())
+        credential.enrolled_at = app.utcnow()
+        db.session.commit()
+    try:
+        revoked = other_client.get("/", follow_redirects=False)
+        assert revoked.status_code == 302
+        assert "/login" in revoked.headers["Location"]
+        with other_client.session_transaction() as browser_session:
+            assert "_user_id" not in browser_session
+    finally:
+        with app.app.app_context():
+            person = Staff.query.filter_by(
+                username=ADMIN_CREDENTIALS["username"]
+            ).one()
+            credential = app.MfaCredential.query.filter_by(
+                person_id=person.id
+            ).one()
+            credential.encrypted_secret = original_secret
+            db.session.commit()
+
+
+def test_membership_deactivation_stops_an_existing_session_immediately(client):
+    login(client)
+    with app.app.app_context():
+        identity = app.PlatformIdentity.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        membership = app.UnitMembership.query.filter_by(
+            identity_id=identity.id, unit_id=1
+        ).one()
+        membership.status = "suspended"
+        db.session.commit()
+        membership_id = membership.id
+    try:
+        response = client.get("/", follow_redirects=False)
+        assert response.status_code == 302
+        assert "/login" in response.headers["Location"]
+        with client.session_transaction() as browser_session:
+            assert "_user_id" not in browser_session
+    finally:
+        with app.app.app_context():
+            membership = db.session.get(app.UnitMembership, membership_id)
+            membership.status = "active"
+            db.session.commit()
+
+
+def test_audit_evidence_cannot_be_modified_or_deleted_through_the_orm(client):
+    login(client)
+    with app.app.app_context():
+        audit = ChangeLog(
+            unit_id=1,
+            who_user_id=1,
+            entity_type="Assurance",
+            entity_id=1,
+            field="state",
+            old_value="before",
+            new_value="after",
+        )
+        db.session.add(audit)
+        db.session.commit()
+        audit_id = audit.id
+        audit.new_value = "tampered"
+        with pytest.raises(PermissionError, match="append-only"):
+            db.session.commit()
+        db.session.rollback()
+        audit = db.session.get(ChangeLog, audit_id)
+        assert audit.new_value == "after"
+        db.session.delete(audit)
+        with pytest.raises(PermissionError, match="append-only"):
+            db.session.commit()
+        db.session.rollback()
+        assert db.session.get(ChangeLog, audit_id) is not None
+
+
+def test_business_change_and_audit_evidence_roll_back_atomically(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        day = date(2031, 1, 7)
+        assignment = Assignment(
+            unit_id=1, staff_id=person.id, day=day, code="M", source="manual"
+        )
+        invalid_audit = AnnotationAudit(
+            unit_id=1,
+            assignment_id=None,
+            actor_id=person.id,
+            action=None,
+        )
+        db.session.add_all([assignment, invalid_audit])
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+        assert Assignment.query.filter_by(staff_id=person.id, day=day).first() is None
 
 
 def test_airport_absence_catalogue_and_calendar_token(client):

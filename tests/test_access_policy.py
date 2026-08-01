@@ -33,6 +33,7 @@ def test_admin_role_and_legacy_admin_flag_are_both_recognised():
 def test_invalid_or_non_object_permissions_default_to_deny():
     assert permissions_for(_user(permissions_json="not-json")) == {}
     assert permissions_for(_user(permissions_json='["edit_roster"]')) == {}
+    assert permissions_for(_user(permissions_json={"edit_roster": True})) == {}
     assert has_permission(_user(), "edit_roster") is False
 
 

@@ -111,7 +111,7 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
                     request.form.get("training_date") or ""
                 )
                 duration_minutes = int(request.form.get("duration_minutes") or 0)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 abort(400, "Enter a valid training date and duration.")
             if not 1 <= duration_minutes <= 1440:
                 abort(400, "Training duration must be between 1 and 1,440 minutes.")
