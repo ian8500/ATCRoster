@@ -1,5 +1,4 @@
 from datetime import date, datetime
-import json
 import re
 
 import pytest
@@ -644,9 +643,11 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
         assert configured.label == "Ground Movement Control"
         assert configured.group_name == "Radar"
         assert configured.maximum_session_duration_minutes == 90
-        assert json.loads(configured.maximum_session_duration_matrix_json) == {
-            "0:8": 75
-        }
+        allowance = app.OperationalPositionTimeAllowance.query.filter_by(
+            unit_id=1, position_id=configured.id
+        ).one()
+        assert (allowance.weekday, allowance.start_hour) == (0, 8)
+        assert allowance.maximum_duration_minutes == 75
         assert configured.currency_category_id == category_id
     page = client.get("/live-positions/admin/positions")
     assert b'<option value="%d" selected>Radar</option>' % group_id in page.data
