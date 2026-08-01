@@ -547,6 +547,7 @@ class LivePositionService:
         incoming_person_id: int,
         actor_id: int,
         session_type: str = "operational",
+        maximum_duration_seconds: int | None = None,
         request_key: str | None = None,
         participants: list[dict[str, int]] | None = None,
     ) -> Any:
@@ -579,6 +580,11 @@ class LivePositionService:
         if session_type == "assessment" and not position.assessment_supported:
             raise LivePositionValidationError("Assessment is not supported here.")
         self._end_session_records(outgoing, timestamp, "handover", key)
+        effective_maximum_duration_seconds = (
+            maximum_duration_seconds
+            if maximum_duration_seconds is not None
+            else position.maximum_session_duration_minutes * 60
+        )
         incoming = self.models.PositionSession(
             unit_id=unit_id,
             position_id=position_id,
@@ -586,15 +592,9 @@ class LivePositionService:
             session_type=session_type,
             started_at=timestamp,
             currency_category_id=position.currency_category_id,
-            maximum_duration_seconds=(
-                position.maximum_session_duration_minutes * 60
-            ),
-            due_off_at=(
-                timestamp
-                + timedelta(
-                    minutes=position.maximum_session_duration_minutes
-                )
-            ),
+            maximum_duration_seconds=effective_maximum_duration_seconds,
+            due_off_at=timestamp
+            + timedelta(seconds=effective_maximum_duration_seconds),
             created_by_id=actor_id,
             transaction_key=self.related_key(key, "incoming"),
         )

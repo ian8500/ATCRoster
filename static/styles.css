@@ -98,6 +98,15 @@
 .live-position-dialog h2, .live-position-dialog p { margin: 0; }
 .live-position-logoff-options { display: grid; gap: .75rem; margin-top: 1rem; }
 .live-position-logoff-options .btn { width: 100%; min-height: 50px; }
+.live-position-time-matrix { grid-column:1/-1; overflow:hidden; border:1px solid var(--line); border-radius:10px; }
+.live-position-time-matrix > summary { display:flex; justify-content:space-between; gap:1rem; padding:.85rem 1rem; cursor:pointer; }
+.live-position-time-matrix > p, .live-position-time-matrix > small { display:block; margin:.75rem 1rem; color:var(--text-muted); }
+.live-position-time-matrix__scroll { overflow-x:auto; padding:0 1rem .5rem; }
+.live-position-time-matrix table { width:max-content; border-collapse:collapse; }
+.live-position-time-matrix th { position:sticky; left:0; z-index:1; min-width:90px; padding:.35rem .5rem; background:var(--card); text-align:left; }
+.live-position-time-matrix thead th { position:static; min-width:58px; text-align:center; }
+.live-position-time-matrix td { padding:.2rem; border-left:1px solid var(--line); }
+.live-position-time-matrix input { width:54px; min-height:38px; padding:.25rem; text-align:center; }
 .operational-report-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:1rem; align-items:end; margin-bottom:1rem; }
 .operational-report-filters label { display:grid; gap:.35rem; }
 .operational-report-filters .btn { min-height:44px; }

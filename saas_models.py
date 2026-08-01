@@ -349,6 +349,9 @@ def register_saas_models(db, utcnow):
         maximum_session_duration_minutes = db.Column(
             db.Integer, nullable=False, default=120
         )
+        maximum_session_duration_matrix_json = db.Column(
+            db.Text, nullable=False, default="{}"
+        )
         currency_category_id = db.Column(
             db.Integer, db.ForeignKey("position_currency_category.id")
         )
