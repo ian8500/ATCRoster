@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 from alembic import command
@@ -14,6 +15,37 @@ from sqlalchemy import create_engine, inspect, text
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
+MIGRATION_ADVISORY_LOCK_ID = 4_287_603_356
+
+
+@contextmanager
+def deployment_migration_lock(database_url: str):
+    """Serialize concurrent Railway pre-deploy migrations on PostgreSQL.
+
+    Railway runs the shared pre-deploy command for both the web and worker
+    services.  A session-level advisory lock keeps those processes from racing
+    while Alembic updates the same version tables.  Other database engines are
+    retained for local development and do not need this PostgreSQL primitive.
+    """
+    engine = create_engine(database_url, pool_pre_ping=True)
+    connection = engine.connect()
+    locked = False
+    try:
+        if connection.dialect.name == "postgresql":
+            connection.execute(
+                text("SELECT pg_advisory_lock(:lock_id)"),
+                {"lock_id": MIGRATION_ADVISORY_LOCK_ID},
+            )
+            locked = True
+        yield
+    finally:
+        if locked:
+            connection.execute(
+                text("SELECT pg_advisory_unlock(:lock_id)"),
+                {"lock_id": MIGRATION_ADVISORY_LOCK_ID},
+            )
+        connection.close()
+        engine.dispose()
 
 
 def _ensure_info_annotation(database_url: str, unit_id: int) -> None:
@@ -95,53 +127,56 @@ def main() -> None:
     )
     if not control_url:
         raise SystemExit("CONTROL_DATABASE_URL is required.")
-    control_version = upgrade_database(control_url, "control")
-    print(f"Control database upgraded to {control_version}.")
-    control_engine = create_engine(control_url, pool_pre_ping=True)
-    try:
-        with control_engine.connect() as connection:
-            routes = connection.execute(
-                text(
-                    "SELECT r.unit_id, r.secret_name "
-                    "FROM database_routing_metadata r "
-                    "ORDER BY r.unit_id"
-                )
-            ).all()
-    finally:
-        control_engine.dispose()
-    configured_routes = {secret_name: unit_id for unit_id, secret_name in routes}
-    # Deployment manifests may provide an airport database before its control
-    # metadata is created. Migrate every strictly named secret as well as every
-    # registered route; values are never printed.
-    for secret_name in os.environ:
-        if SECRET_NAME_PATTERN.fullmatch(secret_name):
-            configured_routes.setdefault(
-                secret_name,
-                int(
-                    secret_name.removeprefix("ATCROSTER_UNIT_").removesuffix(
-                        "_DATABASE_URL"
+    with deployment_migration_lock(control_url):
+        control_version = upgrade_database(control_url, "control")
+        print(f"Control database upgraded to {control_version}.")
+        control_engine = create_engine(control_url, pool_pre_ping=True)
+        try:
+            with control_engine.connect() as connection:
+                routes = connection.execute(
+                    text(
+                        "SELECT r.unit_id, r.secret_name "
+                        "FROM database_routing_metadata r "
+                        "ORDER BY r.unit_id"
                     )
-                ),
-            )
-    for secret_name, unit_id in sorted(
-        configured_routes.items(), key=lambda item: item[1]
-    ):
-        if not SECRET_NAME_PATTERN.fullmatch(secret_name or ""):
-            raise SystemExit(f"Unit {unit_id} has an invalid deployment-secret name.")
-        operational_url = os.environ.get(secret_name)
-        if not operational_url:
-            raise SystemExit(
-                f"Required deployment secret {secret_name} is unavailable."
-            )
-        if _canonical_database_url(operational_url) == _canonical_database_url(
-            control_url
+                ).all()
+        finally:
+            control_engine.dispose()
+        configured_routes = {secret_name: unit_id for unit_id, secret_name in routes}
+        # Deployment manifests may provide an airport database before its control
+        # metadata is created. Migrate every strictly named secret as well as every
+        # registered route; values are never printed.
+        for secret_name in os.environ:
+            if SECRET_NAME_PATTERN.fullmatch(secret_name):
+                configured_routes.setdefault(
+                    secret_name,
+                    int(
+                        secret_name.removeprefix("ATCROSTER_UNIT_").removesuffix(
+                            "_DATABASE_URL"
+                        )
+                    ),
+                )
+        for secret_name, unit_id in sorted(
+            configured_routes.items(), key=lambda item: item[1]
         ):
-            raise SystemExit(
-                f"Unit {unit_id} operational database must differ from control."
-            )
-        version = upgrade_database(operational_url, "operational")
-        _ensure_info_annotation(operational_url, unit_id)
-        print(f"Operational database for unit {unit_id} upgraded to {version}.")
+            if not SECRET_NAME_PATTERN.fullmatch(secret_name or ""):
+                raise SystemExit(
+                    f"Unit {unit_id} has an invalid deployment-secret name."
+                )
+            operational_url = os.environ.get(secret_name)
+            if not operational_url:
+                raise SystemExit(
+                    f"Required deployment secret {secret_name} is unavailable."
+                )
+            if _canonical_database_url(operational_url) == _canonical_database_url(
+                control_url
+            ):
+                raise SystemExit(
+                    f"Unit {unit_id} operational database must differ from control."
+                )
+            version = upgrade_database(operational_url, "operational")
+            _ensure_info_annotation(operational_url, unit_id)
+            print(f"Operational database for unit {unit_id} upgraded to {version}.")
 
 
 def _canonical_database_url(value: str) -> str:
