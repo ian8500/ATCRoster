@@ -121,7 +121,7 @@ def create_live_position_blueprint(
     def _int_field(data: dict[str, Any], name: str, default: int = 0) -> int:
         try:
             return int(data.get(name) or default)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return default
 
     def _iso_timestamp(value: Any) -> str:

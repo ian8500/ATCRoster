@@ -408,7 +408,7 @@ def create_operations_blueprint(dependencies: OperationsDependencies) -> Bluepri
                 parsed = json.loads(changes)
                 if not isinstance(parsed, list):
                     raise ValueError
-            except ValueError, json.JSONDecodeError:
+            except (ValueError, json.JSONDecodeError):
                 abort(400, "Scenario changes must be a JSON list")
             evaluated = []
             for change in parsed:
@@ -419,7 +419,7 @@ def create_operations_blueprint(dependencies: OperationsDependencies) -> Bluepri
                 try:
                     person_id = int(item.get("staff_id"))
                     duty_date = date.fromisoformat(str(item.get("day") or ""))
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     abort(400, "Scenario staff and dates must be valid.")
                 person = dependencies.Staff.query.filter_by(
                     id=person_id, unit_id=unit_id, is_operational=True

@@ -437,7 +437,7 @@ def create_absence_requests_blueprint(
             if form == "add":
                 try:
                     day = date.fromisoformat(request.form.get("day", ""))
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     flash("Enter a valid request date.", "error")
                     return redirect(url_for("requests_page"))
                 code = (request.form.get("code") or "").upper().strip()
@@ -523,7 +523,7 @@ def create_absence_requests_blueprint(
             if form == "del":
                 try:
                     rid = int(request.form.get("rid", ""))
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     abort(400)
                 req = dependencies.ShiftRequest.query.filter_by(
                     id=rid, unit_id=unit_id
@@ -555,7 +555,7 @@ def create_absence_requests_blueprint(
             if form == "dismiss":
                 try:
                     rid = int(request.form.get("rid", ""))
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     abort(400)
                 req = dependencies.ShiftRequest.query.filter_by(
                     id=rid, unit_id=unit_id, staff_id=current_user.id
