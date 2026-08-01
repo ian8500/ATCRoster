@@ -40,9 +40,9 @@ named environment variable, then run:
 ```text
 ATCROSTER_RUNTIME_DATABASE_ROLE=<runtime-role>
 ATCROSTER_AUDIT_READ_ROLE=<optional-reader-role>
-python scripts/apply_runtime_database_grants.py \
+python -m scripts.apply_runtime_database_grants \
   --database-url-env CONTROL_DATABASE_OWNER_URL
-python scripts/apply_runtime_database_grants.py \
+python -m scripts.apply_runtime_database_grants \
   --database-url-env ATCROSTER_UNIT_1_DATABASE_OWNER_URL
 ```
 
@@ -52,9 +52,9 @@ without changing grants. Repeat for every routed airport database.
 ## Release verification
 
 ```text
-python scripts/verify_runtime_database_grants.py \
+python -m scripts.verify_runtime_database_grants \
   --database-url-env CONTROL_DATABASE_OWNER_URL
-python scripts/verify_runtime_database_grants.py \
+python -m scripts.verify_runtime_database_grants \
   --database-url-env ATCROSTER_UNIT_1_DATABASE_OWNER_URL
 ```
 

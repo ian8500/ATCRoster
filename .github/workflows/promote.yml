@@ -87,10 +87,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check -r requirements-prod.txt
-          python scripts/migrate_all_databases.py
-          python scripts/apply_runtime_database_grants.py \
+          python -m scripts.migrate_all_databases
+          python -m scripts.apply_runtime_database_grants \
             --database-url-env CONTROL_DATABASE_URL
-          python scripts/apply_runtime_database_grants.py \
+          python -m scripts.apply_runtime_database_grants \
             --database-url-env ATCROSTER_UNIT_1_DATABASE_URL
 
       - name: Deploy web and worker
@@ -259,10 +259,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check -r requirements-prod.txt
-          python scripts/migrate_all_databases.py
-          python scripts/apply_runtime_database_grants.py \
+          python -m scripts.migrate_all_databases
+          python -m scripts.apply_runtime_database_grants \
             --database-url-env CONTROL_DATABASE_URL
-          python scripts/apply_runtime_database_grants.py \
+          python -m scripts.apply_runtime_database_grants \
             --database-url-env ATCROSTER_UNIT_1_DATABASE_URL
 
       - name: Deploy accepted web and worker
