@@ -90,6 +90,11 @@ from access_policy import (
     permissions_for,
 )
 from atcroster import create_app, get_runtime_settings
+from atcroster.security.headers import (
+    SecurityHeaderDependencies,
+    csp_nonce,
+    register_security_headers,
+)
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -243,13 +248,6 @@ def _validate_csrf() -> None:
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
-
-
-def csp_nonce() -> str:
-    return getattr(g, "csp_nonce", "")
-
-
-app.jinja_env.globals["csp_nonce"] = csp_nonce
 
 
 @app.before_request
@@ -638,68 +636,14 @@ def _bind_tenant_context():
             return redirect(url_for("mfa_setup"))
 
 
-@app.after_request
-def _security_headers(response):
-    response.headers["X-Request-ID"] = getattr(g, "request_id", "")
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault(
-        "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
-    )
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; "
-        "base-uri 'self'; "
-        "form-action 'self'; "
-        "frame-ancestors 'none'; "
-        "object-src 'none'; "
-        "img-src 'self' data:; "
-        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
-        f"style-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
-        "https://fonts.googleapis.com "
-        "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
-        "style-src-attr 'none'; "
-        f"script-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
-        "https://cdn.jsdelivr.net; "
-        "connect-src 'self'; worker-src 'self'; manifest-src 'self'"
-        + ("; upgrade-insecure-requests" if DEPLOYMENT_ENV == "production" else ""),
-    )
-    if request.is_secure or DEPLOYMENT_ENV == "production":
-        response.headers.setdefault(
-            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
-        )
-    if current_user.is_authenticated:
-        response.headers.setdefault("Cache-Control", "no-store, private")
-    started_at = getattr(g, "metrics_started_at", None)
-    if started_at is not None:
-        route = request.endpoint or "unmatched"
-        duration = finish_request(
-            _operational_metrics,
-            started_at,
-            route=route,
-            method=request.method,
-            status=response.status_code,
-        )
-        g.metrics_started_at = None
-        if DEPLOYMENT_ENV == "production":
-            app.logger.info(
-                "request_completed",
-                extra={
-                    "structured_fields": {
-                        "request_id": getattr(g, "request_id", ""),
-                        "route": route,
-                        "unit_id": getattr(current_user, "unit_id", None),
-                        "actor_id": getattr(current_user, "id", None),
-                        "outcome": (
-                            "success" if response.status_code < 400 else "error"
-                        ),
-                        "http_status": response.status_code,
-                        "duration_ms": round(duration * 1000, 2),
-                    }
-                },
-            )
-    return response
+_security_headers = register_security_headers(
+    app,
+    SecurityHeaderDependencies(
+        deployment_environment=DEPLOYMENT_ENV,
+        metrics=_operational_metrics,
+        finish_request=finish_request,
+    ),
+)
 
 
 @app.teardown_request
