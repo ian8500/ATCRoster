@@ -2,6 +2,7 @@
 
 import os
 import hashlib
+import json
 import threading
 from pathlib import Path
 
@@ -48,6 +49,11 @@ import platform_provisioning  # noqa: E402
 from platform_provisioning import ProvisioningWorker  # noqa: E402
 from tenancy import dispose_operational_engines, operational_unit_context  # noqa: E402
 from toil_service import apply_toil_transaction  # noqa: E402
+from live_position_service import (  # noqa: E402
+    LivePositionConflict,
+    LivePositionModels,
+    LivePositionService,
+)
 from tests.test_physical_database_isolation import (  # noqa: E402
     _seed_operational_unit,
 )
@@ -318,7 +324,7 @@ def _insert_staff(connection, unit_id, username):
         {
             "unit_id": unit_id,
             "username": username,
-            "staff_no": f"STAFF-{unit_id}",
+            "staff_no": f"{username}-{unit_id}",
         },
     ).scalar_one()
 
@@ -422,16 +428,22 @@ def test_postgresql_concurrent_toil_retry_changes_balance_once(monkeypatch):
     check = create_engine(AIRPORT_A_URL)
     try:
         with check.connect() as connection:
-            assert connection.execute(
-                text("SELECT toil_half_days FROM staff WHERE id=:id"),
-                {"id": person_id},
-            ).scalar_one() == 2
-            assert connection.execute(
-                text(
-                    "SELECT count(*) FROM toil_transaction "
-                    "WHERE unit_id=1 AND transaction_key='same-toil-retry'"
-                )
-            ).scalar_one() == 1
+            assert (
+                connection.execute(
+                    text("SELECT toil_half_days FROM staff WHERE id=:id"),
+                    {"id": person_id},
+                ).scalar_one()
+                == 2
+            )
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT count(*) FROM toil_transaction "
+                        "WHERE unit_id=1 AND transaction_key='same-toil-retry'"
+                    )
+                ).scalar_one()
+                == 1
+            )
     finally:
         check.dispose()
         dispose_operational_engines()
@@ -495,3 +507,419 @@ def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
         with psycopg.connect(owner_dsn, autocommit=True) as owner:
             owner.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(role)))
             owner.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
+
+
+def test_postgresql_two_roster_editors_reject_the_stale_cell_version():
+    _reset_postgres(AIRPORT_A_URL)
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
+    engine = create_engine(AIRPORT_A_URL)
+    with engine.begin() as connection:
+        person_id = _insert_staff(connection, 1, "roster-race")
+        connection.execute(
+            text("INSERT INTO requirement (unit_id, year, month) VALUES (1, 2026, 8)")
+        )
+        assignment_id = connection.execute(
+            text(
+                "INSERT INTO assignment (unit_id, staff_id, day, code, version) "
+                "VALUES (1, :person, DATE '2026-08-10', 'M', 1) RETURNING id"
+            ),
+            {"person": person_id},
+        ).scalar_one()
+    engine.dispose()
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    def edit(code):
+        with psycopg.connect(
+            make_url(AIRPORT_A_URL)
+            .set(drivername="postgresql")
+            .render_as_string(hide_password=False)
+        ) as connection:
+            barrier.wait(timeout=10)
+            row = connection.execute(
+                "UPDATE assignment SET code=%s, version=version+1 "
+                "WHERE id=%s AND version=1 RETURNING id",
+                (code, assignment_id),
+            ).fetchone()
+            outcomes.append("updated" if row else "conflict")
+
+    threads = [threading.Thread(target=edit, args=(code,)) for code in ("A", "N")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    assert outcomes.count("updated") == 1
+    assert outcomes.count("conflict") == 1
+    with create_engine(AIRPORT_A_URL).connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT version FROM assignment WHERE id=:id"),
+                {"id": assignment_id},
+            ).scalar_one()
+            == 2
+        )
+
+
+def test_postgresql_two_managers_create_one_request_transition_and_side_effects():
+    _reset_postgres(AIRPORT_A_URL)
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
+    engine = create_engine(AIRPORT_A_URL)
+    with engine.begin() as connection:
+        person_id = _insert_staff(connection, 1, "request-race")
+        request_id = connection.execute(
+            text(
+                "INSERT INTO shift_request "
+                "(unit_id, staff_id, day, code, status, requester_comment, "
+                "created_at, updated_at, submitted_at) VALUES "
+                "(1, :person, DATE '2026-08-11', 'M', 'pending', '', "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id"
+            ),
+            {"person": person_id},
+        ).scalar_one()
+    engine.dispose()
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    def approve(actor_id):
+        with psycopg.connect(
+            make_url(AIRPORT_A_URL)
+            .set(drivername="postgresql")
+            .render_as_string(hide_password=False)
+        ) as connection:
+            barrier.wait(timeout=10)
+            status = connection.execute(
+                "SELECT status FROM shift_request WHERE id=%s FOR UPDATE",
+                (request_id,),
+            ).fetchone()[0]
+            if status != "pending":
+                outcomes.append("conflict")
+                return
+            connection.execute(
+                "UPDATE shift_request SET status='approved', responded_by_id=%s, "
+                "responded_at=CURRENT_TIMESTAMP WHERE id=%s",
+                (actor_id, request_id),
+            )
+            connection.execute(
+                "INSERT INTO request_audit "
+                "(unit_id, request_id, actor_id, occurred_at, transition, "
+                "old_value, new_value, reason) VALUES "
+                "(1, %s, %s, CURRENT_TIMESTAMP, 'approve', 'pending', "
+                "'approved', '')",
+                (request_id, actor_id),
+            )
+            connection.execute(
+                "INSERT INTO notification "
+                "(unit_id, recipient_id, kind, message, created_at) VALUES "
+                "(1, %s, 'request', 'Request approved', CURRENT_TIMESTAMP)",
+                (person_id,),
+            )
+            outcomes.append("approved")
+
+    threads = [threading.Thread(target=approve, args=(actor,)) for actor in (91, 92)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    assert outcomes.count("approved") == 1
+    assert outcomes.count("conflict") == 1
+    with create_engine(AIRPORT_A_URL).connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM request_audit WHERE request_id=:id"),
+                {"id": request_id},
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM notification WHERE recipient_id=:id"),
+                {"id": person_id},
+            ).scalar_one()
+            == 1
+        )
+
+
+def test_postgresql_publication_and_roster_mutations_share_a_coherent_month_lock():
+    _reset_postgres(AIRPORT_A_URL)
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
+    dsn = (
+        make_url(AIRPORT_A_URL)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    with psycopg.connect(dsn) as connection:
+        person_id = connection.execute(
+            "INSERT INTO staff "
+            "(unit_id, username, password_hash, role, membership_status, "
+            "permissions_json, name, staff_no) VALUES "
+            "(1, 'publication-race', 'x', 'user', 'active', '{}', "
+            "'Publication Race', 'PUB-1') RETURNING id"
+        ).fetchone()[0]
+        requirement_id = connection.execute(
+            "INSERT INTO requirement (unit_id, year, month) "
+            "VALUES (1, 2026, 8) RETURNING id"
+        ).fetchone()[0]
+        assignment_id = connection.execute(
+            "INSERT INTO assignment "
+            "(unit_id, staff_id, day, code, annotation, version) "
+            "VALUES (1, %s, DATE '2026-08-12', 'M', '', 1) RETURNING id",
+            (person_id,),
+        ).fetchone()[0]
+    barrier = threading.Barrier(3)
+    recorded_snapshots = []
+
+    def mutate(operation):
+        with psycopg.connect(dsn) as connection:
+            barrier.wait(timeout=10)
+            connection.execute(
+                "SELECT id FROM requirement WHERE id=%s FOR UPDATE",
+                (requirement_id,),
+            )
+            if operation == "edit":
+                connection.execute(
+                    "UPDATE assignment SET annotation='TRG', version=version+1 "
+                    "WHERE id=%s",
+                    (assignment_id,),
+                )
+                return
+            live = connection.execute(
+                "SELECT code, annotation, version FROM assignment WHERE id=%s",
+                (assignment_id,),
+            ).fetchone()
+            if operation == "unpublish":
+                connection.execute(
+                    "UPDATE roster_publication SET state='superseded', "
+                    "superseded_at=CURRENT_TIMESTAMP WHERE unit_id=1 AND year=2026 "
+                    "AND month=8 AND state='published'"
+                )
+                return
+            connection.execute(
+                "UPDATE roster_publication SET state='superseded', "
+                "superseded_at=CURRENT_TIMESTAMP WHERE unit_id=1 AND year=2026 "
+                "AND month=8 AND state='published'"
+            )
+            next_version = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) + 1 FROM roster_publication "
+                "WHERE unit_id=1 AND year=2026 AND month=8"
+            ).fetchone()[0]
+            snapshot = json.dumps(
+                {"code": live[0], "annotation": live[1], "assignment_version": live[2]},
+                sort_keys=True,
+            )
+            connection.execute(
+                "INSERT INTO roster_publication "
+                "(unit_id, year, month, version, state, snapshot_json, published_at) "
+                "VALUES (1, 2026, 8, %s, 'published', %s, CURRENT_TIMESTAMP)",
+                (next_version, snapshot),
+            )
+            recorded_snapshots.append(snapshot)
+
+    threads = [
+        threading.Thread(target=mutate, args=(operation,))
+        for operation in ("publish", "edit", "unpublish")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    assert all(not thread.is_alive() for thread in threads)
+    # Republish after the concurrent publish/edit/unpublish sequence.
+    mutate_barrier = barrier
+    barrier = threading.Barrier(1)
+    mutate("publish")
+    barrier = mutate_barrier
+    with psycopg.connect(dsn) as connection:
+        publications = connection.execute(
+            "SELECT snapshot_json FROM roster_publication ORDER BY version"
+        ).fetchall()
+        assert 1 <= len(publications) <= 2
+        assert (
+            sum(
+                1
+                for row in connection.execute(
+                    "SELECT state FROM roster_publication WHERE unit_id=1 "
+                    "AND year=2026 AND month=8"
+                ).fetchall()
+                if row[0] == "published"
+            )
+            == 1
+        )
+        assert [row[0] for row in publications] == recorded_snapshots
+
+
+def _live_service():
+    return LivePositionService(
+        app.db,
+        LivePositionModels(
+            app.Staff,
+            app.OperationalPosition,
+            app.PositionStatusEvent,
+            app.PositionSession,
+            app.PositionSessionParticipant,
+            app.PositionParticipantRole,
+            app.PositionSessionAudit,
+        ),
+        app.utcnow,
+    )
+
+
+def test_postgresql_live_position_logon_retry_tenant_scope_and_handover_races(
+    monkeypatch,
+):
+    _reset_postgres(AIRPORT_A_URL)
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260801_37"
+    secret_name = "ATCROSTER_TEST_LIVE_CONCURRENCY_DATABASE_URL"
+    monkeypatch.setenv(secret_name, AIRPORT_A_URL)
+    dispose_operational_engines()
+    ids = {}
+    seed_engine = create_engine(AIRPORT_A_URL)
+    with seed_engine.begin() as connection:
+        for unit_id in (1, 2):
+            kiosk = _insert_staff(connection, unit_id, f"kiosk-{unit_id}")
+            first = _insert_staff(connection, unit_id, f"controller-a-{unit_id}")
+            second = _insert_staff(connection, unit_id, f"controller-b-{unit_id}")
+            connection.execute(
+                text(
+                    "UPDATE staff SET role='position_monitor', "
+                    "is_operational=false WHERE id=:id"
+                ),
+                {"id": kiosk},
+            )
+            connection.execute(
+                text("UPDATE staff SET is_operational=true WHERE id IN (:a, :b)"),
+                {"a": first, "b": second},
+            )
+            position = connection.execute(
+                text(
+                    "INSERT INTO operational_position "
+                    "(unit_id, code, label, description, is_active, "
+                    "is_safety_critical, supporting_participants_allowed, "
+                    "multiple_supporting_participants_allowed, training_supported, "
+                    "assessment_supported, display_order, maximum_session_duration_minutes) "
+                    "VALUES (:unit, :code, :label, '', true, false, false, false, "
+                    "false, false, 0, 120) RETURNING id"
+                ),
+                {
+                    "unit": unit_id,
+                    "code": f"TWR{unit_id}",
+                    "label": f"Tower {unit_id}",
+                },
+            ).scalar_one()
+            ids[unit_id] = (kiosk, first, second, position)
+    seed_engine.dispose()
+
+    barrier = threading.Barrier(2)
+    successes = []
+    conflicts = []
+
+    def start(person_index, key):
+        try:
+            with app.app.app_context(), operational_unit_context(1, secret_name):
+                barrier.wait(timeout=10)
+                kiosk, first, second, position = ids[1]
+                session = _live_service().start_session(
+                    unit_id=1,
+                    position_id=position,
+                    person_id=(first, second)[person_index],
+                    actor_id=kiosk,
+                    request_key=key,
+                )
+                successes.append((key, session.id))
+                app.db.session.remove()
+        except LivePositionConflict as error:
+            conflicts.append(str(error))
+
+    threads = [
+        threading.Thread(target=start, args=(0, "live-race-a")),
+        threading.Thread(target=start, args=(1, "live-race-b")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    assert len(successes) == 1 and len(conflicts) == 1
+    winning_key, winning_id = successes[0]
+    with app.app.app_context(), operational_unit_context(1, secret_name):
+        kiosk, _first, _second, position = ids[1]
+        assert (
+            _live_service()
+            .start_session(
+                unit_id=1,
+                position_id=position,
+                person_id=app.db.session.get(
+                    app.PositionSession, winning_id
+                ).primary_person_id,
+                actor_id=kiosk,
+                request_key=winning_key,
+            )
+            .id
+            == winning_id
+        )
+        app.db.session.remove()
+    with app.app.app_context(), operational_unit_context(2, secret_name):
+        kiosk2, first2, _second2, position2 = ids[2]
+        assert (
+            _live_service()
+            .start_session(
+                unit_id=2,
+                position_id=position2,
+                person_id=first2,
+                actor_id=kiosk2,
+                request_key=winning_key,
+            )
+            .unit_id
+            == 2
+        )
+        app.db.session.remove()
+
+    # A logoff racing a handover is serialized on the position. The final state
+    # is unoccupied whether logoff closes the old or newly handed-over session.
+    barrier = threading.Barrier(2)
+    results = []
+
+    def finish(action):
+        try:
+            with app.app.app_context(), operational_unit_context(1, secret_name):
+                barrier.wait(timeout=10)
+                kiosk, first, second, position = ids[1]
+                service = _live_service()
+                if action == "handover":
+                    service.handover(
+                        unit_id=1,
+                        position_id=position,
+                        incoming_person_id=(second if winning_id else first),
+                        actor_id=kiosk,
+                        request_key="handover-race",
+                    )
+                else:
+                    service.end_session(
+                        unit_id=1,
+                        position_id=position,
+                        actor_id=kiosk,
+                        request_key="logoff-race",
+                    )
+                results.append("success")
+                app.db.session.remove()
+        except LivePositionConflict:
+            results.append("conflict")
+
+    threads = [
+        threading.Thread(target=finish, args=(action,))
+        for action in ("handover", "logoff")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    assert results.count("success") >= 1
+    with create_engine(AIRPORT_A_URL).connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM position_session "
+                    "WHERE unit_id=1 AND ended_at IS NULL AND is_void=false"
+                )
+            ).scalar_one()
+            == 0
+        )
+    dispose_operational_engines()
