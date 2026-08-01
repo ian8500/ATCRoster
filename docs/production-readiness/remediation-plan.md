@@ -8,6 +8,33 @@ This is a living, evidence-led plan. A status of **verified** means the named
 repository control and automated evidence exist; it is not a certification of
 the deployed service or its operating organisation.
 
+## Second-phase baseline — 1 August 2026
+
+Baseline revision: `35d3c54b90faef25c5564b0f6a38f6a3765c23a3`
+
+- Application suite on Python 3.12.7: 249 passed, 3 skipped, 8 warnings in
+  97.11 seconds; 71.14% coverage. The skips are the dedicated PostgreSQL/Redis
+  cases.
+- PostgreSQL 16 and Redis 7 integration: physical control/two-airport isolation,
+  provisioning concurrency and Redis atomic-window tests passed. The generated
+  backup case failed only because the local `pg_dump` 14 client refuses a
+  PostgreSQL 16 server; the same backup/restore test passed against a matching
+  PostgreSQL 14 server/client. CI at this exact baseline had already passed the
+  PostgreSQL 16 service job, including generated backup restore.
+- Blank control, operational and combined migrations reached the single Alembic
+  head `20260801_34`. Representative legacy migration and backup unit tests:
+  11 passed in 3.31 seconds.
+- Maintained-source Ruff formatting/lint and mypy passed. Repository-wide Ruff
+  formatting discovery identified 54 previously untracked files that are not
+  yet governed by the maintained-source list; this is a CI coverage gap, not a
+  runtime failure.
+- `pip-audit`: no known production dependency vulnerabilities. Bandit High and
+  Medium gate passed (two acknowledged `nosec` notices only). Whole-repository
+  `compileall` passed.
+- Baseline `app.py`: 9,907 lines. Docker is available locally; container build
+  and High/Critical Trivy enforcement remain independently green in GitHub CI
+  for the exact baseline revision.
+
 ## Baseline evidence
 
 - Application suite: 249 passed, 3 skipped, 8 warnings (1 August 2026 local
@@ -30,7 +57,7 @@ the deployed service or its operating organisation.
 | PR-002 | High | Weekly position limits | Free-form text cannot enforce slot schema, duration bounds or same-tenant position linkage. | Migrate to relational rows with composite tenant FK, unique slot and database checks; reject invalid legacy documents. | Implemented | Revision `20260801_34`; legacy conversion and invalid-data migration tests; live-position workflow tests. | Effective-dated future policy versions are not currently required; sessions preserve their applied snapshot. |
 | PR-003 | High | Authentication sessions | A stolen or stale session must stop after password/MFA/account state changes. | Verify version/timestamp invalidation for every path and add missing negative tests without weakening timeouts or cookie policy. | Implemented | Session stamp covers password, role, membership and airport/platform MFA state; stale rejected principals are cleared; multi-client revocation plus idle/absolute timeout tests. | Browser/device compromise before revocation remains outside application control. |
 | PR-004 | High | Authorisation | Distributed role checks may drift or permit ID tampering. | Move high-risk decisions through central policy functions and extend the parameterised role/action/resource denial matrix. | High-risk live-position boundary implemented; broader extraction ongoing | Live service independently requires an active same-unit kiosk actor, scopes idempotency evidence by unit, rejects cross-unit supporting roles and inactive controllers; `test_access_policy.py`, permission report, route and tenant-isolation tests. | Full route-to-policy extraction remains incremental while `app.py` is decomposed. |
-| PR-005 | High | Database tenant integrity | Single-column foreign keys can attach related operational rows to a different unit in a combined or misrouted schema. | Add justified composite `(unit_id, id)` keys/FKs to high-risk relationships and deliberate cross-unit failure tests. | In progress | Existing revision `20260725_08`; PostgreSQL multi-database suite; PR-002 adds the pattern for position allowances. | Retrofitting every historical table requires staged migrations and data reconciliation. |
+| PR-005 | High | Database tenant integrity | Single-column foreign keys can attach related operational rows to a different unit in a combined or misrouted schema. | Add justified composite `(unit_id, id)` keys/FKs to high-risk relationships and deliberate cross-unit failure tests. | Implemented for high-risk operational relationships; PostgreSQL verification required | Revision `20260801_35`; preflight diagnostics; valid/invalid migration tests; deliberate PostgreSQL cross-unit insertion failure; tenant-integrity inventory. | Historical actor fields and physical control-to-operational identity links cannot all use same-database FKs; SQLite does not emulate the production constraint boundary. |
 | PR-006 | High | Backup and restore | Provider snapshots alone do not prove recoverability of control and per-airport databases. | Add safe PostgreSQL backup, checksum/metadata verification and restore tooling plus an automated generated-backup restore test. | Implemented in repository | Daily encrypted off-Railway workflow; backup/verify/restore scripts; PostgreSQL generated-backup restore CI test. | Off-site retention approval, recovery-key custody and scheduled operator rehearsal remain deployment-owner actions. |
 | PR-007 | High | Audit integrity | Inconsistent audit schemas or non-atomic writes can weaken accountability. | Enforce append-only evidence at the application boundary; keep sensitive values out; test atomic commits and document production DB grants. | Implemented for existing audit models | ORM mutation/deletion denial and transaction rollback tests; request, annotation, security, roster and position audit suites; audit grant runbook. | Database-owner tamper resistance still requires managed PostgreSQL grants and external log retention. |
 | PR-008 | High | Concurrency/idempotency | Duplicate decisions, logons, handovers, TOIL or provisioning could corrupt state. | Retain unique transaction keys, row locking/CAS and retry-safe state machines; add PostgreSQL concurrency coverage for uncovered paths. | Partly verified | Live-position atomic/idempotent tests; provisioning retry/lease tests; shift-request security tests. | SQLite cannot prove PostgreSQL lock behaviour; dedicated integration coverage must remain mandatory. |
