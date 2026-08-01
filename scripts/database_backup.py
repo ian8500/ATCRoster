@@ -38,8 +38,10 @@ def require_postgresql_url(database_url: str) -> None:
 
 def psycopg_dsn(database_url: str) -> str:
     require_postgresql_url(database_url)
-    return make_url(database_url).set(drivername="postgresql").render_as_string(
-        hide_password=False
+    return (
+        make_url(database_url)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
     )
 
 
