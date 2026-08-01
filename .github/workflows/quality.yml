@@ -87,6 +87,7 @@ jobs:
       ATCROSTER_TEST_CONTROL_DATABASE_URL: postgresql+psycopg://atcroster:integration-only@127.0.0.1:5432/atcroster_control
       ATCROSTER_TEST_A_DATABASE_URL: postgresql+psycopg://atcroster:integration-only@127.0.0.1:5432/atcroster_airport_a
       ATCROSTER_TEST_B_DATABASE_URL: postgresql+psycopg://atcroster:integration-only@127.0.0.1:5432/atcroster_airport_b
+      ATCROSTER_TEST_RESTORE_DATABASE_URL: postgresql+psycopg://atcroster:integration-only@127.0.0.1:5432/atcroster_restore
       REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,6 +108,7 @@ jobs:
               "atcroster_control",
               "atcroster_airport_a",
               "atcroster_airport_b",
+              "atcroster_restore",
           ):
               connection.execute(f'CREATE DATABASE "{name}"')
           connection.close()

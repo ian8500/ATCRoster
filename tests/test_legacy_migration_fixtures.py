@@ -119,7 +119,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(
         inspector = inspect(connection)
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == "20260801_33"
+        ).scalar_one() == "20260801_34"
         for table, count in before.items():
             assert connection.execute(
                 text(f'SELECT COUNT(*) FROM "{table}"')
@@ -152,3 +152,62 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(
                 tuple(item.get("column_names") or ())
                 for item in constraints
             }
+
+
+def _run_alembic(database: Path, revision: str):
+    environment = os.environ.copy()
+    environment.update({
+        "DATABASE_URL": f"sqlite:///{database}",
+        "FLASK_SECRET_KEY": "migration-fixture-secret-2026-long",
+        "ATCROSTER_SKIP_BOOTSTRAP": "true",
+        "ATCROSTER_SKIP_RUNTIME_SCHEMA": "1",
+    })
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", revision],
+        cwd=REPOSITORY, env=environment,
+        capture_output=True, text=True, check=False,
+    )
+
+
+def test_position_matrix_is_converted_to_constrained_relational_rows(tmp_path):
+    database = tmp_path / "position-matrix.db"
+    assert _run_alembic(database, "20260801_33").returncode == 0
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO operational_position "
+            "(id, unit_id, code, label, description, is_safety_critical, "
+            "is_active, maximum_session_duration_minutes, "
+            "maximum_session_duration_matrix_json) "
+            "VALUES (7, 1, 'TWR', 'Tower', '', 1, 1, 120, :matrix)"
+        ), {"matrix": '{"0:8": 75, "6:22": 90}'})
+    result = _run_alembic(database, "head")
+    assert result.returncode == 0, result.stdout + result.stderr
+    with engine.connect() as connection:
+        columns = {
+            column["name"]
+            for column in inspect(connection).get_columns("operational_position")
+        }
+        assert "maximum_session_duration_matrix_json" not in columns
+        assert connection.execute(text(
+            "SELECT weekday, start_hour, maximum_duration_minutes "
+            "FROM operational_position_time_allowance "
+            "WHERE position_id=7 ORDER BY weekday, start_hour"
+        )).all() == [(0, 8, 75), (6, 22, 90)]
+
+
+def test_invalid_position_matrix_blocks_the_data_migration(tmp_path):
+    database = tmp_path / "invalid-position-matrix.db"
+    assert _run_alembic(database, "20260801_33").returncode == 0
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO operational_position "
+            "(id, unit_id, code, label, description, is_safety_critical, "
+            "is_active, maximum_session_duration_minutes, "
+            "maximum_session_duration_matrix_json) "
+            "VALUES (8, 1, 'BAD', 'Invalid', '', 1, 1, 120, :matrix)"
+        ), {"matrix": '{"7:25": 0}'})
+    result = _run_alembic(database, "head")
+    assert result.returncode != 0
+    assert "outside the weekly matrix" in result.stderr

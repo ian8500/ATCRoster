@@ -1170,6 +1170,33 @@ def test_roster_routes_render(client):
     assert export_resp.mimetype == "text/csv"
 
 
+def test_csv_exports_neutralise_spreadsheet_formula_payloads(client):
+    login(client)
+    acknowledge_reports(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        person.name = '=HYPERLINK("https://attacker.invalid")'
+        person.staff_no = "+SUM(1,1)"
+        db.session.commit()
+    try:
+        roster_csv = client.get("/roster/2025-04/export").data.decode()
+        metrics_csv = client.get("/metrics/export").data.decode()
+        leave_csv = client.get("/reports/leave.csv?ym=2025-04").data.decode()
+        for exported in (roster_csv, metrics_csv, leave_csv):
+            assert "'=HYPERLINK" in exported
+            assert "'+SUM(1,1)" in exported
+    finally:
+        with app.app.app_context():
+            person = Staff.query.filter_by(
+                username=ADMIN_CREDENTIALS["username"]
+            ).one()
+            person.name = "Admin Test"
+            person.staff_no = "ADM-001"
+            db.session.commit()
+
+
 def test_admin_pages_accessible(client):
     login(client)
     acknowledge_reports(client)

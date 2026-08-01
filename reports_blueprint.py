@@ -24,6 +24,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from reporting import csv_safe_cell
 
 
 @dataclass(frozen=True)
@@ -139,11 +140,14 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             person = row["staff"]
             watch = person.watch.name.replace("Watch ", "") if person.watch else "-"
             writer.writerow(
-                [person.name, person.staff_no, watch]
-                + [
-                    row["annotations"].get(column["code"], 0)
-                    for column in annotation_columns
-                ]
+                csv_safe_cell(value)
+                for value in (
+                    [person.name, person.staff_no, watch]
+                    + [
+                        row["annotations"].get(column["code"], 0)
+                        for column in annotation_columns
+                    ]
+                )
             )
         writer.writerow([])
         writer.writerow(
@@ -213,7 +217,8 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             person = row["staff"]
             watch = person.watch.name.replace("Watch ", "") if person.watch else "-"
             writer.writerow(
-                [
+                csv_safe_cell(value)
+                for value in [
                     person.name,
                     person.staff_no,
                     watch,

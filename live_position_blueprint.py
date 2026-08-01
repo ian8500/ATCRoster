@@ -36,6 +36,7 @@ class LivePositionDependencies:
     db: Any
     Unit: Any
     OperationalPosition: Any
+    OperationalPositionTimeAllowance: Any
     OperationalPositionGroup: Any
     PositionCurrencyCategory: Any
     PositionStatusEvent: Any
@@ -130,22 +131,13 @@ def create_live_position_blueprint(
         return rendered if getattr(value, "tzinfo", None) else rendered + "Z"
 
     def _position_time_matrix(position: Any) -> dict[str, int]:
-        try:
-            raw = json.loads(position.maximum_session_duration_matrix_json or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return {}
-        if not isinstance(raw, dict):
-            return {}
-        matrix: dict[str, int] = {}
-        for key, value in raw.items():
-            try:
-                weekday, hour = (int(part) for part in str(key).split(":"))
-                minutes = int(value)
-            except (TypeError, ValueError):
-                continue
-            if 0 <= weekday <= 6 and 0 <= hour <= 23 and 1 <= minutes <= 1440:
-                matrix[f"{weekday}:{hour}"] = minutes
-        return matrix
+        rows = dependencies.OperationalPositionTimeAllowance.query.filter_by(
+            unit_id=_unit_id(), position_id=position.id
+        ).all()
+        return {
+            f"{row.weekday}:{row.start_hour}": row.maximum_duration_minutes
+            for row in rows
+        }
 
     def _matrix_from_form(data: dict[str, Any]) -> dict[str, int]:
         matrix: dict[str, int] = {}
@@ -759,9 +751,22 @@ def create_live_position_blueprint(
                             _int_field(data, "maximum_session_duration_minutes", 120),
                         ),
                     )
-                    position.maximum_session_duration_matrix_json = json.dumps(
-                        allowance_matrix, sort_keys=True
-                    )
+                    if position.id is None:
+                        dependencies.db.session.flush()
+                    dependencies.OperationalPositionTimeAllowance.query.filter_by(
+                        unit_id=_unit_id(), position_id=position.id
+                    ).delete(synchronize_session=False)
+                    for key, minutes in allowance_matrix.items():
+                        weekday, start_hour = (int(part) for part in key.split(":"))
+                        dependencies.db.session.add(
+                            dependencies.OperationalPositionTimeAllowance(
+                                unit_id=_unit_id(),
+                                position_id=position.id,
+                                weekday=weekday,
+                                start_hour=start_hour,
+                                maximum_duration_minutes=minutes,
+                            )
+                        )
                     position.group_name = group.name if group else ""
                     position.currency_category_id = category.id if category else None
                     position.supporting_participants_allowed = (

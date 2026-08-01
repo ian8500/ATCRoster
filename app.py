@@ -1683,6 +1683,7 @@ RosterPublication = SaaS.RosterPublication
 RosterAcknowledgement = SaaS.RosterAcknowledgement
 Scenario = SaaS.Scenario
 OperationalPosition = SaaS.OperationalPosition
+OperationalPositionTimeAllowance = SaaS.OperationalPositionTimeAllowance
 OperationalPositionGroup = SaaS.OperationalPositionGroup
 PositionCurrencyCategory = SaaS.PositionCurrencyCategory
 PositionParticipantRole = SaaS.PositionParticipantRole
@@ -9679,6 +9680,7 @@ from live_position_blueprint import (
 
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,
+    OperationalPositionTimeAllowance=OperationalPositionTimeAllowance,
     OperationalPositionGroup=OperationalPositionGroup,
     PositionCurrencyCategory=PositionCurrencyCategory,
     PositionStatusEvent=PositionStatusEvent, PositionSession=PositionSession,

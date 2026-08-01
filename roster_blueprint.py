@@ -22,6 +22,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from reporting import csv_safe_cell
 
 
 @dataclass(frozen=True)
@@ -313,7 +314,8 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         )
         for person in staff:
             writer.writerow(
-                [
+                csv_safe_cell(value)
+                for value in [
                     person.name,
                     person.staff_no,
                     person.watch.name.replace("Watch ", "") if person.watch else "-",

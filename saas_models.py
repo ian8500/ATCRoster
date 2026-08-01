@@ -349,9 +349,6 @@ def register_saas_models(db, utcnow):
         maximum_session_duration_minutes = db.Column(
             db.Integer, nullable=False, default=120
         )
-        maximum_session_duration_matrix_json = db.Column(
-            db.Text, nullable=False, default="{}"
-        )
         currency_category_id = db.Column(
             db.Integer, db.ForeignKey("position_currency_category.id")
         )
@@ -367,6 +364,40 @@ def register_saas_models(db, utcnow):
         is_active = db.Column(db.Boolean, nullable=False, default=True)
         __table_args__ = (
             db.UniqueConstraint("unit_id", "code", name="uq_position_unit_code"),
+            db.UniqueConstraint("unit_id", "id", name="uq_position_unit_id"),
+        )
+
+    class OperationalPositionTimeAllowance(db.Model):
+        __tablename__ = "operational_position_time_allowance"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False)
+        position_id = db.Column(db.Integer, nullable=False)
+        weekday = db.Column(db.Integer, nullable=False)
+        start_hour = db.Column(db.Integer, nullable=False)
+        maximum_duration_minutes = db.Column(db.Integer, nullable=False)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+        __table_args__ = (
+            db.ForeignKeyConstraint(
+                ["unit_id", "position_id"],
+                ["operational_position.unit_id", "operational_position.id"],
+                name="fk_position_allowance_position_unit",
+                ondelete="CASCADE",
+            ),
+            db.UniqueConstraint(
+                "unit_id", "position_id", "weekday", "start_hour",
+                name="uq_position_allowance_slot",
+            ),
+            db.CheckConstraint("weekday >= 0 AND weekday <= 6", name="ck_position_allowance_weekday"),
+            db.CheckConstraint("start_hour >= 0 AND start_hour <= 23", name="ck_position_allowance_start_hour"),
+            db.CheckConstraint(
+                "maximum_duration_minutes >= 1 AND maximum_duration_minutes <= 1440",
+                name="ck_position_allowance_duration",
+            ),
+            db.Index(
+                "ix_position_allowance_lookup",
+                "unit_id", "position_id", "weekday", "start_hour",
+            ),
         )
 
     class PositionCurrencyCategory(db.Model):
