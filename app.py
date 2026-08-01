@@ -1735,6 +1735,17 @@ TENANT_OPERATIONAL_MODELS = (
     TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
 )
 
+APPEND_ONLY_AUDIT_MODELS = (
+    SmsAudit,
+    RequestAudit,
+    AnnotationAudit,
+    ChangeLog,
+    SuperAdminAudit,
+    CentralSecurityAudit,
+    PositionSessionAudit,
+    BriefingAudit,
+)
+
 
 @event.listens_for(OrmSession, "do_orm_execute")
 def _scope_operational_selects(execute_state):
@@ -1756,6 +1767,14 @@ def _scope_operational_selects(execute_state):
 
 @event.listens_for(OrmSession, "before_flush")
 def _stamp_operational_writes(session_obj, _flush_context, _instances):
+    for record in session_obj.dirty:
+        if isinstance(record, APPEND_ONLY_AUDIT_MODELS) and session_obj.is_modified(
+            record, include_collections=False
+        ):
+            raise PermissionError("Audit evidence is append-only")
+    for record in session_obj.deleted:
+        if isinstance(record, APPEND_ONLY_AUDIT_MODELS):
+            raise PermissionError("Audit evidence is append-only")
     try:
         unit_id = authenticated_unit_id()
     except RuntimeError:

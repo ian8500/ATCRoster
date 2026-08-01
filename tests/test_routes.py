@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pyotp
 import pytest
+from sqlalchemy.exc import IntegrityError
 from conftest import finish_operational_login
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -23,8 +24,10 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 import app
 from app import (
+    AnnotationAudit,
     AnnotationType,
     Assignment,
+    ChangeLog,
     ShiftType,
     Staff,
     StaffWatchHistory,
@@ -2323,6 +2326,57 @@ def test_membership_deactivation_stops_an_existing_session_immediately(client):
             membership = db.session.get(app.UnitMembership, membership_id)
             membership.status = "active"
             db.session.commit()
+
+
+def test_audit_evidence_cannot_be_modified_or_deleted_through_the_orm(client):
+    login(client)
+    with app.app.app_context():
+        audit = ChangeLog(
+            unit_id=1,
+            who_user_id=1,
+            entity_type="Assurance",
+            entity_id=1,
+            field="state",
+            old_value="before",
+            new_value="after",
+        )
+        db.session.add(audit)
+        db.session.commit()
+        audit_id = audit.id
+        audit.new_value = "tampered"
+        with pytest.raises(PermissionError, match="append-only"):
+            db.session.commit()
+        db.session.rollback()
+        audit = db.session.get(ChangeLog, audit_id)
+        assert audit.new_value == "after"
+        db.session.delete(audit)
+        with pytest.raises(PermissionError, match="append-only"):
+            db.session.commit()
+        db.session.rollback()
+        assert db.session.get(ChangeLog, audit_id) is not None
+
+
+def test_business_change_and_audit_evidence_roll_back_atomically(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        day = date(2031, 1, 7)
+        assignment = Assignment(
+            unit_id=1, staff_id=person.id, day=day, code="M", source="manual"
+        )
+        invalid_audit = AnnotationAudit(
+            unit_id=1,
+            assignment_id=None,
+            actor_id=person.id,
+            action=None,
+        )
+        db.session.add_all([assignment, invalid_audit])
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+        assert Assignment.query.filter_by(staff_id=person.id, day=day).first() is None
 
 
 def test_airport_absence_catalogue_and_calendar_token(client):
