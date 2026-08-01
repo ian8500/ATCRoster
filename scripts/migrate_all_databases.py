@@ -12,10 +12,19 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
 MIGRATION_ADVISORY_LOCK_ID = 4_287_603_356
+
+
+def _sqlalchemy_database_url(database_url: str) -> str:
+    """Select the pinned psycopg 3 driver for generic PostgreSQL URLs."""
+    parsed = make_url(database_url)
+    if parsed.get_backend_name() in {"postgres", "postgresql"}:
+        parsed = parsed.set(drivername="postgresql+psycopg")
+    return parsed.render_as_string(hide_password=False)
 
 
 @contextmanager
@@ -27,7 +36,7 @@ def deployment_migration_lock(database_url: str):
     while Alembic updates the same version tables.  Other database engines are
     retained for local development and do not need this PostgreSQL primitive.
     """
-    engine = create_engine(database_url, pool_pre_ping=True)
+    engine = create_engine(_sqlalchemy_database_url(database_url), pool_pre_ping=True)
     connection = engine.connect()
     locked = False
     try:
@@ -50,7 +59,7 @@ def deployment_migration_lock(database_url: str):
 
 def _ensure_info_annotation(database_url: str, unit_id: int) -> None:
     """Idempotently seed the non-reportable INFO annotation."""
-    engine = create_engine(database_url, pool_pre_ping=True)
+    engine = create_engine(_sqlalchemy_database_url(database_url), pool_pre_ping=True)
     try:
         with engine.begin() as connection:
             if "annotation_type" not in inspect(connection).get_table_names():
@@ -102,7 +111,9 @@ def upgrade_database(database_url: str, schema_role: str) -> str:
         config = Config(str(REPOSITORY / "alembic.ini"))
         config.set_main_option("script_location", str(REPOSITORY / "migrations"))
         command.upgrade(config, "head")
-        engine = create_engine(database_url, pool_pre_ping=True)
+        engine = create_engine(
+            _sqlalchemy_database_url(database_url), pool_pre_ping=True
+        )
         try:
             with engine.connect() as connection:
                 return (
@@ -130,7 +141,9 @@ def main() -> None:
     with deployment_migration_lock(control_url):
         control_version = upgrade_database(control_url, "control")
         print(f"Control database upgraded to {control_version}.")
-        control_engine = create_engine(control_url, pool_pre_ping=True)
+        control_engine = create_engine(
+            _sqlalchemy_database_url(control_url), pool_pre_ping=True
+        )
         try:
             with control_engine.connect() as connection:
                 routes = connection.execute(
