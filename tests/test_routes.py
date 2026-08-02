@@ -606,6 +606,30 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"z-index:7" in stylesheet.data
 
 
+def test_roster_renders_annual_leave_as_static_al_code(client):
+    login(client)
+    client.get("/roster/2025-06")
+    duty_day = date(2025, 6, 3)
+    with app.app.app_context():
+        assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+        original = (assignment.code, assignment.source, assignment.note)
+        assignment.code = "AL"
+        assignment.source = "leave"
+        assignment.note = "annual leave"
+        db.session.commit()
+
+    try:
+        response = client.get("/roster/2025-06")
+        assert response.status_code == 200
+        assert b'class="code-input code-display code-len-2 al group-a"' in response.data
+        assert b">AL</span>" in response.data
+    finally:
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+            assignment.code, assignment.source, assignment.note = original
+            db.session.commit()
+
+
 def test_favicon_is_served(client):
     resp = client.get("/favicon.ico")
     assert resp.status_code == 200
