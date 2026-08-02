@@ -214,6 +214,13 @@
             {% if ann and not code %}
               {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly, true) }}
             {% else %}
+            {% set protected_absence = code in ['SC','SSC','AL','PL','SPL','TOU8','TOUI'] %}
+            {% if protected_absence %}
+            <div class="shift-picker">
+              <span class="code-input code-display code-len-{{ code|length }} {{ code|lower }} group-{{ prefix }}"
+                    aria-label="{{ s.name }} absence on {{ d.strftime('%d %B %Y') }}: {{ code }}">{{ code }}</span>
+            </div>
+            {% else %}
             <form class="shift-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((s.id, d), 0) }}">
@@ -227,11 +234,6 @@
                 aria-invalid="{% if f %}true{% else %}false{% endif %}"
               >
                 <option value="" {% if not code %}selected{% endif %}>—</option>
-
-                {# always display existing leave/sickness/TOIL-use in the cell, but disabled so it can't be picked here #}
-                {% if code in ['SC','SSC','AL','PL','SPL','TOU8','TOUI'] %}
-                  <option value="{{ code }}" selected disabled>{{ code }}</option>
-                {% endif %}
 
                 <optgroup label="Working shifts">
                   {% for sh in shifts_working %}
@@ -251,6 +253,7 @@
                 </optgroup>
               </select>
             </form>
+            {% endif %}
             {% endif %}
 
             {% set req_info = req_pending_map.get((s.id, d)) %}

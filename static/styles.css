@@ -998,6 +998,23 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
   -moz-appearance:none;
 }
 
+.roster .cell .code-display{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  height:30px;
+  font-size:.86rem;
+  font-weight:600;
+  line-height:1;
+  text-align:center;
+  text-transform:uppercase;
+}
+.roster .cell .code-display.code-len-3{font-size:calc(.78rem * var(--ui-scale));}
+.roster .cell .code-display.code-len-4{font-size:calc(.68rem * var(--ui-scale));}
+.roster .cell .code-display.code-len-5,
+.roster .cell .code-display.code-len-6{font-size:calc(.58rem * var(--ui-scale));}
+
 .roster .cell select.code-input.code-len-3{
   font-size:calc(.78rem * var(--ui-scale));
 }
@@ -1024,13 +1041,13 @@ select.code-input{
 .roster .cell select.code-input.group-n{ background: var(--yellow); color:#000; }
 .roster .cell select.code-input.off{ background: var(--off-blue); color:#10243a; }
 
-.roster .cell select.code-input.sc,
-.roster .cell select.code-input.ssc{ background: var(--red); color:#fff; }
-.roster .cell select.code-input.al,
-.roster .cell select.code-input.pl,
-.roster .cell select.code-input.spl,
-.roster .cell select.code-input.toui,
-.roster .cell select.code-input.tou8{ background: var(--blue); color:#000; }
+.roster .cell .code-input.sc,
+.roster .cell .code-input.ssc{ background: var(--red); color:#fff; }
+.roster .cell .code-input.al,
+.roster .cell .code-input.pl,
+.roster .cell .code-input.spl,
+.roster .cell .code-input.toui,
+.roster .cell .code-input.tou8{ background: var(--blue); color:#000; }
 
 .annot-select{
   width:100%;
