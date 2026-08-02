@@ -30,6 +30,7 @@ from app import (
     AnnotationType,
     Assignment,
     ChangeLog,
+    Leave,
     ShiftType,
     Staff,
     StaffWatchHistory,
@@ -643,6 +644,146 @@ def test_roster_renders_annual_leave_as_static_al_code(client):
             assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
             assignment.code, assignment.source, assignment.note = original
             db.session.commit()
+
+
+def test_annual_leave_requires_soal_before_roster_shift_override(client):
+    login(client)
+    ym = "2025-06"
+    duty_day = date(2025, 6, 4)
+    client.get(f"/roster/{ym}")
+    with app.app.app_context():
+        assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+        original = (
+            assignment.code,
+            assignment.source,
+            assignment.note,
+            assignment.annotation,
+            assignment.annotation_note,
+            assignment.version,
+        )
+        assignment.code = "AL"
+        assignment.source = "leave"
+        assignment.note = "annual leave"
+        assignment.annotation = ""
+        assignment.annotation_note = ""
+        soal_definition = AnnotationType.query.filter_by(
+            unit_id=1, code="SOAL"
+        ).first()
+        created_soal_definition = soal_definition is None
+        if soal_definition is None:
+            soal_definition = AnnotationType(
+                unit_id=1,
+                code="SOAL",
+                label="SOAL",
+                category="Overtime",
+                tags="ot,soal",
+                is_active=True,
+            )
+            db.session.add(soal_definition)
+        leave = Leave(
+            unit_id=1,
+            staff_id=1,
+            leave_type="AL",
+            start=duty_day,
+            end=duty_day,
+        )
+        db.session.add(leave)
+        db.session.commit()
+        app.refresh_annotation_cache()
+        leave_id = leave.id
+        soal_definition_id = soal_definition.id
+        version = assignment.version
+
+    try:
+        blocked = client.post(
+            f"/assign/1/{ym}/{duty_day.isoformat()}",
+            data={
+                "_csrf_token": csrf(client),
+                "assignment_version": version,
+                "code": "D",
+            },
+            follow_redirects=True,
+        )
+        assert blocked.status_code == 200
+        assert b"annual-leave cell is locked" in blocked.data
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+            assert assignment.code == "AL"
+            version = assignment.version
+
+        applied = client.post(
+            f"/assign/1/{ym}/{duty_day.isoformat()}",
+            data={
+                "_csrf_token": csrf(client),
+                "assignment_version": version,
+                "annotation": "SOAL",
+            },
+            follow_redirects=True,
+        )
+        assert applied.status_code == 200
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+            assert assignment.annotation == "SOAL"
+            version = assignment.version
+        assert b'class="code-input code-len-2 al group-a"' in applied.data
+        assert b"SOAL" in applied.data
+
+        shifted = client.post(
+            f"/assign/1/{ym}/{duty_day.isoformat()}",
+            data={
+                "_csrf_token": csrf(client),
+                "assignment_version": version,
+                "code": "D",
+            },
+            follow_redirects=True,
+        )
+        assert shifted.status_code == 200
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+            assert assignment.code == "D"
+            assert assignment.annotation == "SOAL"
+            assert db.session.get(Leave, leave_id) is not None
+            version = assignment.version
+
+        removed = client.post(
+            f"/assign/1/{ym}/{duty_day.isoformat()}",
+            data={
+                "_csrf_token": csrf(client),
+                "assignment_version": version,
+                "annotation": "__remove__",
+            },
+            follow_redirects=True,
+        )
+        assert removed.status_code == 200
+        assert b'class="code-input code-display code-len-2 al group-a"' in removed.data
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+            assert assignment.code == "AL"
+            assert not assignment.annotation
+            assert db.session.get(Leave, leave_id) is not None
+    finally:
+        with app.app.app_context():
+            leave = db.session.get(Leave, leave_id)
+            if leave:
+                db.session.delete(leave)
+            if created_soal_definition:
+                AnnotationAudit.query.filter_by(
+                    annotation_type_id=soal_definition_id
+                ).delete(synchronize_session=False)
+                definition = db.session.get(AnnotationType, soal_definition_id)
+                if definition:
+                    db.session.delete(definition)
+            assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
+            (
+                assignment.code,
+                assignment.source,
+                assignment.note,
+                assignment.annotation,
+                assignment.annotation_note,
+                assignment.version,
+            ) = original
+            db.session.commit()
+            app.refresh_annotation_cache()
 
 
 def test_favicon_is_served(client):

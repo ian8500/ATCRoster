@@ -8948,6 +8948,7 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     Staff=Staff,
     Notification=Notification,
     Assignment=Assignment,
+    Leave=Leave,
     Watch=Watch,
     Requirement=Requirement,
     SpecialRequirement=SpecialRequirement,

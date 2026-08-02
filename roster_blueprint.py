@@ -33,6 +33,7 @@ class RosterDependencies:
     Staff: Any
     Notification: Any
     Assignment: Any
+    Leave: Any
     Watch: Any
     Requirement: Any
     SpecialRequirement: Any
@@ -78,6 +79,10 @@ class RosterDependencies:
 
 def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
     blueprint = Blueprint("roster", __name__)
+
+    def annotation_is_soal(value: str | None) -> bool:
+        parsed = dependencies.parse_annotation((value or "").strip().upper())
+        return bool(parsed and parsed.get("type") == "SOAL")
 
     @login_required
     def roster_month_publish(ym):
@@ -404,6 +409,20 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         next_ym = f"{next_year:04d}-{next_month:02d}"
         start = date(year, month, 1)
         month_end = date(next_year, next_month, 1)
+        for leave in dependencies.Leave.query.filter(
+            dependencies.Leave.unit_id == unit_id,
+            dependencies.Leave.leave_type == "AL",
+            dependencies.Leave.start < month_end,
+            dependencies.Leave.end >= start,
+        ).all():
+            leave_day = max(start, leave.start)
+            final_day = min(month_end - timedelta(days=1), leave.end)
+            while leave_day <= final_day:
+                if not annotation_is_soal(
+                    annotation_map.get(leave.staff_id, {}).get(leave_day)
+                ):
+                    assignment_map.setdefault(leave.staff_id, {})[leave_day] = "AL"
+                leave_day += timedelta(days=1)
         working_shifts, training_shifts, nonworking_shifts = dependencies.shift_groups(
             unit_id
         )
@@ -638,6 +657,13 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         person = dependencies.Staff.query.filter_by(
             id=staff_id, unit_id=unit_id
         ).first_or_404()
+        annual_leave = dependencies.Leave.query.filter(
+            dependencies.Leave.unit_id == unit_id,
+            dependencies.Leave.staff_id == staff_id,
+            dependencies.Leave.leave_type == "AL",
+            dependencies.Leave.start <= duty_day,
+            dependencies.Leave.end >= duty_day,
+        ).first()
         assignment = (
             dependencies.Assignment.query.filter_by(
                 unit_id=unit_id, staff_id=staff_id, day=duty_day
@@ -667,6 +693,13 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         code = (request.form.get("code") or "").strip().upper()
         annotation = request.form.get("annotation")
         if code:
+            if annual_leave and not annotation_is_soal(assignment.annotation):
+                flash(
+                    "This annual-leave cell is locked. Apply the SOAL annotation "
+                    "before entering a shift, or amend the leave in Leave Administration.",
+                    "error",
+                )
+                return redirect(url_for("roster_month", ym=ym))
             if code in dependencies.banned_roster_codes():
                 flash(
                     "Leave, sickness and TOIL use must be logged via the form, "
@@ -766,6 +799,10 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                             new_value=annotation_note,
                         )
                     )
+            if annual_leave and not annotation_is_soal(new_value):
+                assignment.code = "AL"
+                assignment.source = "leave"
+                assignment.note = "annual leave"
         assignment.version = current_version + 1
         try:
             dependencies.db.session.commit()
