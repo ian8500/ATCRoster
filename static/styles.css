@@ -881,7 +881,7 @@ th.sticky.left{left:0; background:var(--head);}
   left:0;
 }
 
-.roster th.col-name{
+table.roster th.col-name{
   z-index:12;
 }
 
