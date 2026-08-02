@@ -23,7 +23,6 @@ import hashlib
 import pyotp
 import qrcode
 import qrcode.image.svg
-from cryptography.fernet import Fernet, InvalidToken
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.session import Session as FlaskSqlAlchemySession
@@ -93,6 +92,7 @@ from atcroster import create_app, get_runtime_settings
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.public import public_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
+from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
     SecurityHeaderDependencies,
     csp_nonce,
@@ -143,46 +143,12 @@ else:
     _rate_limiter = MemoryRateLimiter()
 
 
-def _field_ciphers() -> list[tuple[str, Fernet]]:
-    result = []
-    for item in FIELD_ENCRYPTION_KEYS.split(","):
-        version, separator, key = item.strip().partition(":")
-        if not separator or not re.fullmatch(r"[A-Za-z0-9_-]{1,20}", version):
-            raise RuntimeError("Invalid field-encryption key version.")
-        try:
-            result.append((version, Fernet(key.encode())))
-        except (ValueError, TypeError) as exc:
-            raise RuntimeError("Invalid field-encryption key material.") from exc
-    if not result:
-        raise RuntimeError("At least one field-encryption key is required.")
-    return result
-
-
-def _encrypt_field(value: str) -> str:
-    version, cipher = _field_ciphers()[0]
-    return f"{version}.{cipher.encrypt(value.encode()).decode()}"
-
-
-def _decrypt_field(value: str) -> str:
-    version, separator, ciphertext = value.partition(".")
-    if separator:
-        candidates = [
-            cipher for candidate, cipher in _field_ciphers()
-            if candidate == version
-        ]
-    else:
-        ciphertext = value
-        candidates = [cipher for _version, cipher in _field_ciphers()]
-    for cipher in candidates:
-        try:
-            return cipher.decrypt(ciphertext.encode()).decode()
-        except InvalidToken:
-            continue
-    raise ValueError("Encrypted field cannot be decrypted with configured keys.")
-
-
-# Validate configured material during startup rather than at first MFA use.
-_field_ciphers()
+# Constructing the service validates configured material during startup rather
+# than at first MFA use. Aliases preserve callers during incremental extraction.
+_field_encryption = FieldEncryptionService(FIELD_ENCRYPTION_KEYS)
+_field_ciphers = _field_encryption.ciphers
+_encrypt_field = _field_encryption.encrypt
+_decrypt_field = _field_encryption.decrypt
 
 # Jinja helper
 app.jinja_env.globals['now'] = lambda: datetime.now()
