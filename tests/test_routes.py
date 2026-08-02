@@ -23,6 +23,7 @@ if os.path.exists(TEST_DB_PATH):
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 import app
+import fatigue_engine
 from app import (
     AnnotationAudit,
     AnnotationType,
@@ -1479,6 +1480,7 @@ def test_d24_requires_a_complete_observation_window(client):
             segments,
             observation_start=start - timedelta(days=30),
         )
+    assert app._analyze_segments is fatigue_engine._analyze_segments
     assert not any(
         message.startswith("D24:")
         for messages in without_history.values()
