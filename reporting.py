@@ -54,7 +54,7 @@ def compute_annotation_metrics(
     ]
     order = [column["code"] for column in columns]
     known = set(order)
-    staff_query = Staff.query
+    staff_query = Staff.query.filter(Staff.role != "position_monitor")
     if watch_id is not None:
         staff_query = staff_query.filter(Staff.watch_id == watch_id)
     staff_by_id = {person.id: person for person in staff_query.all()}
@@ -89,7 +89,9 @@ def compute_annotation_metrics(
         annotations.setdefault(code, 0)
         annotations[code] += 1
 
-    ordered_people_query = Staff.query.outerjoin(Watch, Staff.watch_id == Watch.id)
+    ordered_people_query = Staff.query.filter(
+        Staff.role != "position_monitor"
+    ).outerjoin(Watch, Staff.watch_id == Watch.id)
     if watch_id is not None:
         ordered_people_query = ordered_people_query.filter(Staff.watch_id == watch_id)
     ordered_people = ordered_people_query.order_by(
@@ -136,7 +138,10 @@ def leave_summary_for_month(
     ):
         assignments[row.staff_id][row.day] = row.code
 
-    query = Staff.query.filter(Staff.unit_id == unit_id).outerjoin(
+    query = Staff.query.filter(
+        Staff.unit_id == unit_id,
+        Staff.role != "position_monitor",
+    ).outerjoin(
         Watch, Staff.watch_id == Watch.id
     )
     if watch_id is not None:

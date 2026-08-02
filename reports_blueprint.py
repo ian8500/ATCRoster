@@ -259,7 +259,8 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         unit_id = dependencies.current_unit_id()
         watches, selected_watch = watch_selection()
         people_query = dependencies.Staff.query.filter(
-            dependencies.Staff.unit_id == unit_id
+            dependencies.Staff.unit_id == unit_id,
+            dependencies.Staff.role != "position_monitor",
         ).outerjoin(
             dependencies.Watch,
             dependencies.Staff.watch_id == dependencies.Watch.id,
@@ -326,7 +327,8 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         unit_id = dependencies.current_unit_id()
         watches, selected_watch = watch_selection()
         people_query = dependencies.Staff.query.filter(
-            dependencies.Staff.unit_id == unit_id
+            dependencies.Staff.unit_id == unit_id,
+            dependencies.Staff.role != "position_monitor",
         ).outerjoin(
             dependencies.Watch,
             dependencies.Staff.watch_id == dependencies.Watch.id,
