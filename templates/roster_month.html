@@ -157,12 +157,12 @@
   <thead>
     <tr>
       <th class="sticky left col-name">Name</th>
-      <th class="sticky left col-staff">Staff #</th>
-      <th class="sticky left col-date">Medical</th>
-      <th class="sticky left col-date">Tower UE</th>
-      <th class="sticky left col-date">Radar UE</th>
-      <th class="sticky left col-date">MET UE</th>
-      <th class="sticky left col-watch">W</th>
+      <th class="sticky col-staff">Staff #</th>
+      <th class="sticky col-date">Medical</th>
+      <th class="sticky col-date">Tower UE</th>
+      <th class="sticky col-date">Radar UE</th>
+      <th class="sticky col-date">MET UE</th>
+      <th class="sticky col-watch">W</th>
       {% for d in days %}
         {% set dow = d.strftime('%a') %}
         <th class="dayhead {% if d.weekday() in [5,6] %}weekend{% endif %}{% if d == today %} is-today{% endif %}">
