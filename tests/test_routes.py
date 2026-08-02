@@ -3239,7 +3239,7 @@ def test_roster_shows_pattern_breach_and_blocks_publication(client):
 
     roster = client.get("/roster/2025-09")
     assert roster.status_code == 200
-    assert b"Pre-publication validation" in roster.data
+    assert b"Pre-publication validation" not in roster.data
     assert b"Publication blocker" in roster.data
     assert b"protected non-working day" in roster.data
     assert b"Resolve blocking validation findings first" in roster.data

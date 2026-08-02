@@ -1269,12 +1269,6 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
 .roster-validation-tooltip{display:none;position:absolute;z-index:30;right:0;bottom:18px;width:260px;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.35);text-align:left;white-space:normal;}
 .roster-validation-tooltip span{display:block;margin-top:5px;font-weight:400;}
 .roster-validation-hazard:hover .roster-validation-tooltip,.roster-validation-hazard:focus .roster-validation-tooltip{display:block;}
-.roster-validation-summary{margin:1rem 0;padding:1rem;border:1px solid var(--border);border-left:5px solid #2e7d32;border-radius:10px;background:var(--card);}
-.roster-validation-summary--blocking{border-left-color:#dc3545;}
-.roster-validation-summary h3{margin:.15rem 0;}
-.roster-validation-summary p{margin:.25rem 0 0;}
-.roster-validation-summary details{margin-top:.75rem;}
-.roster-validation-summary ul{margin:.75rem 0 0;padding-left:1.2rem;}
 .validation-finding{margin:.35rem 0;}.validation-finding span{display:block;color:var(--muted);}.validation-finding--blocking strong{color:#ff8b94;}
 .rag-count--over{
   animation:roster-count-over-pulse 1.6s ease-in-out infinite;
