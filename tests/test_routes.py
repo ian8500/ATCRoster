@@ -3258,6 +3258,8 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     assert "table.roster th.sticky::after" in stylesheet
     assert "height:100vh;" in stylesheet
     assert "table.roster th.sticky{" in stylesheet
+    assert ".roster th.dayhead.is-today" in stylesheet
+    assert "background: #363d2e !important;" in stylesheet
     assert ".roster th.col-name{\n  z-index:12;" in stylesheet
     assert "#roster{overflow:visible;}" in stylesheet
     assert "#roster{overflow-x:auto" not in stylesheet

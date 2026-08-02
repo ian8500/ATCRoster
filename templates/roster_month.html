@@ -64,7 +64,8 @@
   .roster td.totcell { position: relative; }
 
   /* Subtle background tint for today */
-  .roster th.dayhead.is-today { background: rgba(255,255,0,.10) !important; }
+  /* Keep the highlighted sticky heading opaque so roster values never bleed through. */
+  .roster th.dayhead.is-today { background: #363d2e !important; }
   .roster td.cell.is-today { background: rgba(255,255,0,.07) !important; }
 
   /* Draw the column outline ABOVE controls using ::before overlays */
