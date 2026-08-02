@@ -82,6 +82,7 @@ from fatigue_compliance import (
     compliance_month,
     create_fatigue_compliance_blueprint,
 )
+from work_pattern_service import WorkPatternDependencies, WorkPatternService
 from access_policy import (
     has_permission,
     is_admin,
@@ -260,7 +261,9 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "position_participant_role", "position_status_event",
     "position_session", "position_session_participant",
     "controller_kiosk_credential", "position_session_audit",
-    "toil_transaction",
+    "toil_transaction", "work_pattern", "work_pattern_day",
+    "work_pattern_day_allowed_shift", "staff_pattern_assignment",
+    "staff_rule",
 })
 
 
@@ -1165,7 +1168,10 @@ class ShiftType(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     is_requestable = db.Column(db.Boolean, nullable=False, default=False)
     required_qualification = db.Column(db.String(40), nullable=False, default="")
-    __table_args__ = (db.UniqueConstraint("unit_id", "code", name="uq_shift_unit_code"),)
+    __table_args__ = (
+        db.UniqueConstraint("unit_id", "code", name="uq_shift_unit_code"),
+        db.UniqueConstraint("unit_id", "id", name="uq_shift_unit_id"),
+    )
 
 
 class Requirement(db.Model):
@@ -1394,6 +1400,11 @@ BreakPlan = SaaS.BreakPlan
 AchievedDuty = SaaS.AchievedDuty
 FatigueReport = SaaS.FatigueReport
 ToilTransaction = SaaS.ToilTransaction
+WorkPattern = SaaS.WorkPattern
+WorkPatternDay = SaaS.WorkPatternDay
+WorkPatternDayAllowedShift = SaaS.WorkPatternDayAllowedShift
+StaffPatternAssignment = SaaS.StaffPatternAssignment
+StaffRule = SaaS.StaffRule
 RosterRuleVersion = SaaS.RosterRuleVersion
 MfaCredential = SaaS.MfaCredential
 
@@ -1425,7 +1436,8 @@ TENANT_OPERATIONAL_MODELS = (
     BriefingAudit,
     BriefingAssuranceRun,
     TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
-    ToilTransaction,
+    ToilTransaction, WorkPattern, WorkPatternDay,
+    WorkPatternDayAllowedShift, StaffPatternAssignment, StaffRule,
 )
 
 APPEND_ONLY_AUDIT_MODELS = (
@@ -8806,6 +8818,23 @@ from operations_blueprint import OperationsDependencies, create_operations_bluep
 from live_position_blueprint import (
     LivePositionDependencies, create_live_position_blueprint,
 )
+
+work_pattern_service = WorkPatternService(WorkPatternDependencies(
+    Staff=Staff,
+    ShiftType=ShiftType,
+    Leave=Leave,
+    Assignment=Assignment,
+    WorkPattern=WorkPattern,
+    WorkPatternDay=WorkPatternDay,
+    WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
+    StaffPatternAssignment=StaffPatternAssignment,
+    StaffRule=StaffRule,
+    shift_group=lambda shift: shift_counter_group(shift.code, shift.unit_id),
+))
+get_pattern_day_for_staff = work_pattern_service.get_pattern_day_for_staff
+get_effective_staff_rules = work_pattern_service.get_effective_staff_rules
+is_staff_eligible_for_shift = work_pattern_service.is_staff_eligible_for_shift
+calculate_soft_rule_penalty = work_pattern_service.calculate_soft_rule_penalty
 
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,

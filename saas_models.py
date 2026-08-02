@@ -652,6 +652,186 @@ def register_saas_models(db, utcnow):
             ),
         )
 
+    class WorkPattern(db.Model):
+        __tablename__ = "work_pattern"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        name = db.Column(db.String(120), nullable=False)
+        description = db.Column(db.Text, nullable=False, default="")
+        cycle_length_days = db.Column(db.Integer, nullable=False)
+        contracted_minutes_per_cycle = db.Column(db.Integer, nullable=False, default=0)
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "name", name="uq_work_pattern_unit_name"),
+            db.UniqueConstraint("unit_id", "id", name="uq_work_pattern_unit_id"),
+            db.CheckConstraint("cycle_length_days > 0", name="ck_work_pattern_cycle_positive"),
+            db.CheckConstraint(
+                "contracted_minutes_per_cycle >= 0",
+                name="ck_work_pattern_minutes_nonnegative",
+            ),
+        )
+
+    class WorkPatternDay(db.Model):
+        __tablename__ = "work_pattern_day"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        work_pattern_id = db.Column(db.Integer, nullable=False, index=True)
+        day_index = db.Column(db.Integer, nullable=False)
+        day_type = db.Column(db.String(32), nullable=False)
+        fixed_shift_type_id = db.Column(db.Integer)
+        required_work = db.Column(db.Boolean, nullable=False, default=False)
+        notes = db.Column(db.String(500), nullable=False, default="")
+        __table_args__ = (
+            db.ForeignKeyConstraint(
+                ["unit_id", "work_pattern_id"],
+                ["work_pattern.unit_id", "work_pattern.id"],
+                name="fk_work_pattern_day_pattern_unit", ondelete="CASCADE",
+            ),
+            db.ForeignKeyConstraint(
+                ["unit_id", "fixed_shift_type_id"],
+                ["shift_type.unit_id", "shift_type.id"],
+                name="fk_work_pattern_day_shift_unit",
+            ),
+            db.UniqueConstraint(
+                "unit_id", "work_pattern_id", "day_index",
+                name="uq_work_pattern_day_index",
+            ),
+            db.UniqueConstraint("unit_id", "id", name="uq_work_pattern_day_unit_id"),
+            db.CheckConstraint("day_index >= 0", name="ck_work_pattern_day_index_nonnegative"),
+            db.CheckConstraint(
+                "day_type IN ('FIXED_SHIFT','WORK_ANY','WORK_ALLOWED_SET','OFF',"
+                "'OPTIONAL_WORK','PROTECTED_NON_OPERATIONAL')",
+                name="ck_work_pattern_day_type",
+            ),
+            db.CheckConstraint(
+                "(day_type = 'FIXED_SHIFT' AND fixed_shift_type_id IS NOT NULL) OR "
+                "(day_type <> 'FIXED_SHIFT' AND fixed_shift_type_id IS NULL)",
+                name="ck_work_pattern_day_fixed_shift",
+            ),
+        )
+
+    class WorkPatternDayAllowedShift(db.Model):
+        __tablename__ = "work_pattern_day_allowed_shift"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        work_pattern_day_id = db.Column(db.Integer, nullable=False, index=True)
+        shift_type_id = db.Column(db.Integer, nullable=False, index=True)
+        __table_args__ = (
+            db.ForeignKeyConstraint(
+                ["unit_id", "work_pattern_day_id"],
+                ["work_pattern_day.unit_id", "work_pattern_day.id"],
+                name="fk_pattern_allowed_day_unit", ondelete="CASCADE",
+            ),
+            db.ForeignKeyConstraint(
+                ["unit_id", "shift_type_id"],
+                ["shift_type.unit_id", "shift_type.id"],
+                name="fk_pattern_allowed_shift_unit",
+            ),
+            db.UniqueConstraint(
+                "unit_id", "work_pattern_day_id", "shift_type_id",
+                name="uq_pattern_day_allowed_shift",
+            ),
+        )
+
+    class StaffPatternAssignment(db.Model):
+        __tablename__ = "staff_pattern_assignment"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        staff_id = db.Column(db.Integer, nullable=False, index=True)
+        work_pattern_id = db.Column(db.Integer, nullable=False, index=True)
+        effective_from = db.Column(db.Date, nullable=False, index=True)
+        effective_to = db.Column(db.Date, index=True)
+        anchor_date = db.Column(db.Date, nullable=False)
+        anchor_day_index = db.Column(db.Integer, nullable=False, default=0)
+        contracted_minutes_override = db.Column(db.Integer)
+        notes = db.Column(db.String(500), nullable=False, default="")
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+        __table_args__ = (
+            db.ForeignKeyConstraint(
+                ["unit_id", "staff_id"], ["staff.unit_id", "staff.id"],
+                name="fk_staff_pattern_person_unit", ondelete="CASCADE",
+            ),
+            db.ForeignKeyConstraint(
+                ["unit_id", "work_pattern_id"],
+                ["work_pattern.unit_id", "work_pattern.id"],
+                name="fk_staff_pattern_pattern_unit",
+            ),
+            db.CheckConstraint(
+                "effective_to IS NULL OR effective_to >= effective_from",
+                name="ck_staff_pattern_effective_range",
+            ),
+            db.CheckConstraint("anchor_day_index >= 0", name="ck_staff_pattern_anchor_index"),
+            db.CheckConstraint(
+                "contracted_minutes_override IS NULL OR contracted_minutes_override >= 0",
+                name="ck_staff_pattern_minutes_nonnegative",
+            ),
+        )
+
+    class StaffRule(db.Model):
+        __tablename__ = "staff_rule"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        staff_id = db.Column(db.Integer, nullable=False, index=True)
+        rule_type = db.Column(db.String(40), nullable=False, index=True)
+        hardness = db.Column(db.String(8), nullable=False)
+        effective_from = db.Column(db.Date, nullable=False, index=True)
+        effective_to = db.Column(db.Date, index=True)
+        shift_type_id = db.Column(db.Integer)
+        shift_group = db.Column(db.String(20))
+        maximum_count = db.Column(db.Integer)
+        rolling_period_days = db.Column(db.Integer)
+        weekdays_mask = db.Column(db.Integer)
+        penalty_weight = db.Column(db.Integer, nullable=False, default=1)
+        reason = db.Column(db.String(500), nullable=False, default="")
+        authorised_by_user_id = db.Column(db.Integer)
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+        __table_args__ = (
+            db.ForeignKeyConstraint(
+                ["unit_id", "staff_id"], ["staff.unit_id", "staff.id"],
+                name="fk_staff_rule_person_unit", ondelete="CASCADE",
+            ),
+            db.ForeignKeyConstraint(
+                ["unit_id", "shift_type_id"],
+                ["shift_type.unit_id", "shift_type.id"],
+                name="fk_staff_rule_shift_unit",
+            ),
+            db.ForeignKeyConstraint(
+                ["unit_id", "authorised_by_user_id"],
+                ["staff.unit_id", "staff.id"],
+                name="fk_staff_rule_authoriser_unit",
+            ),
+            db.CheckConstraint("hardness IN ('HARD','SOFT')", name="ck_staff_rule_hardness"),
+            db.CheckConstraint(
+                "rule_type IN ('NO_NIGHT','AVOID_NIGHT','NO_EARLY','AVOID_EARLY',"
+                "'ALLOWED_SHIFT','DISALLOWED_SHIFT','MAX_NIGHTS_PER_CYCLE',"
+                "'MAX_SHIFTS_PER_CYCLE','AVAILABLE_WEEKDAYS','UNAVAILABLE_WEEKDAYS',"
+                "'MAX_CONTRACTED_MINUTES','PREFERRED_SHIFT','PREFERRED_DAY_OFF')",
+                name="ck_staff_rule_type",
+            ),
+            db.CheckConstraint(
+                "effective_to IS NULL OR effective_to >= effective_from",
+                name="ck_staff_rule_effective_range",
+            ),
+            db.CheckConstraint(
+                "maximum_count IS NULL OR maximum_count >= 0",
+                name="ck_staff_rule_maximum_nonnegative",
+            ),
+            db.CheckConstraint(
+                "rolling_period_days IS NULL OR rolling_period_days > 0",
+                name="ck_staff_rule_period_positive",
+            ),
+            db.CheckConstraint(
+                "weekdays_mask IS NULL OR (weekdays_mask >= 0 AND weekdays_mask <= 127)",
+                name="ck_staff_rule_weekdays_mask",
+            ),
+            db.CheckConstraint("penalty_weight >= 0", name="ck_staff_rule_penalty"),
+        )
+
     class RosterRuleVersion(db.Model):
         __tablename__ = "roster_rule_version"
         id = db.Column(db.Integer, primary_key=True)
