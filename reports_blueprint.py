@@ -245,6 +245,14 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if acknowledgement := require_acknowledgement():
             return acknowledgement
         today = date.today()
+        raw_end_date = (request.args.get("end_date") or "").strip()
+        if raw_end_date:
+            try:
+                report_end = date.fromisoformat(raw_end_date)
+            except ValueError:
+                abort(400, "Invalid report end date.")
+        else:
+            report_end = today
         unit_id = dependencies.current_unit_id()
         watches, selected_watch = watch_selection()
         people_query = dependencies.Staff.query.filter(
@@ -262,17 +270,21 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         ).all()
         rows = []
         for person in people:
-            start, end = dependencies.current_leave_year_window(person, today)
+            start, leave_year_end = dependencies.current_leave_year_window(
+                person, report_end
+            )
             assignments = dependencies.Assignment.query.filter(
                 dependencies.Assignment.staff_id == person.id,
                 dependencies.Assignment.day >= start,
-                dependencies.Assignment.day <= end,
+                dependencies.Assignment.day <= report_end,
             ).all()
             al_taken = sum(1 for assignment in assignments if assignment.code == "AL")
             entitlement = person.leave_entitlement_days or 0
             public_holidays = person.leave_public_holidays or 0
             carryover = person.leave_carryover_days or 0
-            accrued, used = dependencies.toil_accrued_used(person.id, start, end)
+            accrued, used = dependencies.toil_accrued_used(
+                person.id, start, report_end
+            )
             rows.append(
                 {
                     "staff": person,
@@ -280,7 +292,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
                     if person.watch
                     else "-",
                     "leave_year_start": start,
-                    "leave_year_end": end,
+                    "leave_year_end": leave_year_end,
                     "entitlement": entitlement,
                     "public_holidays": public_holidays,
                     "carryover": carryover,
@@ -295,6 +307,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             "report_leave_year.html",
             rows=rows,
             today=today,
+            report_end=report_end,
             watches=watches,
             selected_watch=selected_watch,
         )

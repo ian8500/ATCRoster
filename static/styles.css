@@ -3532,9 +3532,23 @@ table:not(.roster) td {
   letter-spacing:.04em;
   text-transform:uppercase;
 }
-.report-filter select{
+.report-filter select,
+.report-filter input{
   width:min(280px, 100%);
 }
+
+.leave-year-col{border-left-color:rgba(255,255,255,.12) !important;}
+.leave-year-col--entitlement{background:rgba(48,113,184,.20) !important;}
+.leave-year-col--public-holidays{background:rgba(32,135,128,.20) !important;}
+.leave-year-col--carryover{background:rgba(113,82,168,.20) !important;}
+.leave-year-col--taken{background:rgba(190,112,35,.22) !important;}
+.leave-year-col--remaining{background:rgba(46,125,50,.24) !important;}
+.leave-year-col--toil-accrued{background:rgba(20,126,145,.20) !important;}
+.leave-year-col--toil-used{background:rgba(176,127,18,.20) !important;}
+.leave-year-col--toil-balance{background:rgba(46,125,50,.24) !important;}
+.leave-year-col.balance-positive{color:#8be09a !important;}
+.leave-year-col.balance-zero{color:#ffd166 !important;background:rgba(176,127,18,.24) !important;}
+.leave-year-col.balance-negative{color:#ff9aa2 !important;background:rgba(176,42,55,.28) !important;}
 
 .sensitive-data-gate{
   display:grid;
