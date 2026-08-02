@@ -862,9 +862,19 @@ th.sticky{position:sticky; top:0; background:var(--head); color:#fff; z-index:2;
 table.roster th.sticky,
 .roster th.dayhead{
   top:var(--roster-sticky-top, 0px);
-  /* Mask roster rows that have scrolled above the pinned header. */
-  box-shadow:0 -100vh 0 var(--head), 0 4px 8px rgba(0,0,0,.24);
+  box-shadow:0 4px 8px rgba(0,0,0,.24);
   z-index:10;
+}
+table.roster th.sticky::after,
+.roster th.dayhead::after{
+  content:"";
+  position:absolute;
+  right:-1px;
+  bottom:100%;
+  left:-1px;
+  height:100vh;
+  background:var(--head);
+  pointer-events:none;
 }
 .roster th.dayhead{
   background:var(--head2);
