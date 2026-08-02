@@ -629,6 +629,10 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
     assert b"Draft roster" in draft.data
     assert b"Publish roster" in draft.data
     assert b'class="daily-total"><strong>Total ' in draft.data
+    assert b'class="rag-count' in draft.data
+    stylesheet = client.get("/static/styles.css")
+    assert b".rag-count--over" in stylesheet.data
+    assert b"@keyframes roster-count-over-pulse" in stylesheet.data
     token = csrf(client)
     published = client.post(
         "/roster/2025-04/publish",
