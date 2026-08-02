@@ -71,7 +71,7 @@ class RosterDependencies:
     load_month_roster: Callable[[int, int, int], tuple]
     add_months: Callable[[int, int, int], tuple[int, int]]
     shift_groups: Callable[[int], tuple]
-    watch_id_for_staff_on: Callable[[int, date], int | None]
+    watch_ids_for_staff_on: Callable[[list[Any], date], dict[int, int | None]]
     roster_fatigue_flags: Callable[..., dict]
     roster_validation: Any
     get_annotation_groups: Callable[[], list]
@@ -428,10 +428,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             unit_id
         )
         training_codes = {shift.code for shift in training_shifts}
-        display_watch_by_staff = {
-            person.id: dependencies.watch_id_for_staff_on(person.id, start)
-            for person in staff
-        }
+        display_watch_by_staff = dependencies.watch_ids_for_staff_on(staff, start)
         try:
             watch_order = {
                 watch.id: watch.order_index for watch in dependencies.Watch.query.all()
