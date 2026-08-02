@@ -133,11 +133,11 @@
   <!-- Month navigation -->
   <div class="month-nav leave-month-nav">
     {% if prev_ym %}
-      <a class="btn ghost" href="{{ url_for('leave', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
+      <a class="btn ghost" href="{{ url_for('leave', ym=prev_ym, watch_id=selected_watch_id) }}">&larr; {{ prev_ym }}</a>
     {% else %}
       <span class="btn ghost disabled-nav-control">&larr; —</span>
     {% endif %}
-    <a class="btn ghost" href="{{ url_for('leave', ym=next_ym) }}">{{ next_ym }} &rarr;</a>
+    <a class="btn ghost" href="{{ url_for('leave', ym=next_ym, watch_id=selected_watch_id) }}">{{ next_ym }} &rarr;</a>
   </div>
 
   <!-- Sickness instances overlapping the selected month -->
@@ -197,7 +197,21 @@
 
   <!-- Existing Leave (month) -->
   <div class="card">
-    <div class="card-header"><strong>Existing Leave — {{ month_title }}</strong></div>
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-end gap-3">
+      <strong>Existing Leave — {{ month_title }}</strong>
+      <form method="get" class="d-flex flex-wrap align-items-end gap-2" aria-label="Filter existing leave by watch">
+        <input type="hidden" name="ym" value="{{ ym }}">
+        <label class="form-label mb-0" for="leave-watch-filter">Watch
+          <select id="leave-watch-filter" class="form-select form-select-sm" name="watch_id">
+            <option value="">Whole unit</option>
+            {% for watch in watches %}
+            <option value="{{ watch.id }}" {% if selected_watch_id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="btn btn-sm" type="submit">Apply filter</button>
+      </form>
+    </div>
     <div class="card-body table-responsive">
       <table class="table table-sm align-middle">
         <thead>
@@ -211,7 +225,7 @@
         </thead>
         <tbody>
           {% for lv in leaves %}
-          <tr>
+          <tr data-leave-id="{{ lv.id }}">
             <td>{{ lv.staff.name }}</td>
             <td>{{ lv.leave_type }}</td>
             <td>{{ lv.start }}</td>

@@ -9043,6 +9043,7 @@ app.register_blueprint(create_absence_requests_blueprint(
     AbsenceRequestDependencies(
         db=db,
         Staff=Staff,
+        Watch=Watch,
         Leave=Leave,
         Assignment=Assignment,
         is_admin_user=is_admin_user,

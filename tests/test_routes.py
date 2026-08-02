@@ -2695,6 +2695,56 @@ def test_business_change_and_audit_evidence_roll_back_atomically(client):
         assert Assignment.query.filter_by(staff_id=person.id, day=day).first() is None
 
 
+def test_existing_leave_can_filter_by_watch_or_whole_unit(client):
+    login(client)
+    with app.app.app_context():
+        watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
+        person_a = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        person_b = Staff.query.filter_by(username="staff_test").one()
+        original_watch_ids = (person_a.watch_id, person_b.watch_id)
+        person_a.watch_id = watch_a.id
+        person_b.watch_id = watch_b.id
+        leave_a = Leave(
+            unit_id=1,
+            staff_id=person_a.id,
+            leave_type="AL",
+            start=date(2029, 7, 2),
+            end=date(2029, 7, 3),
+        )
+        leave_b = Leave(
+            unit_id=1,
+            staff_id=person_b.id,
+            leave_type="AL",
+            start=date(2029, 7, 4),
+            end=date(2029, 7, 5),
+        )
+        db.session.add_all([leave_a, leave_b])
+        db.session.commit()
+        leave_a_id, leave_b_id = leave_a.id, leave_b.id
+        watch_a_id, watch_b_id = watch_a.id, watch_b.id
+
+    whole_unit = client.get("/leave?ym=2029-07")
+    watch_a_page = client.get(f"/leave?ym=2029-07&watch_id={watch_a_id}")
+    watch_b_page = client.get(f"/leave?ym=2029-07&watch_id={watch_b_id}")
+
+    assert whole_unit.status_code == 200
+    assert b">Whole unit</option>" in whole_unit.data
+    assert f'data-leave-id="{leave_a_id}"'.encode() in whole_unit.data
+    assert f'data-leave-id="{leave_b_id}"'.encode() in whole_unit.data
+    assert f'data-leave-id="{leave_a_id}"'.encode() in watch_a_page.data
+    assert f'data-leave-id="{leave_b_id}"'.encode() not in watch_a_page.data
+    assert f'data-leave-id="{leave_b_id}"'.encode() in watch_b_page.data
+    assert f'data-leave-id="{leave_a_id}"'.encode() not in watch_b_page.data
+
+    with app.app.app_context():
+        Leave.query.filter(Leave.id.in_([leave_a_id, leave_b_id])).delete()
+        person_a = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        person_b = Staff.query.filter_by(username="staff_test").one()
+        person_a.watch_id, person_b.watch_id = original_watch_ids
+        db.session.commit()
+
+
 def test_airport_absence_catalogue_and_calendar_token(client):
     with app.app.app_context():
         app.MfaCredential.query.delete()
