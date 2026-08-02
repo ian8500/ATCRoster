@@ -31,7 +31,7 @@
   </label>
   <label>Watch
     <select name="watch_id">
-      <option value="">All watches</option>
+      <option value="">Entire unit</option>
       {% for watch in watches %}<option value="{{ watch.id }}" {% if selected_watch_id == watch.id %}selected{% endif %}>{{ watch.name }}</option>{% endfor %}
     </select>
   </label>

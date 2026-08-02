@@ -36,7 +36,7 @@ class ReportsDependencies:
     current_unit_id: Callable[[], int]
     validate_csrf: Callable[[], None]
     consume_rate_limit: Callable[..., bool]
-    compute_metrics_range: Callable[[date, date], tuple]
+    compute_metrics_range: Callable[[date, date, int | None], tuple]
     financial_year_start: Callable[[date], date]
     parse_year_month: Callable[[str], tuple[int, int]]
     ensure_month_requirement: Callable[[int, int], Any]
@@ -96,8 +96,9 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             request.args.get("start", default_start.isoformat())
         )
         end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
+        watches, selected_watch = watch_selection()
         staff_metrics, totals, annotation_columns = dependencies.compute_metrics_range(
-            start_day, end_day
+            start_day, end_day, selected_watch.id if selected_watch else None
         )
         return render_template(
             "metrics.html",
@@ -106,6 +107,8 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             staff_metrics=staff_metrics,
             totals=totals,
             annotation_columns=annotation_columns,
+            watches=watches,
+            selected_watch=selected_watch,
         )
 
     @login_required
@@ -127,8 +130,9 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             request.args.get("start", default_start.isoformat())
         )
         end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
+        watches, selected_watch = watch_selection()
         staff_metrics, totals, annotation_columns = dependencies.compute_metrics_range(
-            start_day, end_day
+            start_day, end_day, selected_watch.id if selected_watch else None
         )
         output = io.StringIO()
         writer = csv.writer(output)
@@ -151,15 +155,14 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             )
         writer.writerow([])
         writer.writerow(
-            ["All ATCOs", "", ""]
+            [selected_watch.name if selected_watch else "Entire unit", "", ""]
             + [
                 totals["annotations"].get(column["code"], 0)
                 for column in annotation_columns
             ]
         )
-        filename = (
-            f"annotation-totals_{start_day.isoformat()}_to_{end_day.isoformat()}.csv"
-        )
+        watch_suffix = f"_watch-{selected_watch.id}" if selected_watch else ""
+        filename = f"annotation-totals_{start_day.isoformat()}_to_{end_day.isoformat()}{watch_suffix}.csv"
         return Response(
             output.getvalue().encode("utf-8"),
             mimetype="text/csv; charset=utf-8",

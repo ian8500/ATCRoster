@@ -333,7 +333,7 @@ def test_leave_year_report_filters_by_watch(client):
 
     all_users = client.get("/reports/leave-year")
     assert all_users.status_code == 200
-    assert b"All users" in all_users.data
+    assert b"Entire unit" in all_users.data
     assert b"Apply filter" in all_users.data
     assert b"<td>Admin Test</td>" in all_users.data
     assert b"<td>Duty Watch Manager Test</td>" in all_users.data
@@ -347,6 +347,33 @@ def test_leave_year_report_filters_by_watch(client):
     assert watch_b_only.status_code == 200
     assert b"<td>Duty Watch Manager Test</td>" in watch_b_only.data
     assert b"<td>Admin Test</td>" not in watch_b_only.data
+
+
+def test_annotation_totals_report_and_export_filter_by_watch(client):
+    login(client)
+    acknowledge_reports(client)
+    with app.app.app_context():
+        watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
+
+    entire_unit = client.get("/metrics")
+    assert entire_unit.status_code == 200
+    assert b"Entire unit" in entire_unit.data
+    assert b"Admin Test" in entire_unit.data
+    assert b"Duty Watch Manager Test" in entire_unit.data
+
+    watch_a_only = client.get(f"/metrics?watch_id={watch_a.id}")
+    assert watch_a_only.status_code == 200
+    assert b"Admin Test" in watch_a_only.data
+    assert b"Duty Watch Manager Test" not in watch_a_only.data
+    assert f"watch_id={watch_a.id}".encode() in watch_a_only.data
+
+    watch_b_export = client.get(f"/metrics/export?watch_id={watch_b.id}")
+    assert watch_b_export.status_code == 200
+    csv_text = watch_b_export.data.decode()
+    assert "Duty Watch Manager Test" in csv_text
+    assert "Admin Test" not in csv_text
+    assert f"watch-{watch_b.id}" in watch_b_export.headers["Content-Disposition"]
 
 
 def test_leave_year_report_uses_selected_end_date_and_coloured_balances(client):
@@ -433,7 +460,7 @@ def test_sickness_report_filters_by_watch(client):
 
     all_users = client.get("/reports/sickness")
     assert all_users.status_code == 200
-    assert b"All users" in all_users.data
+    assert b"Entire unit" in all_users.data
     assert b"Apply filter" in all_users.data
     assert b"<td>Admin Test</td>" in all_users.data
     assert b"<td>Duty Watch Manager Test</td>" in all_users.data

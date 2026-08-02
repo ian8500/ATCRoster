@@ -14,8 +14,15 @@
     <input id="start" name="start" type="date" value="{{ start.isoformat() }}">
     <label for="end">To</label>
     <input id="end" name="end" type="date" value="{{ end.isoformat() }}">
+    <label for="metrics-watch">Watch</label>
+    <select id="metrics-watch" name="watch_id">
+      <option value="">Entire unit</option>
+      {% for watch in watches %}
+        <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+      {% endfor %}
+    </select>
     <button class="btn btn-primary" type="submit">Update</button>
-    <a class="btn" href="{{ url_for('metrics_export', start=start.isoformat(), end=end.isoformat()) }}">Download CSV</a>
+    <a class="btn" href="{{ url_for('metrics_export', start=start.isoformat(), end=end.isoformat(), watch_id=selected_watch.id if selected_watch else None) }}">Download CSV</a>
   </form>
 
   <div class="card">
@@ -46,7 +53,7 @@
         </tbody>
         <tfoot>
           <tr class="strong">
-            <td>All ATCOs</td>
+            <td>{{ selected_watch.name if selected_watch else 'Entire unit' }}</td>
             <td></td>
             {% for col in annotation_columns %}
               <td>{{ totals.annotations[col.code] }}</td>
