@@ -14,7 +14,10 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
-from scripts.database_grants import apply_runtime_grants
+try:
+    from scripts.database_grants import apply_runtime_grants
+except ModuleNotFoundError:  # Railway invokes this file directly.
+    from database_grants import apply_runtime_grants
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
