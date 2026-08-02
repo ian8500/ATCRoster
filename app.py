@@ -98,6 +98,10 @@ from atcroster.security.headers import (
     csp_nonce,
     register_security_headers,
 )
+from atcroster.security.sessions import (
+    SessionLifecycle,
+    SessionLifecycleDependencies,
+)
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -296,64 +300,9 @@ def _bind_tenant_context():
     g.csp_nonce = secrets.token_urlsafe(18)
     g.tenant_context_token = None
     g.platform_control_token = None
-    if session.get("_user_id") and not current_user.is_authenticated:
-        # Flask-Login treats a principal rejected by the user loader as
-        # anonymous but otherwise leaves the stale signed session cookie in
-        # place. Remove it immediately when a membership/account is disabled.
-        session.clear()
-    if current_user.is_authenticated:
-        now_epoch = int(utcnow().timestamp())
-        idle_limit = int(
-            os.environ.get("ATCROSTER_SESSION_IDLE_MINUTES", "30")
-        ) * 60
-        last_seen = int(session.get("_last_seen_epoch") or now_epoch)
-        absolute_limit = int(
-            os.environ.get("ATCROSTER_SESSION_ABSOLUTE_MINUTES", "720")
-        ) * 60
-        started_raw = session.get("_session_started_at")
-        try:
-            started_epoch = int(
-                datetime.fromisoformat(str(started_raw)).timestamp()
-            )
-        except (TypeError, ValueError):
-            started_epoch = now_epoch
-            session["_session_started_at"] = utcnow().isoformat()
-        expiry_reason = (
-            "absolute" if now_epoch - started_epoch > absolute_limit
-            else "idle" if now_epoch - last_seen > idle_limit
-            else ""
-        )
-        if expiry_reason:
-            _security_event(
-                "session_expired", reason=expiry_reason,
-                principal=hashlib.sha256(
-                    str(current_user.get_id()).encode()
-                ).hexdigest()[:16],
-            )
-            logout_user()
-            session.clear()
-            flash("Your secure session has expired. Sign in again.", "error")
-            return redirect(url_for("login"))
-        expected_stamp = session.get("_auth_stamp")
-        current_stamp = _current_auth_stamp(current_user)
-        if expected_stamp and not secrets.compare_digest(
-            str(expected_stamp), current_stamp
-        ):
-            _security_event(
-                "session_forced_invalidation",
-                principal=hashlib.sha256(
-                    str(current_user.get_id()).encode()
-                ).hexdigest()[:16],
-            )
-            logout_user()
-            session.clear()
-            flash(
-                "Your account security or permissions changed. Sign in again.",
-                "error",
-            )
-            return redirect(url_for("login"))
-        session["_auth_stamp"] = current_stamp
-        session["_last_seen_epoch"] = now_epoch
+    session_response = _session_lifecycle.enforce_request(current_user)
+    if session_response is not None:
+        return session_response
     if (
         current_user.is_authenticated
         and getattr(current_user, "role", "") == "superadmin"
@@ -8720,46 +8669,24 @@ def _security_event(event: str, **safe_fields) -> None:
     )
 
 
-def _current_auth_stamp(user) -> str:
-    """Bind a session to mutable authentication and authorisation state."""
-    parts = [
-        str(getattr(user, "password_hash", "")),
-        str(getattr(user, "role", "")),
-        str(getattr(user, "membership_status", "")),
-    ]
+def _credential_for_auth_stamp(user):
     if getattr(user, "role", "") == "superadmin":
-        credential = PlatformMfaCredential.query.filter_by(
+        return PlatformMfaCredential.query.filter_by(
             identity_id=user.id
         ).first()
-    else:
-        # The user loader binds the verified membership's operational route
-        # before this is called. Including airport MFA state ensures that
-        # enrolment, replacement or reset revokes every previously issued
-        # browser session for that person.
-        credential = MfaCredential.query.filter_by(person_id=user.id).first()
-    enrolled_at = getattr(credential, "enrolled_at", None)
-    if enrolled_at and enrolled_at.tzinfo is not None:
-        enrolled_at = enrolled_at.astimezone(timezone.utc).replace(tzinfo=None)
-    parts.extend([
-        str(bool(credential and credential.enabled)),
-        str(bool(getattr(credential, "reset_required", False))),
-        hashlib.sha256(
-            str(getattr(credential, "encrypted_secret", "")).encode()
-        ).hexdigest(),
-        enrolled_at.isoformat() if enrolled_at else "",
-    ])
-    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
+    # The user loader has already bound the verified operational tenant.
+    return MfaCredential.query.filter_by(person_id=user.id).first()
 
 
-def _initialize_authenticated_session(user, *, platform_mfa=False) -> None:
-    """Regenerate authenticated session state after the final auth factor."""
-    session.permanent = True
-    session["_session_nonce"] = secrets.token_urlsafe(24)
-    session["_session_started_at"] = utcnow().isoformat()
-    session["_last_seen_epoch"] = int(utcnow().timestamp())
-    session["_auth_stamp"] = _current_auth_stamp(user)
-    if platform_mfa:
-        session["_platform_mfa_verified"] = True
+_session_lifecycle = SessionLifecycle(
+    SessionLifecycleDependencies(
+        now=utcnow,
+        credential_for_user=_credential_for_auth_stamp,
+        security_event=lambda event, **facts: _security_event(event, **facts),
+    )
+)
+_current_auth_stamp = _session_lifecycle.auth_stamp
+_initialize_authenticated_session = _session_lifecycle.initialize
 
 
 def _central_security_event(
