@@ -2097,7 +2097,7 @@ table.roster { zoom:var(--ui-scale); }
    ============================== */
 .roster th.dayhead.is-today {
   outline: 2px solid rgba(0,0,0,.15);
-  background: rgba(255,255,0,.10) !important;
+  background: #363d2e !important;
 }
 
 .roster td.cell.is-today {
