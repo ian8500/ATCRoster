@@ -8824,6 +8824,9 @@ from work_pattern_admin_service import (
 from work_pattern_blueprint import (
     WorkPatternBlueprintDependencies, create_work_pattern_blueprint,
 )
+from roster_validation_service import (
+    RosterValidationDependencies, RosterValidationService,
+)
 
 work_pattern_service = WorkPatternService(WorkPatternDependencies(
     Staff=Staff,
@@ -8850,6 +8853,16 @@ work_pattern_admin_service = WorkPatternAdminService(
         WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
         ShiftType=ShiftType,
         pattern_service=work_pattern_service,
+    )
+)
+roster_validation_service = RosterValidationService(
+    RosterValidationDependencies(
+        Staff=Staff,
+        ShiftType=ShiftType,
+        Assignment=Assignment,
+        StaffPatternAssignment=StaffPatternAssignment,
+        StaffRule=StaffRule,
+        work_pattern_service=work_pattern_service,
     )
 )
 app.register_blueprint(create_work_pattern_blueprint(
@@ -8973,6 +8986,7 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     shift_groups=_shift_groups_snapshot,
     watch_id_for_staff_on=watch_id_for_staff_on,
     roster_fatigue_flags=roster_fatigue_flags_for_range,
+    roster_validation=roster_validation_service,
     get_annotation_groups=get_annotation_groups,
     lock_roster_month=_lock_roster_month,
 )))

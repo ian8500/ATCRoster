@@ -2919,3 +2919,63 @@ def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     assert admin_client.get(
         f"/administration/staff/{other_id}/work-rules"
     ).status_code == 404
+
+
+def test_roster_shows_pattern_breach_and_blocks_publication(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
+        morning = ShiftType.query.filter_by(unit_id=1, code="M").one()
+        pattern = app.WorkPattern(
+            unit_id=1, name="Publication blocker test", cycle_length_days=1,
+            contracted_minutes_per_cycle=0,
+        )
+        db.session.add(pattern)
+        db.session.flush()
+        db.session.add(app.WorkPatternDay(
+            unit_id=1, work_pattern_id=pattern.id, day_index=0,
+            day_type="OFF", required_work=False,
+        ))
+        db.session.add(app.StaffPatternAssignment(
+            unit_id=1, staff_id=person.id, work_pattern_id=pattern.id,
+            effective_from=date(2025, 9, 1), effective_to=date(2025, 9, 30),
+            anchor_date=date(2025, 9, 1), anchor_day_index=0,
+        ))
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=person.id, day=date(2025, 9, 1)
+        ).first()
+        if not assignment:
+            assignment = Assignment(
+                unit_id=1, staff_id=person.id, day=date(2025, 9, 1), code="M"
+            )
+            db.session.add(assignment)
+        assignment.code = morning.code
+        db.session.commit()
+        pattern_id = pattern.id
+
+    roster = client.get("/roster/2025-09")
+    assert roster.status_code == 200
+    assert b"Pre-publication validation" in roster.data
+    assert b"Publication blocker" in roster.data
+    assert b"protected non-working day" in roster.data
+    assert b"Resolve blocking validation findings first" in roster.data
+
+    published = client.post(
+        "/roster/2025-09/publish",
+        data={"_csrf_token": csrf(client)},
+        follow_redirects=True,
+    )
+    assert published.status_code == 200
+    assert b"Roster publication blocked" in published.data
+    with app.app.app_context():
+        assert app.RosterPublication.query.filter_by(
+            unit_id=1, year=2025, month=9, state="published"
+        ).count() == 0
+        app.StaffPatternAssignment.query.filter_by(
+            unit_id=1, work_pattern_id=pattern_id
+        ).delete()
+        app.WorkPatternDay.query.filter_by(
+            unit_id=1, work_pattern_id=pattern_id
+        ).delete()
+        app.WorkPattern.query.filter_by(id=pattern_id, unit_id=1).delete()
+        db.session.commit()

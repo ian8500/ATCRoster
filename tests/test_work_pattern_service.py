@@ -292,3 +292,34 @@ def test_overlapping_effective_pattern_ranges_are_rejected(pattern_service):
     )
     with pytest.raises(ValueError, match="overlaps"):
         service.validate_staff_pattern_assignment(candidate)
+
+
+def test_existing_assignment_is_not_counted_twice_at_rule_limit(pattern_service):
+    service, unit, person, shifts = pattern_service
+    on_date = date(2026, 8, 1)
+    app.db.session.add_all([
+        app.Assignment(
+            unit_id=unit.id, staff_id=person.id, day=on_date, code="M"
+        ),
+        app.StaffRule(
+            unit_id=unit.id, staff_id=person.id,
+            rule_type="MAX_SHIFTS_PER_CYCLE", hardness="HARD",
+            effective_from=on_date, rolling_period_days=7, maximum_count=1,
+        ),
+        app.StaffRule(
+            unit_id=unit.id, staff_id=person.id,
+            rule_type="MAX_CONTRACTED_MINUTES", hardness="HARD",
+            effective_from=on_date, rolling_period_days=7, maximum_count=480,
+        ),
+    ])
+    app.db.session.commit()
+
+    proposal = service.is_staff_eligible_for_shift(
+        person.id, on_date, shifts["M"].id
+    )
+    existing = service.is_staff_eligible_for_shift(
+        person.id, on_date, shifts["M"].id, existing_assignment=True
+    )
+
+    assert not proposal.eligible
+    assert existing.eligible

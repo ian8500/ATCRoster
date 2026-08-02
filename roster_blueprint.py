@@ -71,6 +71,7 @@ class RosterDependencies:
     shift_groups: Callable[[int], tuple]
     watch_id_for_staff_on: Callable[[int, date], int | None]
     roster_fatigue_flags: Callable[..., dict]
+    roster_validation: Any
     get_annotation_groups: Callable[[], list]
     lock_roster_month: Callable[[int, int, int], Any]
 
@@ -88,7 +89,21 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         if not dependencies.month_has_data(year, month):
             dependencies.ensure_month_requirement(year, month)
             dependencies.generate_month(year, month)
+        # Serialise roster writes before evaluating publication eligibility so
+        # the validated assignments are the same assignments we snapshot.
         dependencies.lock_roster_month(unit_id, year, month)
+        month_start, month_days = dependencies.month_range(year, month)
+        validation = dependencies.roster_validation.validate_range(
+            unit_id, month_start, month_days[-1]
+        )
+        if not validation.can_publish:
+            flash(
+                f"Roster publication blocked: {validation.blocking_count} "
+                "pattern or hard-rule breach"
+                f"{'es' if validation.blocking_count != 1 else ''} must be resolved.",
+                "error",
+            )
+            return redirect(url_for("roster_month", ym=ym))
         active = dependencies.active_publication(year, month)
         if active and dependencies.publication_matches_live(active, year, month):
             flash(
@@ -484,6 +499,9 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             )
             for person in staff
         }
+        roster_validation = dependencies.roster_validation.validate_range(
+            unit_id, days[0], days[-1]
+        )
         requests = dependencies.ShiftRequest.query.filter(
             dependencies.ShiftRequest.unit_id == unit_id,
             dependencies.ShiftRequest.day >= start,
@@ -581,6 +599,8 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             rag=rag,
             expiry_classes=expiry_classes,
             fatigue=fatigue,
+            roster_validation=roster_validation,
+            roster_validation_by_cell=roster_validation.by_cell(),
             watch_break_after_ids=watch_break_after_ids,
             prev_ym=previous_ym,
             next_ym=next_ym,

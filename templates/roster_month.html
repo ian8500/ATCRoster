@@ -191,11 +191,13 @@
         {% for d in days %}
           {% set code = a_map.get(s.id, {}).get(d, "") %}          
           {% set f = fatigue.get(s.id, {}).get(d) %}
+          {% set rv = roster_validation_by_cell.get((s.id, d), ()) %}
+          {% set rv_blocking = rv|selectattr('blocks_publication')|list %}
           {% set ann = ann_map.get(s.id, {}).get(d, "") %}
           {% set ann_note = ann_note_map.get(s.id, {}).get(d, "") %}
           {% set applied_request = applied_request_map.get((s.id, d)) %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
-          <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
+          <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if rv_blocking %} roster-validation-blocking{% elif rv %} roster-validation-advisory{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
               {% if applied_request %}title="Applied from an approved shift request" aria-label="{{ s.name }}, {{ d.strftime('%d %B %Y') }}, {{ code }}, applied from an approved shift request"{% endif %}>
             {% if applied_request %}
               <span class="request-applied-marker" aria-hidden="true"></span>
@@ -207,6 +209,16 @@
                 <span class="fatigue-tooltip" role="tooltip">
                   <strong>Fatigue warning</strong>
                   {% for reason in f %}<span>{{ reason }}</span>{% endfor %}
+                </span>
+              </span>
+            {% endif %}
+            {% if rv %}
+              <span class="roster-validation-hazard roster-validation-hazard--{{ 'blocking' if rv_blocking else 'advisory' }}" tabindex="0" role="img"
+                    aria-label="Roster validation: {{ rv|map(attribute='explanation')|join('; ') }}">
+                <span aria-hidden="true">{{ '!' if rv_blocking else 'i' }}</span>
+                <span class="roster-validation-tooltip" role="tooltip">
+                  <strong>{{ 'Publication blocker' if rv_blocking else 'Staff preference' }}</strong>
+                  {% for finding in rv %}<span>{{ finding.explanation }}</span>{% endfor %}
                 </span>
               </span>
             {% endif %}
@@ -347,6 +359,19 @@
   </section>
 {% endif %}
 
+<section class="roster-validation-summary {{ 'roster-validation-summary--blocking' if roster_validation.blocking_count else 'roster-validation-summary--clear' }}" aria-labelledby="roster-validation-title">
+  <div>
+    <span class="eyebrow">Pre-publication validation</span>
+    <h3 id="roster-validation-title">{{ roster_validation.blocking_count }} blocking · {{ roster_validation.advisory_count }} advisory</h3>
+    <p>{% if roster_validation.blocking_count %}Resolve every pattern or hard-rule breach before publishing.{% else %}No pattern or hard-rule breaches prevent publication.{% endif %} Soft preferences remain informational.</p>
+  </div>
+  {% if roster_validation.findings %}
+  <details><summary>Review validation findings</summary><ul>
+    {% for finding in roster_validation.findings %}<li class="validation-finding validation-finding--{{ finding.severity }}"><strong>{{ finding.staff_name }} · {{ finding.day.strftime('%d %b') }} · {{ finding.shift_code }}</strong><span>{{ finding.explanation }}</span></li>{% endfor %}
+  </ul></details>
+  {% endif %}
+</section>
+
 {% if roster_publication %}
   <div class="roster-state-note roster-state-note--published" role="status">
     <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
@@ -367,7 +392,7 @@
       <form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}"
             data-confirm="Publish the {{ month_title }} roster? Staff will see it as the current published roster.">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm" type="submit">Publish roster</button>
+        <button class="btn btn-sm" type="submit" {% if roster_validation.blocking_count %}disabled title="Resolve blocking validation findings first"{% endif %}>Publish roster</button>
       </form>
     {% endif %}
   </div>

@@ -226,7 +226,8 @@ class WorkPatternService:
         )
 
     def is_staff_eligible_for_shift(
-        self, staff_id: int, on_date: date, shift_type_id: int
+        self, staff_id: int, on_date: date, shift_type_id: int,
+        *, existing_assignment: bool = False,
     ) -> EligibilityResult:
         staff = self.dependencies.Staff.query.filter_by(id=staff_id).first()
         shift = self.dependencies.ShiftType.query.filter_by(
@@ -271,7 +272,10 @@ class WorkPatternService:
         for rule in rules:
             if rule.hardness != "HARD":
                 continue
-            reason = self._hard_rule_reason(rule, shift, group, is_night, is_early, on_date)
+            reason = self._hard_rule_reason(
+                rule, shift, group, is_night, is_early, on_date,
+                existing_assignment=existing_assignment,
+            )
             if reason:
                 hard_reasons.append(reason)
         if hard_reasons:
@@ -323,7 +327,7 @@ class WorkPatternService:
 
     def _hard_rule_reason(
         self, rule: Any, shift: Any, group: str, is_night: bool,
-        is_early: bool, on_date: date,
+        is_early: bool, on_date: date, *, existing_assignment: bool = False,
     ) -> EligibilityReason | None:
         applies = _rule_targets_shift(rule, shift, group)
         if rule.rule_type == "NO_NIGHT" and is_night:
@@ -340,10 +344,18 @@ class WorkPatternService:
         if rule.rule_type in {"MAX_NIGHTS_PER_CYCLE", "MAX_SHIFTS_PER_CYCLE"}:
             if rule.rule_type == "MAX_NIGHTS_PER_CYCLE" and not is_night:
                 return None
-            if self._assignment_count(rule, on_date, nights_only=rule.rule_type == "MAX_NIGHTS_PER_CYCLE") >= int(rule.maximum_count or 0):
+            count = self._assignment_count(
+                rule, on_date,
+                nights_only=rule.rule_type == "MAX_NIGHTS_PER_CYCLE",
+            )
+            limit = int(rule.maximum_count or 0)
+            if count > limit or (count >= limit and not existing_assignment):
                 return _rule_reason(rule, rule.rule_type, "Employee has reached the configured maximum duty count.")
         if rule.rule_type == "MAX_CONTRACTED_MINUTES":
-            if self._assigned_minutes(rule, on_date) + _shift_minutes(shift) > int(rule.maximum_count or 0):
+            proposed_minutes = self._assigned_minutes(rule, on_date)
+            if not existing_assignment:
+                proposed_minutes += _shift_minutes(shift)
+            if proposed_minutes > int(rule.maximum_count or 0):
                 return _rule_reason(rule, "MAX_CONTRACTED_MINUTES", "This shift would exceed the employee's configured maximum minutes.")
         return None
 
