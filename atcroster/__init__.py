@@ -9,6 +9,7 @@ from typing import Any
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from atcroster.compression import register_response_compression
 from atcroster.config import (
     RuntimeSettings,
     environment_snapshot,
@@ -58,6 +59,7 @@ def create_app(
 
     if validate_external_services and settings.deployment_environment == "production":
         _validate_external_services(app)
+    register_response_compression(app)
     return app
 
 

@@ -620,6 +620,9 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"transform: scale(var(--ui-scale))" not in stylesheet.data
     assert b"today-column overlay (layer 5)" in stylesheet.data
     assert b"z-index:7" in stylesheet.data
+    assert b'data-roster-auto-submit="true"' in response.data
+    assert b"Saving\xe2\x80\xa6" in response.data
+    assert b"atcroster:scroll:" in response.data
 
 
 def test_roster_renders_annual_leave_as_static_al_code(client):
@@ -920,6 +923,49 @@ def test_stale_roster_cell_version_is_rejected(client):
         ).one()
         assert assignment.code == "A"
         assert assignment.version == stale_version + 1
+
+
+def test_roster_shift_can_be_saved_without_a_page_reload(client):
+    login(client)
+    duty_day = date(2025, 4, 3)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=admin.id, day=duty_day
+        ).one()
+        original = (assignment.code, assignment.source, assignment.version)
+        staff_id = admin.id
+        version = assignment.version
+    try:
+        response = client.post(
+            f"/assign/{staff_id}/2025-04/{duty_day.isoformat()}",
+            data={
+                "_csrf_token": csrf(client),
+                "code": "D",
+                "assignment_version": version,
+            },
+            headers={
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["ok"] is True
+        assert payload["code"] == "D"
+        assert payload["version"] == version + 1
+        assert payload["day"] == duty_day.isoformat()
+        assert set(payload["day_summary"]) == {
+            "counts", "night_active", "rag", "required", "total",
+        }
+    finally:
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(
+                unit_id=1, staff_id=staff_id, day=duty_day
+            ).one()
+            assignment.code, assignment.source, assignment.version = original
+            db.session.commit()
 
 
 def test_roster_publication_emails_every_registered_unit_user(
