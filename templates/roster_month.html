@@ -386,19 +386,6 @@
   </section>
 {% endif %}
 
-<section class="roster-validation-summary {{ 'roster-validation-summary--blocking' if roster_validation.blocking_count else 'roster-validation-summary--clear' }}" aria-labelledby="roster-validation-title">
-  <div>
-    <span class="eyebrow">Pre-publication validation</span>
-    <h3 id="roster-validation-title">{{ roster_validation.blocking_count }} blocking · {{ roster_validation.advisory_count }} advisory</h3>
-    <p>{% if roster_validation.blocking_count %}Resolve every pattern or hard-rule breach before publishing.{% else %}No pattern or hard-rule breaches prevent publication.{% endif %} Soft preferences remain informational.</p>
-  </div>
-  {% if roster_validation.findings %}
-  <details><summary>Review validation findings</summary><ul>
-    {% for finding in roster_validation.findings %}<li class="validation-finding validation-finding--{{ finding.severity }}"><strong>{{ finding.staff_name }} · {{ finding.day.strftime('%d %b') }} · {{ finding.shift_code }}</strong><span>{{ finding.explanation }}</span></li>{% endfor %}
-  </ul></details>
-  {% endif %}
-</section>
-
 {% if roster_publication %}
   <div class="roster-state-note roster-state-note--published" role="status">
     <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
