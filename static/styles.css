@@ -865,6 +865,11 @@ table.roster th.sticky,
   box-shadow:0 4px 8px rgba(0,0,0,.24);
   z-index:10;
 }
+table.roster th.sticky{
+  /* The general table heading uses a translucent gradient. Sticky headings
+     must be fully opaque so scrolled roster values cannot show through. */
+  background:var(--head);
+}
 table.roster th.sticky::after,
 .roster th.dayhead::after{
   content:"";
