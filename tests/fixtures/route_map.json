@@ -1,0 +1,786 @@
+[
+  {
+    "endpoint": "index",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/"
+  },
+  {
+    "endpoint": "__can",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/__can"
+  },
+  {
+    "endpoint": "admin",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/admin"
+  },
+  {
+    "endpoint": "change_log_page",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/admin/change-log"
+  },
+  {
+    "endpoint": "admin_fatigue_rules",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/admin/fatigue-rules"
+  },
+  {
+    "endpoint": "admin_reference",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/admin/reference"
+  },
+  {
+    "endpoint": "admin_request_respond",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/admin/requests/<int:rid>/respond"
+  },
+  {
+    "endpoint": "admin_sms_audit",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/admin/sms-audit"
+  },
+  {
+    "endpoint": "admin_staff_edit",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/admin/staff/<int:sid>"
+  },
+  {
+    "endpoint": "admin_watch_move",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/admin/staff/<int:sid>/watch-move"
+  },
+  {
+    "endpoint": "admin_watch_move_delete",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/admin/staff/watch-move/<int:hid>/delete"
+  },
+  {
+    "endpoint": "admin_watch_move_edit",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/admin/staff/watch-move/<int:hid>/edit"
+  },
+  {
+    "endpoint": "admin_toil_new",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/admin/toil/new"
+  },
+  {
+    "endpoint": "administration_home",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/administration"
+  },
+  {
+    "endpoint": "kiosk_accounts",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/administration/kiosk-accounts"
+  },
+  {
+    "endpoint": "assign_cell",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/assign/<int:staff_id>/<ym>/<day>"
+  },
+  {
+    "endpoint": "briefing.home",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/briefing/"
+  },
+  {
+    "endpoint": "briefing.admin",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/briefing/admin"
+  },
+  {
+    "endpoint": "briefing.publish",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/admin/<int:item_id>/publish"
+  },
+  {
+    "endpoint": "briefing.withdraw",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/admin/<int:item_id>/withdraw"
+  },
+  {
+    "endpoint": "briefing.legacy_assurance",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/briefing/admin/assurance"
+  },
+  {
+    "endpoint": "briefing.audit",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/briefing/admin/audit"
+  },
+  {
+    "endpoint": "briefing.configure_message_types",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/admin/message-types/configure"
+  },
+  {
+    "endpoint": "briefing.assurance",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/briefing/admin/reports"
+  },
+  {
+    "endpoint": "briefing.delete_assurance_report",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/admin/reports/<int:run_id>/delete"
+  },
+  {
+    "endpoint": "briefing.settings",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/briefing/admin/settings"
+  },
+  {
+    "endpoint": "briefing.archive",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/briefing/archive"
+  },
+  {
+    "endpoint": "briefing.view_item",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/briefing/item/<int:item_id>"
+  },
+  {
+    "endpoint": "briefing.acknowledge",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/item/<int:item_id>/acknowledge"
+  },
+  {
+    "endpoint": "briefing.archive_item",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/item/<int:item_id>/archive"
+  },
+  {
+    "endpoint": "briefing.delete_item",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/item/<int:item_id>/delete"
+  },
+  {
+    "endpoint": "briefing.document",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/briefing/item/<int:item_id>/document"
+  },
+  {
+    "endpoint": "briefing.heartbeat",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/briefing/item/<int:item_id>/heartbeat"
+  },
+  {
+    "endpoint": "calendar_feed",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/calendar/<int:sid>/<token>.ics"
+  },
+  {
+    "endpoint": "competency_home",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/competency/"
+  },
+  {
+    "endpoint": "competency_profile",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/competency/<int:sid>"
+  },
+  {
+    "endpoint": "qualification_compliance",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/compliance"
+  },
+  {
+    "endpoint": "compliance_centre",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/compliance-centre"
+  },
+  {
+    "endpoint": "compliance_centre_export",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/compliance-centre/export"
+  },
+  {
+    "endpoint": "cookie_notice",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/cookies"
+  },
+  {
+    "endpoint": "favicon",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/favicon.ico"
+  },
+  {
+    "endpoint": "health_live",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/health/live"
+  },
+  {
+    "endpoint": "health_ready",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/health/ready"
+  },
+  {
+    "endpoint": "internal_health",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/internal/health"
+  },
+  {
+    "endpoint": "internal_metrics",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/internal/metrics"
+  },
+  {
+    "endpoint": "accept_invitation",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/invite/<token>"
+  },
+  {
+    "endpoint": "leave",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/leave"
+  },
+  {
+    "endpoint": "live_position.admin_home",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/live-positions/"
+  },
+  {
+    "endpoint": "live_position.position_configuration",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/live-positions/admin/positions"
+  },
+  {
+    "endpoint": "live_position.controllers",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/live-positions/api/controllers"
+  },
+  {
+    "endpoint": "live_position.live_events",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/live-positions/api/events"
+  },
+  {
+    "endpoint": "live_position.close_position",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/live-positions/api/positions/<int:position_id>/close"
+  },
+  {
+    "endpoint": "live_position.handover",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/live-positions/api/positions/<int:position_id>/handover"
+  },
+  {
+    "endpoint": "live_position.logoff",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/live-positions/api/positions/<int:position_id>/logoff"
+  },
+  {
+    "endpoint": "live_position.logon",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/live-positions/api/positions/<int:position_id>/logon"
+  },
+  {
+    "endpoint": "live_position.open_position",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/live-positions/api/positions/<int:position_id>/open"
+  },
+  {
+    "endpoint": "live_position.add_participant",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/live-positions/api/positions/<int:position_id>/participants"
+  },
+  {
+    "endpoint": "live_position.remove_participant",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/live-positions/api/positions/<int:position_id>/participants/<int:participant_id>/logoff"
+  },
+  {
+    "endpoint": "live_position.live_state",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/live-positions/api/state"
+  },
+  {
+    "endpoint": "live_position.kiosk_hmi",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/live-positions/kiosk"
+  },
+  {
+    "endpoint": "live_position.operational_activity",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/live-positions/reports/operational-activity"
+  },
+  {
+    "endpoint": "login",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/login"
+  },
+  {
+    "endpoint": "mfa_challenge",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/login/mfa"
+  },
+  {
+    "endpoint": "platform_mfa_challenge",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/login/platform-mfa"
+  },
+  {
+    "endpoint": "platform_mfa_setup",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/login/platform-mfa/setup"
+  },
+  {
+    "endpoint": "logout",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/logout"
+  },
+  {
+    "endpoint": "unit_messages",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/messages"
+  },
+  {
+    "endpoint": "metrics",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/metrics"
+  },
+  {
+    "endpoint": "metrics_export",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/metrics/export"
+  },
+  {
+    "endpoint": "module_home",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/modules"
+  },
+  {
+    "endpoint": "notification_delete",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/notifications/<int:notification_id>/delete"
+  },
+  {
+    "endpoint": "notification_read",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/notifications/<int:notification_id>/read"
+  },
+  {
+    "endpoint": "notifications_read",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/notifications/read"
+  },
+  {
+    "endpoint": "operations_assurance",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/operations/<ym>"
+  },
+  {
+    "endpoint": "overtime",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/overtime"
+  },
+  {
+    "endpoint": "password_change",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/password"
+  },
+  {
+    "endpoint": "coverage_heatmap",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/planning/coverage/<ym>"
+  },
+  {
+    "endpoint": "scenarios_page",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/planning/scenarios"
+  },
+  {
+    "endpoint": "platform_admin",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/platform/admin"
+  },
+  {
+    "endpoint": "platform_worker_health",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/platform/worker-health"
+  },
+  {
+    "endpoint": "privacy_notice",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/privacy"
+  },
+  {
+    "endpoint": "account_recovery",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/recover"
+  },
+  {
+    "endpoint": "approve_account_recovery",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/recover/approve/<token>"
+  },
+  {
+    "endpoint": "complete_account_recovery",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/recover/reset/<token>"
+  },
+  {
+    "endpoint": "reports_index",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/reports"
+  },
+  {
+    "endpoint": "report_leave_year",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/reports/leave-year"
+  },
+  {
+    "endpoint": "report_leave_csv",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/reports/leave.csv"
+  },
+  {
+    "endpoint": "report_leave",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/reports/leave/<ym>"
+  },
+  {
+    "endpoint": "report_sickness",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/reports/sickness"
+  },
+  {
+    "endpoint": "requests_page",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/requests"
+  },
+  {
+    "endpoint": "roster_month",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/roster/<ym>"
+  },
+  {
+    "endpoint": "roster_export_csv",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/roster/<ym>/export"
+  },
+  {
+    "endpoint": "roster_print_view",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/roster/<ym>/print"
+  },
+  {
+    "endpoint": "roster_month_publish",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster/<ym>/publish"
+  },
+  {
+    "endpoint": "roster_month_unpublish",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster/<ym>/unpublish"
+  },
+  {
+    "endpoint": "mfa_setup",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/security/mfa"
+  },
+  {
+    "endpoint": "staff_profile",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/staff/<int:sid>"
+  },
+  {
+    "endpoint": "calendar_token_create",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/staff/<int:sid>/calendar-token"
+  },
+  {
+    "endpoint": "static",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/static/<path:filename>"
+  },
+  {
+    "endpoint": "subprocessor_notice",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/subprocessors"
+  },
+  {
+    "endpoint": "terms_of_service",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/terms"
+  },
+  {
+    "endpoint": "training_home",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/training/"
+  },
+  {
+    "endpoint": "training_profile",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/training/<int:sid>"
+  },
+  {
+    "endpoint": "training_admin",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/training/admin"
+  },
+  {
+    "endpoint": "training_analytics",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/training/analytics"
+  },
+  {
+    "endpoint": "unit_accounts",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/unit/accounts"
+  },
+  {
+    "endpoint": "unit_onboarding",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/unit/onboarding"
+  }
+]
+

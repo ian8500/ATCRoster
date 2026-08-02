@@ -23,7 +23,6 @@ import hashlib
 import pyotp
 import qrcode
 import qrcode.image.svg
-from cryptography.fernet import Fernet, InvalidToken
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.session import Session as FlaskSqlAlchemySession
@@ -90,6 +89,20 @@ from access_policy import (
     permissions_for,
 )
 from atcroster import create_app, get_runtime_settings
+from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
+from atcroster.public import public_blueprint
+from atcroster.security.csrf import csrf_token, register_csrf_protection
+from atcroster.security.encryption import FieldEncryptionService
+from atcroster.security.headers import (
+    SecurityHeaderDependencies,
+    csp_nonce,
+    register_security_headers,
+)
+from atcroster.security.sessions import (
+    SessionLifecycle,
+    SessionLifecycleDependencies,
+)
+from atcroster.tenancy_hooks import TenantHookDependencies, register_tenant_hooks
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -135,46 +148,12 @@ else:
     _rate_limiter = MemoryRateLimiter()
 
 
-def _field_ciphers() -> list[tuple[str, Fernet]]:
-    result = []
-    for item in FIELD_ENCRYPTION_KEYS.split(","):
-        version, separator, key = item.strip().partition(":")
-        if not separator or not re.fullmatch(r"[A-Za-z0-9_-]{1,20}", version):
-            raise RuntimeError("Invalid field-encryption key version.")
-        try:
-            result.append((version, Fernet(key.encode())))
-        except (ValueError, TypeError) as exc:
-            raise RuntimeError("Invalid field-encryption key material.") from exc
-    if not result:
-        raise RuntimeError("At least one field-encryption key is required.")
-    return result
-
-
-def _encrypt_field(value: str) -> str:
-    version, cipher = _field_ciphers()[0]
-    return f"{version}.{cipher.encrypt(value.encode()).decode()}"
-
-
-def _decrypt_field(value: str) -> str:
-    version, separator, ciphertext = value.partition(".")
-    if separator:
-        candidates = [
-            cipher for candidate, cipher in _field_ciphers()
-            if candidate == version
-        ]
-    else:
-        ciphertext = value
-        candidates = [cipher for _version, cipher in _field_ciphers()]
-    for cipher in candidates:
-        try:
-            return cipher.decrypt(ciphertext.encode()).decode()
-        except InvalidToken:
-            continue
-    raise ValueError("Encrypted field cannot be decrypted with configured keys.")
-
-
-# Validate configured material during startup rather than at first MFA use.
-_field_ciphers()
+# Constructing the service validates configured material during startup rather
+# than at first MFA use. Aliases preserve callers during incremental extraction.
+_field_encryption = FieldEncryptionService(FIELD_ENCRYPTION_KEYS)
+_field_ciphers = _field_encryption.ciphers
+_encrypt_field = _field_encryption.encrypt
+_decrypt_field = _field_encryption.decrypt
 
 # Jinja helper
 app.jinja_env.globals['now'] = lambda: datetime.now()
@@ -227,217 +206,30 @@ def _current_unit_id() -> int:
     return int(getattr(current_user, "unit_id", 0) or 0)
 
 
-def csrf_token() -> str:
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["_csrf_token"] = token
-    return token
-
-
-def _validate_csrf() -> None:
-    supplied = request.form.get("_csrf_token") or request.headers.get("X-CSRF-Token")
-    expected = session.get("_csrf_token")
-    if not expected or not supplied or not secrets.compare_digest(str(expected), str(supplied)):
-        abort(400, "Invalid or missing CSRF token.")
-
-
-app.jinja_env.globals["csrf_token"] = csrf_token
-
-
-def csp_nonce() -> str:
-    return getattr(g, "csp_nonce", "")
-
-
-app.jinja_env.globals["csp_nonce"] = csp_nonce
-
-
 @app.before_request
 def _start_request_tenant_boundary():
     clear_request_context()
     g.metrics_started_at = begin_request(_operational_metrics)
 
 
-@app.before_request
-def _enforce_csrf():
-    """Apply a default-deny CSRF boundary to every browser mutation.
-
-    There are currently no exempt unsafe routes. New machine-to-machine
-    endpoints must use a separate authenticated blueprint and document any
-    exemption explicitly rather than weakening this browser boundary.
-    """
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        _validate_csrf()
+_validate_csrf, _enforce_csrf = register_csrf_protection(app)
 
 
-@app.route("/favicon.ico")
-def favicon():
-    return send_from_directory(
-        app.static_folder, "favicon.svg", mimetype="image/svg+xml"
-    )
+app.register_blueprint(public_blueprint)
 
 
-def _legal_context() -> dict[str, str]:
-    """Public contact details used by the legal and privacy notices."""
-    return {
-        "legal_entity": os.environ.get(
-            "ATCROSTER_LEGAL_ENTITY",
-            "Ian John Dickson trading as IDAviation",
-        ).strip(),
-        "privacy_email": os.environ.get(
-            "ATCROSTER_PRIVACY_EMAIL",
-            os.environ.get(
-                "ATCROSTER_SUPPORT_EMAIL", "privacy@atcroster.com"
-            ),
-        ).strip(),
-        "legal_address": os.environ.get(
-            "ATCROSTER_LEGAL_ADDRESS",
-            "Flat 0/2, 24 Caird Drive, Glasgow, Scotland, G11 5DT",
-        ).strip(),
-        "company_number": os.environ.get(
-            "ATCROSTER_COMPANY_NUMBER", ""
-        ).strip(),
-        "policy_date": "27 July 2026",
-    }
-
-
-@app.get("/privacy")
-def privacy_notice():
-    return render_template("privacy.html", **_legal_context())
-
-
-@app.get("/cookies")
-def cookie_notice():
-    return render_template("cookies.html", **_legal_context())
-
-
-@app.get("/terms")
-def terms_of_service():
-    return render_template("terms.html", **_legal_context())
-
-
-@app.get("/subprocessors")
-def subprocessor_notice():
-    return render_template("subprocessors.html", **_legal_context())
-
-
-@app.errorhandler(500)
-def _internal_error(error):
-    app.logger.error(
-        "unhandled_request_error request_id=%s path=%s",
-        getattr(g, "request_id", ""), request.path, exc_info=error,
-    )
-    module_context = _module_error_navigation()
-    return render_template(
-        "error.html", request_id=getattr(g, "request_id", ""),
-        **module_context,
-    ), 500
-
-
-def _module_error_navigation() -> dict[str, str]:
-    """Keep module errors inside the module instead of linking to Roster."""
-    if request.path.startswith("/briefing"):
-        return {
-            "home_url": url_for("briefing.home"),
-            "home_label": "Return to briefing",
-        }
-    if request.path.startswith("/training"):
-        return {
-            "home_url": url_for("training_home"),
-            "home_label": "Return to training",
-        }
-    if request.path.startswith("/competency"):
-        return {
-            "home_url": url_for("competency_home"),
-            "home_label": "Return to competency",
-        }
-    return {}
-
-
-@app.errorhandler(400)
-def _bad_request(error):
-    if isinstance(error, SecurityError):
-        return Response(
-            "Bad Request: untrusted host.",
-            status=400,
-            content_type="text/plain; charset=utf-8",
+_error_handlers = register_error_handlers(
+    app,
+    ErrorHandlerDependencies(
+        security_event=lambda event, **safe_fields: _security_event(
+            event, **safe_fields
         )
-    description = getattr(error, "description", "") or ""
-    if "CSRF" in description:
-        _security_event("csrf_rejected", route=request.endpoint or "unmatched")
-        message = (
-            "This page or form has expired. Reload the page and try the action "
-            "once more."
-        )
-    elif description and not description.startswith(
-        "The browser (or proxy) sent a request"
-    ):
-        message = description
-    else:
-        message = (
-            "The request was not valid. Check the entered values and try again."
-        )
-    return render_template(
-        "error.html",
-        status_code=400,
-        error_title="We could not validate that request",
-        error_message=message,
-        request_id=getattr(g, "request_id", ""),
-        **_module_error_navigation(),
-    ), 400
-
-
-@app.errorhandler(403)
-def _forbidden(_error):
-    _security_event(
-        "forbidden_role_action",
-        route=request.endpoint or "unmatched",
-        unit_id=getattr(current_user, "unit_id", None),
-        actor_id=getattr(current_user, "id", None),
-    )
-    is_platform_admin = (
-        getattr(current_user, "is_authenticated", False)
-        and getattr(current_user, "role", "") == "superadmin"
-    )
-    module_context = _module_error_navigation()
-    return render_template(
-        "error.html",
-        status_code=403,
-        error_title="You do not have access to this area",
-        error_message=(
-            "Platform administrators cannot access airport personnel or "
-            "operational roster data. Return to Platform Administration."
-            if is_platform_admin
-            else (
-                "Your account role does not permit this action. Ask your Unit "
-                "Administrator for access."
-            )
-        ),
-        home_url=(
-            url_for("platform_admin") if is_platform_admin
-            else module_context.get("home_url", url_for("index"))
-        ),
-        home_label=(
-            "Return to Platform Administration"
-            if is_platform_admin
-            else module_context.get("home_label", "Return to roster")
-        ),
-        request_id=getattr(g, "request_id", ""),
-    ), 403
-
-
-@app.errorhandler(404)
-def _not_found(_error):
-    return render_template(
-        "error.html",
-        status_code=404,
-        error_title="That page or record was not found",
-        error_message=(
-            "It may have moved, been removed, or belong to a different airport."
-        ),
-        request_id=getattr(g, "request_id", ""),
-        **_module_error_navigation(),
-    ), 404
+    ),
+)
+_bad_request = _error_handlers[400]
+_forbidden = _error_handlers[403]
+_not_found = _error_handlers[404]
+_internal_error = _error_handlers[500]
 
 OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_setting", "annotation_type", "watch", "staff", "shift_type",
@@ -502,76 +294,30 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
 
+_bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
+    app,
+    TenantHookDependencies(
+        deployment_environment=DEPLOYMENT_ENV,
+        current_user=lambda: current_user,
+        enforce_session=lambda user: _session_lifecycle.enforce_request(user),
+        routing_for_unit=lambda unit_id: db.session.get(
+            DatabaseRoutingMetadata, unit_id
+        ),
+        clear_context=clear_request_context,
+        bind_authenticated_unit=bind_authenticated_unit,
+        reset_authenticated_unit=reset_authenticated_unit,
+        bind_platform_control=bind_platform_control,
+        reset_platform_control=reset_platform_control,
+    ),
+)
+
+
 @app.before_request
-def _bind_tenant_context():
-    clear_request_context()
-    g.request_id = request.headers.get("X-Request-ID") or secrets.token_hex(12)
-    g.csp_nonce = secrets.token_urlsafe(18)
-    g.tenant_context_token = None
-    g.platform_control_token = None
-    if session.get("_user_id") and not current_user.is_authenticated:
-        # Flask-Login treats a principal rejected by the user loader as
-        # anonymous but otherwise leaves the stale signed session cookie in
-        # place. Remove it immediately when a membership/account is disabled.
-        session.clear()
-    if current_user.is_authenticated:
-        now_epoch = int(utcnow().timestamp())
-        idle_limit = int(
-            os.environ.get("ATCROSTER_SESSION_IDLE_MINUTES", "30")
-        ) * 60
-        last_seen = int(session.get("_last_seen_epoch") or now_epoch)
-        absolute_limit = int(
-            os.environ.get("ATCROSTER_SESSION_ABSOLUTE_MINUTES", "720")
-        ) * 60
-        started_raw = session.get("_session_started_at")
-        try:
-            started_epoch = int(
-                datetime.fromisoformat(str(started_raw)).timestamp()
-            )
-        except (TypeError, ValueError):
-            started_epoch = now_epoch
-            session["_session_started_at"] = utcnow().isoformat()
-        expiry_reason = (
-            "absolute" if now_epoch - started_epoch > absolute_limit
-            else "idle" if now_epoch - last_seen > idle_limit
-            else ""
-        )
-        if expiry_reason:
-            _security_event(
-                "session_expired", reason=expiry_reason,
-                principal=hashlib.sha256(
-                    str(current_user.get_id()).encode()
-                ).hexdigest()[:16],
-            )
-            logout_user()
-            session.clear()
-            flash("Your secure session has expired. Sign in again.", "error")
-            return redirect(url_for("login"))
-        expected_stamp = session.get("_auth_stamp")
-        current_stamp = _current_auth_stamp(current_user)
-        if expected_stamp and not secrets.compare_digest(
-            str(expected_stamp), current_stamp
-        ):
-            _security_event(
-                "session_forced_invalidation",
-                principal=hashlib.sha256(
-                    str(current_user.get_id()).encode()
-                ).hexdigest()[:16],
-            )
-            logout_user()
-            session.clear()
-            flash(
-                "Your account security or permissions changed. Sign in again.",
-                "error",
-            )
-            return redirect(url_for("login"))
-        session["_auth_stamp"] = current_stamp
-        session["_last_seen_epoch"] = now_epoch
+def _enforce_principal_boundaries():
     if (
         current_user.is_authenticated
         and getattr(current_user, "role", "") == "superadmin"
     ):
-        g.platform_control_token = bind_platform_control()
         if not session.get("_platform_mfa_verified"):
             logout_user()
             session.clear()
@@ -586,15 +332,6 @@ def _bind_tenant_context():
             return redirect(url_for("platform_admin"))
         if request.endpoint not in allowed_platform_endpoints:
             abort(403)
-    if current_user.is_authenticated and getattr(current_user, "role", "") != "superadmin":
-        unit_id = int(getattr(current_user, "unit_id", 0) or 0)
-        if unit_id and g.tenant_context_token is None:
-            routing = db.session.get(DatabaseRoutingMetadata, unit_id)
-            if DEPLOYMENT_ENV == "production" and not routing:
-                abort(503, "Operational database routing is unavailable.")
-            g.tenant_context_token = bind_authenticated_unit(
-                unit_id, routing.secret_name if routing else None
-            )
     if (
         current_user.is_authenticated
         and getattr(current_user, "role", "") == "position_monitor"
@@ -638,88 +375,14 @@ def _bind_tenant_context():
             return redirect(url_for("mfa_setup"))
 
 
-@app.after_request
-def _security_headers(response):
-    response.headers["X-Request-ID"] = getattr(g, "request_id", "")
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault(
-        "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
-    )
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; "
-        "base-uri 'self'; "
-        "form-action 'self'; "
-        "frame-ancestors 'none'; "
-        "object-src 'none'; "
-        "img-src 'self' data:; "
-        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
-        f"style-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
-        "https://fonts.googleapis.com "
-        "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
-        "style-src-attr 'none'; "
-        f"script-src 'self' 'nonce-{getattr(g, 'csp_nonce', '')}' "
-        "https://cdn.jsdelivr.net; "
-        "connect-src 'self'; worker-src 'self'; manifest-src 'self'"
-        + ("; upgrade-insecure-requests" if DEPLOYMENT_ENV == "production" else ""),
-    )
-    if request.is_secure or DEPLOYMENT_ENV == "production":
-        response.headers.setdefault(
-            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
-        )
-    if current_user.is_authenticated:
-        response.headers.setdefault("Cache-Control", "no-store, private")
-    started_at = getattr(g, "metrics_started_at", None)
-    if started_at is not None:
-        route = request.endpoint or "unmatched"
-        duration = finish_request(
-            _operational_metrics,
-            started_at,
-            route=route,
-            method=request.method,
-            status=response.status_code,
-        )
-        g.metrics_started_at = None
-        if DEPLOYMENT_ENV == "production":
-            app.logger.info(
-                "request_completed",
-                extra={
-                    "structured_fields": {
-                        "request_id": getattr(g, "request_id", ""),
-                        "route": route,
-                        "unit_id": getattr(current_user, "unit_id", None),
-                        "actor_id": getattr(current_user, "id", None),
-                        "outcome": (
-                            "success" if response.status_code < 400 else "error"
-                        ),
-                        "http_status": response.status_code,
-                        "duration_ms": round(duration * 1000, 2),
-                    }
-                },
-            )
-    return response
-
-
-@app.teardown_request
-def _reset_tenant_context(_error=None):
-    token = getattr(g, "tenant_context_token", None)
-    g.tenant_context_token = None
-    if token is not None:
-        try:
-            reset_authenticated_unit(token)
-        except RuntimeError:
-            # Flask test/request contexts may invoke teardown more than once.
-            pass
-    platform_token = getattr(g, "platform_control_token", None)
-    g.platform_control_token = None
-    if platform_token is not None:
-        try:
-            reset_platform_control(platform_token)
-        except RuntimeError:
-            pass
-    clear_request_context()
+_security_headers = register_security_headers(
+    app,
+    SecurityHeaderDependencies(
+        deployment_environment=DEPLOYMENT_ENV,
+        metrics=_operational_metrics,
+        finish_request=finish_request,
+    ),
+)
 
 
 _LOGIN_NEXT_ENDPOINTS = {
@@ -8987,46 +8650,24 @@ def _security_event(event: str, **safe_fields) -> None:
     )
 
 
-def _current_auth_stamp(user) -> str:
-    """Bind a session to mutable authentication and authorisation state."""
-    parts = [
-        str(getattr(user, "password_hash", "")),
-        str(getattr(user, "role", "")),
-        str(getattr(user, "membership_status", "")),
-    ]
+def _credential_for_auth_stamp(user):
     if getattr(user, "role", "") == "superadmin":
-        credential = PlatformMfaCredential.query.filter_by(
+        return PlatformMfaCredential.query.filter_by(
             identity_id=user.id
         ).first()
-    else:
-        # The user loader binds the verified membership's operational route
-        # before this is called. Including airport MFA state ensures that
-        # enrolment, replacement or reset revokes every previously issued
-        # browser session for that person.
-        credential = MfaCredential.query.filter_by(person_id=user.id).first()
-    enrolled_at = getattr(credential, "enrolled_at", None)
-    if enrolled_at and enrolled_at.tzinfo is not None:
-        enrolled_at = enrolled_at.astimezone(timezone.utc).replace(tzinfo=None)
-    parts.extend([
-        str(bool(credential and credential.enabled)),
-        str(bool(getattr(credential, "reset_required", False))),
-        hashlib.sha256(
-            str(getattr(credential, "encrypted_secret", "")).encode()
-        ).hexdigest(),
-        enrolled_at.isoformat() if enrolled_at else "",
-    ])
-    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
+    # The user loader has already bound the verified operational tenant.
+    return MfaCredential.query.filter_by(person_id=user.id).first()
 
 
-def _initialize_authenticated_session(user, *, platform_mfa=False) -> None:
-    """Regenerate authenticated session state after the final auth factor."""
-    session.permanent = True
-    session["_session_nonce"] = secrets.token_urlsafe(24)
-    session["_session_started_at"] = utcnow().isoformat()
-    session["_last_seen_epoch"] = int(utcnow().timestamp())
-    session["_auth_stamp"] = _current_auth_stamp(user)
-    if platform_mfa:
-        session["_platform_mfa_verified"] = True
+_session_lifecycle = SessionLifecycle(
+    SessionLifecycleDependencies(
+        now=utcnow,
+        credential_for_user=_credential_for_auth_stamp,
+        security_event=lambda event, **facts: _security_event(event, **facts),
+    )
+)
+_current_auth_stamp = _session_lifecycle.auth_stamp
+_initialize_authenticated_session = _session_lifecycle.initialize
 
 
 def _central_security_event(
