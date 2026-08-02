@@ -870,17 +870,6 @@ table.roster th.sticky{
      must be fully opaque so scrolled roster values cannot show through. */
   background:var(--head);
 }
-table.roster th.sticky::after,
-.roster th.dayhead::after{
-  content:"";
-  position:absolute;
-  right:-1px;
-  bottom:100%;
-  left:-1px;
-  height:100vh;
-  background:var(--head);
-  pointer-events:none;
-}
 .roster th.dayhead{
   background:var(--head2);
 }
@@ -898,7 +887,7 @@ th.sticky.left{left:0; background:var(--head);}
 
 .roster td.col-name{
   /* Stay above ordinary cells while remaining below every sticky heading. */
-  z-index:4;
+  z-index:8;
   background:var(--card);
   box-shadow:4px 0 8px rgba(0,0,0,.18);
 }
