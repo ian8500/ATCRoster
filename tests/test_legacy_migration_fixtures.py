@@ -120,11 +120,19 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
     assert result.returncode == 0, result.stdout + result.stderr
     with engine.connect() as connection:
         inspector = inspect(connection)
+        if "staff" in inspector.get_table_names() and "shift_type" in inspector.get_table_names():
+            assert {
+                "work_pattern",
+                "work_pattern_day",
+                "work_pattern_day_allowed_shift",
+                "staff_pattern_assignment",
+                "staff_rule",
+            } <= set(inspector.get_table_names())
         assert (
             connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            == "20260801_37"
+            == "20260802_38"
         )
         for table, count in before.items():
             assert (
