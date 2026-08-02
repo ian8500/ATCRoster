@@ -3182,3 +3182,18 @@ def test_roster_shows_pattern_breach_and_blocks_publication(client):
         ).delete()
         app.WorkPattern.query.filter_by(id=pattern_id, unit_id=1).delete()
         db.session.commit()
+
+
+def test_roster_keeps_day_header_below_sticky_site_header(client):
+    login(client)
+    response = client.get("/roster/2025-09")
+
+    assert response.status_code == 200
+    assert b"--roster-sticky-top" in response.data
+    assert b"ResizeObserver(updateRosterStickyTop)" in response.data
+    with open(
+        os.path.join(app.BASE_DIR, "static", "styles.css"), encoding="utf-8"
+    ) as stylesheet_file:
+        stylesheet = stylesheet_file.read()
+    assert ".roster th.dayhead" in stylesheet
+    assert "top:var(--roster-sticky-top, 0px)" in stylesheet
