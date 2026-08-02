@@ -8827,6 +8827,9 @@ from work_pattern_blueprint import (
 from roster_validation_service import (
     RosterValidationDependencies, RosterValidationService,
 )
+from work_pattern_migration_service import (
+    WorkPatternMigrationDependencies, WorkPatternMigrationService,
+)
 
 work_pattern_service = WorkPatternService(WorkPatternDependencies(
     Staff=Staff,
@@ -8865,6 +8868,18 @@ roster_validation_service = RosterValidationService(
         work_pattern_service=work_pattern_service,
     )
 )
+work_pattern_migration_service = WorkPatternMigrationService(
+    WorkPatternMigrationDependencies(
+        db=db,
+        Staff=Staff,
+        WorkPattern=WorkPattern,
+        WorkPatternDay=WorkPatternDay,
+        ShiftType=ShiftType,
+        StaffPatternAssignment=StaffPatternAssignment,
+        pattern_context=_pattern_context,
+        pattern_service=work_pattern_service,
+    )
+)
 app.register_blueprint(create_work_pattern_blueprint(
     WorkPatternBlueprintDependencies(
         db=db,
@@ -8880,6 +8895,7 @@ app.register_blueprint(create_work_pattern_blueprint(
         validate_csrf=_validate_csrf,
         pattern_service=work_pattern_service,
         admin_service=work_pattern_admin_service,
+        migration_service=work_pattern_migration_service,
     )
 ))
 

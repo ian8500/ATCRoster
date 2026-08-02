@@ -135,6 +135,14 @@
     "rule": "/administration/work-patterns/<int:pattern_id>"
   },
   {
+    "endpoint": "work_patterns.migration",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/administration/work-patterns/migration"
+  },
+  {
     "endpoint": "assign_cell",
     "methods": [
       "POST"

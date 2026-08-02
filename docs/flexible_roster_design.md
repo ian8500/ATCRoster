@@ -90,3 +90,17 @@ Count and contracted-minute checks distinguish a proposed duty from an existing
 assignment. Existing duties are measured once: reaching a configured maximum is
 valid, while exceeding it is a blocker. Proposal eligibility continues to
 include the candidate duty when testing the limit.
+
+## Phase 4 legacy migration
+
+Unit administrators can run a dated migration dry-run from the flexible-pattern
+library. The report resolves each person's effective personal, watch or unit CSV
+cycle through the existing legacy logic and compares its ordered codes with
+active normalised patterns. A row is eligible only when exactly one normalised
+pattern has the same fixed-shift and OFF sequence.
+
+Ambiguous, invalid and unmatched cycles cannot be selected and continue to use
+the legacy fallback. The server repeats the analysis when migration is submitted
+so a stale browser report cannot force an unsafe match. Migration only inserts
+an effective-dated `StaffPatternAssignment`, retaining the legacy anchor and
+leaving every existing roster assignment unchanged.
