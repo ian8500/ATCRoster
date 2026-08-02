@@ -59,7 +59,7 @@
   :root { --today-col: rgba(255,255,0,.85); }
 
   /* Ensure cells can host absolutely-positioned overlays */
-  .roster th.dayhead { position: sticky; }
+  .roster th.dayhead { position: relative; }
   .roster td.cell { position: relative; }
   .roster td.totcell { position: relative; }
 
@@ -422,12 +422,23 @@
   const siteHeader = document.querySelector('.site-header');
   const updateRosterStickyTop = () => {
     const height = siteHeader ? Math.ceil(siteHeader.getBoundingClientRect().height) : 0;
-    rosterTable?.style.setProperty('--roster-sticky-top', `${height}px`);
+    const rosterHost = document.getElementById('roster');
+    const configuredScale = Number(rosterHost?.dataset.scale || 1);
+    const scale = Number.isFinite(configuredScale) && configuredScale > 0
+      ? configuredScale : 1;
+    rosterTable?.style.setProperty('--roster-sticky-top', `${Math.ceil(height / scale)}px`);
   };
   updateRosterStickyTop();
   window.addEventListener('resize', updateRosterStickyTop, { passive: true });
   if (siteHeader && 'ResizeObserver' in window) {
     new ResizeObserver(updateRosterStickyTop).observe(siteHeader);
+  }
+  const rosterScaleHost = document.getElementById('roster');
+  if (rosterScaleHost && 'MutationObserver' in window) {
+    new MutationObserver(updateRosterStickyTop).observe(rosterScaleHost, {
+      attributes: true,
+      attributeFilter: ['data-scale'],
+    });
   }
   const rosterRoot = document.getElementById('roster');
   const rosterScrollKey = `atcroster:scroll:${window.location.pathname}`;
