@@ -1459,6 +1459,35 @@ def test_roster_routes_render(client):
     assert export_resp.mimetype == "text/csv"
 
 
+def test_position_monitor_account_is_hidden_from_roster_and_export(client):
+    with app.app.app_context():
+        kiosk = Staff(
+            unit_id=1,
+            username="roster_hidden_kiosk",
+            name="Hidden Position Monitor",
+            staff_no="KIOSK-HIDDEN",
+            role="position_monitor",
+            is_operational=True,
+        )
+        kiosk.set_password("not-used")
+        db.session.add(kiosk)
+        db.session.commit()
+
+    login(client)
+    roster = client.get("/roster/2027-01")
+    export = client.get("/roster/2027-01/export")
+
+    assert roster.status_code == 200
+    assert export.status_code == 200
+    assert b"Hidden Position Monitor" not in roster.data
+    assert b"KIOSK-HIDDEN" not in roster.data
+    assert "Hidden Position Monitor" not in export.data.decode()
+    assert "KIOSK-HIDDEN" not in export.data.decode()
+    with app.app.app_context():
+        Staff.query.filter_by(username="roster_hidden_kiosk").delete()
+        db.session.commit()
+
+
 def test_csv_exports_neutralise_spreadsheet_formula_payloads(client):
     login(client)
     acknowledge_reports(client)
