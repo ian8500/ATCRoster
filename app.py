@@ -242,6 +242,7 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "person_qualification", "person_qualification_history",
     "roster_publication", "roster_acknowledgement", "scenario",
     "operational_position", "operational_position_group",
+    "operational_position_time_allowance",
     "position_endorsement", "position_requirement",
     "break_plan", "achieved_duty", "fatigue_report",
     "roster_rule_version", "mfa_credential",
