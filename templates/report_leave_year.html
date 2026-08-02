@@ -3,7 +3,7 @@
 {% block content %}
 {% include "_report_actions.html" %}
 <section class="compliance-hero">
-  <div><span class="admin-step">Leave reporting</span><h2>Leave year</h2><p>Entitlement and balances as of {{ today }}.</p></div>
+  <div><span class="admin-step">Leave reporting</span><h2>Leave year</h2><p>Entitlement and balances as of {{ report_end }}.</p></div>
   <div class="compliance-actions"><a class="btn" href="{{ url_for('reports_index') }}">&larr; Reports</a></div>
 </section>
 
@@ -15,6 +15,8 @@
       <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
     {% endfor %}
   </select>
+  <label for="leave-year-end">Report to</label>
+  <input id="leave-year-end" type="date" name="end_date" value="{{ report_end.isoformat() }}">
   <button class="btn btn-primary" type="submit">Apply filter</button>
 </form>
 
@@ -23,26 +25,31 @@
     <thead>
       <tr>
         <th>ATCO</th><th>Watch</th><th>Year Window</th>
-        <th>Entitlement</th><th>Public Hols</th><th>Carryover</th>
-        <th>AL taken</th><th></th><th>Remaining</th>
-        <th>TOIL accrued</th><th>TOIL used</th><th>TOIL balance</th>
+        <th class="leave-year-col leave-year-col--entitlement">Entitlement</th>
+        <th class="leave-year-col leave-year-col--public-holidays">Public Hols</th>
+        <th class="leave-year-col leave-year-col--carryover">Carryover</th>
+        <th class="leave-year-col leave-year-col--taken">AL taken</th><th></th>
+        <th class="leave-year-col leave-year-col--remaining">Remaining</th>
+        <th class="leave-year-col leave-year-col--toil-accrued">TOIL accrued</th>
+        <th class="leave-year-col leave-year-col--toil-used">TOIL used</th>
+        <th class="leave-year-col leave-year-col--toil-balance">TOIL balance</th>
       </tr>
     </thead>
     <tbody>
       {% for r in rows %}
-        <tr>
+        <tr data-staff-id="{{ r.staff.id }}" data-al-taken="{{ r.al_taken }}" data-leave-remaining="{{ r.remaining }}">
           <td>{{ r.staff.name }}</td>
           <td>{{ r.watch }}</td>
           <td>{{ r.leave_year_start }} → {{ r.leave_year_end }}</td>
-          <td class="ta-right">{{ r.entitlement }}</td>
-          <td class="ta-right">{{ r.public_holidays }}</td>
-          <td class="ta-right">{{ r.carryover }}</td>
-          <td class="ta-right">{{ r.al_taken }}</td>
+          <td class="ta-right leave-year-col leave-year-col--entitlement">{{ r.entitlement }}</td>
+          <td class="ta-right leave-year-col leave-year-col--public-holidays">{{ r.public_holidays }}</td>
+          <td class="ta-right leave-year-col leave-year-col--carryover">{{ r.carryover }}</td>
+          <td class="ta-right leave-year-col leave-year-col--taken">{{ r.al_taken }}</td>
           <td></td>
-          <td class="ta-right"><strong>{{ r.remaining }}</strong></td>
-          <td class="ta-right">{{ '%.1f' % r.toil_accrued_days }}</td>
-          <td class="ta-right">{{ '%.1f' % r.toil_used_days }}</td>
-          <td class="ta-right"><strong>{{ '%.1f' % r.toil_balance_days }}</strong></td>
+          <td class="ta-right leave-year-col leave-year-col--remaining balance-{{ 'negative' if r.remaining < 0 else ('zero' if r.remaining == 0 else 'positive') }}"><strong>{{ r.remaining }}</strong></td>
+          <td class="ta-right leave-year-col leave-year-col--toil-accrued">{{ '%.1f' % r.toil_accrued_days }}</td>
+          <td class="ta-right leave-year-col leave-year-col--toil-used">{{ '%.1f' % r.toil_used_days }}</td>
+          <td class="ta-right leave-year-col leave-year-col--toil-balance balance-{{ 'negative' if r.toil_balance_days < 0 else ('zero' if r.toil_balance_days == 0 else 'positive') }}"><strong>{{ '%.1f' % r.toil_balance_days }}</strong></td>
         </tr>
       {% else %}
         <tr><td colspan="12">No users are assigned to this watch.</td></tr>

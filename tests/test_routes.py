@@ -349,6 +349,65 @@ def test_leave_year_report_filters_by_watch(client):
     assert b"<td>Admin Test</td>" not in watch_b_only.data
 
 
+def test_leave_year_report_uses_selected_end_date_and_coloured_balances(client):
+    login(client)
+    acknowledge_reports(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(
+            unit_id=1, username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        original_values = (
+            person.leave_year_start_month,
+            person.leave_entitlement_days,
+            person.leave_public_holidays,
+            person.leave_carryover_days,
+            person.toil_half_days,
+        )
+        person.leave_year_start_month = 4
+        person.leave_entitlement_days = 20
+        person.leave_public_holidays = 5
+        person.leave_carryover_days = 2
+        person.toil_half_days = 3
+        assignments = [
+            Assignment(
+                unit_id=1,
+                staff_id=person.id,
+                day=date(2027, 5, day),
+                code="AL",
+                source="manual",
+            )
+            for day in (5, 20)
+        ]
+        db.session.add_all(assignments)
+        db.session.commit()
+        person_id = person.id
+        assignment_ids = [row.id for row in assignments]
+
+    early = client.get("/reports/leave-year?end_date=2027-05-10")
+    later = client.get("/reports/leave-year?end_date=2027-05-25")
+
+    assert early.status_code == 200
+    assert b'input id="leave-year-end" type="date" name="end_date" value="2027-05-10"' in early.data
+    assert b"Entitlement and balances as of 2027-05-10." in early.data
+    assert f'data-staff-id="{person_id}" data-al-taken="1" data-leave-remaining="26"'.encode() in early.data
+    assert f'data-staff-id="{person_id}" data-al-taken="2" data-leave-remaining="25"'.encode() in later.data
+    assert b"leave-year-col--remaining balance-positive" in early.data
+    assert b"leave-year-col--toil-balance balance-positive" in early.data
+    assert client.get("/reports/leave-year?end_date=not-a-date").status_code == 400
+
+    with app.app.app_context():
+        Assignment.query.filter(Assignment.id.in_(assignment_ids)).delete()
+        person = db.session.get(Staff, person_id)
+        (
+            person.leave_year_start_month,
+            person.leave_entitlement_days,
+            person.leave_public_holidays,
+            person.leave_carryover_days,
+            person.toil_half_days,
+        ) = original_values
+        db.session.commit()
+
+
 def test_sickness_report_filters_by_watch(client):
     login(client)
     acknowledge_reports(client)
