@@ -602,6 +602,8 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"padding:.65rem 0" in stylesheet.data
     assert b"table.roster { zoom:var(--ui-scale); }" in stylesheet.data
     assert b"transform: scale(var(--ui-scale))" not in stylesheet.data
+    assert b"today-column overlay (layer 5)" in stylesheet.data
+    assert b"z-index:7" in stylesheet.data
 
 
 def test_favicon_is_served(client):

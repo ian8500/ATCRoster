@@ -872,7 +872,8 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
 }
 
 .roster td.col-name{
-  z-index:4;
+  /* Stay above the today-column overlay (layer 5) while horizontally pinned. */
+  z-index:7;
   background:var(--card);
   box-shadow:4px 0 8px rgba(0,0,0,.18);
 }
