@@ -2,6 +2,11 @@
 
 Baseline commit: `d7428da166e3943f94175e8ed65fc46e4abe1996`. Baseline `app.py`: **10,029 lines**. This inventory describes the compatibility boundary before incremental extraction. Automatic Flask `HEAD` and `OPTIONS` methods are omitted from the route contract because Flask derives them from explicit methods.
 
+Current modularisation milestone: the pure SRATCOH fatigue rules and analysis
+engine live in `fatigue_engine.py`. Compatibility aliases remain available from
+`app` for existing callers. At commit baseline `6eb9a36`, this extraction reduces
+`app.py` from 9,675 to 9,263 lines without changing its route map.
+
 ## Responsibilities remaining in `app.py`
 
 | Responsibility | Current ownership and security boundary | Intended boundary |
@@ -146,5 +151,4 @@ CSRF is enforced globally for every explicit unsafe method. Authentication and r
 - Tenant context must be empty before public work and cleared after every response or exception.
 - Global unsafe-method CSRF and post-response security headers remain centrally registered until their explicit extraction commits.
 - No domain extraction may bypass existing policy helpers, tenant-scoped queries, audit writes or transaction boundaries.
-
 
