@@ -289,7 +289,7 @@
                       data-staff-name="{{ s.name }}"
                       data-day-label="{{ d.strftime('%d %B %Y') }}"
                       title="Annotate"
-                      aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}">Annotate</button>
+                      aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"><span aria-hidden="true">&nbsp;</span></button>
               {% else %}
               <span class="annot-select" aria-hidden="true">—</span>
               {% endif %}

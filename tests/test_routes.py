@@ -623,6 +623,8 @@ def test_roster_has_persistent_zoom_presets(client):
     assert response.data.count(b'name="code" data-roster-shift-select') == 1
     assert response.data.count(b"data-roster-shift-open") > 1
     assert response.data.count(b'class="annot-select" data-annotation-select') == 1
+    assert b">Annotate</button>" not in response.data
+    assert b'<span aria-hidden="true">&nbsp;</span></button>' in response.data
     assert b"data-roster-auto-submit" not in response.data
     assert b"Saving\xe2\x80\xa6" in response.data
     assert b"atcroster:scroll:" in response.data
