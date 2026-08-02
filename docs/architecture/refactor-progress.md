@@ -32,6 +32,24 @@ capacity enforcement, audit/session revocation and compensating cleanup.
 Moving it as a bulk route would increase production risk, so this branch stops
 before that transaction and remains deployable at every commit.
 
+At this boundary `app.py` is 9,670 lines (359 fewer than baseline). Five
+public route functions have moved, 29 test functions were added, and the final
+local suite reports 296 passed, 11 skipped and 72.02% coverage.
+
+## Verification at this boundary
+
+- Route snapshot: unchanged, 107 routes.
+- Ruff: passed for every tracked Python file.
+- Mypy: passed for the configured typed scope and all new package modules.
+- Bandit Medium/High gate: passed.
+- Compileall: passed.
+- Container build: passed.
+- Migration and backup unit/fixture tests: 22 passed.
+- PostgreSQL/Redis integration: 10 passed; the backup/restore integration case
+  reached `pg_dump` but could not run locally because the host client is version
+  14 while the isolated PostgreSQL server is version 16. Exact-commit CI must
+  verify that remaining case with its matching client tools.
+
 ## Remaining domains, in recommended order
 
 1. Account service and policies, then account routes and recovery/MFA routes.
