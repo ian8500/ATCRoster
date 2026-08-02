@@ -284,6 +284,21 @@ def test_live_state_includes_configured_display_group(live_position_data):
     assert state["group_order"] == 10
 
 
+def test_live_event_stream_retains_authenticated_tenant_context(live_position_data):
+    client = app.app.test_client()
+    _login_kiosk(client)
+
+    response = client.get("/live-positions/api/events", buffered=False)
+    try:
+        first_event = next(response.response)
+    finally:
+        response.close()
+
+    assert response.status_code == 200
+    assert first_event.startswith(b"event: state\ndata: ")
+    assert b'"group_name": "Tower"' in first_event
+
+
 def _login_kiosk(client):
     client.get("/login")
     with client.session_transaction() as session:

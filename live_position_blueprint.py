@@ -51,6 +51,8 @@ class LivePositionDependencies:
     is_admin_user: Callable[[Any], bool]
     live_position_enabled: Callable[[int], bool]
     competency_enabled: Callable[[int], bool]
+    authenticated_database_route_optional: Callable[[], Any]
+    authenticated_unit_context: Callable[[int, str | None], Any]
 
 
 def _minutes_between(start: datetime, end: datetime) -> int:
@@ -1181,15 +1183,24 @@ def create_live_position_blueprint(
     @login_required
     def live_events():
         _require_kiosk()
+        unit_id = _unit_id()
+        database_route = dependencies.authenticated_database_route_optional()
 
         @stream_with_context
         def events():
             # Database state is authoritative. A short heartbeat makes this
             # work consistently across multiple web processes; the browser's
             # normal polling remains the fallback when SSE is unavailable.
-            for _index in range(120):
-                yield f"event: state\ndata: {json.dumps(_state_payload())}\n\n"
-                time.sleep(5)
+            # Flask tears down the original request before iterating a streamed
+            # response, so restore only the already-authenticated tenant route
+            # for the lifetime of the stream.
+            with dependencies.authenticated_unit_context(
+                unit_id,
+                database_route.secret_name if database_route is not None else None,
+            ):
+                for _index in range(120):
+                    yield f"event: state\ndata: {json.dumps(_state_payload())}\n\n"
+                    time.sleep(5)
 
         return Response(
             events(),

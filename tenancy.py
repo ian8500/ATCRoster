@@ -118,6 +118,15 @@ def authenticated_database_route() -> DatabaseRoute:
     return route
 
 
+def authenticated_database_route_optional() -> DatabaseRoute | None:
+    """Return the trusted route when one is configured for this unit."""
+    unit_id = authenticated_unit_id()
+    route = _route_context.get()
+    if route is not None and route.unit_id != unit_id:
+        raise PermissionError("Operational database route is inconsistent")
+    return route
+
+
 _context_router = OperationalDatabaseRouter(
     lambda unit_id: authenticated_database_route()
 )
@@ -158,6 +167,16 @@ def operational_unit_context(
     token = bind_authenticated_unit(unit_id, secret_name)
     try:
         yield operational_engine_for_authenticated_unit()
+    finally:
+        reset_authenticated_unit(token)
+
+
+@contextmanager
+def authenticated_unit_context(unit_id: int, secret_name: str | None = None):
+    """Restore a previously authenticated tenant across a deferred boundary."""
+    token = bind_authenticated_unit(unit_id, secret_name)
+    try:
+        yield
     finally:
         reset_authenticated_unit(token)
 
