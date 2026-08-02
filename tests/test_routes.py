@@ -3191,6 +3191,9 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     assert response.status_code == 200
     assert b"--roster-sticky-top" in response.data
     assert b"ResizeObserver(updateRosterStickyTop)" in response.data
+    assert response.data.count(b'class="sticky left col-name"') == 1
+    assert b'class="sticky left col-date"' not in response.data
+    assert b'class="sticky col-date">Medical' in response.data
     with open(
         os.path.join(app.BASE_DIR, "static", "styles.css"), encoding="utf-8"
     ) as stylesheet_file:
