@@ -102,6 +102,7 @@ from atcroster.security.sessions import (
     SessionLifecycle,
     SessionLifecycleDependencies,
 )
+from atcroster.tenancy_hooks import TenantHookDependencies, register_tenant_hooks
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -293,21 +294,30 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
 
+_bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
+    app,
+    TenantHookDependencies(
+        deployment_environment=DEPLOYMENT_ENV,
+        current_user=lambda: current_user,
+        enforce_session=lambda user: _session_lifecycle.enforce_request(user),
+        routing_for_unit=lambda unit_id: db.session.get(
+            DatabaseRoutingMetadata, unit_id
+        ),
+        clear_context=clear_request_context,
+        bind_authenticated_unit=bind_authenticated_unit,
+        reset_authenticated_unit=reset_authenticated_unit,
+        bind_platform_control=bind_platform_control,
+        reset_platform_control=reset_platform_control,
+    ),
+)
+
+
 @app.before_request
-def _bind_tenant_context():
-    clear_request_context()
-    g.request_id = request.headers.get("X-Request-ID") or secrets.token_hex(12)
-    g.csp_nonce = secrets.token_urlsafe(18)
-    g.tenant_context_token = None
-    g.platform_control_token = None
-    session_response = _session_lifecycle.enforce_request(current_user)
-    if session_response is not None:
-        return session_response
+def _enforce_principal_boundaries():
     if (
         current_user.is_authenticated
         and getattr(current_user, "role", "") == "superadmin"
     ):
-        g.platform_control_token = bind_platform_control()
         if not session.get("_platform_mfa_verified"):
             logout_user()
             session.clear()
@@ -322,15 +332,6 @@ def _bind_tenant_context():
             return redirect(url_for("platform_admin"))
         if request.endpoint not in allowed_platform_endpoints:
             abort(403)
-    if current_user.is_authenticated and getattr(current_user, "role", "") != "superadmin":
-        unit_id = int(getattr(current_user, "unit_id", 0) or 0)
-        if unit_id and g.tenant_context_token is None:
-            routing = db.session.get(DatabaseRoutingMetadata, unit_id)
-            if DEPLOYMENT_ENV == "production" and not routing:
-                abort(503, "Operational database routing is unavailable.")
-            g.tenant_context_token = bind_authenticated_unit(
-                unit_id, routing.secret_name if routing else None
-            )
     if (
         current_user.is_authenticated
         and getattr(current_user, "role", "") == "position_monitor"
@@ -382,26 +383,6 @@ _security_headers = register_security_headers(
         finish_request=finish_request,
     ),
 )
-
-
-@app.teardown_request
-def _reset_tenant_context(_error=None):
-    token = getattr(g, "tenant_context_token", None)
-    g.tenant_context_token = None
-    if token is not None:
-        try:
-            reset_authenticated_unit(token)
-        except RuntimeError:
-            # Flask test/request contexts may invoke teardown more than once.
-            pass
-    platform_token = getattr(g, "platform_control_token", None)
-    g.platform_control_token = None
-    if platform_token is not None:
-        try:
-            reset_platform_control(platform_token)
-        except RuntimeError:
-            pass
-    clear_request_context()
 
 
 _LOGIN_NEXT_ENDPOINTS = {
