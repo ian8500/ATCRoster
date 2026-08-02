@@ -25,6 +25,7 @@ from flask_login import current_user, login_required
 class AbsenceRequestDependencies:
     db: Any
     Staff: Any
+    Watch: Any
     Leave: Any
     Assignment: Any
     is_admin_user: Callable
@@ -80,6 +81,24 @@ def create_absence_requests_blueprint(
         end_of_month = days[-1]
         month_title = datetime(year, month, 1).strftime("%B %Y")
         prev_ym, next_ym = dependencies.clamp_prev_next(year, month)
+
+        watch_value = (request.args.get("watch_id") or "").strip()
+        selected_watch_id = None
+        if watch_value:
+            try:
+                selected_watch_id = int(watch_value)
+            except ValueError:
+                abort(400, "Invalid watch filter.")
+            selected_watch = dependencies.Watch.query.filter_by(
+                id=selected_watch_id,
+                unit_id=dependencies.current_unit_id(),
+            ).first()
+            if not selected_watch:
+                abort(400, "Invalid watch filter.")
+        watches = dependencies.Watch.query.order_by(
+            dependencies.Watch.order_index,
+            dependencies.Watch.name,
+        ).all()
 
         if request.method == "POST":
             dependencies.validate_csrf()
@@ -396,14 +415,20 @@ def create_absence_requests_blueprint(
                 return redirect(url_for("leave", ym=ym_param))
 
         # ---------- GET: month-filtered data ----------
-        leaves = (
-            dependencies.Leave.query.filter(
+        leaves_query = (
+            dependencies.Leave.query.join(
+                dependencies.Staff,
+                dependencies.Leave.staff_id == dependencies.Staff.id,
+            ).filter(
                 dependencies.Leave.end >= start_of_month,
                 dependencies.Leave.start <= end_of_month,
             )
-            .order_by(dependencies.Leave.start.asc())
-            .all()
         )
+        if selected_watch_id is not None:
+            leaves_query = leaves_query.filter(
+                dependencies.Staff.watch_id == selected_watch_id
+            )
+        leaves = leaves_query.order_by(dependencies.Leave.start.asc()).all()
         all_sickness_codes = [
             item["code"]
             for item in dependencies.get_absence_types("sickness", active_only=False)
@@ -434,6 +459,8 @@ def create_absence_requests_blueprint(
             month_title=month_title,
             prev_ym=prev_ym,
             next_ym=next_ym,
+            watches=watches,
+            selected_watch_id=selected_watch_id,
         )
 
     @login_required
