@@ -50,6 +50,22 @@ class EligibilityResult:
 
 
 @dataclass(frozen=True)
+class EligibilityContext:
+    """Preloaded data used when validating many assignments at once."""
+
+    staff_by_id: dict[int, Any]
+    shift_by_id: dict[int, Any]
+    leaves_by_staff: dict[int, tuple[Any, ...]]
+    pattern_assignments_by_staff: dict[int, tuple[Any, ...]]
+    patterns_by_id: dict[int, Any]
+    pattern_days_by_key: dict[tuple[int, int], Any]
+    allowed_shift_ids_by_day: dict[int, frozenset[int]]
+    rules_by_staff: dict[int, tuple[Any, ...]]
+    assignments_by_staff: dict[int, tuple[Any, ...]]
+    shifts_by_code: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class WorkPatternDependencies:
     Staff: Any
     ShiftType: Any
@@ -225,28 +241,158 @@ class WorkPatternService:
             ).order_by(self.dependencies.StaffRule.id).all()
         )
 
+    def build_eligibility_context(
+        self, unit_id: int, staff_ids: Iterable[int], start: date, end: date
+    ) -> EligibilityContext:
+        """Load eligibility inputs in a fixed number of database queries.
+
+        Interactive single-cell validation still uses the direct lookup path.
+        Month-wide reporting and roster validation should build this context
+        once and reuse it for every populated cell.
+        """
+        ids = tuple(sorted({int(staff_id) for staff_id in staff_ids}))
+        if not ids:
+            return EligibilityContext({}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+
+        staff_rows = self.dependencies.Staff.query.filter(
+            self.dependencies.Staff.unit_id == unit_id,
+            self.dependencies.Staff.id.in_(ids),
+        ).all()
+        shift_rows = self.dependencies.ShiftType.query.filter_by(
+            unit_id=unit_id
+        ).all()
+        leave_rows = self.dependencies.Leave.query.filter(
+            self.dependencies.Leave.unit_id == unit_id,
+            self.dependencies.Leave.staff_id.in_(ids),
+            self.dependencies.Leave.start <= end,
+            self.dependencies.Leave.end >= start,
+        ).all()
+        pattern_assignment_rows = self.dependencies.StaffPatternAssignment.query.filter(
+            self.dependencies.StaffPatternAssignment.unit_id == unit_id,
+            self.dependencies.StaffPatternAssignment.staff_id.in_(ids),
+            self.dependencies.StaffPatternAssignment.effective_from <= end,
+            (
+                self.dependencies.StaffPatternAssignment.effective_to.is_(None)
+                | (self.dependencies.StaffPatternAssignment.effective_to >= start)
+            ),
+        ).order_by(
+            self.dependencies.StaffPatternAssignment.effective_from.desc(),
+            self.dependencies.StaffPatternAssignment.id.desc(),
+        ).all()
+        pattern_ids = {
+            row.work_pattern_id for row in pattern_assignment_rows
+        }
+        pattern_rows = (
+            self.dependencies.WorkPattern.query.filter(
+                self.dependencies.WorkPattern.unit_id == unit_id,
+                self.dependencies.WorkPattern.id.in_(pattern_ids),
+            ).all()
+            if pattern_ids else []
+        )
+        pattern_day_rows = (
+            self.dependencies.WorkPatternDay.query.filter(
+                self.dependencies.WorkPatternDay.unit_id == unit_id,
+                self.dependencies.WorkPatternDay.work_pattern_id.in_(pattern_ids),
+            ).all()
+            if pattern_ids else []
+        )
+        pattern_day_ids = {row.id for row in pattern_day_rows}
+        allowed_rows = (
+            self.dependencies.WorkPatternDayAllowedShift.query.filter(
+                self.dependencies.WorkPatternDayAllowedShift.unit_id == unit_id,
+                self.dependencies.WorkPatternDayAllowedShift.work_pattern_day_id.in_(
+                    pattern_day_ids
+                ),
+            ).all()
+            if pattern_day_ids else []
+        )
+        rule_rows = self.dependencies.StaffRule.query.filter(
+            self.dependencies.StaffRule.unit_id == unit_id,
+            self.dependencies.StaffRule.staff_id.in_(ids),
+            self.dependencies.StaffRule.is_active.is_(True),
+            self.dependencies.StaffRule.effective_from <= end,
+            (
+                self.dependencies.StaffRule.effective_to.is_(None)
+                | (self.dependencies.StaffRule.effective_to >= start)
+            ),
+        ).order_by(self.dependencies.StaffRule.id).all()
+        maximum_lookback = max(
+            (int(row.rolling_period_days or 1) for row in rule_rows),
+            default=1,
+        )
+        assignment_rows = self.dependencies.Assignment.query.filter(
+            self.dependencies.Assignment.unit_id == unit_id,
+            self.dependencies.Assignment.staff_id.in_(ids),
+            self.dependencies.Assignment.day
+            >= start - timedelta(days=max(1, maximum_lookback) - 1),
+            self.dependencies.Assignment.day <= end,
+        ).all()
+
+        return EligibilityContext(
+            staff_by_id={row.id: row for row in staff_rows},
+            shift_by_id={row.id: row for row in shift_rows},
+            leaves_by_staff=_group_rows(leave_rows, "staff_id"),
+            pattern_assignments_by_staff=_group_rows(
+                pattern_assignment_rows, "staff_id"
+            ),
+            patterns_by_id={row.id: row for row in pattern_rows},
+            pattern_days_by_key={
+                (row.work_pattern_id, int(row.day_index)): row
+                for row in pattern_day_rows
+            },
+            allowed_shift_ids_by_day={
+                day_id: frozenset(
+                    row.shift_type_id
+                    for row in allowed_rows
+                    if row.work_pattern_day_id == day_id
+                )
+                for day_id in pattern_day_ids
+            },
+            rules_by_staff=_group_rows(rule_rows, "staff_id"),
+            assignments_by_staff=_group_rows(assignment_rows, "staff_id"),
+            shifts_by_code={row.code: row for row in shift_rows},
+        )
+
     def is_staff_eligible_for_shift(
         self, staff_id: int, on_date: date, shift_type_id: int,
         *, existing_assignment: bool = False,
+        context: EligibilityContext | None = None,
     ) -> EligibilityResult:
-        staff = self.dependencies.Staff.query.filter_by(id=staff_id).first()
-        shift = self.dependencies.ShiftType.query.filter_by(
-            id=shift_type_id, is_active=True
-        ).first()
-        if not staff or not shift or shift.unit_id != staff.unit_id:
+        if context is None:
+            staff = self.dependencies.Staff.query.filter_by(id=staff_id).first()
+            shift = self.dependencies.ShiftType.query.filter_by(
+                id=shift_type_id, is_active=True
+            ).first()
+        else:
+            staff = context.staff_by_id.get(staff_id)
+            shift = context.shift_by_id.get(shift_type_id)
+        if (
+            not staff or not shift or not shift.is_active
+            or shift.unit_id != staff.unit_id
+        ):
             return _blocked(
                 "SHIFT_UNAVAILABLE",
                 "The staff member or shift is unavailable in this airport.",
             )
-        leave = self.dependencies.Leave.query.filter(
-            self.dependencies.Leave.staff_id == staff.id,
-            self.dependencies.Leave.start <= on_date,
-            self.dependencies.Leave.end >= on_date,
-        ).first()
+        if context is None:
+            leave = self.dependencies.Leave.query.filter(
+                self.dependencies.Leave.staff_id == staff.id,
+                self.dependencies.Leave.start <= on_date,
+                self.dependencies.Leave.end >= on_date,
+            ).first()
+        else:
+            leave = next((
+                row for row in context.leaves_by_staff.get(staff.id, ())
+                if row.start <= on_date <= row.end
+            ), None)
         if leave:
             return _blocked("APPROVED_LEAVE", "Employee is on approved leave.")
 
-        resolution = self.get_pattern_day_for_staff(staff.id, on_date)
+        resolution = (
+            self.get_pattern_day_for_staff(staff.id, on_date)
+            if context is None
+            else self._pattern_resolution_from_context(staff.id, on_date, context)
+        )
         if resolution:
             pattern_reason = self._pattern_eligibility(resolution, shift)
             if pattern_reason:
@@ -255,7 +401,15 @@ class WorkPatternService:
         group = self.dependencies.shift_group(shift).upper()
         is_night = group == "N"
         is_early = bool(shift.start_time and shift.start_time < self.dependencies.early_start_before)
-        rules = self.get_effective_staff_rules(staff.id, on_date)
+        rules = (
+            self.get_effective_staff_rules(staff.id, on_date)
+            if context is None
+            else tuple(
+                rule for rule in context.rules_by_staff.get(staff.id, ())
+                if rule.effective_from <= on_date
+                and (rule.effective_to is None or rule.effective_to >= on_date)
+            )
+        )
         hard_reasons: list[EligibilityReason] = []
         allowed_rules = [
             rule for rule in rules
@@ -275,6 +429,7 @@ class WorkPatternService:
             reason = self._hard_rule_reason(
                 rule, shift, group, is_night, is_early, on_date,
                 existing_assignment=existing_assignment,
+                context=context,
             )
             if reason:
                 hard_reasons.append(reason)
@@ -295,6 +450,36 @@ class WorkPatternService:
             explanation="Employee is eligible for this shift.",
             reasons=tuple(soft_reasons),
             soft_penalty=penalty,
+        )
+
+    def _pattern_resolution_from_context(
+        self, staff_id: int, on_date: date, context: EligibilityContext
+    ) -> PatternResolution | None:
+        assignment = next((
+            row for row in context.pattern_assignments_by_staff.get(staff_id, ())
+            if row.effective_from <= on_date
+            and (row.effective_to is None or row.effective_to >= on_date)
+        ), None)
+        if not assignment:
+            return None
+        pattern = context.patterns_by_id.get(assignment.work_pattern_id)
+        if not pattern or int(pattern.cycle_length_days or 0) <= 0:
+            return None
+        cycle_index = (
+            int(assignment.anchor_day_index)
+            + (on_date - assignment.anchor_date).days
+        ) % int(pattern.cycle_length_days)
+        pattern_day = context.pattern_days_by_key.get((pattern.id, cycle_index))
+        if not pattern_day:
+            return None
+        return PatternResolution(
+            assignment=assignment,
+            pattern=pattern,
+            cycle_index=cycle_index,
+            pattern_day=pattern_day,
+            allowed_shift_type_ids=context.allowed_shift_ids_by_day.get(
+                pattern_day.id, frozenset()
+            ),
         )
 
     def calculate_soft_rule_penalty(
@@ -328,6 +513,7 @@ class WorkPatternService:
     def _hard_rule_reason(
         self, rule: Any, shift: Any, group: str, is_night: bool,
         is_early: bool, on_date: date, *, existing_assignment: bool = False,
+        context: EligibilityContext | None = None,
     ) -> EligibilityReason | None:
         applies = _rule_targets_shift(rule, shift, group)
         if rule.rule_type == "NO_NIGHT" and is_night:
@@ -347,12 +533,15 @@ class WorkPatternService:
             count = self._assignment_count(
                 rule, on_date,
                 nights_only=rule.rule_type == "MAX_NIGHTS_PER_CYCLE",
+                context=context,
             )
             limit = int(rule.maximum_count or 0)
             if count > limit or (count >= limit and not existing_assignment):
                 return _rule_reason(rule, rule.rule_type, "Employee has reached the configured maximum duty count.")
         if rule.rule_type == "MAX_CONTRACTED_MINUTES":
-            proposed_minutes = self._assigned_minutes(rule, on_date)
+            proposed_minutes = self._assigned_minutes(
+                rule, on_date, context=context
+            )
             if not existing_assignment:
                 proposed_minutes += _shift_minutes(shift)
             if proposed_minutes > int(rule.maximum_count or 0):
@@ -383,35 +572,56 @@ class WorkPatternService:
                 ))
         return penalty, reasons
 
-    def _assignment_count(self, rule: Any, on_date: date, *, nights_only: bool) -> int:
+    def _assignment_count(
+        self, rule: Any, on_date: date, *, nights_only: bool,
+        context: EligibilityContext | None = None,
+    ) -> int:
         start = on_date - timedelta(days=max(1, int(rule.rolling_period_days or 1)) - 1)
-        rows = self.dependencies.Assignment.query.filter(
-            self.dependencies.Assignment.staff_id == rule.staff_id,
-            self.dependencies.Assignment.day >= start,
-            self.dependencies.Assignment.day <= on_date,
-        ).all()
-        shifts = self.dependencies.ShiftType.query.filter_by(
-            unit_id=rule.unit_id, is_working=True
-        ).all()
+        if context is None:
+            rows = self.dependencies.Assignment.query.filter(
+                self.dependencies.Assignment.staff_id == rule.staff_id,
+                self.dependencies.Assignment.day >= start,
+                self.dependencies.Assignment.day <= on_date,
+            ).all()
+            shifts = self.dependencies.ShiftType.query.filter_by(
+                unit_id=rule.unit_id, is_working=True
+            ).all()
+        else:
+            rows = (
+                row for row in context.assignments_by_staff.get(rule.staff_id, ())
+                if start <= row.day <= on_date
+            )
+            shifts = context.shift_by_id.values()
         codes = {
             shift.code for shift in shifts
+            if shift.is_working
             if not nights_only
             or self.dependencies.shift_group(shift).upper() == "N"
         }
         return sum(1 for row in rows if row.code in codes)
 
-    def _assigned_minutes(self, rule: Any, on_date: date) -> int:
+    def _assigned_minutes(
+        self, rule: Any, on_date: date,
+        *, context: EligibilityContext | None = None,
+    ) -> int:
         start = on_date - timedelta(days=max(1, int(rule.rolling_period_days or 1)) - 1)
-        rows = self.dependencies.Assignment.query.filter(
-            self.dependencies.Assignment.staff_id == rule.staff_id,
-            self.dependencies.Assignment.day >= start,
-            self.dependencies.Assignment.day <= on_date,
-        ).all()
-        shifts = {
-            row.code: row for row in self.dependencies.ShiftType.query.filter_by(
-                unit_id=rule.unit_id
+        if context is None:
+            rows = self.dependencies.Assignment.query.filter(
+                self.dependencies.Assignment.staff_id == rule.staff_id,
+                self.dependencies.Assignment.day >= start,
+                self.dependencies.Assignment.day <= on_date,
             ).all()
-        }
+            shifts = {
+                row.code: row for row in self.dependencies.ShiftType.query.filter_by(
+                    unit_id=rule.unit_id
+                ).all()
+            }
+        else:
+            rows = (
+                row for row in context.assignments_by_staff.get(rule.staff_id, ())
+                if start <= row.day <= on_date
+            )
+            shifts = context.shifts_by_code
         return sum(_shift_minutes(shifts.get(row.code)) for row in rows)
 
 
@@ -420,6 +630,13 @@ def _date_ranges_overlap(
     second_start: date, second_end: date | None,
 ) -> bool:
     return first_start <= (second_end or date.max) and second_start <= (first_end or date.max)
+
+
+def _group_rows(rows: Iterable[Any], attribute: str) -> dict[int, tuple[Any, ...]]:
+    grouped: dict[int, list[Any]] = {}
+    for row in rows:
+        grouped.setdefault(int(getattr(row, attribute)), []).append(row)
+    return {key: tuple(value) for key, value in grouped.items()}
 
 
 def _blocked(code: str, explanation: str) -> EligibilityResult:

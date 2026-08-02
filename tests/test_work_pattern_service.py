@@ -273,8 +273,15 @@ def test_approved_leave_and_allowed_shift_rule_are_hard_constraints(pattern_serv
     leave = service.is_staff_eligible_for_shift(
         person.id, on_date, shifts["M"].id
     )
+    context = service.build_eligibility_context(
+        unit.id, [person.id], on_date, on_date
+    )
+    bulk_leave = service.is_staff_eligible_for_shift(
+        person.id, on_date, shifts["M"].id, context=context
+    )
     assert not leave.eligible
     assert leave.reason_code == "APPROVED_LEAVE"
+    assert bulk_leave == leave
 
 
 def test_overlapping_effective_pattern_ranges_are_rejected(pattern_service):
@@ -320,6 +327,14 @@ def test_existing_assignment_is_not_counted_twice_at_rule_limit(pattern_service)
     existing = service.is_staff_eligible_for_shift(
         person.id, on_date, shifts["M"].id, existing_assignment=True
     )
+    context = service.build_eligibility_context(
+        unit.id, [person.id], on_date, on_date
+    )
+    bulk_existing = service.is_staff_eligible_for_shift(
+        person.id, on_date, shifts["M"].id,
+        existing_assignment=True, context=context,
+    )
 
     assert not proposal.eligible
     assert existing.eligible
+    assert bulk_existing == existing

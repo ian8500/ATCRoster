@@ -2166,6 +2166,34 @@ def watch_id_for_staff_on(staff_id: int, on_date: date) -> int | None:
     )
 
 
+def watch_ids_for_staff_on(
+    staff: list[Staff], on_date: date
+) -> dict[int, int | None]:
+    """Resolve a roster's watch memberships with one history query."""
+    staff_by_id = {person.id: person for person in staff}
+    if not staff_by_id:
+        return {}
+    rows = (
+        StaffWatchHistory.query.filter(
+            StaffWatchHistory.unit_id == authenticated_unit_id(),
+            StaffWatchHistory.staff_id.in_(staff_by_id),
+            StaffWatchHistory.effective_date <= on_date,
+        )
+        .order_by(
+            StaffWatchHistory.staff_id,
+            StaffWatchHistory.effective_date.desc(),
+            StaffWatchHistory.id.desc(),
+        )
+        .all()
+    )
+    resolved: dict[int, int | None] = {}
+    for row in rows:
+        resolved.setdefault(row.staff_id, row.watch_id)
+    for staff_id, person in staff_by_id.items():
+        resolved.setdefault(staff_id, person.watch_id)
+    return resolved
+
+
 @lru_cache(maxsize=4096)
 def _watch_id_for_staff_on(
     unit_id: int, staff_id: int, on_date: date
@@ -9001,7 +9029,7 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     load_month_roster=_load_month_roster_fast,
     add_months=_month_add,
     shift_groups=_shift_groups_snapshot,
-    watch_id_for_staff_on=watch_id_for_staff_on,
+    watch_ids_for_staff_on=watch_ids_for_staff_on,
     roster_fatigue_flags=roster_fatigue_flags_for_range,
     roster_validation=roster_validation_service,
     get_annotation_groups=get_annotation_groups,

@@ -1,6 +1,7 @@
 from datetime import date, time
 
 import app
+from sqlalchemy import event
 
 
 def test_roster_validation_finds_blockers_and_soft_preferences():
@@ -83,9 +84,20 @@ def test_roster_validation_finds_blockers_and_soft_preferences():
         ])
         app.db.session.commit()
 
-        result = app.roster_validation_service.validate_range(
-            unit.id, date(2026, 9, 1), date(2026, 9, 2)
-        )
+        statements = []
+
+        def record_statement(*_args):
+            statements.append(1)
+
+        event.listen(app.db.engine, "before_cursor_execute", record_statement)
+        try:
+            result = app.roster_validation_service.validate_range(
+                unit.id, date(2026, 9, 1), date(2026, 9, 2)
+            )
+        finally:
+            event.remove(
+                app.db.engine, "before_cursor_execute", record_statement
+            )
 
         assert result.blocking_count == 2
         assert result.advisory_count == 1
@@ -105,6 +117,9 @@ def test_roster_validation_finds_blockers_and_soft_preferences():
             preferred.id, date(2026, 9, 1), "SOFT_AVOID_NIGHT", "advisory",
         ) in facts
         assert all(row.staff_id != irrelevant.id for row in result.findings)
+        # The query count is fixed by the bulk snapshots, not multiplied by
+        # the number of populated roster cells.
+        assert len(statements) <= 18
 
 
 def _person(unit_id: int, username: str, staff_no: str):

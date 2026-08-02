@@ -88,6 +88,11 @@ class RosterValidationService:
             self.dependencies.Assignment.day,
             self.dependencies.Assignment.staff_id,
         ).all()
+        eligibility_context = (
+            self.dependencies.work_pattern_service.build_eligibility_context(
+                unit_id, relevant_staff_ids, start, end
+            )
+        )
         findings: list[RosterValidationFinding] = []
         for assignment in assignments:
             person = staff.get(assignment.staff_id)
@@ -95,7 +100,9 @@ class RosterValidationService:
             if not person or not shift:
                 continue
             result = self.dependencies.work_pattern_service.is_staff_eligible_for_shift(
-                person.id, assignment.day, shift.id, existing_assignment=True
+                person.id, assignment.day, shift.id,
+                existing_assignment=True,
+                context=eligibility_context,
             )
             if not result.eligible:
                 findings.append(RosterValidationFinding(
