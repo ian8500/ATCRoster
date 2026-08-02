@@ -3,9 +3,12 @@
 Baseline commit: `d7428da166e3943f94175e8ed65fc46e4abe1996`. Baseline `app.py`: **10,029 lines**. This inventory describes the compatibility boundary before incremental extraction. Automatic Flask `HEAD` and `OPTIONS` methods are omitted from the route contract because Flask derives them from explicit methods.
 
 Current modularisation milestone: the pure SRATCOH fatigue rules and analysis
-engine live in `fatigue_engine.py`. Compatibility aliases remain available from
-`app` for existing callers. At commit baseline `6eb9a36`, this extraction reduces
-`app.py` from 9,675 to 9,263 lines without changing its route map.
+engine live in `fatigue_engine.py`; airport-scoped fatigue rule persistence and
+the legacy compliance/fatigue administration routes live in
+`fatigue_compliance.py`. Compatibility aliases and the original unprefixed Flask
+endpoint names remain available for existing callers. From baseline `6eb9a36`,
+these extractions reduce `app.py` from 9,675 to 9,047 lines without changing its
+route map.
 
 ## Responsibilities remaining in `app.py`
 
@@ -40,7 +43,7 @@ CSRF is enforced globally for every explicit unsafe method. Authentication and r
 | /__can | `__can` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `app` + registered dependencies |
 | /admin | `admin` | GET, POST | Authenticated account | Admin/editor action policy | Verified active unit | Global default-deny | admin.html | `app` + registered dependencies |
 | /admin/change-log | `change_log_page` | GET | Authenticated account | Admin/editor action policy | Verified active unit | Not applicable (safe method) | change_log.html | `app` + registered dependencies |
-| /admin/fatigue-rules | `admin_fatigue_rules` | GET, POST | Authenticated account | Admin/editor action policy | Verified active unit | Global default-deny | admin_fatigue_rules.html | `app` + registered dependencies |
+| /admin/fatigue-rules | `admin_fatigue_rules` | GET, POST | Authenticated account | Admin/editor action policy | Verified active unit | Global default-deny | admin_fatigue_rules.html | `fatigue_compliance` + registered dependencies |
 | /admin/reference | `admin_reference` | GET, POST | Authenticated account | Admin/editor action policy | Verified active unit | Global default-deny | admin_reference.html | `app` + registered dependencies |
 | /admin/requests/<int:rid>/respond | `admin_request_respond` | POST | Authenticated account | Admin/editor action policy | Verified active unit | Global default-deny | JSON/redirect/response | `absence_requests_blueprint` + registered dependencies |
 | /admin/sms-audit | `admin_sms_audit` | GET | Authenticated account | Admin/editor action policy | Verified active unit | Not applicable (safe method) | admin_sms_audit.html | `app` + registered dependencies |
@@ -73,8 +76,8 @@ CSRF is enforced globally for every explicit unsafe method. Authentication and r
 | /competency/ | `competency_home` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | competency_home.html | `training_blueprint` + registered dependencies |
 | /competency/<int:sid> | `competency_profile` | GET, POST | Authenticated account | Endpoint/domain permission | Verified active unit | Global default-deny | competency_profile.html | `training_blueprint` + registered dependencies |
 | /compliance | `qualification_compliance` | GET, POST | Authenticated account | Endpoint/domain permission | Verified active unit | Global default-deny | qualification_compliance.html | `app` + registered dependencies |
-| /compliance-centre | `compliance_centre` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `app` + registered dependencies |
-| /compliance-centre/export | `compliance_centre_export` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `app` + registered dependencies |
+| /compliance-centre | `compliance_centre` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `fatigue_compliance` + registered dependencies |
+| /compliance-centre/export | `compliance_centre_export` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `fatigue_compliance` + registered dependencies |
 | /cookies | `cookie_notice` | GET | Anonymous or token-bound | Public/token workflow policy | Unbound/public | Not applicable (safe method) | cookies.html | `app` + registered dependencies |
 | /favicon.ico | `favicon` | GET | Anonymous or token-bound | Public/token workflow policy | Unbound/public | Not applicable (safe method) | static asset | `app` + registered dependencies |
 | /health/live | `health_live` | GET | Anonymous or token-bound | Public/token workflow policy | Unbound/public | Not applicable (safe method) | JSON/redirect/response | `production_operations` + registered dependencies |
@@ -151,4 +154,3 @@ CSRF is enforced globally for every explicit unsafe method. Authentication and r
 - Tenant context must be empty before public work and cleared after every response or exception.
 - Global unsafe-method CSRF and post-response security headers remain centrally registered until their explicit extraction commits.
 - No domain extraction may bypass existing policy helpers, tenant-scoped queries, audit writes or transaction boundaries.
-
