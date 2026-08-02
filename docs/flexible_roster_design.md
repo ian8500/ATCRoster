@@ -72,3 +72,21 @@ retired from future assignment, but structural changes require a replacement
 pattern and a new effective-dated staff assignment. This prevents an edit today
 from changing historical roster interpretation. The legacy CSV editor remains
 available as a labelled fallback until a normalised assignment is effective.
+
+## Phase 3 roster validation
+
+The monthly roster now evaluates existing working assignments against effective
+normalised patterns and staff rules. Pattern mismatches and hard-rule breaches
+are publication blockers. Soft-rule breaches are clearly marked preferences:
+they remain advisory and never prevent publication or alter an assignment.
+
+Validation is read-only. It adds cell-level explanations and a pre-publication
+summary, but does not move, replace or generate duties. The publication handler
+locks the month before validating and refuses to create a snapshot while any
+blocking finding remains, so bypassing the disabled browser button cannot
+publish a roster that fails these checks.
+
+Count and contracted-minute checks distinguish a proposed duty from an existing
+assignment. Existing duties are measured once: reaching a configured maximum is
+valid, while exceeding it is a blocker. Proposal eligibility continues to
+include the candidate duty when testing the limit.
