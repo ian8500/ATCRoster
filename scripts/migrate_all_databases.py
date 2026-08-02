@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -14,9 +15,14 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
-from scripts.database_grants import apply_runtime_grants
-
 REPOSITORY = Path(__file__).resolve().parents[1]
+# Railway invokes this file directly. Add the repository root so imports within
+# the scripts package resolve identically in direct and module execution modes.
+if str(REPOSITORY) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY))
+
+from scripts.database_grants import apply_runtime_grants  # noqa: E402
+
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
 MIGRATION_ADVISORY_LOCK_ID = 4_287_603_356
 

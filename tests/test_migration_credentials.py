@@ -1,3 +1,8 @@
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 import pytest
 
 from scripts.migrate_all_databases import (
@@ -69,3 +74,23 @@ def test_local_upgrade_does_not_apply_postgresql_grants(monkeypatch):
     )
 
     _apply_runtime_grants_after_upgrade("sqlite:///local.db", "sqlite:///local.db")
+
+
+def test_migration_script_direct_entrypoint_loads_dependencies():
+    repository = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment.pop("CONTROL_DATABASE_URL", None)
+    environment.pop("DATABASE_URL", None)
+
+    result = subprocess.run(
+        [sys.executable, "scripts/migrate_all_databases.py"],
+        cwd=repository,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "CONTROL_DATABASE_URL is required" in result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
