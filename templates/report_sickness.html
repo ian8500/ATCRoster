@@ -10,7 +10,7 @@
 <form class="report-filter card" method="get">
   <label for="sickness-watch">Filter by watch</label>
   <select id="sickness-watch" name="watch_id">
-    <option value="">All users</option>
+    <option value="">Entire unit</option>
     {% for watch in watches %}
       <option value="{{ watch.id }}" {% if selected_watch and selected_watch.id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
     {% endfor %}

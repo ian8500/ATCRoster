@@ -25,6 +25,7 @@ def compute_annotation_metrics(
     start_day: date,
     end_day: date,
     *,
+    watch_id: int | None = None,
     Assignment: Any,
     Staff: Any,
     Watch: Any,
@@ -53,7 +54,10 @@ def compute_annotation_metrics(
     ]
     order = [column["code"] for column in columns]
     known = set(order)
-    staff_by_id = {person.id: person for person in Staff.query.all()}
+    staff_query = Staff.query
+    if watch_id is not None:
+        staff_query = staff_query.filter(Staff.watch_id == watch_id)
+    staff_by_id = {person.id: person for person in staff_query.all()}
     metrics: dict[int, dict[str, object]] = {}
 
     for assignment in assignments:
@@ -85,11 +89,12 @@ def compute_annotation_metrics(
         annotations.setdefault(code, 0)
         annotations[code] += 1
 
-    ordered_people = (
-        Staff.query.outerjoin(Watch, Staff.watch_id == Watch.id)
-        .order_by(Watch.order_index, Staff.name)
-        .all()
-    )
+    ordered_people_query = Staff.query.outerjoin(Watch, Staff.watch_id == Watch.id)
+    if watch_id is not None:
+        ordered_people_query = ordered_people_query.filter(Staff.watch_id == watch_id)
+    ordered_people = ordered_people_query.order_by(
+        Watch.order_index, Staff.name
+    ).all()
     rows = []
     for person in ordered_people:
         row = metrics.get(

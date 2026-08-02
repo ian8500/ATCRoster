@@ -5423,10 +5423,13 @@ def notification_delete(notification_id):
 # (… unchanged metrics functions from your file …)
 
 
-def _compute_metrics_range(start_day: date, end_day: date):
+def _compute_metrics_range(
+    start_day: date, end_day: date, watch_id: int | None = None
+):
     return compute_annotation_metrics(
         start_day,
         end_day,
+        watch_id=watch_id,
         Assignment=Assignment,
         Staff=Staff,
         Watch=Watch,
