@@ -862,12 +862,14 @@ th.sticky{position:sticky; top:0; background:var(--head); color:#fff; z-index:2;
 table.roster th.sticky,
 .roster th.dayhead{
   top:var(--roster-sticky-top, 0px);
+  /* Mask roster rows that have scrolled above the pinned header. */
+  box-shadow:0 -100vh 0 var(--head), 0 4px 8px rgba(0,0,0,.24);
+  z-index:10;
 }
 .roster th.dayhead{
-  z-index:5;
-  box-shadow:0 4px 8px rgba(0,0,0,.24);
+  background:var(--head2);
 }
-th.sticky.left{left:0; z-index:3; background:var(--head);}
+th.sticky.left{left:0; background:var(--head);}
 
 .roster th.col-name,
 .roster td.col-name{
@@ -876,12 +878,12 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
 }
 
 .roster th.col-name{
-  z-index:6;
+  z-index:12;
 }
 
 .roster td.col-name{
-  /* Stay above the today-column overlay (layer 5) while horizontally pinned. */
-  z-index:7;
+  /* Stay above ordinary cells while remaining below every sticky heading. */
+  z-index:4;
   background:var(--card);
   box-shadow:4px 0 8px rgba(0,0,0,.18);
 }
