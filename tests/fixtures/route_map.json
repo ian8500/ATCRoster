@@ -111,6 +111,30 @@
     "rule": "/administration/kiosk-accounts"
   },
   {
+    "endpoint": "work_patterns.staff_rules",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/administration/staff/<int:staff_id>/work-rules"
+  },
+  {
+    "endpoint": "work_patterns.patterns",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/administration/work-patterns"
+  },
+  {
+    "endpoint": "work_patterns.pattern_detail",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/administration/work-patterns/<int:pattern_id>"
+  },
+  {
     "endpoint": "assign_cell",
     "methods": [
       "POST"
@@ -783,4 +807,3 @@
     "rule": "/unit/onboarding"
   }
 ]
-

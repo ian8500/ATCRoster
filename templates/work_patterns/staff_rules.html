@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Patterns and rules · {{ staff.name }}{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Effective-dated roster configuration</span><h2>{{ staff.name }}</h2><p>Assign normalised patterns and record hard restrictions or soft preferences without changing historical roster calculations.</p></div></section>
+
+<section class="card"><div class="card-hd">Pattern history</div><div class="card-bd">
+  <div class="table-wrap"><table><thead><tr><th>Pattern</th><th>Effective period</th><th>Anchor</th><th>Minutes override</th><th>Action</th></tr></thead><tbody>
+  {% for row in assignments %}<tr><td>{{ pattern_names.get(row.work_pattern_id, 'Historical pattern #' ~ row.work_pattern_id) }}</td><td>{{ row.effective_from }} – {{ row.effective_to or 'open ended' }}</td><td>{{ row.anchor_date }} · day {{ row.anchor_day_index + 1 }}</td><td>{{ row.contracted_minutes_override if row.contracted_minutes_override is not none else 'Pattern default' }}</td><td>{% if not row.effective_to %}<form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="end_assignment"><input type="hidden" name="assignment_id" value="{{ row.id }}"><input type="date" name="effective_to" min="{{ row.effective_from.isoformat() }}" required><button class="btn btn-sm">Set end date</button></form>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="5">No normalised assignment yet; existing CSV/watch logic remains the fallback.</td></tr>{% endfor %}
+  </tbody></table></div>
+  <form method="post" class="admin-form-grid mt-3"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="assign_pattern">
+    <label>Pattern<select name="work_pattern_id" required><option value="">Select pattern</option>{% for pattern in patterns %}<option value="{{ pattern.id }}">{{ pattern.name }}</option>{% endfor %}</select></label>
+    <label>Effective from<input type="date" name="effective_from" required></label><label>Effective to<input type="date" name="effective_to"></label>
+    <label>Anchor date<input type="date" name="anchor_date" required></label><label>Anchor cycle day<input type="number" name="anchor_day_index" min="0" value="0" required></label>
+    <label>Contracted minutes override<input type="number" name="contracted_minutes_override" min="0"></label><label>Notes<input name="notes" maxlength="500"></label>
+    <div class="form-actions"><button class="btn btn-primary">Add pattern assignment</button></div>
+  </form>
+</div></section>
+
+<section class="card mt-3"><div class="card-hd">Restrictions and preferences</div><div class="card-bd">
+  <div class="table-wrap"><table><thead><tr><th>Rule</th><th>Strength</th><th>Period</th><th>Reason</th><th>Status</th></tr></thead><tbody>{% for rule in rules %}<tr><td>{{ rule.rule_type|replace('_', ' ')|title }}</td><td>{{ rule.hardness }}</td><td>{{ rule.effective_from }} – {{ rule.effective_to or 'open ended' }}</td><td>{{ rule.reason or '—' }}</td><td>{% if rule.is_active %}<form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="deactivate_rule"><input type="hidden" name="rule_id" value="{{ rule.id }}"><button class="btn btn-sm">Deactivate</button></form>{% else %}Historical{% endif %}</td></tr>{% else %}<tr><td colspan="5">No rules recorded.</td></tr>{% endfor %}</tbody></table></div>
+  <form method="post" class="admin-form-grid mt-3"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_rule">
+    <label>Rule type<select name="rule_type">{% for value in rule_types %}<option value="{{ value }}">{{ value|replace('_', ' ')|title }}</option>{% endfor %}</select></label>
+    <label>Strength<select name="hardness"><option value="HARD">Hard – cannot be breached</option><option value="SOFT">Soft – permitted with penalty</option></select></label>
+    <label>Effective from<input type="date" name="effective_from" required></label><label>Effective to<input type="date" name="effective_to"></label>
+    <label>Specific shift<select name="shift_type_id"><option value="">None</option>{% for shift in shifts %}<option value="{{ shift.id }}">{{ shift.code }} · {{ shift.name }}</option>{% endfor %}</select></label>
+    <label>Shift group<select name="shift_group"><option value="">None</option>{% for group in ['M','D','A','N'] %}<option value="{{ group }}">{{ group }}</option>{% endfor %}</select></label>
+    <label>Maximum count/minutes<input type="number" name="maximum_count" min="0"></label><label>Rolling period (days)<input type="number" name="rolling_period_days" min="1"></label>
+    <fieldset><legend>Weekdays</legend>{% for label in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<label><input type="checkbox" name="weekday_{{ loop.index0 }}"> {{ label }}</label>{% endfor %}</fieldset>
+    <label>Soft penalty weight<input type="number" name="penalty_weight" min="0" value="1"></label><label>Reason<input name="reason" maxlength="500"></label>
+    <div class="form-actions"><button class="btn btn-primary">Add rule</button></div>
+  </form>
+</div></section>
+
+<section class="card mt-3"><div class="card-hd">Resolved 28-day preview</div><div class="card-bd"><form method="get" class="admin-form-grid"><label>Preview from<input type="date" name="preview_start" value="{{ preview_start.isoformat() }}"></label><div class="form-actions"><button class="btn">Refresh preview</button></div></form><div class="table-wrap"><table><thead><tr><th>Date</th><th>Pattern</th><th>Cycle day</th><th>Type</th></tr></thead><tbody>{% for day, result in preview %}<tr><td>{{ day.strftime('%a %d %b %Y') }}</td>{% if result %}<td>{{ result.pattern.name }}</td><td>{{ result.cycle_index + 1 }}</td><td>{{ result.pattern_day.day_type|replace('_', ' ')|title }}</td>{% else %}<td colspan="3">Legacy CSV/watch fallback</td>{% endif %}</tr>{% endfor %}</tbody></table></div></div></section>
+<p><a class="btn" href="{{ url_for('admin_staff_edit', sid=staff.id) }}">Back to staff profile</a></p>
+{% endblock %}

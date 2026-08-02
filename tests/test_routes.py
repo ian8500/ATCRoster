@@ -271,6 +271,21 @@ def copy_authenticated_session(source_client, target_client):
         target_session.update(values)
 
 
+def _clear_flexible_patterns(unit_id=1):
+    app.StaffRule.query.filter_by(unit_id=unit_id).delete()
+    app.StaffPatternAssignment.query.filter_by(unit_id=unit_id).delete()
+    day_ids = [
+        row.id for row in app.WorkPatternDay.query.filter_by(unit_id=unit_id).all()
+    ]
+    if day_ids:
+        app.WorkPatternDayAllowedShift.query.filter(
+            app.WorkPatternDayAllowedShift.work_pattern_day_id.in_(day_ids)
+        ).delete(synchronize_session=False)
+    app.WorkPatternDay.query.filter_by(unit_id=unit_id).delete()
+    app.WorkPattern.query.filter_by(unit_id=unit_id).delete()
+    db.session.commit()
+
+
 def test_reports_require_sensitive_data_acknowledgement(client):
     login(client)
     warning = client.get("/reports")
@@ -2714,3 +2729,163 @@ def test_primary_navigation_matches_role_permissions():
     dwm_page = dwm_client.get("/roster/2025-04")
     assert dwm_page.status_code == 200
     assert b"Secure session \xc2\xb7 Duty Watch Manager" in dwm_page.data
+
+
+def test_unit_admin_seeds_standard_patterns_idempotently(client):
+    with app.app.app_context():
+        _clear_flexible_patterns()
+    login(client)
+    first = client.post(
+        "/administration/work-patterns",
+        data={"_csrf_token": csrf(client), "action": "seed"},
+        follow_redirects=True,
+    )
+    assert first.status_code == 200
+    assert b"Added 2 standard pattern(s)." in first.data
+    second = client.post(
+        "/administration/work-patterns",
+        data={"_csrf_token": csrf(client), "action": "seed"},
+        follow_redirects=True,
+    )
+    assert b"Standard patterns already exist." in second.data
+    with app.app.app_context():
+        patterns = app.WorkPattern.query.filter_by(unit_id=1).all()
+        assert {row.name for row in patterns} == {
+            "Standard 6-on/4-off", "Part-time 4-on/6-off",
+        }
+        assert all(row.cycle_length_days == 10 for row in patterns)
+        six_on = next(row for row in patterns if row.name.startswith("Standard"))
+        days = app.WorkPatternDay.query.filter_by(
+            unit_id=1, work_pattern_id=six_on.id
+        ).order_by(app.WorkPatternDay.day_index).all()
+        assert [row.day_type for row in days] == ["FIXED_SHIFT"] * 6 + ["OFF"] * 4
+
+
+def test_pattern_admin_creates_and_configures_a_custom_cycle(client):
+    login(client)
+    response = client.post(
+        "/administration/work-patterns",
+        data={
+            "_csrf_token": csrf(client), "action": "create",
+            "name": "Three-day flexible test", "cycle_length_days": "3",
+            "contracted_minutes_per_cycle": "960",
+            "description": "Test pattern",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    with app.app.app_context():
+        pattern = app.WorkPattern.query.filter_by(
+            unit_id=1, name="Three-day flexible test"
+        ).one()
+        morning = ShiftType.query.filter_by(unit_id=1, code="M").one()
+        afternoon = ShiftType.query.filter_by(unit_id=1, code="A").one()
+        pattern_id, morning_id, afternoon_id = pattern.id, morning.id, afternoon.id
+    saved = client.post(
+        f"/administration/work-patterns/{pattern_id}",
+        data={
+            "_csrf_token": csrf(client), "name": "Three-day flexible test",
+            "cycle_length_days": "3", "contracted_minutes_per_cycle": "960",
+            "description": "Configured test pattern", "is_active": "on",
+            "day_type_0": "FIXED_SHIFT", "fixed_shift_type_id_0": str(morning_id),
+            "required_work_0": "on", "notes_0": "Morning duty",
+            "day_type_1": "WORK_ALLOWED_SET",
+            "allowed_shift_type_ids_1": [str(morning_id), str(afternoon_id)],
+            "required_work_1": "on", "notes_1": "Flexible duty",
+            "day_type_2": "OFF", "notes_2": "Protected rest",
+        },
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert b"Pattern saved." in saved.data
+    assert b"28-day preview" in saved.data
+    with app.app.app_context():
+        days = app.WorkPatternDay.query.filter_by(
+            unit_id=1, work_pattern_id=pattern_id
+        ).order_by(app.WorkPatternDay.day_index).all()
+        assert [row.day_type for row in days] == [
+            "FIXED_SHIFT", "WORK_ALLOWED_SET", "OFF",
+        ]
+        allowed = app.WorkPatternDayAllowedShift.query.filter_by(
+            unit_id=1, work_pattern_day_id=days[1].id
+        ).all()
+        assert {row.shift_type_id for row in allowed} == {morning_id, afternoon_id}
+
+
+def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
+        pattern = app.WorkPattern.query.filter_by(
+            unit_id=1, name="Standard 6-on/4-off"
+        ).one()
+        person_id, pattern_id = person.id, pattern.id
+    assigned = client.post(
+        f"/administration/staff/{person_id}/work-rules",
+        data={
+            "_csrf_token": csrf(client), "action": "assign_pattern",
+            "work_pattern_id": str(pattern_id), "effective_from": "2026-09-01",
+            "anchor_date": "2026-09-01", "anchor_day_index": "0",
+            "notes": "Permanent cycle",
+        },
+        follow_redirects=True,
+    )
+    assert assigned.status_code == 200
+    assert b"Effective-dated pattern assignment added." in assigned.data
+    rule = client.post(
+        f"/administration/staff/{person_id}/work-rules",
+        data={
+            "_csrf_token": csrf(client), "action": "add_rule",
+            "rule_type": "NO_NIGHT", "hardness": "HARD",
+            "effective_from": "2026-09-01", "penalty_weight": "1",
+            "reason": "Medical restriction",
+        },
+        follow_redirects=True,
+    )
+    assert rule.status_code == 200
+    assert b"Staff rule added." in rule.data
+    with app.app.app_context():
+        assert app.StaffPatternAssignment.query.filter_by(
+            unit_id=1, staff_id=person_id, work_pattern_id=pattern_id
+        ).count() == 1
+        stored_rule = app.StaffRule.query.filter_by(
+            unit_id=1, staff_id=person_id, rule_type="NO_NIGHT"
+        ).one()
+        assert stored_rule.hardness == "HARD"
+    locked = client.post(
+        f"/administration/work-patterns/{pattern_id}",
+        data={"_csrf_token": csrf(client), "action": "save"},
+        follow_redirects=True,
+    )
+    assert locked.status_code == 200
+    assert b"Assigned patterns are locked to preserve roster history." in locked.data
+
+    invalid_soft_restriction = client.post(
+        f"/administration/staff/{person_id}/work-rules",
+        data={
+            "_csrf_token": csrf(client), "action": "add_rule",
+            "rule_type": "NO_NIGHT", "hardness": "SOFT",
+            "effective_from": "2026-10-01", "penalty_weight": "5",
+        },
+        follow_redirects=True,
+    )
+    assert b"This restriction must be configured as a hard rule." in invalid_soft_restriction.data
+    with app.app.app_context():
+        assert app.StaffRule.query.filter_by(
+            unit_id=1, staff_id=person_id, rule_type="NO_NIGHT"
+        ).count() == 1
+
+
+def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
+    ordinary = app.app.test_client()
+    login_as(ordinary, "staff_test")
+    assert ordinary.get("/administration/work-patterns").status_code == 403
+
+    admin_client = app.app.test_client()
+    login(admin_client)
+    with app.app.app_context():
+        other = Staff.query.filter_by(unit_id=3, username="other_staff_test").one()
+        other_id = other.id
+    assert admin_client.get(
+        f"/administration/staff/{other_id}/work-rules"
+    ).status_code == 404
