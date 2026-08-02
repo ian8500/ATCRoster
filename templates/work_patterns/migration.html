@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Migrate legacy patterns{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Safe migration</span><h2>Legacy pattern migration</h2><p>Review a dry-run before creating effective-dated assignments. Only exact ordered cycle matches can be selected. Existing roster duties are never edited.</p></div></section>
+
+<section class="card"><div class="card-hd">Dry-run date</div><div class="card-bd">
+  <form method="get" class="admin-form-grid"><label>Effective from<input type="date" name="effective_from" value="{{ effective_from.isoformat() }}" required></label><div class="form-actions"><button class="btn">Run dry-run</button></div></form>
+  <p class="text-muted">{{ report.exact_count }} exact match(es). Ambiguous and unmatched staff remain on the legacy fallback.</p>
+</div></section>
+
+<form method="post" class="card mt-3"><div class="card-hd">Migration report</div><div class="card-bd">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="effective_from" value="{{ effective_from.isoformat() }}">
+  <div class="table-wrap"><table><thead><tr><th>Select</th><th>Staff</th><th>Source</th><th>Legacy cycle</th><th>Anchor</th><th>Result</th></tr></thead><tbody>
+  {% for row in report.rows %}<tr><td>{% if row.can_migrate %}<input type="checkbox" name="staff_ids" value="{{ row.staff_id }}" aria-label="Migrate {{ row.staff_name }}">{% else %}—{% endif %}</td><td>{{ row.staff_name }}</td><td>{{ row.source|title }}</td><td>{{ row.legacy_cycle|join(', ') if row.legacy_cycle else '—' }}</td><td>{{ row.legacy_anchor }}</td><td><strong>{{ row.status|replace('_', ' ')|title }}</strong>{% if row.pattern_name %}<br>{{ row.pattern_name }}{% endif %}<br><span class="text-muted">{{ row.explanation }}</span></td></tr>{% else %}<tr><td colspan="6">No staff found.</td></tr>{% endfor %}
+  </tbody></table></div>
+  <div class="form-actions mt-3"><button class="btn btn-primary" {% if not report.exact_count %}disabled{% endif %} data-confirm="Create normalised assignments for the selected exact matches? Existing roster duties will remain unchanged.">Migrate selected exact matches</button></div>
+</div></form>
+{% endblock %}

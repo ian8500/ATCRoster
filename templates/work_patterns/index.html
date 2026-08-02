@@ -4,6 +4,7 @@
 <section class="compliance-hero"><div><span class="admin-step">Roster administration</span><h2>Flexible work patterns</h2><p>Create reusable cycles for full-time and part-time staff. Existing CSV patterns remain available until each person is migrated.</p></div></section>
 
 <section class="card"><div class="card-hd">Pattern library</div><div class="card-bd">
+  <p><a class="btn" href="{{ url_for('work_patterns.migration') }}">Migrate legacy staff patterns</a></p>
   <form method="post" class="d-inline"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="seed"><button class="btn btn-primary">Add missing standard patterns</button></form>
   <p class="text-muted">Adds 6-on/4-off and a part-time 4-on/6-off example once only. Existing patterns are never overwritten.</p>
   <div class="admin-staff-list">

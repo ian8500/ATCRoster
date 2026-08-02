@@ -3051,6 +3051,9 @@ def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     ordinary = app.app.test_client()
     login_as(ordinary, "staff_test")
     assert ordinary.get("/administration/work-patterns").status_code == 403
+    assert ordinary.get(
+        "/administration/work-patterns/migration"
+    ).status_code == 403
 
     admin_client = app.app.test_client()
     login(admin_client)
@@ -3060,6 +3063,65 @@ def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     assert admin_client.get(
         f"/administration/staff/{other_id}/work-rules"
     ).status_code == 404
+
+
+def test_admin_dry_runs_and_migrates_only_exact_legacy_pattern(client):
+    login(client)
+    effective_from = date(2025, 1, 1)
+    with app.app.app_context():
+        app.work_pattern_admin_service.seed_standard_patterns(1)
+        person = Staff(
+            unit_id=1,
+            username="legacy_pattern_migration_test",
+            password_hash="unused",
+            name="Legacy Migration Test",
+            staff_no="LEG-MIG-1",
+            role="user",
+            pattern_override=True,
+            pattern_csv="M,M,A,A,N,N,OFF,OFF,OFF,OFF",
+            pattern_anchor=effective_from,
+        )
+        db.session.add(person)
+        db.session.commit()
+        person_id = person.id
+        duties_before = [
+            (row.id, row.staff_id, row.day, row.code, row.version)
+            for row in Assignment.query.filter_by(unit_id=1).order_by(Assignment.id)
+        ]
+
+    dry_run = client.get(
+        "/administration/work-patterns/migration?effective_from=2025-01-01"
+    )
+    assert dry_run.status_code == 200
+    assert b"Exact Match" in dry_run.data
+    assert b"Standard 6-on/4-off" in dry_run.data
+
+    migrated = client.post(
+        "/administration/work-patterns/migration",
+        data={
+            "_csrf_token": csrf(client),
+            "effective_from": "2025-01-01",
+            "staff_ids": str(person_id),
+        },
+        follow_redirects=True,
+    )
+    assert migrated.status_code == 200
+    assert b"Existing roster duties were not changed." in migrated.data
+    with app.app.app_context():
+        row = app.StaffPatternAssignment.query.filter_by(
+            unit_id=1, staff_id=person_id, effective_from=effective_from
+        ).one()
+        pattern = app.WorkPattern.query.filter_by(id=row.work_pattern_id).one()
+        assert pattern.name == "Standard 6-on/4-off"
+        assert row.anchor_date == effective_from
+        duties_after = [
+            (item.id, item.staff_id, item.day, item.code, item.version)
+            for item in Assignment.query.filter_by(unit_id=1).order_by(Assignment.id)
+        ]
+        assert duties_after == duties_before
+        db.session.delete(row)
+        db.session.delete(db.session.get(Staff, person_id))
+        db.session.commit()
 
 
 def test_roster_shows_pattern_breach_and_blocks_publication(client):

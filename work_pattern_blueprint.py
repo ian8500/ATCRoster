@@ -27,6 +27,7 @@ class WorkPatternBlueprintDependencies:
     validate_csrf: Callable[[], None]
     pattern_service: Any
     admin_service: Any
+    migration_service: Any
 
 
 def create_work_pattern_blueprint(
@@ -103,6 +104,48 @@ def create_work_pattern_blueprint(
             dependencies.WorkPattern.is_active.desc(), dependencies.WorkPattern.name
         ).all()
         return render_template("work_patterns/index.html", patterns=rows)
+
+    @blueprint.route(
+        "/administration/work-patterns/migration", methods=["GET", "POST"]
+    )
+    @login_required
+    def migration():
+        unit_id = require_admin()
+        try:
+            effective_from = _optional_date(
+                request.values.get("effective_from")
+            ) or date.today()
+        except ValueError:
+            abort(400, "Invalid migration effective date.")
+        report = dependencies.migration_service.analyse(unit_id, effective_from)
+        if request.method == "POST":
+            dependencies.validate_csrf()
+            try:
+                selected = {
+                    int(value) for value in request.form.getlist("staff_ids")
+                }
+                if not selected:
+                    raise ValueError("Select at least one exact match to migrate.")
+                created = dependencies.migration_service.migrate_exact(
+                    unit_id, effective_from, selected
+                )
+                dependencies.db.session.commit()
+                flash(
+                    f"Migrated {len(created)} staff pattern assignment(s). "
+                    "Existing roster duties were not changed.",
+                    "ok",
+                )
+                return redirect(url_for(
+                    "work_patterns.migration",
+                    effective_from=effective_from.isoformat(),
+                ))
+            except (TypeError, ValueError) as exc:
+                dependencies.db.session.rollback()
+                flash(f"Migration stopped: {exc}", "error")
+        return render_template(
+            "work_patterns/migration.html", report=report,
+            effective_from=effective_from,
+        )
 
     @blueprint.route(
         "/administration/work-patterns/<int:pattern_id>", methods=["GET", "POST"]
