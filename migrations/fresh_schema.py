@@ -393,6 +393,7 @@ def create_fresh_schema():
         sa.Column('leave_carryover_days', sa.Integer()),
         sa.UniqueConstraint('username'),
         sa.UniqueConstraint('unit_id', 'staff_no', name='uq_staff_unit_number'),
+        sa.UniqueConstraint('unit_id', 'id', name='uq_staff_unit_id'),
         sa.UniqueConstraint('calendar_token'),
     )
     op.create_index('ix_staff_unit_id', 'staff', ['unit_id'], unique=False)
