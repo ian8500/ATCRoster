@@ -861,6 +861,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             dependencies.db.session.rollback()
             abort(409, "This roster cell changed concurrently.")
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            saved_shift = dependencies.get_shift(assignment.code)
             return jsonify(
                 ok=True,
                 staff_id=staff_id,
@@ -869,6 +870,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 annotation=assignment.annotation or "",
                 annotation_note=assignment.annotation_note or "",
                 version=assignment.version,
+                is_training=bool(saved_shift and saved_shift.is_training),
                 day_summary=updated_day_summary(),
             )
         return redirect(url_for("roster_month", ym=ym))

@@ -110,6 +110,17 @@
   .roster-save-status.is-visible{ opacity:1; transform:translateY(0); }
   .roster-save-status.is-error{ background:#a61b29; }
   .shift-picker.is-saving .code-input{ opacity:.65; cursor:progress; }
+  .roster .cell .roster-shift-button{ display:flex; align-items:center; justify-content:center; width:100%; height:30px; padding:0; border:0; border-radius:0; font:inherit; cursor:pointer; }
+  .roster .cell .roster-shift-button:focus-visible{ position:relative; z-index:8; outline:2px solid #fff; outline-offset:-2px; }
+  .roster .cell .roster-shift-button.group-m{ background:var(--green); color:#000; }
+  .roster .cell .roster-shift-button.group-d{ background:var(--purple); color:#fff; }
+  .roster .cell .roster-shift-button.group-a{ background:var(--orange); color:#000; }
+  .roster .cell .roster-shift-button.group-n{ background:var(--yellow); color:#000; }
+  .roster .cell .roster-shift-button.off{ background:var(--off-blue); color:#10243a; }
+  .roster-shift-dialog select{ width:100%; min-height:44px; padding:.55rem .7rem; border:1px solid var(--control-border); border-radius:8px; background:rgba(0,0,0,.28); color:var(--text); font:600 1rem Inter, sans-serif; }
+  .roster-shift-dialog select:focus{ border-color:var(--control-border-hover); outline:2px solid rgba(83,170,255,.22); }
+  .roster-annotation-button{ cursor:pointer; line-height:1; }
+  #roster-annotation-code{ width:100%; min-height:44px; padding:.55rem .7rem; border:1px solid var(--control-border); border-radius:8px; }
 
   @media print{
     /* Hide the overlay in print to avoid heavy borders */
@@ -239,39 +250,24 @@
                     aria-label="{{ s.name }} absence on {{ d.strftime('%d %B %Y') }}: {{ code }}">{{ code }}</span>
             </div>
             {% else %}
-            <form class="shift-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((s.id, d), 0) }}">
-              <select
-                name="code"
-                class="code-input code-len-{{ code|length }} {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
-                data-roster-auto-submit="true"
-                data-saved-value="{{ code }}"
-                {% if (not can_edit) or readonly %}disabled{% endif %}
-                {% if f %}title="{{ ', '.join(f) }}"{% endif %}
-                aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
-                aria-invalid="{% if f %}true{% else %}false{% endif %}"
-              >
-                <option value="" {% if not code %}selected{% endif %}>—</option>
-
-                <optgroup label="Working shifts">
-                  {% for sh in shifts_working %}
-                    {% set dis = 'disabled' if sh.code in ['SC','SSC'] else '' %}
-                    <option value="{{ sh.code }}" {{ dis }} {% if sh.code == code %}selected{% endif %}>{{ sh.code }}</option>
-                  {% endfor %}
-                </optgroup>
-                <optgroup label="Training shifts">
-                  {% for sh in shifts_training %}
-                    <option value="{{ sh.code }}" {% if sh.code == code %}selected{% endif %}>{{ sh.code }}</option>
-                  {% endfor %}
-                </optgroup>
-                <optgroup label="Non-working">
-                  {% for sh in shifts_non %}
-                    <option value="{{ sh.code }}" {% if sh.code == code %}selected{% endif %}>{{ sh.code }}</option>
-                  {% endfor %}
-                </optgroup>
-              </select>
-            </form>
+            <div class="shift-picker">
+              {% if can_edit and not readonly %}
+              <button type="button"
+                      class="code-input code-display roster-shift-button code-len-{{ code|length }}{% if code %} {{ code|lower }} group-{{ prefix }}{% endif %}"
+                      data-roster-shift-open
+                      data-action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}"
+                      data-version="{{ assignment_version_map.get((s.id, d), 0) }}"
+                      data-code="{{ code }}"
+                      data-staff-name="{{ s.name }}"
+                      data-day-label="{{ d.strftime('%d %B %Y') }}"
+                      {% if f %}title="{{ ', '.join(f) }}"{% endif %}
+                      aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}: {{ code or 'unassigned' }}"
+                      aria-invalid="{% if f %}true{% else %}false{% endif %}">{{ code or '—' }}</button>
+              {% else %}
+              <span class="code-input code-display code-len-{{ code|length }}{% if code %} {{ code|lower }} group-{{ prefix }}{% endif %}"
+                    aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}: {{ code or 'unassigned' }}">{{ code or '—' }}</span>
+              {% endif %}
+            </div>
             {% endif %}
             {% endif %}
 
@@ -284,36 +280,20 @@
 
             <!-- ANNOTATION -->
             {% if not ann %}
-            <form class="annotation-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((s.id, d), 0) }}">
-              <select
-                name="annotation"
-                class="annot-select"
-                data-annotation-select
-                {% if (not can_edit) or readonly %}disabled{% endif %}
-                title="Annotate"
-                aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"
-              >
-                <option value="" selected>—</option>
-                {% for group, opts in annotation_groups.items() %}
-                  {% if opts %}
-                  <optgroup label="{{ group }}">
-                    {% for opt in opts %}
-                      <option value="{{ opt.code }}" data-note-required="{{ 'yes' if opt.note_required else 'no' }}">
-                        {{ opt.label }} ({{ opt.code }}){% if opt.toil_half_days %} · {{ "%+.1f"|format(opt.toil_half_days / 2) }} day TOIL{% endif %}{% if opt.description %} — {{ opt.description }}{% endif %}
-                      </option>
-                    {% endfor %}
-                  </optgroup>
-                  {% endif %}
-                {% endfor %}
-              </select>
-              <input name="annotation_note" class="annotation-note" hidden
-                     maxlength="140" value=""
-                     placeholder="Annotation note (when required)"
-                     aria-label="{{ s.name }} annotation note on {{ d.strftime('%d %B %Y') }}">
-              <button type="submit" class="btn btn-sm annotation-apply" hidden>Apply annotation</button>
-            </form>
+            <div class="annotation-picker">
+              {% if can_edit and not readonly %}
+              <button type="button" class="annot-select roster-annotation-button"
+                      data-roster-annotation-open
+                      data-action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}"
+                      data-version="{{ assignment_version_map.get((s.id, d), 0) }}"
+                      data-staff-name="{{ s.name }}"
+                      data-day-label="{{ d.strftime('%d %B %Y') }}"
+                      title="Annotate"
+                      aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}">Annotate</button>
+              {% else %}
+              <span class="annot-select" aria-hidden="true">—</span>
+              {% endif %}
+            </div>
             {% endif %}
             {% if ann and code %}
               {{ annotation_badge(s, d, ann, ann_note, can_edit and not readonly) }}
@@ -345,6 +325,74 @@
   </tfoot>
 </table>
 </div> <!-- /#roster -->
+
+{% if can_edit and not readonly %}
+<dialog class="annotation-dialog roster-shift-dialog" id="roster-shift-dialog" aria-labelledby="roster-shift-dialog-title">
+  <form method="post" data-roster-shift-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="assignment_version" value="0" data-roster-shift-version>
+    <div class="annotation-dialog__header">
+      <div>
+        <span class="admin-step">Edit roster shift</span>
+        <h3 id="roster-shift-dialog-title" data-roster-shift-title>Choose a shift</h3>
+      </div>
+      <button type="button" class="annotation-dialog__close" data-roster-shift-close aria-label="Close shift editor">×</button>
+    </div>
+    <label for="roster-shift-code">Shift</label>
+    <select id="roster-shift-code" name="code" data-roster-shift-select>
+      <option value="">—</option>
+      <optgroup label="Working shifts">
+        {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code in ['SC','SSC'] %} disabled{% endif %}>{{ sh.code }}</option>{% endfor %}
+      </optgroup>
+      <optgroup label="Training shifts">
+        {% for sh in shifts_training %}<option value="{{ sh.code }}">{{ sh.code }}</option>{% endfor %}
+      </optgroup>
+      <optgroup label="Non-working">
+        {% for sh in shifts_non %}<option value="{{ sh.code }}">{{ sh.code }}</option>{% endfor %}
+      </optgroup>
+    </select>
+    <div class="annotation-dialog__actions">
+      <button type="button" class="btn btn-sm" data-roster-shift-close>Cancel</button>
+      <button type="submit" class="btn btn-primary btn-sm" data-roster-shift-save>Save shift</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="annotation-dialog" id="roster-annotation-dialog" aria-labelledby="roster-annotation-dialog-title">
+  <form method="post" data-roster-annotation-form>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="assignment_version" value="0" data-roster-annotation-version>
+    <div class="annotation-dialog__header">
+      <div>
+        <span class="admin-step">Add annotation</span>
+        <h3 id="roster-annotation-dialog-title" data-roster-annotation-title>Choose an annotation</h3>
+      </div>
+      <button type="button" class="annotation-dialog__close" data-roster-annotation-close aria-label="Close annotation editor">×</button>
+    </div>
+    <label for="roster-annotation-code">Annotation</label>
+    <select id="roster-annotation-code" name="annotation" class="annot-select" data-annotation-select>
+      <option value="" selected>—</option>
+      {% for group, opts in annotation_groups.items() %}
+        {% if opts %}
+        <optgroup label="{{ group }}">
+          {% for opt in opts %}
+            <option value="{{ opt.code }}" data-note-required="{{ 'yes' if opt.note_required else 'no' }}">
+              {{ opt.label }} ({{ opt.code }}){% if opt.toil_half_days %} · {{ "%+.1f"|format(opt.toil_half_days / 2) }} day TOIL{% endif %}{% if opt.description %} — {{ opt.description }}{% endif %}
+            </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <input name="annotation_note" class="annotation-note" hidden maxlength="140" value=""
+           placeholder="Annotation note (when required)" aria-label="Annotation note">
+    <div class="annotation-dialog__actions">
+      <button type="button" class="btn btn-sm" data-roster-annotation-close>Cancel</button>
+      <button type="submit" class="btn btn-primary btn-sm annotation-apply" hidden>Apply annotation</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 
 {% if special_requirements %}
   <section class="roster-special-requirements" aria-labelledby="special-requirements-title">
@@ -470,16 +518,38 @@
       count.classList.toggle('rag-count--over', Number(count.textContent) > Number(required.textContent));
     });
   };
+  const shiftDialog = document.getElementById('roster-shift-dialog');
+  const shiftForm = shiftDialog?.querySelector('[data-roster-shift-form]');
+  const shiftSelect = shiftDialog?.querySelector('[data-roster-shift-select]');
+  const shiftVersion = shiftDialog?.querySelector('[data-roster-shift-version]');
+  const shiftTitle = shiftDialog?.querySelector('[data-roster-shift-title]');
+  const shiftSaveButton = shiftDialog?.querySelector('[data-roster-shift-save]');
+  let activeShiftButton = null;
+  const closeShiftEditor = () => {
+    if (shiftDialog?.open) shiftDialog.close();
+    activeShiftButton?.focus({ preventScroll: true });
+  };
+  const openShiftEditor = (button) => {
+    if (!shiftDialog || !shiftForm || !shiftSelect || !shiftVersion) return;
+    activeShiftButton = button;
+    shiftForm.action = button.dataset.action;
+    shiftVersion.value = button.dataset.version || '0';
+    shiftSelect.value = button.dataset.code || '';
+    shiftTitle.textContent = `${button.dataset.staffName} · ${button.dataset.dayLabel}`;
+    shiftDialog.showModal();
+    shiftSelect.focus();
+  };
   const saveRosterShift = async (form) => {
-    if (form.dataset.saving === '1') return;
-    const select = form.querySelector('[data-roster-auto-submit]');
-    const cell = form.closest('.cell');
-    if (!select || !cell) return;
-    const previousValue = select.dataset.savedValue || '';
+    if (form.dataset.saving === '1' || !activeShiftButton || !shiftSelect) return;
+    const button = activeShiftButton;
+    const cell = button.closest('.cell');
+    if (!cell) return;
+    const previousValue = button.dataset.code || '';
     const formData = new FormData(form);
     form.dataset.saving = '1';
     form.classList.add('is-saving');
-    select.disabled = true;
+    shiftSelect.disabled = true;
+    if (shiftSaveButton) shiftSaveButton.disabled = true;
     showRosterSaveStatus('Saving…');
     try {
       const response = await fetch(form.action, {
@@ -491,35 +561,91 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.ok) throw new Error(payload.error || 'The roster change could not be saved.');
       const code = payload.code || '';
-      select.value = code;
-      select.dataset.savedValue = code;
       const prefix = code === 'EM' ? 'm' : (code === 'LA' ? 'a' : code.slice(0, 1).toLowerCase());
-      select.className = `code-input code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
+      button.dataset.code = code;
+      button.dataset.version = payload.version;
+      button.textContent = code || '—';
+      button.className = `code-input code-display roster-shift-button code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
+      button.setAttribute('aria-label', `${button.dataset.staffName} shift on ${button.dataset.dayLabel}: ${code || 'unassigned'}`);
       cell.querySelectorAll('input[name="assignment_version"]').forEach((input) => { input.value = payload.version; });
+      cell.querySelectorAll('[data-roster-annotation-open]').forEach((annotationButton) => { annotationButton.dataset.version = payload.version; });
+      cell.classList.toggle('training', Boolean(payload.is_training));
+      cell.classList.remove('request-applied');
+      cell.querySelector('.request-applied-marker')?.remove();
       updateRosterDaySummary(payload.day, payload.day_summary);
       showRosterSaveStatus('Saved');
+      closeShiftEditor();
     } catch (error) {
-      select.value = previousValue;
+      shiftSelect.value = previousValue;
       showRosterSaveStatus(error.message || 'The roster change could not be saved.', true);
     } finally {
-      select.disabled = false;
+      shiftSelect.disabled = false;
+      if (shiftSaveButton) shiftSaveButton.disabled = false;
       form.dataset.saving = '0';
       form.classList.remove('is-saving');
-      select.focus({ preventScroll: true });
     }
   };
-  rosterRoot?.addEventListener('change', (event) => {
-    const select = event.target.closest('[data-roster-auto-submit]');
-    if (select) saveRosterShift(select.form);
+  rosterRoot?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-roster-shift-open]');
+    if (button) openShiftEditor(button);
+  });
+  shiftDialog?.querySelectorAll('[data-roster-shift-close]').forEach((button) => {
+    button.addEventListener('click', closeShiftEditor);
+  });
+  shiftDialog?.addEventListener('click', (event) => {
+    if (event.target === shiftDialog) closeShiftEditor();
+  });
+  shiftDialog?.addEventListener('close', () => {
+    activeShiftButton?.focus({ preventScroll: true });
+  });
+  const annotationDialog = document.getElementById('roster-annotation-dialog');
+  const annotationForm = annotationDialog?.querySelector('[data-roster-annotation-form]');
+  const annotationSelect = annotationDialog?.querySelector('[data-annotation-select]');
+  const annotationVersion = annotationDialog?.querySelector('[data-roster-annotation-version]');
+  const annotationTitle = annotationDialog?.querySelector('[data-roster-annotation-title]');
+  let activeAnnotationButton = null;
+  const closeAnnotationEditor = () => {
+    if (annotationDialog?.open) annotationDialog.close();
+    activeAnnotationButton?.focus({ preventScroll: true });
+  };
+  rosterRoot?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-roster-annotation-open]');
+    if (!button || !annotationDialog || !annotationForm || !annotationSelect || !annotationVersion) return;
+    activeAnnotationButton = button;
+    annotationForm.action = button.dataset.action;
+    annotationVersion.value = button.dataset.version || '0';
+    annotationSelect.value = '';
+    const note = annotationForm.querySelector('.annotation-note');
+    const apply = annotationForm.querySelector('.annotation-apply');
+    note.value = '';
+    note.hidden = true;
+    note.required = false;
+    apply.hidden = true;
+    annotationTitle.textContent = `${button.dataset.staffName} · ${button.dataset.dayLabel}`;
+    annotationDialog.showModal();
+    annotationSelect.focus();
+  });
+  annotationDialog?.querySelectorAll('[data-roster-annotation-close]').forEach((button) => {
+    button.addEventListener('click', closeAnnotationEditor);
+  });
+  annotationDialog?.addEventListener('click', (event) => {
+    if (event.target === annotationDialog) closeAnnotationEditor();
+  });
+  annotationDialog?.addEventListener('close', () => {
+    activeAnnotationButton?.focus({ preventScroll: true });
   });
   document.addEventListener('submit', (event) => {
     const form = event.target;
-    if (!form.closest('#roster')) return;
-    if (form.matches('.shift-picker')) {
+    if (form.matches('[data-roster-shift-form]')) {
       event.preventDefault();
       saveRosterShift(form);
       return;
     }
+    if (form.matches('[data-roster-annotation-form]')) {
+      rememberRosterPosition();
+      return;
+    }
+    if (!form.closest('#roster')) return;
     rememberRosterPosition();
   });
   document.querySelectorAll('[data-annotation-select]').forEach((select) => {
