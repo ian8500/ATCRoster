@@ -87,6 +87,9 @@ receive the same encrypted variables:
 - `DATABASE_URL` using the PostgreSQL service's private connection variables
 - `CONTROL_DATABASE_URL` using the control PostgreSQL service
 - `ATCROSTER_UNIT_<id>_DATABASE_URL` for every airport database
+- `CONTROL_MIGRATION_DATABASE_URL` using the control database owner connection
+- `ATCROSTER_UNIT_<id>_MIGRATION_DATABASE_URL` using each operational database
+  owner connection; these are consumed only by the pre-deploy migration command
 - `REDIS_URL`
 - `ATCROSTER_SESSION_IDLE_MINUTES` and
   `ATCROSTER_SESSION_ABSOLUTE_MINUTES`
