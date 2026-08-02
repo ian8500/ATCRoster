@@ -14,6 +14,8 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
+from scripts.database_grants import apply_runtime_grants
+
 REPOSITORY = Path(__file__).resolve().parents[1]
 SECRET_NAME_PATTERN = re.compile(r"ATCROSTER_UNIT_[1-9][0-9]*_DATABASE_URL")
 MIGRATION_ADVISORY_LOCK_ID = 4_287_603_356
@@ -33,12 +35,33 @@ def _migration_database_url(secret_name: str, runtime_url: str) -> str:
         migration_secret_name = "CONTROL_MIGRATION_DATABASE_URL"
     elif SECRET_NAME_PATTERN.fullmatch(secret_name):
         migration_secret_name = (
-            secret_name.removesuffix("_DATABASE_URL")
-            + "_MIGRATION_DATABASE_URL"
+            secret_name.removesuffix("_DATABASE_URL") + "_MIGRATION_DATABASE_URL"
         )
     else:
         raise ValueError("Unsupported database secret name.")
     return os.environ.get(migration_secret_name) or runtime_url
+
+
+def _apply_runtime_grants_after_upgrade(migration_url: str, runtime_url: str) -> None:
+    """Grant the runtime login access to relations created by this release.
+
+    PostgreSQL does not automatically extend existing table grants to tables
+    created later by Alembic. Railway's pre-deploy migration therefore needs to
+    refresh the least-privilege grants before the new application starts.
+    """
+    migration = make_url(migration_url)
+    runtime = make_url(runtime_url)
+    if migration.get_backend_name() not in {"postgres", "postgresql"}:
+        return
+    if _canonical_database_url(migration_url) == _canonical_database_url(runtime_url):
+        return
+    if not runtime.username:
+        raise RuntimeError("Runtime database URL must identify a PostgreSQL role.")
+    apply_runtime_grants(
+        migration_url,
+        runtime.username,
+        os.environ.get("ATCROSTER_AUDIT_READ_ROLE") or None,
+    )
 
 
 @contextmanager
@@ -152,11 +175,10 @@ def main() -> None:
     )
     if not control_runtime_url:
         raise SystemExit("CONTROL_DATABASE_URL is required.")
-    control_url = _migration_database_url(
-        "CONTROL_DATABASE_URL", control_runtime_url
-    )
+    control_url = _migration_database_url("CONTROL_DATABASE_URL", control_runtime_url)
     with deployment_migration_lock(control_url):
         control_version = upgrade_database(control_url, "control")
+        _apply_runtime_grants_after_upgrade(control_url, control_runtime_url)
         print(f"Control database upgraded to {control_version}.")
         control_engine = create_engine(
             _sqlalchemy_database_url(control_url), pool_pre_ping=True
@@ -209,6 +231,9 @@ def main() -> None:
                 )
             version = upgrade_database(operational_url, "operational")
             _ensure_info_annotation(operational_url, unit_id)
+            _apply_runtime_grants_after_upgrade(
+                operational_url, runtime_operational_url
+            )
             print(f"Operational database for unit {unit_id} upgraded to {version}.")
 
 
