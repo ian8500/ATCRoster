@@ -411,6 +411,17 @@
 
 <script nonce="{{ csp_nonce() }}">
   function printRoster(){ window.print(); }
+  const rosterTable = document.querySelector('table.roster');
+  const siteHeader = document.querySelector('.site-header');
+  const updateRosterStickyTop = () => {
+    const height = siteHeader ? Math.ceil(siteHeader.getBoundingClientRect().height) : 0;
+    rosterTable?.style.setProperty('--roster-sticky-top', `${height}px`);
+  };
+  updateRosterStickyTop();
+  window.addEventListener('resize', updateRosterStickyTop, { passive: true });
+  if (siteHeader && 'ResizeObserver' in window) {
+    new ResizeObserver(updateRosterStickyTop).observe(siteHeader);
+  }
   document.querySelectorAll('[data-annotation-select]').forEach((select) => {
     select.addEventListener('change', () => {
       const form = select.form;

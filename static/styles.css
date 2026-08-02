@@ -859,6 +859,14 @@ table.roster tbody tr:hover{background:rgba(84,118,192,.12);}
 .roster td{border:1px solid var(--line); text-align:center; padding:.25rem .35rem;}
 
 th.sticky{position:sticky; top:0; background:var(--head); color:#fff; z-index:2;}
+table.roster th.sticky,
+.roster th.dayhead{
+  top:var(--roster-sticky-top, 0px);
+}
+.roster th.dayhead{
+  z-index:5;
+  box-shadow:0 4px 8px rgba(0,0,0,.24);
+}
 th.sticky.left{left:0; z-index:3; background:var(--head);}
 
 .roster th.col-name,
@@ -2123,6 +2131,7 @@ table.roster { zoom:var(--ui-scale); }
   thead{ display:table-header-group; }
   tfoot{ display:table-footer-group; }
   th.sticky,
+  .roster th.dayhead,
   .roster th.col-name,
   .roster td.col-name{
     position:static !important;
