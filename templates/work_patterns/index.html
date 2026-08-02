@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Work patterns{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Roster administration</span><h2>Flexible work patterns</h2><p>Create reusable cycles for full-time and part-time staff. Existing CSV patterns remain available until each person is migrated.</p></div></section>
+
+<section class="card"><div class="card-hd">Pattern library</div><div class="card-bd">
+  <form method="post" class="d-inline"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="seed"><button class="btn btn-primary">Add missing standard patterns</button></form>
+  <p class="text-muted">Adds 6-on/4-off and a part-time 4-on/6-off example once only. Existing patterns are never overwritten.</p>
+  <div class="admin-staff-list">
+    {% for pattern in patterns %}<article class="admin-staff-card"><div><strong>{{ pattern.name }}</strong><span>{{ pattern.cycle_length_days }} days · {{ pattern.contracted_minutes_per_cycle }} contracted minutes · {{ 'Active' if pattern.is_active else 'Inactive' }}</span></div><a class="btn" href="{{ url_for('work_patterns.pattern_detail', pattern_id=pattern.id) }}">Configure</a></article>{% else %}<p>No normalised patterns have been created yet.</p>{% endfor %}
+  </div>
+</div></section>
+
+<section class="card mt-3"><div class="card-hd">Create a blank pattern</div><div class="card-bd"><form method="post" class="admin-form-grid">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create">
+  <label>Name<input name="name" maxlength="120" required></label>
+  <label>Cycle length (days)<input type="number" name="cycle_length_days" min="1" max="366" value="10" required></label>
+  <label>Contracted minutes per cycle<input type="number" name="contracted_minutes_per_cycle" min="0" value="0" required></label>
+  <label>Description<textarea name="description" maxlength="2000"></textarea></label>
+  <div class="form-actions"><button class="btn btn-primary">Create pattern</button></div>
+</form></div></section>
+{% endblock %}

@@ -52,3 +52,23 @@ The first consumer will be the roster-validation service. CSV migration, pattern
 administration, fairness calculations and automatic proposals are separate
 stages. No optimiser may write live assignments directly; generated duties will
 remain proposal records until an authorised user accepts them.
+
+## Phase 2 administration
+
+Unit administrators manage normalised patterns from **Administration → Flexible
+work patterns**. The standard seed is idempotent: it creates missing 6-on/4-off
+and part-time 4-on/6-off examples but never overwrites a unit's existing rows.
+Units must configure active working `M`, `A`, and `N` shift types before using
+the seed, keeping all foreign keys local to that operational database.
+
+Staff profiles link to a separate effective-dated configuration screen. A new
+assignment is rejected when it overlaps another assignment for that person.
+Rules retain start and optional end dates; deactivation preserves their history.
+The 28-day preview uses the same resolver used by eligibility decisions rather
+than duplicating cycle arithmetic in the template.
+
+Once a pattern has been assigned, its cycle definition is immutable. It may be
+retired from future assignment, but structural changes require a replacement
+pattern and a new effective-dated staff assignment. This prevents an edit today
+from changing historical roster interpretation. The legacy CSV editor remains
+available as a labelled fallback until a normalised assignment is effective.

@@ -51,6 +51,8 @@
   <div class="card">
     <div class="card-hd">Roster pattern</div>
     <div class="card-bd">
+      <p><a class="btn btn-primary" href="{{ url_for('work_patterns.staff_rules', staff_id=s.id) }}">Manage effective-dated patterns and rules</a></p>
+      <p class="text-muted">The normalised pattern engine takes precedence when an effective assignment exists. The settings below remain as the legacy fallback.</p>
       <label class="inheritance-choice"><input type="checkbox" name="pattern_override" data-personal-pattern-toggle {% if s.pattern_override %}checked{% endif %}> Use a personal pattern for this ATCO</label>
       <p class="text-muted">Leave this off to follow the effective watch pattern automatically, including scheduled watch moves.</p>
       <div class="pattern-builder" data-pattern-builder data-personal-pattern {% if not s.pattern_override %}hidden{% endif %}>

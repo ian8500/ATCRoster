@@ -8818,6 +8818,12 @@ from operations_blueprint import OperationsDependencies, create_operations_bluep
 from live_position_blueprint import (
     LivePositionDependencies, create_live_position_blueprint,
 )
+from work_pattern_admin_service import (
+    WorkPatternAdminDependencies, WorkPatternAdminService,
+)
+from work_pattern_blueprint import (
+    WorkPatternBlueprintDependencies, create_work_pattern_blueprint,
+)
 
 work_pattern_service = WorkPatternService(WorkPatternDependencies(
     Staff=Staff,
@@ -8835,6 +8841,34 @@ get_pattern_day_for_staff = work_pattern_service.get_pattern_day_for_staff
 get_effective_staff_rules = work_pattern_service.get_effective_staff_rules
 is_staff_eligible_for_shift = work_pattern_service.is_staff_eligible_for_shift
 calculate_soft_rule_penalty = work_pattern_service.calculate_soft_rule_penalty
+
+work_pattern_admin_service = WorkPatternAdminService(
+    WorkPatternAdminDependencies(
+        db=db,
+        WorkPattern=WorkPattern,
+        WorkPatternDay=WorkPatternDay,
+        WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
+        ShiftType=ShiftType,
+        pattern_service=work_pattern_service,
+    )
+)
+app.register_blueprint(create_work_pattern_blueprint(
+    WorkPatternBlueprintDependencies(
+        db=db,
+        Staff=Staff,
+        ShiftType=ShiftType,
+        WorkPattern=WorkPattern,
+        WorkPatternDay=WorkPatternDay,
+        WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
+        StaffPatternAssignment=StaffPatternAssignment,
+        StaffRule=StaffRule,
+        is_admin_user=is_admin_user,
+        current_unit_id=_current_unit_id,
+        validate_csrf=_validate_csrf,
+        pattern_service=work_pattern_service,
+        admin_service=work_pattern_admin_service,
+    )
+))
 
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ pattern.name }}{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Flexible pattern</span><h2>{{ pattern.name }}</h2><p>Configure every day in the recurring cycle. Day one has index zero internally.</p></div></section>
+{% if is_in_use %}<div class="release-ready-message"><i class="fa-solid fa-lock"></i><div><strong>Pattern definition locked</strong><span>This pattern has staff history. Create a replacement pattern to change its cycle.</span></div></div>{% endif %}
+
+<form method="post" class="grid">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="action" value="save">
+  <section class="card"><div class="card-hd">Pattern settings</div><div class="card-bd grid grid-3">
+    <label>Name<input name="name" value="{{ pattern.name }}" maxlength="120" required></label>
+    <label>Cycle length<input type="number" name="cycle_length_days" value="{{ pattern.cycle_length_days }}" readonly></label>
+    <label>Contracted minutes<input type="number" name="contracted_minutes_per_cycle" min="0" value="{{ pattern.contracted_minutes_per_cycle }}" required></label>
+    <label>Description<textarea name="description" maxlength="2000">{{ pattern.description }}</textarea></label>
+    <label><input type="checkbox" name="is_active" {% if pattern.is_active %}checked{% endif %}> Available for new assignments</label>
+  </div></section>
+  <section class="card"><div class="card-hd">Cycle days</div><div class="card-bd"><div class="table-wrap"><table><thead><tr><th>Day</th><th>Type</th><th>Fixed shift</th><th>Allowed shifts</th><th>Required</th><th>Notes</th></tr></thead><tbody>
+    {% for day in days %}<tr>
+      <td>{{ day.day_index + 1 }}</td>
+      <td><select name="day_type_{{ day.day_index }}">{% for value in day_types %}<option value="{{ value }}" {% if day.day_type == value %}selected{% endif %}>{{ value|replace('_', ' ')|title }}</option>{% endfor %}</select></td>
+      <td><select name="fixed_shift_type_id_{{ day.day_index }}"><option value="">None</option>{% for shift in shifts %}<option value="{{ shift.id }}" {% if day.fixed_shift_type_id == shift.id %}selected{% endif %}>{{ shift.code }} · {{ shift.name }}</option>{% endfor %}</select></td>
+      <td><select name="allowed_shift_type_ids_{{ day.day_index }}" multiple size="3">{% for shift in shifts %}<option value="{{ shift.id }}" {% if shift.id in allowed.get(day.id, ()) %}selected{% endif %}>{{ shift.code }}</option>{% endfor %}</select></td>
+      <td><input type="checkbox" name="required_work_{{ day.day_index }}" {% if day.required_work %}checked{% endif %}></td>
+      <td><input name="notes_{{ day.day_index }}" value="{{ day.notes }}" maxlength="500"></td>
+    </tr>{% endfor %}
+  </tbody></table></div><p class="text-muted">Cycle length is fixed after creation so historical cycle indexes remain stable. Create a replacement pattern when the cycle itself changes.</p></div></section>
+  <div>{% if not is_in_use %}<button class="btn btn-primary">Save pattern</button>{% endif %} <a class="btn" href="{{ url_for('work_patterns.patterns') }}">Back to patterns</a></div>
+</form>
+<form method="post" class="mt-3"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="toggle_active"><button class="btn">{{ 'Retire from' if pattern.is_active else 'Restore to' }} new assignments</button></form>
+
+<section class="card mt-3"><div class="card-hd">28-day preview</div><div class="card-bd">
+  <form method="get" class="admin-form-grid"><label>Preview from<input type="date" name="preview_start" value="{{ preview_start.isoformat() }}"></label><div class="form-actions"><button class="btn">Refresh preview</button></div></form>
+  <div class="table-wrap"><table><thead><tr><th>Date</th><th>Resolved pattern day</th></tr></thead><tbody>{% for day, label in preview %}<tr><td>{{ day.strftime('%a %d %b %Y') }}</td><td>{{ label }}</td></tr>{% endfor %}</tbody></table></div>
+</div></section>
+{% endblock %}

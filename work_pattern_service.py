@@ -120,6 +120,20 @@ class WorkPatternService:
             raise ValueError("Choose a supported staff rule type.")
         if rule.hardness not in {"HARD", "SOFT"}:
             raise ValueError("Rule hardness must be HARD or SOFT.")
+        hard_only = {
+            "NO_NIGHT", "NO_EARLY", "ALLOWED_SHIFT", "DISALLOWED_SHIFT",
+            "MAX_NIGHTS_PER_CYCLE", "MAX_SHIFTS_PER_CYCLE",
+            "AVAILABLE_WEEKDAYS", "UNAVAILABLE_WEEKDAYS",
+            "MAX_CONTRACTED_MINUTES",
+        }
+        soft_only = {
+            "AVOID_NIGHT", "AVOID_EARLY", "PREFERRED_SHIFT",
+            "PREFERRED_DAY_OFF",
+        }
+        if rule.rule_type in hard_only and rule.hardness != "HARD":
+            raise ValueError("This restriction must be configured as a hard rule.")
+        if rule.rule_type in soft_only and rule.hardness != "SOFT":
+            raise ValueError("This preference must be configured as a soft rule.")
         if rule.effective_to and rule.effective_to < rule.effective_from:
             raise ValueError("Rule end date cannot be before its start date.")
         if int(rule.penalty_weight or 0) < 0:

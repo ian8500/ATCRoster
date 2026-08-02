@@ -13,6 +13,11 @@
       <span><strong>People and access</strong><small>Manage user accounts, roles and access.</small></span>
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
+    <a class="module-card" href="{{ url_for('work_patterns.patterns') }}">
+      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-calendar-days"></i></span>
+      <span><strong>Flexible work patterns</strong><small>Manage recurring cycles, dated staff assignments and eligibility rules.</small></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
     {% if show_live_position %}
     <a class="module-card" href="{{ url_for('kiosk_accounts') }}">
       <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-display"></i></span>
