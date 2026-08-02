@@ -104,7 +104,9 @@ from atcroster.security.sessions import (
 )
 from atcroster.tenancy_hooks import TenantHookDependencies, register_tenant_hooks
 from tenancy import (
+    authenticated_database_route_optional,
     authenticated_unit_id,
+    authenticated_unit_context,
     bind_authenticated_unit,
     bind_platform_control,
     clear_request_context,
@@ -9457,6 +9459,8 @@ app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     utcnow=utcnow, is_admin_user=is_admin_user,
     live_position_enabled=live_position_enabled,
     competency_enabled=competency_enabled,
+    authenticated_database_route_optional=authenticated_database_route_optional,
+    authenticated_unit_context=authenticated_unit_context,
 )))
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(
