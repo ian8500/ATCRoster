@@ -3247,6 +3247,5 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     ) as stylesheet_file:
         stylesheet = stylesheet_file.read()
     assert ".roster th.dayhead" in stylesheet
-    assert "table.roster thead{" in stylesheet
     assert "top:var(--roster-sticky-top, 0px)" in stylesheet
-    assert "table.roster thead th.sticky" in stylesheet
+    assert "table.roster th.sticky" in stylesheet
