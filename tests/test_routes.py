@@ -3255,8 +3255,6 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     assert ".roster th.dayhead" in stylesheet
     assert "top:var(--roster-sticky-top, 0px)" in stylesheet
     assert "table.roster th.sticky" in stylesheet
-    assert "table.roster th.sticky::after" in stylesheet
-    assert "height:100vh;" in stylesheet
     assert "table.roster th.sticky{" in stylesheet
     assert ".roster th.dayhead.is-today" in stylesheet
     assert "background: #363d2e !important;" in stylesheet

@@ -58,6 +58,10 @@
 <style nonce="{{ csp_nonce() }}">
   :root { --today-col: rgba(255,255,0,.85); }
 
+  /* Seal the sub-pixel seam beneath the site header without covering the
+     roster navigation, print or zoom controls before they scroll away. */
+  .site-header { box-shadow: 0 2px 0 var(--head); }
+
   /* Ensure cells can host absolutely-positioned overlays */
   .roster th.dayhead { position: sticky; }
   .roster td.cell { position: relative; }
@@ -66,7 +70,10 @@
   /* Subtle background tint for today */
   /* Keep the highlighted sticky heading opaque so roster values never bleed through. */
   .roster th.dayhead.is-today { background: #363d2e !important; }
-  .roster td.cell.is-today { background: rgba(255,255,0,.07) !important; }
+  .roster td.cell.is-today {
+    z-index: 1;
+    background: rgba(255,255,0,.07) !important;
+  }
 
   /* Draw the column outline ABOVE controls using ::before overlays */
   .roster th.dayhead.is-today::before{
