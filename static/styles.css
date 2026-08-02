@@ -984,7 +984,15 @@ th.sticky.left{left:0; z-index:3; background:var(--head);}
   border-color:var(--accent);
   background:var(--accent-soft);
 }
-#roster{overflow-x:auto; overflow-y:hidden;}
+/*
+ * Keep the roster in the document's scroll context. An overflow ancestor becomes
+ * the containing block for position:sticky, even when it only appears to scroll
+ * horizontally. That caused the sticky header offset to be measured from this
+ * frame (pushing it below the first staff row) and prevented it sticking during
+ * window scrolling. The page itself provides horizontal scrolling for the wide
+ * roster, allowing both the date header and name column to pin to the viewport.
+ */
+#roster{overflow:visible;}
 
 .roster .cell select.code-input{
   display:block;
