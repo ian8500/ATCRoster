@@ -32,6 +32,10 @@ def _operational_tables():
     ]
 
 
+def test_position_time_allowances_are_routed_to_operational_databases():
+    assert "operational_position_time_allowance" in app.OPERATIONAL_TABLE_NAMES
+
+
 def _seed_operational_unit(
     unit_id, secret_name, username, marker, create_schema=True
 ):
