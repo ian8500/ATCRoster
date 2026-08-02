@@ -27,6 +27,20 @@ def _sqlalchemy_database_url(database_url: str) -> str:
     return parsed.render_as_string(hide_password=False)
 
 
+def _migration_database_url(secret_name: str, runtime_url: str) -> str:
+    """Prefer owner-only DDL credentials without changing runtime settings."""
+    if secret_name == "CONTROL_DATABASE_URL":
+        migration_secret_name = "CONTROL_MIGRATION_DATABASE_URL"
+    elif SECRET_NAME_PATTERN.fullmatch(secret_name):
+        migration_secret_name = (
+            secret_name.removesuffix("_DATABASE_URL")
+            + "_MIGRATION_DATABASE_URL"
+        )
+    else:
+        raise ValueError("Unsupported database secret name.")
+    return os.environ.get(migration_secret_name) or runtime_url
+
+
 @contextmanager
 def deployment_migration_lock(database_url: str):
     """Serialize concurrent Railway pre-deploy migrations on PostgreSQL.
@@ -133,11 +147,14 @@ def upgrade_database(database_url: str, schema_role: str) -> str:
 
 
 def main() -> None:
-    control_url = os.environ.get("CONTROL_DATABASE_URL") or os.environ.get(
+    control_runtime_url = os.environ.get("CONTROL_DATABASE_URL") or os.environ.get(
         "DATABASE_URL"
     )
-    if not control_url:
+    if not control_runtime_url:
         raise SystemExit("CONTROL_DATABASE_URL is required.")
+    control_url = _migration_database_url(
+        "CONTROL_DATABASE_URL", control_runtime_url
+    )
     with deployment_migration_lock(control_url):
         control_version = upgrade_database(control_url, "control")
         print(f"Control database upgraded to {control_version}.")
@@ -176,11 +193,14 @@ def main() -> None:
                 raise SystemExit(
                     f"Unit {unit_id} has an invalid deployment-secret name."
                 )
-            operational_url = os.environ.get(secret_name)
-            if not operational_url:
+            runtime_operational_url = os.environ.get(secret_name)
+            if not runtime_operational_url:
                 raise SystemExit(
                     f"Required deployment secret {secret_name} is unavailable."
                 )
+            operational_url = _migration_database_url(
+                secret_name, runtime_operational_url
+            )
             if _canonical_database_url(operational_url) == _canonical_database_url(
                 control_url
             ):
