@@ -3237,6 +3237,8 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     assert response.status_code == 200
     assert b"--roster-sticky-top" in response.data
     assert b"ResizeObserver(updateRosterStickyTop)" in response.data
+    assert b"Math.ceil(height / scale)" in response.data
+    assert b"MutationObserver(updateRosterStickyTop)" in response.data
     assert response.data.count(b'class="sticky left col-name"') == 1
     assert b'class="sticky left col-date"' not in response.data
     assert b'class="sticky col-date">Medical' in response.data
@@ -3245,4 +3247,6 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     ) as stylesheet_file:
         stylesheet = stylesheet_file.read()
     assert ".roster th.dayhead" in stylesheet
+    assert "table.roster thead{" in stylesheet
     assert "top:var(--roster-sticky-top, 0px)" in stylesheet
+    assert "table.roster thead th.sticky" in stylesheet
