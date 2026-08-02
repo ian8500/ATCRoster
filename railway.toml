@@ -3,6 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+preDeployCommand = "python scripts/migrate_all_databases.py"
 startCommand = "python scripts/start_service.py"
 healthcheckPath = "/health/ready"
 healthcheckTimeout = 300
