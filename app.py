@@ -1606,7 +1606,7 @@ def get_non_working_codes() -> set[str]:
 
 
 def staff_is_countable_on(person: Staff, on_date: date) -> bool:
-    """Return whether a person holds the credentials needed for staffing counts."""
+    """Require a current medical and at least one current operational rating UE."""
     if not person.medical_expiry or person.medical_expiry < on_date:
         return False
     return any(
@@ -1614,7 +1614,6 @@ def staff_is_countable_on(person: Staff, on_date: date) -> bool:
         for expiry in (
             person.tower_ue_expiry,
             person.radar_ue_expiry,
-            person.met_ue_expiry,
         )
     )
 

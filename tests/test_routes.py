@@ -2183,6 +2183,9 @@ def test_roster_counter_requires_current_medical_and_unit_endorsement():
     assert not app.staff_is_countable_on(person, roster_day)
 
     person.met_ue_expiry = roster_day
+    assert not app.staff_is_countable_on(person, roster_day)
+
+    person.radar_ue_expiry = roster_day
     assert app.staff_is_countable_on(person, roster_day)
 
 
