@@ -16,6 +16,7 @@ from flask import (
     abort,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -653,6 +654,65 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         except (TypeError, ValueError):
             abort(400, "Invalid roster date.")
         unit_id = dependencies.current_unit_id()
+
+        def edit_error(message: str, status: int = 422):
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify(ok=False, error=message), status
+            flash(message, "error")
+            return redirect(url_for("roster_month", ym=ym))
+
+        def updated_day_summary() -> dict[str, Any]:
+            people = dependencies.Staff.query.filter_by(unit_id=unit_id).all()
+            assignments = dependencies.Assignment.query.filter_by(
+                unit_id=unit_id, day=duty_day
+            ).all()
+            codes = {item.staff_id: (item.code or "").upper() for item in assignments}
+            excluded = dependencies.exclude_from_counters()
+            _, training, _ = dependencies.shift_groups(unit_id)
+            training_codes = {shift.code for shift in training}
+            counts = Counter({group: 0 for group in ("M", "D", "A", "N")})
+            for member in people:
+                if not getattr(member, "is_operational", True):
+                    continue
+                if not dependencies.staff_is_countable_on(member, duty_day):
+                    continue
+                member_code = codes.get(member.id, "")
+                if (
+                    not member_code
+                    or member_code in excluded
+                    or member_code in training_codes
+                    or member_code in {"AL", "NOPS"}
+                ):
+                    continue
+                group = dependencies.shift_counter_group_for_day(
+                    member_code, duty_day, unit_id
+                )
+                if group:
+                    counts[group] += 1
+            requirement = dependencies.ensure_month_requirement(year, month)
+            special = dependencies.SpecialRequirement.query.filter_by(
+                unit_id=unit_id, day=duty_day
+            ).first()
+            required = dependencies.requirements_for_day(requirement, duty_day, special)
+            night_active = dependencies.night_active_on(unit_id, duty_day)
+            rag = {}
+            for group in ("M", "D", "A", "N"):
+                needed = 0 if group == "N" and not night_active else required[group]
+                available = counts[group]
+                rag[group] = (
+                    "green"
+                    if available >= needed
+                    else ("amber" if available >= max(0, needed - 1) else "red")
+                )
+            return {
+                "counts": dict(counts),
+                "required": required,
+                "rag": rag,
+                "night_active": night_active,
+                "total": sum(counts[group] for group in ("M", "D", "A"))
+                + (counts["N"] if night_active else 0),
+            }
+
         dependencies.lock_roster_month(unit_id, year, month)
         person = dependencies.Staff.query.filter_by(
             id=staff_id, unit_id=unit_id
@@ -694,22 +754,17 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         annotation = request.form.get("annotation")
         if code:
             if annual_leave and not annotation_is_soal(assignment.annotation):
-                flash(
+                return edit_error(
                     "This annual-leave cell is locked. Apply the SOAL annotation "
-                    "before entering a shift, or amend the leave in Leave Administration.",
-                    "error",
+                    "before entering a shift, or amend the leave in Leave Administration."
                 )
-                return redirect(url_for("roster_month", ym=ym))
             if code in dependencies.banned_roster_codes():
-                flash(
+                return edit_error(
                     "Leave, sickness and TOIL use must be logged via the form, "
-                    "not the roster grid.",
-                    "error",
+                    "not the roster grid."
                 )
-                return redirect(url_for("roster_month", ym=ym))
             if not dependencies.get_shift(code):
-                flash(f"Unknown shift code '{code}'", "error")
-                return redirect(url_for("roster_month", ym=ym))
+                return edit_error(f"Unknown shift code '{code}'")
             assignment.code = code
             assignment.source = "manual"
 
@@ -730,14 +785,11 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                     unit_id=unit_id, code=parsed["type"]
                 ).first()
             if new_value and (not parsed or not definition):
-                flash(f"Unknown annotation '{new_value}'.", "error")
-                return redirect(url_for("roster_month", ym=ym))
+                return edit_error(f"Unknown annotation '{new_value}'.")
             if definition and not definition.is_active and old_value != new_value:
-                flash(
-                    f"{definition.code} is inactive and cannot be newly applied.",
-                    "error",
+                return edit_error(
+                    f"{definition.code} is inactive and cannot be newly applied."
                 )
-                return redirect(url_for("roster_month", ym=ym))
             if (
                 definition
                 and definition.admin_only
@@ -745,8 +797,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             ):
                 abort(403)
             if definition and definition.note_required and not annotation_note:
-                flash(f"{definition.code} requires a note.", "error")
-                return redirect(url_for("roster_month", ym=ym))
+                return edit_error(f"{definition.code} requires a note.")
             if old_value != new_value:
                 transaction_key = (request.form.get("transaction_key") or "").strip()[
                     :64
@@ -809,6 +860,17 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         except IntegrityError:
             dependencies.db.session.rollback()
             abort(409, "This roster cell changed concurrently.")
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify(
+                ok=True,
+                staff_id=staff_id,
+                day=duty_day.isoformat(),
+                code=assignment.code,
+                annotation=assignment.annotation or "",
+                annotation_note=assignment.annotation_note or "",
+                version=assignment.version,
+                day_summary=updated_day_summary(),
+            )
         return redirect(url_for("roster_month", ym=ym))
 
     @blueprint.record_once

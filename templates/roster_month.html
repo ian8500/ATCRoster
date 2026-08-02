@@ -106,6 +106,10 @@
   /* Tighten spacing (unchanged) */
   .roster-grid{ margin-bottom:0; }
   .roster-footer{ margin-top:.5rem; }
+  .roster-save-status{ position:fixed; right:1rem; bottom:1rem; z-index:1200; padding:.55rem .8rem; border-radius:.55rem; background:#183153; color:#fff; box-shadow:0 8px 24px rgba(0,0,0,.2); opacity:0; transform:translateY(.5rem); pointer-events:none; transition:opacity .15s ease, transform .15s ease; }
+  .roster-save-status.is-visible{ opacity:1; transform:translateY(0); }
+  .roster-save-status.is-error{ background:#a61b29; }
+  .shift-picker.is-saving .code-input{ opacity:.65; cursor:progress; }
 
   @media print{
     /* Hide the overlay in print to avoid heavy borders */
@@ -116,6 +120,7 @@
 </style>
 
 <h2>ATC Roster – {{ month_title }}</h2>
+<div class="roster-save-status" data-roster-save-status role="status" aria-live="polite"></div>
 
 <div class="month-nav roster-month-nav">
   {% if prev_ym %}
@@ -198,6 +203,7 @@
           {% set applied_request = applied_request_map.get((s.id, d)) %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
           <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if rv_blocking %} roster-validation-blocking{% elif rv %} roster-validation-advisory{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
+              data-roster-staff="{{ s.id }}" data-roster-day="{{ d.isoformat() }}"
               {% if applied_request %}title="Applied from an approved shift request" aria-label="{{ s.name }}, {{ d.strftime('%d %B %Y') }}, {{ code }}, applied from an approved shift request"{% endif %}>
             {% if applied_request %}
               <span class="request-applied-marker" aria-hidden="true"></span>
@@ -239,7 +245,8 @@
               <select
                 name="code"
                 class="code-input code-len-{{ code|length }} {% if code %}{{ code|lower }} group-{{ prefix }}{% endif %}"
-                data-auto-submit="true"
+                data-roster-auto-submit="true"
+                data-saved-value="{{ code }}"
                 {% if (not can_edit) or readonly %}disabled{% endif %}
                 {% if f %}title="{{ ', '.join(f) }}"{% endif %}
                 aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
@@ -326,12 +333,12 @@
         {% set a = counters[d]["A"] %}
         {% set n = counters[d]["N"] %}
         {% set total = m + dday + a + (n if night_active[d] else 0) %}
-        <td class="totcell{% if d == today %} is-today{% endif %}">
+        <td class="totcell{% if d == today %} is-today{% endif %}" data-roster-day="{{ d.isoformat() }}">
           <div class="daily-total"><strong>Total {{ total }}</strong></div>
-          <div class="rag {{ rag[d]['M'] }}">M <span class="rag-count{% if m > req_by_day[d]['M'] %} rag-count--over{% endif %}">{{ m }}</span>/{{ req_by_day[d]['M'] }}</div>
-          <div class="rag {{ rag[d]['D'] }}">D <span class="rag-count{% if dday > req_by_day[d]['D'] %} rag-count--over{% endif %}">{{ dday }}</span>/{{ req_by_day[d]['D'] }}</div>
-          <div class="rag {{ rag[d]['A'] }}">A <span class="rag-count{% if a > req_by_day[d]['A'] %} rag-count--over{% endif %}">{{ a }}</span>/{{ req_by_day[d]['A'] }}</div>
-          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}">N <span class="rag-count{% if n > req_by_day[d]['N'] %} rag-count--over{% endif %}">{{ n }}</span>/{{ req_by_day[d]['N'] }}</div>{% endif %}
+          <div class="rag {{ rag[d]['M'] }}" data-roster-count-row="M">M <span class="rag-count{% if m > req_by_day[d]['M'] %} rag-count--over{% endif %}" data-roster-count>{{ m }}</span>/<span data-roster-required>{{ req_by_day[d]['M'] }}</span></div>
+          <div class="rag {{ rag[d]['D'] }}" data-roster-count-row="D">D <span class="rag-count{% if dday > req_by_day[d]['D'] %} rag-count--over{% endif %}" data-roster-count>{{ dday }}</span>/<span data-roster-required>{{ req_by_day[d]['D'] }}</span></div>
+          <div class="rag {{ rag[d]['A'] }}" data-roster-count-row="A">A <span class="rag-count{% if a > req_by_day[d]['A'] %} rag-count--over{% endif %}" data-roster-count>{{ a }}</span>/<span data-roster-required>{{ req_by_day[d]['A'] }}</span></div>
+          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}" data-roster-count-row="N">N <span class="rag-count{% if n > req_by_day[d]['N'] %} rag-count--over{% endif %}" data-roster-count>{{ n }}</span>/<span data-roster-required>{{ req_by_day[d]['N'] }}</span></div>{% endif %}
         </td>
       {% endfor %}
     </tr>
@@ -422,6 +429,99 @@
   if (siteHeader && 'ResizeObserver' in window) {
     new ResizeObserver(updateRosterStickyTop).observe(siteHeader);
   }
+  const rosterRoot = document.getElementById('roster');
+  const rosterScrollKey = `atcroster:scroll:${window.location.pathname}`;
+  const rosterSaveStatus = document.querySelector('[data-roster-save-status]');
+  let rosterSaveStatusTimer;
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  const rememberRosterPosition = () => {
+    sessionStorage.setItem(rosterScrollKey, JSON.stringify({ x: window.scrollX, y: window.scrollY }));
+  };
+  const rememberedRosterPosition = sessionStorage.getItem(rosterScrollKey);
+  if (rememberedRosterPosition) {
+    sessionStorage.removeItem(rosterScrollKey);
+    try {
+      const position = JSON.parse(rememberedRosterPosition);
+      requestAnimationFrame(() => window.scrollTo(position.x || 0, position.y || 0));
+    } catch (_error) {}
+  }
+  const showRosterSaveStatus = (message, error = false) => {
+    if (!rosterSaveStatus) return;
+    clearTimeout(rosterSaveStatusTimer);
+    rosterSaveStatus.textContent = message;
+    rosterSaveStatus.classList.toggle('is-error', error);
+    rosterSaveStatus.classList.add('is-visible');
+    rosterSaveStatusTimer = setTimeout(() => rosterSaveStatus.classList.remove('is-visible'), error ? 4500 : 1600);
+  };
+  const updateRosterDaySummary = (day, summary) => {
+    const totalCell = document.querySelector(`.totcell[data-roster-day="${day}"]`);
+    if (!totalCell || !summary) return;
+    const total = totalCell.querySelector('.daily-total strong');
+    if (total) total.textContent = `Total ${summary.total}`;
+    ['M', 'D', 'A', 'N'].forEach((group) => {
+      const row = totalCell.querySelector(`[data-roster-count-row="${group}"]`);
+      if (!row) return;
+      row.classList.remove('green', 'amber', 'red');
+      row.classList.add(summary.rag[group]);
+      const count = row.querySelector('[data-roster-count]');
+      const required = row.querySelector('[data-roster-required]');
+      count.textContent = summary.counts[group] || 0;
+      required.textContent = summary.required[group] || 0;
+      count.classList.toggle('rag-count--over', Number(count.textContent) > Number(required.textContent));
+    });
+  };
+  const saveRosterShift = async (form) => {
+    if (form.dataset.saving === '1') return;
+    const select = form.querySelector('[data-roster-auto-submit]');
+    const cell = form.closest('.cell');
+    if (!select || !cell) return;
+    const previousValue = select.dataset.savedValue || '';
+    const formData = new FormData(form);
+    form.dataset.saving = '1';
+    form.classList.add('is-saving');
+    select.disabled = true;
+    showRosterSaveStatus('Saving…');
+    try {
+      const response = await fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.error || 'The roster change could not be saved.');
+      const code = payload.code || '';
+      select.value = code;
+      select.dataset.savedValue = code;
+      const prefix = code === 'EM' ? 'm' : (code === 'LA' ? 'a' : code.slice(0, 1).toLowerCase());
+      select.className = `code-input code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
+      cell.querySelectorAll('input[name="assignment_version"]').forEach((input) => { input.value = payload.version; });
+      updateRosterDaySummary(payload.day, payload.day_summary);
+      showRosterSaveStatus('Saved');
+    } catch (error) {
+      select.value = previousValue;
+      showRosterSaveStatus(error.message || 'The roster change could not be saved.', true);
+    } finally {
+      select.disabled = false;
+      form.dataset.saving = '0';
+      form.classList.remove('is-saving');
+      select.focus({ preventScroll: true });
+    }
+  };
+  rosterRoot?.addEventListener('change', (event) => {
+    const select = event.target.closest('[data-roster-auto-submit]');
+    if (select) saveRosterShift(select.form);
+  });
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!form.closest('#roster')) return;
+    if (form.matches('.shift-picker')) {
+      event.preventDefault();
+      saveRosterShift(form);
+      return;
+    }
+    rememberRosterPosition();
+  });
   document.querySelectorAll('[data-annotation-select]').forEach((select) => {
     select.addEventListener('change', () => {
       const form = select.form;
