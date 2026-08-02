@@ -8,7 +8,10 @@ import os
 import psycopg
 from psycopg import sql
 
-from scripts.database_backup import psycopg_dsn
+try:
+    from scripts.database_backup import psycopg_dsn
+except ModuleNotFoundError:  # Imported by a directly invoked sibling script.
+    from database_backup import psycopg_dsn
 
 
 AUDIT_TABLES = frozenset(
