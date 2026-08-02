@@ -313,10 +313,10 @@
         {% set total = m + dday + a + (n if night_active[d] else 0) %}
         <td class="totcell{% if d == today %} is-today{% endif %}">
           <div class="daily-total"><strong>Total {{ total }}</strong></div>
-          <div class="rag {{ rag[d]['M'] }}">M {{ m }}/{{ req_by_day[d]['M'] }}</div>
-          <div class="rag {{ rag[d]['D'] }}">D {{ dday }}/{{ req_by_day[d]['D'] }}</div>
-          <div class="rag {{ rag[d]['A'] }}">A {{ a }}/{{ req_by_day[d]['A'] }}</div>
-          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}">N {{ n }}/{{ req_by_day[d]['N'] }}</div>{% endif %}
+          <div class="rag {{ rag[d]['M'] }}">M <span class="rag-count{% if m > req_by_day[d]['M'] %} rag-count--over{% endif %}">{{ m }}</span>/{{ req_by_day[d]['M'] }}</div>
+          <div class="rag {{ rag[d]['D'] }}">D <span class="rag-count{% if dday > req_by_day[d]['D'] %} rag-count--over{% endif %}">{{ dday }}</span>/{{ req_by_day[d]['D'] }}</div>
+          <div class="rag {{ rag[d]['A'] }}">A <span class="rag-count{% if a > req_by_day[d]['A'] %} rag-count--over{% endif %}">{{ a }}</span>/{{ req_by_day[d]['A'] }}</div>
+          {% if night_active[d] %}<div class="rag {{ rag[d]['N'] }}">N <span class="rag-count{% if n > req_by_day[d]['N'] %} rag-count--over{% endif %}">{{ n }}</span>/{{ req_by_day[d]['N'] }}</div>{% endif %}
         </td>
       {% endfor %}
     </tr>

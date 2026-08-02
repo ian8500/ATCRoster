@@ -1222,6 +1222,23 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
 .rag.green{color:#2ecc71;}
 .rag.amber{color:#f1c40f;}
 .rag.red{color:#e74c3c;}
+.rag-count--over{
+  animation:roster-count-over-pulse 1.6s ease-in-out infinite;
+  font-weight:800;
+}
+@keyframes roster-count-over-pulse{
+  0%,100%{color:inherit; text-shadow:none;}
+  50%{color:#53aaff; text-shadow:0 0 7px rgba(83,170,255,.95);}
+}
+@media (prefers-reduced-motion:reduce){
+  .rag-count--over{
+    animation:none;
+    text-decoration:underline;
+    text-decoration-color:#53aaff;
+    text-decoration-thickness:2px;
+    text-underline-offset:2px;
+  }
+}
 
 .ot-green{ background:#1b5e20 !important; color:#fff !important; font-weight:700; }
 .ot-amber{ background:#f9a825 !important; color:#000 !important; font-weight:700; }
