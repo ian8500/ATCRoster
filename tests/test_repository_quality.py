@@ -85,3 +85,9 @@ def test_worker_readiness_requires_database_heartbeat_not_only_process_liveness(
     assert "worker_heartbeat" in source
     assert "last_seen_at" in source
     assert 'self.path == "/health/ready" and worker_ready()' in source
+
+
+def test_railway_runs_tenant_migrations_before_starting_release():
+    manifest = (ROOT / "railway.toml").read_text()
+    assert 'preDeployCommand = "python scripts/migrate_all_databases.py"' in manifest
+    assert 'startCommand = "python scripts/start_service.py"' in manifest
