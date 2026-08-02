@@ -1991,10 +1991,15 @@ def _load_month_roster_core(unit_id: int, y: int, m: int):
         try:
             staff = (Staff.query
                      .outerjoin(Watch, Staff.watch_id == Watch.id)
+                     .filter(Staff.role != "position_monitor")
                      .order_by(Watch.order_index, Staff.name)
                      .all())
         except Exception:
-            staff = Staff.query.order_by(Staff.id).all()
+            staff = (
+                Staff.query.filter(Staff.role != "position_monitor")
+                .order_by(Staff.id)
+                .all()
+            )
 
         # Assignments for the month (narrow columns)
         rows = (db.session.query(
@@ -2455,7 +2460,7 @@ def requirements_for_day(
 def generate_month(year: int, month: int, *args, **kwargs):
     """Ensure rows exist/are correct for the month without touching manual edits."""
     _, days = month_range(year, month)
-    for s in Staff.query.order_by(Staff.id):
+    for s in Staff.query.filter(Staff.role != "position_monitor").order_by(Staff.id):
         for d in days:
             refresh_day_from_pattern_and_leave(s, d)
     db.session.commit()

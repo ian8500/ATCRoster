@@ -273,6 +273,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 dependencies.Watch,
                 dependencies.Staff.watch_id == dependencies.Watch.id,
             )
+            .filter(dependencies.Staff.role != "position_monitor")
             .order_by(dependencies.Watch.order_index, dependencies.Staff.name)
             .all()
         )
