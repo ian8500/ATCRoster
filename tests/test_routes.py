@@ -601,7 +601,7 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="0.90"' in response.data
     assert b'data-roster-zoom="1"' in response.data
     assert b'data-roster-zoom="fit"' in response.data
-    assert b"code-input code-display roster-shift-button code-len-3" in response.data
+    assert b"code-input code-len-3" in response.data
     assert b"shift on 01 April 2025" in response.data
     assert b"Active unit" not in response.data
     assert b"data-operational-clock" in response.data
@@ -618,14 +618,13 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"padding:.65rem 0" in stylesheet.data
     assert b"table.roster { zoom:var(--ui-scale); }" in stylesheet.data
     assert b"transform: scale(var(--ui-scale))" not in stylesheet.data
-    assert b"today-column overlay (layer 5)" in stylesheet.data
-    assert b"z-index:7" in stylesheet.data
-    assert response.data.count(b'name="code" data-roster-shift-select') == 1
-    assert response.data.count(b"data-roster-shift-open") > 1
+    assert b"remaining below every sticky heading" in stylesheet.data
+    assert b"z-index:12" in stylesheet.data
+    assert response.data.count(b'data-roster-auto-submit="true"') > 1
+    assert b"roster-shift-dialog" not in response.data
     assert response.data.count(b'class="annot-select" data-annotation-select') == 1
     assert b">Annotate</button>" not in response.data
     assert b'<span aria-hidden="true">&nbsp;</span></button>' in response.data
-    assert b"data-roster-auto-submit" not in response.data
     assert b"Saving\xe2\x80\xa6" in response.data
     assert b"atcroster:scroll:" in response.data
     assert b"annotationButton.dataset.version = payload.version" in response.data
@@ -734,8 +733,7 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
             assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
             assert assignment.annotation == "SOAL"
             version = assignment.version
-        assert b'data-code="AL"' in applied.data
-        assert b"roster-shift-button code-len-2 al group-a" in applied.data
+        assert b"code-input code-len-2 al group-a" in applied.data
         assert b"SOAL" in applied.data
 
         shifted = client.post(
@@ -3257,5 +3255,7 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     assert ".roster th.dayhead" in stylesheet
     assert "top:var(--roster-sticky-top, 0px)" in stylesheet
     assert "table.roster th.sticky" in stylesheet
+    assert "box-shadow:0 -100vh 0 var(--head)" in stylesheet
+    assert ".roster th.col-name{\n  z-index:12;" in stylesheet
     assert "#roster{overflow:visible;}" in stylesheet
     assert "#roster{overflow-x:auto" not in stylesheet
