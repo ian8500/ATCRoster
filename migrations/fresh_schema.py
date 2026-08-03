@@ -615,6 +615,11 @@ def create_fresh_schema():
         sa.Column('staff_id', sa.Integer(), sa.ForeignKey('staff.id'), nullable=False),
         sa.Column('watch_id', sa.Integer(), sa.ForeignKey('watch.id'), nullable=False),
         sa.Column('effective_date', sa.Date(), nullable=False),
+        sa.Column('effective_to', sa.Date()),
+        sa.Column('reason', sa.String(500), nullable=False),
+        sa.Column('alignment_mode', sa.String(40), nullable=False),
+        sa.Column('starting_cycle_day', sa.Integer()),
+        sa.Column('pattern_anchor', sa.Date()),
     )
     op.create_index('ix_staff_watch_history_effective_date', 'staff_watch_history', ['effective_date'], unique=False)
     op.create_index('ix_staff_watch_history_staff_id', 'staff_watch_history', ['staff_id'], unique=False)

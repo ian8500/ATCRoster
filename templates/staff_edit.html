@@ -193,6 +193,9 @@
         </select>
       </label>
       <label>Effective from<input type="date" name="effective_date" required></label>
+      <label>Alignment<select name="alignment_mode"><option value="ALIGN_WITH_DESTINATION_WATCH">Align with destination watch</option><option value="SELECT_STARTING_CYCLE_DAY">Select starting cycle day</option></select></label>
+      <label>Starting cycle day<input type="number" name="starting_cycle_day" min="0" value="0"><small>Used only when selecting a cycle day.</small></label>
+      <label class="grid-span-full">Reason<input name="reason" maxlength="500" required></label>
       <div class="form-actions"><button class="btn btn-primary" type="submit">Schedule watch move</button></div>
     </form>
   </div>

@@ -1471,6 +1471,13 @@ class StaffWatchHistory(db.Model):
         "staff.id"), nullable=False, index=True)
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"), nullable=False)
     effective_date = db.Column(db.Date, nullable=False, index=True)
+    effective_to = db.Column(db.Date)
+    reason = db.Column(db.String(500), nullable=False, default="")
+    alignment_mode = db.Column(
+        db.String(40), nullable=False, default="ALIGN_WITH_DESTINATION_WATCH"
+    )
+    starting_cycle_day = db.Column(db.Integer)
+    pattern_anchor = db.Column(db.Date)
     staff = db.relationship("Staff", backref="watch_history")
     watch = db.relationship("Watch")
 
@@ -2335,7 +2342,8 @@ def _watch_id_for_staff_on(
     hist = (StaffWatchHistory.query
             .filter(StaffWatchHistory.unit_id == unit_id,
                     StaffWatchHistory.staff_id == staff_id,
-                    StaffWatchHistory.effective_date <= on_date)
+                    StaffWatchHistory.effective_date <= on_date,
+                    db.or_(StaffWatchHistory.effective_to.is_(None), StaffWatchHistory.effective_to >= on_date))
             .order_by(StaffWatchHistory.effective_date.desc())
             .first())
     if hist:
@@ -2391,6 +2399,7 @@ def _effective_watch(staff: Staff, on_date: date) -> Watch | None:
             StaffWatchHistory.unit_id == staff.unit_id,
             StaffWatchHistory.staff_id == staff.id,
             StaffWatchHistory.effective_date <= on_date,
+            db.or_(StaffWatchHistory.effective_to.is_(None), StaffWatchHistory.effective_to >= on_date),
         )
         .order_by(
             StaffWatchHistory.effective_date.desc(),
@@ -2423,13 +2432,23 @@ def _pattern_context(staff: Staff, on_date: date) -> tuple[list[str], date]:
     unit_pattern, unit_anchor = _unit_pattern_context(staff.unit_id)
     watch = _effective_watch(staff, on_date)
     if watch:
+        move = StaffWatchHistory.query.filter(
+            StaffWatchHistory.unit_id == staff.unit_id,
+            StaffWatchHistory.staff_id == staff.id,
+            StaffWatchHistory.effective_date <= on_date,
+            db.or_(
+                StaffWatchHistory.effective_to.is_(None),
+                StaffWatchHistory.effective_to >= on_date,
+            ),
+        ).order_by(StaffWatchHistory.effective_date.desc()).first()
         watch_pattern = _validated_pattern(watch.pattern_csv)
         # A watch anchor phases both a watch-specific pattern and the inherited
         # unit pattern. This is what makes two watches on the same base cycle
         # start on different cycle days.
         return (
             watch_pattern or unit_pattern,
-            watch.pattern_anchor or unit_anchor,
+            (move.pattern_anchor if move and move.pattern_anchor else None)
+            or watch.pattern_anchor or unit_anchor,
         )
     return unit_pattern, unit_anchor
 
@@ -5866,6 +5885,30 @@ def admin_watch_move(sid):
     if not new_watch:
         flash("Invalid watch selection.", "error")
         return redirect(url_for("admin_staff_edit", sid=s.id))
+    alignment_mode = (
+        request.form.get("alignment_mode") or "ALIGN_WITH_DESTINATION_WATCH"
+    ).strip().upper()
+    if alignment_mode not in {
+        "ALIGN_WITH_DESTINATION_WATCH", "SELECT_STARTING_CYCLE_DAY"
+    }:
+        abort(400, "Invalid watch alignment mode.")
+    try:
+        starting_cycle_day = (
+            int(request.form.get("starting_cycle_day") or 0)
+            if alignment_mode == "SELECT_STARTING_CYCLE_DAY" else None
+        )
+    except ValueError:
+        abort(400, "Starting cycle day must be a number.")
+    if starting_cycle_day is not None and starting_cycle_day < 0:
+        abort(400, "Starting cycle day cannot be negative.")
+    previous = StaffWatchHistory.query.filter(
+        StaffWatchHistory.unit_id == s.unit_id,
+        StaffWatchHistory.staff_id == s.id,
+        StaffWatchHistory.effective_date < eff_d,
+        db.or_(StaffWatchHistory.effective_to.is_(None), StaffWatchHistory.effective_to >= eff_d),
+    ).order_by(StaffWatchHistory.effective_date.desc()).first()
+    if previous:
+        previous.effective_to = eff_d - timedelta(days=1)
     existing = StaffWatchHistory.query.filter_by(
         unit_id=_current_unit_id(),
         staff_id=s.id,
@@ -5873,11 +5916,20 @@ def admin_watch_move(sid):
     ).first()
     if existing:
         existing.watch_id = new_watch_id
+        move = existing
     else:
-        db.session.add(StaffWatchHistory(
+        move = StaffWatchHistory(
             unit_id=_current_unit_id(), staff_id=s.id,
             watch_id=new_watch_id, effective_date=eff_d,
-        ))
+        )
+        db.session.add(move)
+    move.reason = (request.form.get("reason") or "").strip()[:500]
+    move.alignment_mode = alignment_mode
+    move.starting_cycle_day = starting_cycle_day
+    move.pattern_anchor = (
+        eff_d - timedelta(days=starting_cycle_day)
+        if starting_cycle_day is not None else None
+    )
     old_watch_id = s.watch_id
     if eff_d <= date.today():
         s.watch_id = new_watch_id
