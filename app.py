@@ -37,6 +37,7 @@ from sqlalchemy.exc import IntegrityError
 from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
+from fairness_service import FairnessAssignment, FairnessStaff, calculate_fairness
 from reporting import (
     compute_annotation_metrics,
     current_leave_year_window,
@@ -5440,6 +5441,58 @@ def _compute_metrics_range(
     )
 
 
+def _compute_fairness_range(start_day: date, end_day: date):
+    unit_id = _current_unit_id()
+    people = Staff.query.filter_by(unit_id=unit_id, is_operational=True, membership_status="active").order_by(Staff.name).all()
+    shifts = {shift.code.upper(): shift for shift in ShiftType.query.filter_by(unit_id=unit_id).all()}
+    assignments = Assignment.query.filter(Assignment.unit_id == unit_id, Assignment.day >= start_day, Assignment.day <= end_day).all()
+    days = [start_day + timedelta(days=offset) for offset in range((end_day - start_day).days + 1)]
+    expected_minutes = {}
+    eligible_nights = {}
+    eligible_early = {}
+    for person in people:
+        expected = 0
+        night_possible = early_possible = False
+        for day in days:
+            code = (code_from_pattern(person, day) or "").upper()
+            shift = shifts.get(code)
+            if shift and shift.is_working:
+                expected += shift_duration_minutes(shift)
+                night_possible = night_possible or code == "N"
+                early_possible = early_possible or bool(shift.start_time and shift.start_time < time(8))
+        expected_minutes[person.id] = expected
+        eligible_nights[person.id] = night_possible
+        eligible_early[person.id] = early_possible
+    fairness_rows = []
+    assignment_ids = defaultdict(list)
+    for assignment in assignments:
+        shift = shifts.get((assignment.code or "").upper())
+        if not shift or not shift.is_working:
+            continue
+        fairness_rows.append(FairnessAssignment(assignment.staff_id, assignment.day, shift.code, shift_duration_minutes(shift), shift.start_time, assignment.source or "", bool(shift.start_time and shift.end_time and shift.start_time >= time(18) and shift.end_time <= time(10))))
+        assignment_ids[assignment.staff_id].append(assignment.id)
+    manual_changes = {
+        staff_id: ChangeLog.query.filter(ChangeLog.unit_id == unit_id, ChangeLog.entity_type == "Assignment", ChangeLog.entity_id.in_(ids)).count()
+        for staff_id, ids in assignment_ids.items()
+    }
+    people_by_id = {person.id: person for person in people}
+    metrics = calculate_fairness(
+        [FairnessStaff(person.id, person.name, expected_minutes[person.id], eligible_nights[person.id], eligible_early[person.id]) for person in people],
+        fairness_rows,
+        expected_code_for=lambda staff_id, day: code_from_pattern(people_by_id[staff_id], day),
+        manual_change_counts=manual_changes,
+    )
+    totals = {
+        "actual_minutes": sum(row.actual_minutes for row in metrics),
+        "target_minutes": sum(row.target_minutes for row in metrics),
+        "nights": sum(row.night_count for row in metrics),
+        "weekends": sum(row.weekend_count for row in metrics),
+        "earlies": sum(row.early_count for row in metrics),
+        "overtime_minutes": sum(row.overtime_minutes for row in metrics),
+    }
+    return metrics, totals
+
+
 def _fy_start_for(d: date) -> date:
     return financial_year_start(d)
 
@@ -8992,6 +9045,7 @@ app.register_blueprint(create_reports_blueprint(ReportsDependencies(
     toil_accrued_used=_toil_accrued_used_in_range_half_days,
     group_consecutive_days=_group_consecutive_days,
     get_absence_types=get_absence_types,
+    compute_fairness_range=_compute_fairness_range,
 )))
 app.register_blueprint(create_roster_blueprint(RosterDependencies(
     db=db,
