@@ -28,7 +28,7 @@
         <th class="leave-year-col leave-year-col--entitlement">Entitlement</th>
         <th class="leave-year-col leave-year-col--public-holidays">Public Hols</th>
         <th class="leave-year-col leave-year-col--carryover">Carryover</th>
-        <th class="leave-year-col leave-year-col--taken">AL taken</th><th></th>
+        <th class="leave-year-col leave-year-col--taken">AL taken</th>
         <th class="leave-year-col leave-year-col--remaining">Remaining</th>
         <th class="leave-year-col leave-year-col--toil-accrued">TOIL accrued</th>
         <th class="leave-year-col leave-year-col--toil-used">TOIL used</th>
@@ -45,14 +45,13 @@
           <td class="ta-right leave-year-col leave-year-col--public-holidays">{{ r.public_holidays }}</td>
           <td class="ta-right leave-year-col leave-year-col--carryover">{{ r.carryover }}</td>
           <td class="ta-right leave-year-col leave-year-col--taken">{{ r.al_taken }}</td>
-          <td></td>
           <td class="ta-right leave-year-col leave-year-col--remaining balance-{{ 'negative' if r.remaining < 0 else ('zero' if r.remaining == 0 else 'positive') }}"><strong>{{ r.remaining }}</strong></td>
           <td class="ta-right leave-year-col leave-year-col--toil-accrued">{{ '%.1f' % r.toil_accrued_days }}</td>
           <td class="ta-right leave-year-col leave-year-col--toil-used">{{ '%.1f' % r.toil_used_days }}</td>
           <td class="ta-right leave-year-col leave-year-col--toil-balance balance-{{ 'negative' if r.toil_balance_days < 0 else ('zero' if r.toil_balance_days == 0 else 'positive') }}"><strong>{{ '%.1f' % r.toil_balance_days }}</strong></td>
         </tr>
       {% else %}
-        <tr><td colspan="12">No users are assigned to this watch.</td></tr>
+        <tr><td colspan="11">No users are assigned to this watch.</td></tr>
       {% endfor %}
     </tbody>
   </table>

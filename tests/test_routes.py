@@ -420,6 +420,8 @@ def test_leave_year_report_uses_selected_end_date_and_coloured_balances(client):
     assert f'data-staff-id="{person_id}" data-al-taken="2" data-leave-remaining="25"'.encode() in later.data
     assert b"leave-year-col--remaining balance-positive" in early.data
     assert b"leave-year-col--toil-balance balance-positive" in early.data
+    assert b'leave-year-col--taken">AL taken</th><th></th>' not in early.data
+    assert b'<td class="ta-right leave-year-col leave-year-col--taken">1</td>\n          <td></td>' not in early.data
     assert client.get("/reports/leave-year?end_date=not-a-date").status_code == 400
 
     with app.app.app_context():
