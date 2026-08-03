@@ -41,6 +41,7 @@ class TrainingDependencies:
     utcnow: Callable
     record_qualification_history: Callable
     sync_qualification_to_roster_profile: Callable
+    record_qualification_roster_impact: Callable
     TrainingObjective: Any
 
 
@@ -262,6 +263,11 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
                     person_id=person.id,
                     qualification_type_id=qtype.id,
                 ).first()
+                old_state = (
+                    record.status if record else None,
+                    record.valid_from if record else None,
+                    record.expires_on if record else None,
+                )
                 if not record and expires_on:
                     record = dependencies.PersonQualification(
                         unit_id=unit_id,
@@ -280,6 +286,11 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
                 dependencies.sync_qualification_to_roster_profile(
                     person, qtype, expires_on
                 )
+                if record:
+                    dependencies.record_qualification_roster_impact(
+                        person, qtype, *old_state, record,
+                        reason=f"{qtype.code} competency profile updated.",
+                    )
             dependencies.db.session.commit()
             flash("Competency profile updated everywhere.", "ok")
             return redirect(url_for("competency_profile", sid=person.id))

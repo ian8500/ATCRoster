@@ -29,6 +29,7 @@ class WorkPatternBlueprintDependencies:
     pattern_service: Any
     admin_service: Any
     migration_service: Any
+    record_roster_impact: Callable[..., Any]
 
 
 def create_work_pattern_blueprint(
@@ -164,10 +165,17 @@ def create_work_pattern_blueprint(
                 created = dependencies.migration_service.migrate_exact(
                     unit_id, effective_from, selected
                 )
+                for assignment in created:
+                    dependencies.record_roster_impact(
+                        "WORK_PATTERN_CHANGE", effective_from,
+                        staff_ids=[assignment.staff_id], rebuild_baseline=True,
+                        reason="Legacy work pattern migrated to effective-dated pattern.",
+                    )
                 dependencies.db.session.commit()
                 flash(
                     f"Migrated {len(created)} staff pattern assignment(s). "
-                    "Existing roster duties were not changed.",
+                    "Protected duties were retained and the automatic future "
+                    "baseline was recalculated.",
                     "ok",
                 )
                 return redirect(url_for(
@@ -303,6 +311,12 @@ def create_work_pattern_blueprint(
                     )
                     dependencies.pattern_service.validate_staff_pattern_assignment(assignment)
                     dependencies.db.session.add(assignment)
+                    dependencies.record_roster_impact(
+                        "WORK_PATTERN_CHANGE", assignment.effective_from,
+                        effective_to=assignment.effective_to,
+                        staff_ids=[staff.id], rebuild_baseline=True,
+                        reason="Effective-dated work pattern assigned.",
+                    )
                     flash("Effective-dated pattern assignment added.", "ok")
                 elif action == "end_assignment":
                     assignment = dependencies.StaffPatternAssignment.query.filter_by(
@@ -314,6 +328,11 @@ def create_work_pattern_blueprint(
                         raise ValueError("Pattern end date cannot precede its start date.")
                     assignment.effective_to = end_date
                     dependencies.pattern_service.validate_staff_pattern_assignment(assignment)
+                    dependencies.record_roster_impact(
+                        "WORK_PATTERN_CHANGE", end_date + timedelta(days=1),
+                        staff_ids=[staff.id], rebuild_baseline=True,
+                        reason="Effective-dated work pattern ended.",
+                    )
                     flash("Pattern assignment end date saved.", "ok")
                 elif action == "add_rule":
                     rule = _build_rule(dependencies, unit_id, staff.id, request)

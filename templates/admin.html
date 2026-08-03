@@ -348,8 +348,30 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="staff_new">
         <label>Name<input name="name" required></label><label>Staff number<input name="staff_no" required></label><label>Preferred username <input name="username" placeholder="Optional — user can choose during invitation"><small>Leave blank if account access will be added later.</small></label>
-        <label>Watch<select name="watch_id" required><option value="">Select watch</option>{% for w in watches %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></label>
+        <label>Employment starts<input type="date" name="employment_start_date" value="{{ today.isoformat() }}" required></label>
+        <label>Joins this unit<input type="date" name="unit_join_date" value="{{ today.isoformat() }}" required></label>
+        <label>Roster starts<input type="date" name="roster_start_date" value="{{ today.isoformat() }}" required><small>The generated baseline starts from this date.</small></label>
+        <label>Employment type<select name="employment_type"><option value="FULL_TIME">Full time</option><option value="PART_TIME">Part time</option></select></label>
+        <label>Contracted hours per week<input type="number" name="contracted_hours_per_week" min="0" max="168" step="0.25" value="37" required></label>
+        <label>Initial watch<select name="watch_id" required><option value="">Select watch</option>{% for w in watches %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></label>
+        <label>Working pattern<select name="work_pattern_id" required><option value="">Select pattern</option>{% for pattern in work_patterns %}<option value="{{ pattern.id }}">{{ pattern.name }}</option>{% endfor %}</select></label>
+        <label>Pattern anchor date<input type="date" name="pattern_anchor" value="{{ today.isoformat() }}" required></label>
+        <label>Starting cycle day<input type="number" name="anchor_day_index" min="0" value="0" required><small>Use 0 for day one, 1 for day two, and so on.</small></label>
         <label>Roster role<select name="role"><option value="user">ATCO / staff member</option><option value="editor">Roster editor</option><option value="admin">Unit administrator</option></select><small>This controls roster permissions, not whether they can log in.</small></label>
+        <div class="admin-check-row"><label class="checkbox"><input type="checkbox" name="operational" checked> Operational roster member</label><label class="checkbox"><input type="checkbox" name="trainee"> Trainee</label></div>
+        <label>Medical expiry<input type="date" name="medical_expiry"></label>
+        <label class="grid-span-full">Joining notes<textarea name="workforce_notes" rows="3" maxlength="2000" placeholder="Transfer details, restrictions or other roster context"></textarea></label>
+        <details class="admin-optional-fields grid-span-full">
+          <summary>Current competencies <small>Select all held on the roster start date</small></summary>
+          <div class="admin-form-grid">
+            {% for qualification in qualification_types %}
+              <div class="admin-check-row">
+                <label class="checkbox"><input type="checkbox" name="qualification_ids" value="{{ qualification.id }}"> {{ qualification.code }} — {{ qualification.label }}</label>
+                <label>Expiry{% if qualification.expiry_required %} required{% endif %}<input type="date" name="qualification_expiry_{{ qualification.id }}"></label>
+              </div>
+            {% endfor %}
+          </div>
+        </details>
         <details class="admin-optional-fields">
           <summary>Leave allowance and additional permissions <small>Optional — sensible defaults are already entered</small></summary>
           <div class="admin-form-grid">

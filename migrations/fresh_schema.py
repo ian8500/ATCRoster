@@ -373,6 +373,12 @@ def create_fresh_schema():
         sa.Column('calendar_token', sa.String(64)),
         sa.Column('name', sa.String(80), nullable=False),
         sa.Column('staff_no', sa.String(20), nullable=False),
+        sa.Column('employment_start_date', sa.Date()),
+        sa.Column('unit_join_date', sa.Date()),
+        sa.Column('roster_start_date', sa.Date()),
+        sa.Column('employment_type', sa.String(20), nullable=False),
+        sa.Column('contracted_minutes_per_week', sa.Integer()),
+        sa.Column('workforce_notes', sa.Text(), nullable=False),
         sa.Column('watch_id', sa.Integer(), sa.ForeignKey('watch.id')),
         sa.Column('medical_expiry', sa.Date()),
         sa.Column('tower_ue_expiry', sa.Date()),
@@ -399,6 +405,8 @@ def create_fresh_schema():
         sa.UniqueConstraint('unit_id', 'staff_no', name='uq_staff_unit_number'),
         sa.UniqueConstraint('unit_id', 'id', name='uq_staff_unit_id'),
         sa.UniqueConstraint('calendar_token'),
+        sa.CheckConstraint("employment_type IN ('FULL_TIME','PART_TIME')", name='ck_staff_employment_type'),
+        sa.CheckConstraint('contracted_minutes_per_week IS NULL OR contracted_minutes_per_week >= 0', name='ck_staff_contracted_minutes_nonnegative'),
     )
     op.create_index('ix_staff_unit_id', 'staff', ['unit_id'], unique=False)
     op.create_table('assignment',

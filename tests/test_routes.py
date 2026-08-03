@@ -3417,6 +3417,104 @@ def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
         ).count() == 1
 
 
+def test_unit_admin_creates_complete_effective_dated_joiner(client):
+    login(client)
+    with app.app.app_context():
+        app.work_pattern_admin_service.seed_standard_patterns(1)
+        pattern = app.WorkPattern.query.filter_by(
+            unit_id=1, name="Standard 6-on/4-off"
+        ).one()
+        watch = Watch.query.filter_by(unit_id=1).order_by(Watch.id).first()
+        medical = QualificationType.query.filter_by(
+            unit_id=1, code="MEDICAL"
+        ).one()
+        endorsement = QualificationType.query.filter_by(
+            unit_id=1, code="ADI"
+        ).first()
+        if not endorsement:
+            endorsement = QualificationType(
+                unit_id=1, code="ADI", label="Tower endorsement",
+                expiry_required=True, is_active=True,
+            )
+            db.session.add(endorsement)
+            db.session.flush()
+        horizon_staff = Staff.query.filter_by(unit_id=1).first()
+        if not Assignment.query.filter_by(
+            unit_id=1, staff_id=horizon_staff.id, day=date(2026, 12, 31)
+        ).first():
+            db.session.add(Assignment(
+                unit_id=1, staff_id=horizon_staff.id,
+                day=date(2026, 12, 31), code="OFF",
+            ))
+        db.session.commit()
+        pattern_id, watch_id = pattern.id, watch.id
+        medical_id, endorsement_id = medical.id, endorsement.id
+
+    response = client.post(
+        "/admin",
+        data={
+            "_csrf_token": csrf(client), "form": "staff_new",
+            "name": "Effective Joiner", "staff_no": "JOIN-001",
+            "username": "effective_joiner", "watch_id": str(watch_id),
+            "role": "user", "employment_start_date": "2026-09-01",
+            "unit_join_date": "2026-09-15",
+            "roster_start_date": "2026-09-15",
+            "employment_type": "PART_TIME",
+            "contracted_hours_per_week": "22.5",
+            "work_pattern_id": str(pattern_id),
+            "pattern_anchor": "2026-09-15", "anchor_day_index": "2",
+            "operational": "on", "trainee": "on",
+            "medical_expiry": "2027-09-30",
+            "qualification_ids": [str(medical_id), str(endorsement_id)],
+            f"qualification_expiry_{medical_id}": "2027-09-30",
+            f"qualification_expiry_{endorsement_id}": "2027-09-30",
+            "workforce_notes": "Transfer from another unit.",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    with app.app.app_context():
+        person = Staff.query.filter_by(
+            unit_id=1, username="effective_joiner"
+        ).one()
+        assert person.employment_start_date == date(2026, 9, 1)
+        assert person.unit_join_date == date(2026, 9, 15)
+        assert person.roster_start_date == date(2026, 9, 15)
+        assert person.employment_type == "PART_TIME"
+        assert person.contracted_minutes_per_week == 1350
+        assert person.is_operational and person.is_trainee
+        assert person.workforce_notes == "Transfer from another unit."
+        watch_assignment = app.StaffWatchHistory.query.filter_by(
+            unit_id=1, staff_id=person.id
+        ).one()
+        assert watch_assignment.watch_id == watch_id
+        assert watch_assignment.effective_date == date(2026, 9, 15)
+        pattern_assignment = app.StaffPatternAssignment.query.filter_by(
+            unit_id=1, staff_id=person.id
+        ).one()
+        assert pattern_assignment.work_pattern_id == pattern_id
+        assert pattern_assignment.anchor_date == date(2026, 9, 15)
+        assert pattern_assignment.anchor_day_index == 2
+        assert app.PersonQualification.query.filter_by(
+            unit_id=1, person_id=person.id, status="valid"
+        ).count() == 2
+        event = app.RosterImpactEvent.query.filter_by(
+            unit_id=1, event_type="UNIT_JOINER"
+        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        assert event is not None
+        assert json.loads(event.staff_ids_json) == [person.id]
+        assert event.effective_from == date(2026, 9, 15)
+        assert app.RosterImpactException.query.filter_by(
+            event_id=event.id, staff_id=person.id, status="OPEN"
+        ).count() == 1
+        assert Assignment.query.filter(
+            Assignment.unit_id == 1,
+            Assignment.staff_id == person.id,
+            Assignment.day >= date(2026, 11, 1),
+        ).count() > 0
+
+
 def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     ordinary = app.app.test_client()
     login_as(ordinary, "staff_test")
@@ -3499,7 +3597,7 @@ def test_admin_dry_runs_and_migrates_only_exact_legacy_pattern(client):
         follow_redirects=True,
     )
     assert migrated.status_code == 200
-    assert b"Existing roster duties were not changed." in migrated.data
+    assert b"Protected duties were retained" in migrated.data
     with app.app.app_context():
         row = app.StaffPatternAssignment.query.filter_by(
             unit_id=1, staff_id=person_id, effective_from=effective_from
@@ -3511,7 +3609,13 @@ def test_admin_dry_runs_and_migrates_only_exact_legacy_pattern(client):
             (item.id, item.staff_id, item.day, item.code, item.version)
             for item in Assignment.query.filter_by(unit_id=1).order_by(Assignment.id)
         ]
-        assert duties_after == duties_before
+        after_by_id = {item[0]: item for item in duties_after}
+        assert all(after_by_id[item[0]] == item for item in duties_before)
+        impact = app.RosterImpactEvent.query.filter_by(
+            unit_id=1, event_type="WORK_PATTERN_CHANGE"
+        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        assert impact is not None
+        assert json.loads(impact.staff_ids_json) == [person_id]
         db.session.delete(row)
         db.session.delete(db.session.get(Staff, person_id))
         db.session.commit()

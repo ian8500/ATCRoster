@@ -49,6 +49,18 @@
   </div>
 
   <div class="card">
+    <div class="card-hd">Employment and unit dates</div>
+    <div class="card-bd grid grid-3">
+      <label>Employment starts<input type="date" name="employment_start_date" value="{{ s.employment_start_date and s.employment_start_date.isoformat() or '' }}"></label>
+      <label>Joined this unit<input type="date" name="unit_join_date" value="{{ s.unit_join_date and s.unit_join_date.isoformat() or '' }}"></label>
+      <label>Roster starts<input type="date" name="roster_start_date" value="{{ s.roster_start_date and s.roster_start_date.isoformat() or '' }}"></label>
+      <label>Employment type<select name="employment_type"><option value="FULL_TIME" {% if s.employment_type == 'FULL_TIME' %}selected{% endif %}>Full time</option><option value="PART_TIME" {% if s.employment_type == 'PART_TIME' %}selected{% endif %}>Part time</option></select></label>
+      <label>Contracted hours per week<input type="number" min="0" max="168" step="0.25" name="contracted_hours_per_week" value="{{ (s.contracted_minutes_per_week or 0) / 60 }}"></label>
+      <label class="grid-span-full">Workforce notes<textarea name="workforce_notes" rows="3" maxlength="2000">{{ s.workforce_notes or '' }}</textarea></label>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="card-hd">Roster pattern</div>
     <div class="card-bd">
       <p><a class="btn btn-primary" href="{{ url_for('work_patterns.staff_rules', staff_id=s.id) }}">Manage effective-dated patterns and rules</a></p>

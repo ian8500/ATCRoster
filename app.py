@@ -89,7 +89,11 @@ from roster_population_service import (
     DeterministicRosterPopulationService,
     PopulationDependencies,
 )
-from roster_impact_service import RosterImpactDependencies, RosterImpactService
+from roster_impact_service import (
+    RosterImpactDependencies,
+    RosterImpactEventType,
+    RosterImpactService,
+)
 from access_policy import (
     has_permission,
     is_admin,
@@ -1068,6 +1072,14 @@ class Staff(UserMixin, db.Model):
     name = db.Column(db.String(80), nullable=False)
     staff_no = db.Column(db.String(20), nullable=False)
     caa_license_number = db.Column(db.String(40), nullable=False, default="")
+    employment_start_date = db.Column(db.Date)
+    unit_join_date = db.Column(db.Date)
+    roster_start_date = db.Column(db.Date)
+    employment_type = db.Column(
+        db.String(20), nullable=False, default="FULL_TIME"
+    )
+    contracted_minutes_per_week = db.Column(db.Integer)
+    workforce_notes = db.Column(db.Text, nullable=False, default="")
 
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"))
     watch = db.relationship("Watch", backref="members")
@@ -1108,6 +1120,15 @@ class Staff(UserMixin, db.Model):
     __table_args__ = (
         db.UniqueConstraint("unit_id", "staff_no", name="uq_staff_unit_number"),
         db.UniqueConstraint("unit_id", "id", name="uq_staff_unit_id"),
+        db.CheckConstraint(
+            "employment_type IN ('FULL_TIME','PART_TIME')",
+            name="ck_staff_employment_type",
+        ),
+        db.CheckConstraint(
+            "contracted_minutes_per_week IS NULL OR "
+            "contracted_minutes_per_week >= 0",
+            name="ck_staff_contracted_minutes_nonnegative",
+        ),
     )
 
 
@@ -2480,7 +2501,8 @@ def _invalidate_roster_impact_coverage(
                 )
             except Exception:
                 pass
-        cursor = add_months(cursor, 1)
+        next_year, next_month = add_months(cursor.year, cursor.month, 1)
+        cursor = date(next_year, next_month, 1)
 
 
 def roster_impact_service():
@@ -2494,6 +2516,127 @@ def roster_impact_service():
         recalculate_coverage=_invalidate_roster_impact_coverage,
         utcnow=utcnow,
     ))
+
+
+def record_roster_impact(
+    event_type: RosterImpactEventType | str,
+    effective_from: date,
+    *,
+    effective_to: date | None = None,
+    staff_ids=(),
+    watch_ids=(),
+    rebuild_baseline=False,
+    recalculate_coverage=True,
+    reason="",
+):
+    """Record and apply a unit-scoped roster trigger in the caller's transaction."""
+    actor_id = getattr(current_user, "person_id", None)
+    if actor_id is None and getattr(current_user, "is_authenticated", False):
+        actor_id = getattr(current_user, "id", None)
+    return roster_impact_service().handle_roster_impact_event(
+        _current_unit_id(), event_type, effective_from, effective_to,
+        staff_ids=staff_ids, watch_ids=watch_ids,
+        rebuild_baseline=rebuild_baseline,
+        recalculate_coverage=recalculate_coverage,
+        reason=reason, triggered_by_user_id=actor_id,
+    )
+
+
+def _qualification_impact_type(
+    code: str,
+    old_status: str | None,
+    old_valid_from: date | None,
+    old_expires_on: date | None,
+    new_status: str | None,
+    new_valid_from: date | None,
+    new_expires_on: date | None,
+) -> tuple[RosterImpactEventType | None, date]:
+    """Classify a qualification transition and its true effective date."""
+    code = (code or "").strip().upper()
+    today = date.today()
+    old_valid = old_status == "valid"
+    new_valid = new_status == "valid"
+    effective = new_valid_from or new_expires_on or old_expires_on or today
+    if code == "MEDICAL":
+        if new_valid and not old_valid:
+            return RosterImpactEventType.MEDICAL_RESTORED, effective
+        if old_valid and not new_valid:
+            return RosterImpactEventType.MEDICAL_EXPIRED, effective
+        if new_valid and new_expires_on != old_expires_on:
+            return RosterImpactEventType.MEDICAL_RESTORED, effective
+    if code in {"OJTI"} and new_valid and not old_valid:
+        return RosterImpactEventType.OJTI_ACHIEVED, effective
+    if code in {"ASSESSOR", "ASSR"} and new_valid and not old_valid:
+        return RosterImpactEventType.ASSESSOR_ACHIEVED, effective
+    if code in {"ADI", "APS", "MET", "UE"}:
+        if old_valid and new_status == "suspended":
+            return RosterImpactEventType.UE_SUSPENDED, effective
+        if old_valid and not new_valid:
+            return RosterImpactEventType.UE_EXPIRED, effective
+        if new_valid and not old_valid:
+            if old_status == "suspended":
+                return RosterImpactEventType.UE_RESTORED, effective
+            return RosterImpactEventType.FIRST_UE_ACHIEVED, effective
+        if new_valid and new_expires_on != old_expires_on:
+            return RosterImpactEventType.ADDITIONAL_UE_ACHIEVED, effective
+    return None, effective
+
+
+def _person_has_other_valid_ue(
+    unit_id: int,
+    person_id: int,
+    excluded_type_id: int,
+    on_date: date,
+) -> bool:
+    return db.session.query(PersonQualification.id).join(
+        QualificationType,
+        QualificationType.id == PersonQualification.qualification_type_id,
+    ).filter(
+        PersonQualification.unit_id == unit_id,
+        PersonQualification.person_id == person_id,
+        PersonQualification.qualification_type_id != excluded_type_id,
+        PersonQualification.status == "valid",
+        QualificationType.code.in_(("ADI", "APS", "MET", "UE")),
+        db.or_(
+            PersonQualification.valid_from.is_(None),
+            PersonQualification.valid_from <= on_date,
+        ),
+        db.or_(
+            PersonQualification.expires_on.is_(None),
+            PersonQualification.expires_on >= on_date,
+        ),
+    ).first() is not None
+
+
+def record_qualification_roster_impact(
+    person,
+    qtype,
+    old_status,
+    old_valid_from,
+    old_expires_on,
+    record,
+    *,
+    reason="Qualification changed.",
+):
+    impact_type, impact_date = _qualification_impact_type(
+        qtype.code, old_status, old_valid_from, old_expires_on,
+        record.status if record else None,
+        record.valid_from if record else None,
+        record.expires_on if record else None,
+    )
+    if (
+        impact_type == RosterImpactEventType.FIRST_UE_ACHIEVED
+        and _person_has_other_valid_ue(
+            person.unit_id, person.id, qtype.id, impact_date
+        )
+    ):
+        impact_type = RosterImpactEventType.ADDITIONAL_UE_ACHIEVED
+    if impact_type:
+        record_roster_impact(
+            impact_type, impact_date, staff_ids=[person.id],
+            rebuild_baseline=False, reason=reason,
+        )
+    return impact_type
 
 
 def _cycle_day_for(staff: Staff, d: date) -> int | None:
@@ -4429,6 +4572,12 @@ def admin():
                 _save_roster_setting(
                     "night_active_weekdays", ",".join(active_nights)
                 )
+                record_roster_impact(
+                    RosterImpactEventType.WATCH_PATTERN_CHANGE,
+                    anchor,
+                    rebuild_baseline=True,
+                    reason="Unit base roster pattern changed.",
+                )
                 db.session.commit()
                 flash("Unit roster setup saved.", "ok")
             return redirect(url_for("admin") + "#roster-setup")
@@ -4447,13 +4596,21 @@ def admin():
                 max_order = db.session.query(
                     db.func.max(Watch.order_index)
                 ).filter(Watch.unit_id == _current_unit_id()).scalar() or 0
-                db.session.add(Watch(
+                watch = Watch(
                     unit_id=_current_unit_id(),
                     name=name[:32],
                     order_index=max_order + 1,
                     pattern_csv=",".join(pattern),
                     pattern_anchor=anchor,
-                ))
+                )
+                db.session.add(watch)
+                db.session.flush()
+                record_roster_impact(
+                    RosterImpactEventType.WATCH_CREATION,
+                    anchor or date.today(), watch_ids=[watch.id],
+                    rebuild_baseline=False,
+                    reason=f"Watch {name[:32]} created.",
+                )
                 db.session.commit()
                 flash(f"{name} created.", "ok")
             return redirect(url_for("admin") + "#roster-setup")
@@ -4476,9 +4633,20 @@ def admin():
             elif duplicate:
                 flash("That watch name already exists.", "error")
             else:
+                old_pattern = watch.pattern_csv
+                old_anchor = watch.pattern_anchor
                 watch.name = name[:32]
                 watch.pattern_csv = ",".join(pattern)
                 watch.pattern_anchor = anchor
+                if (watch.pattern_csv, watch.pattern_anchor) != (
+                    old_pattern, old_anchor
+                ):
+                    record_roster_impact(
+                        RosterImpactEventType.WATCH_PATTERN_CHANGE,
+                        anchor or date.today(), watch_ids=[watch.id],
+                        rebuild_baseline=True,
+                        reason=f"Watch {watch.name} pattern changed.",
+                    )
                 db.session.commit()
                 flash(f"{watch.name} updated.", "ok")
             return redirect(url_for("admin") + "#roster-setup")
@@ -4503,6 +4671,11 @@ def admin():
                 )
             else:
                 name = watch.name
+                record_roster_impact(
+                    RosterImpactEventType.WATCH_DEACTIVATION,
+                    date.today(), rebuild_baseline=False,
+                    reason=f"Unused watch {name} removed.",
+                )
                 db.session.delete(watch)
                 db.session.commit()
                 flash(f"{name} deleted.", "ok")
@@ -4534,6 +4707,49 @@ def admin():
             username = request.form.get("username", "").strip()
             watch_id = request.form.get("watch_id")
             role = request.form.get("role", "user")
+            try:
+                employment_start = date.fromisoformat(
+                    request.form.get("employment_start_date") or date.today().isoformat()
+                )
+                unit_join = date.fromisoformat(
+                    request.form.get("unit_join_date") or employment_start.isoformat()
+                )
+                roster_start = date.fromisoformat(
+                    request.form.get("roster_start_date") or unit_join.isoformat()
+                )
+                pattern_anchor = date.fromisoformat(
+                    request.form.get("pattern_anchor") or roster_start.isoformat()
+                )
+                anchor_day_index = int(request.form.get("anchor_day_index") or 0)
+                contracted_hours = float(
+                    request.form.get("contracted_hours_per_week") or 37
+                )
+            except (TypeError, ValueError):
+                flash("Enter valid joining dates, pattern alignment and hours.", "error")
+                return redirect(url_for("admin") + "#staff")
+            employment_type = (
+                request.form.get("employment_type") or "FULL_TIME"
+            ).strip().upper()
+            if employment_type not in {"FULL_TIME", "PART_TIME"}:
+                abort(400, "Invalid employment type.")
+            if not (
+                employment_start <= unit_join <= roster_start
+                and 0 <= contracted_hours <= 168
+                and anchor_day_index >= 0
+            ):
+                flash(
+                    "Employment, joining and roster dates must be in order; "
+                    "hours and cycle day must be valid.",
+                    "error",
+                )
+                return redirect(url_for("admin") + "#staff")
+            try:
+                work_pattern_id = int(request.form.get("work_pattern_id") or 0)
+            except (TypeError, ValueError):
+                work_pattern_id = 0
+            selected_pattern = WorkPattern.query.filter_by(
+                id=work_pattern_id, unit_id=_current_unit_id(), is_active=True
+            ).first()
 
             # NEW flags
             is_wm = bool(request.form.get("is_wm"))
@@ -4558,8 +4774,11 @@ def admin():
             leave_carryover_days = int(
                 request.form.get("leave_carryover_days", 0) or 0)
 
-            if not all([name, staff_no, watch_id]):
-                flash("Name, staff number and watch are required.", "error")
+            if not all([name, staff_no, watch_id, selected_pattern]):
+                flash(
+                    "Name, staff number, watch and working pattern are required.",
+                    "error",
+                )
             elif Staff.query.filter_by(
                 unit_id=_current_unit_id(), staff_no=staff_no
             ).first() or (
@@ -4587,11 +4806,77 @@ def admin():
                     leave_entitlement_days=leave_entitlement_days,
                     leave_public_holidays=leave_public_holidays,
                     leave_carryover_days=leave_carryover_days,
+                    employment_start_date=employment_start,
+                    unit_join_date=unit_join,
+                    roster_start_date=roster_start,
+                    employment_type=employment_type,
+                    contracted_minutes_per_week=int(round(contracted_hours * 60)),
+                    workforce_notes=(request.form.get("workforce_notes") or "").strip()[:2000],
+                    is_operational=bool(request.form.get("operational")),
+                    is_trainee=bool(request.form.get("trainee")),
+                    medical_expiry=_parse_date(request.form.get("medical_expiry")),
                 )
                 s.set_password("password")
                 if not s.calendar_token:
                     s.calendar_token = secrets.token_hex(16)
                 db.session.add(s)
+                db.session.flush()
+                db.session.add(StaffWatchHistory(
+                    unit_id=s.unit_id, staff_id=s.id,
+                    watch_id=int(watch_id), effective_date=roster_start,
+                ))
+                pattern_assignment = StaffPatternAssignment(
+                    unit_id=s.unit_id, staff_id=s.id,
+                    work_pattern_id=selected_pattern.id,
+                    effective_from=roster_start,
+                    anchor_date=pattern_anchor,
+                    anchor_day_index=anchor_day_index,
+                    contracted_minutes_override=int(round(
+                        contracted_hours * 60
+                        * selected_pattern.cycle_length_days / 7
+                    )),
+                    notes="Initial assignment created by unit joiner workflow.",
+                )
+                work_pattern_service.validate_staff_pattern_assignment(
+                    pattern_assignment
+                )
+                db.session.add(pattern_assignment)
+                selected_qualification_ids = {
+                    int(value) for value in request.form.getlist("qualification_ids")
+                    if str(value).isdigit()
+                }
+                medical_type = QualificationType.query.filter_by(
+                    unit_id=s.unit_id, code="MEDICAL", is_active=True
+                ).first()
+                if s.medical_expiry and medical_type:
+                    selected_qualification_ids.add(medical_type.id)
+                qualification_rows = QualificationType.query.filter(
+                    QualificationType.unit_id == s.unit_id,
+                    QualificationType.id.in_(selected_qualification_ids),
+                    QualificationType.is_active.is_(True),
+                ).all() if selected_qualification_ids else []
+                for qtype in qualification_rows:
+                    raw_expiry = request.form.get(f"qualification_expiry_{qtype.id}")
+                    expiry = _parse_date(raw_expiry)
+                    if qtype.code == "MEDICAL" and s.medical_expiry:
+                        expiry = s.medical_expiry
+                    if qtype.expiry_required and not expiry:
+                        abort(400, f"{qtype.code} requires an expiry date.")
+                    qualification = PersonQualification(
+                        unit_id=s.unit_id, person_id=s.id,
+                        qualification_type_id=qtype.id,
+                        valid_from=roster_start, expires_on=expiry, status="valid",
+                        updated_at=utcnow(),
+                    )
+                    db.session.add(qualification)
+                    db.session.flush()
+                    _record_qualification_history(qualification, "joiner_created")
+                    _sync_qualification_to_roster_profile(s, qtype, expiry)
+                record_roster_impact(
+                    RosterImpactEventType.UNIT_JOINER,
+                    roster_start, staff_ids=[s.id], rebuild_baseline=True,
+                    reason="New unit member and initial working arrangement created.",
+                )
                 db.session.commit()
                 flash(
                     "Roster profile created. Complete the profile, then "
@@ -4633,6 +4918,11 @@ def admin():
                                is_active=is_active, is_requestable=is_requestable,
                                required_qualification=required_qualification)
                 db.session.add(sh)
+                record_roster_impact(
+                    RosterImpactEventType.SHIFT_DEFINITION_CHANGE,
+                    date.today(), rebuild_baseline=True,
+                    reason=f"Shift {code} created.",
+                )
                 db.session.commit()
                 refresh_shift_cache()
                 _shift_groups_snapshot.cache_clear()
@@ -4668,6 +4958,11 @@ def admin():
                 return redirect(url_for("admin"))
             sh.is_requestable = requested
             sh.required_qualification = required_qualification
+            record_roster_impact(
+                RosterImpactEventType.SHIFT_DEFINITION_CHANGE,
+                date.today(), rebuild_baseline=True,
+                reason=f"Shift {sh.code} definition changed.",
+            )
             db.session.commit()
             refresh_shift_cache()
             _shift_groups_snapshot.cache_clear()
@@ -4683,6 +4978,11 @@ def admin():
             db.session.delete(sh)
             db.session.flush()
             _prune_roster_code_settings(_current_unit_id())
+            record_roster_impact(
+                RosterImpactEventType.SHIFT_DEFINITION_CHANGE,
+                date.today(), rebuild_baseline=True,
+                reason=f"Shift {sh.code} removed.",
+            )
             db.session.commit()
             refresh_shift_cache()
             _shift_groups_snapshot.cache_clear()
@@ -4713,6 +5013,23 @@ def admin():
                     except (ValueError, IndexError):
                         abort(400, f"Invalid staffing value for {field}.")
                     setattr(r, field, max(0, value))
+            if yms:
+                periods = sorted(
+                    (int(value.split("-")[0]), int(value.split("-")[1]))
+                    for value in yms
+                )
+                start_year, start_month = periods[0]
+                end_year, end_month = periods[-1]
+                record_roster_impact(
+                    RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
+                    date(start_year, start_month, 1),
+                    effective_to=date(
+                        end_year, end_month,
+                        monthrange(end_year, end_month)[1],
+                    ),
+                    rebuild_baseline=False,
+                    reason="Monthly staffing requirements changed.",
+                )
             db.session.commit()
             flash("Requirements saved.", "ok")
             return redirect(url_for("admin") + "#requirements")
@@ -4745,6 +5062,12 @@ def admin():
                 except ValueError:
                     abort(400, "Special staffing values must be numbers.")
                 setattr(row, f"req_{code}", max(0, value))
+            record_roster_impact(
+                RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
+                selected_day, effective_to=selected_day,
+                rebuild_baseline=False,
+                reason=f"Special staffing requirement changed: {label}.",
+            )
             db.session.commit()
             flash(
                 f"Special requirements saved for "
@@ -4757,7 +5080,14 @@ def admin():
             row = SpecialRequirement.query.filter_by(
                 id=int(request.form.get("special_requirement_id") or 0)
             ).first_or_404()
+            removed_day = row.day
             db.session.delete(row)
+            record_roster_impact(
+                RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
+                removed_day, effective_to=removed_day,
+                rebuild_baseline=False,
+                reason="Special staffing requirement removed.",
+            )
             db.session.commit()
             flash("Special requirement removed.", "ok")
             return redirect(url_for("admin") + "#requirements")
@@ -4806,6 +5136,9 @@ def admin():
     qualification_types = QualificationType.query.filter_by(
         unit_id=_current_unit_id(), is_active=True
     ).order_by(QualificationType.code).all()
+    work_patterns = WorkPattern.query.filter_by(
+        unit_id=_current_unit_id(), is_active=True
+    ).order_by(WorkPattern.name).all()
     staff = (Staff.query
              .outerjoin(Watch, Staff.watch_id == Watch.id)
              .order_by(Watch.order_index, Staff.name).all())
@@ -4860,6 +5193,8 @@ def admin():
                            special_requirements=special_requirements,
                            leaves=leaves,
                            qualification_types=qualification_types,
+                           work_patterns=work_patterns,
+                           today=date.today(),
                            base_pattern=base_pattern,
                            base_anchor=base_anchor,
                            night_active_days=night_active_days,
@@ -5111,6 +5446,53 @@ def admin_staff_edit(sid):
         id=sid, unit_id=_current_unit_id()
     ).first_or_404()
     if request.method == "POST":
+        old_profile = {
+            "watch_id": s.watch_id,
+            "is_operational": bool(s.is_operational),
+            "pattern_override": bool(s.pattern_override),
+            "pattern_csv": s.pattern_csv,
+            "pattern_anchor": s.pattern_anchor,
+            "medical_expiry": s.medical_expiry,
+            "ue_expiries": (s.tower_ue_expiry, s.radar_ue_expiry, s.met_ue_expiry),
+            "has_ojti": bool(s.has_ojti),
+            "has_assessor": bool(s.has_assessor),
+            "employment_type": s.employment_type,
+            "contracted_minutes_per_week": s.contracted_minutes_per_week,
+        }
+        try:
+            s.employment_start_date = _parse_date(
+                request.form.get("employment_start_date")
+            )
+            s.unit_join_date = _parse_date(request.form.get("unit_join_date"))
+            s.roster_start_date = _parse_date(request.form.get("roster_start_date"))
+            employment_type = (
+                request.form.get("employment_type") or s.employment_type
+                or "FULL_TIME"
+            ).strip().upper()
+            if employment_type not in {"FULL_TIME", "PART_TIME"}:
+                raise ValueError
+            contracted_hours = float(
+                request.form.get("contracted_hours_per_week")
+                or ((s.contracted_minutes_per_week or 0) / 60)
+            )
+            if not 0 <= contracted_hours <= 168:
+                raise ValueError
+            if (
+                s.employment_start_date and s.unit_join_date
+                and s.employment_start_date > s.unit_join_date
+            ) or (
+                s.unit_join_date and s.roster_start_date
+                and s.unit_join_date > s.roster_start_date
+            ):
+                raise ValueError
+            s.employment_type = employment_type
+            s.contracted_minutes_per_week = int(round(contracted_hours * 60))
+            s.workforce_notes = (
+                request.form.get("workforce_notes") or ""
+            ).strip()[:2000]
+        except (TypeError, ValueError):
+            flash("Enter valid employment dates and contracted hours.", "error")
+            return redirect(url_for("admin_staff_edit", sid=s.id))
         s.name = request.form.get("name", s.name).strip()
         s.staff_no = request.form.get("staff_no", s.staff_no).strip()
         s.caa_license_number = (
@@ -5219,6 +5601,93 @@ def admin_staff_edit(sid):
                 )
                 if identity:
                     identity.email = s.email
+            today = date.today()
+            if old_profile["watch_id"] != s.watch_id:
+                record_roster_impact(
+                    RosterImpactEventType.WATCH_TRANSFER, today,
+                    staff_ids=[s.id], rebuild_baseline=True,
+                    reason="Staff watch changed in roster profile.",
+                )
+            if old_profile["is_operational"] != bool(s.is_operational):
+                event_type = (
+                    RosterImpactEventType.OPERATIONAL_ROSTER_ACTIVATION
+                    if s.is_operational else
+                    RosterImpactEventType.OPERATIONAL_ROSTER_DEACTIVATION
+                )
+                record_roster_impact(
+                    event_type, today, staff_ids=[s.id], rebuild_baseline=True,
+                    reason="Operational roster status changed.",
+                )
+            if (
+                old_profile["pattern_override"], old_profile["pattern_csv"]
+            ) != (bool(s.pattern_override), s.pattern_csv):
+                record_roster_impact(
+                    RosterImpactEventType.WORK_PATTERN_CHANGE, today,
+                    staff_ids=[s.id], rebuild_baseline=True,
+                    reason="Personal roster pattern changed.",
+                )
+            if old_profile["pattern_anchor"] != s.pattern_anchor:
+                record_roster_impact(
+                    RosterImpactEventType.PATTERN_ANCHOR_CHANGE,
+                    s.pattern_anchor or today, staff_ids=[s.id],
+                    rebuild_baseline=True,
+                    reason="Personal roster pattern anchor changed.",
+                )
+            old_medical = old_profile["medical_expiry"]
+            if old_medical != s.medical_expiry:
+                is_valid = bool(s.medical_expiry and s.medical_expiry >= today)
+                record_roster_impact(
+                    RosterImpactEventType.MEDICAL_RESTORED
+                    if is_valid else RosterImpactEventType.MEDICAL_EXPIRED,
+                    today if is_valid else (s.medical_expiry or old_medical or today),
+                    staff_ids=[s.id], rebuild_baseline=False,
+                    reason="Medical validity changed in roster profile.",
+                )
+            old_ue = old_profile["ue_expiries"]
+            new_ue = (s.tower_ue_expiry, s.radar_ue_expiry, s.met_ue_expiry)
+            if old_ue != new_ue:
+                old_count = sum(bool(value and value >= today) for value in old_ue)
+                new_count = sum(bool(value and value >= today) for value in new_ue)
+                event_type = (
+                    RosterImpactEventType.FIRST_UE_ACHIEVED
+                    if old_count == 0 and new_count > 0 else
+                    RosterImpactEventType.UE_EXPIRED
+                    if old_count > 0 and new_count == 0 else
+                    RosterImpactEventType.ADDITIONAL_UE_ACHIEVED
+                )
+                record_roster_impact(
+                    event_type, today, staff_ids=[s.id], rebuild_baseline=False,
+                    reason="Unit endorsement validity changed in roster profile.",
+                )
+            if not old_profile["has_ojti"] and s.has_ojti:
+                record_roster_impact(
+                    RosterImpactEventType.OJTI_ACHIEVED, today,
+                    staff_ids=[s.id], rebuild_baseline=False,
+                    reason="OJTI qualification recorded.",
+                )
+            if not old_profile["has_assessor"] and s.has_assessor:
+                record_roster_impact(
+                    RosterImpactEventType.ASSESSOR_ACHIEVED, today,
+                    staff_ids=[s.id], rebuild_baseline=False,
+                    reason="Assessor qualification recorded.",
+                )
+            if old_profile["employment_type"] != s.employment_type:
+                record_roster_impact(
+                    RosterImpactEventType.PART_TIME_CHANGE
+                    if s.employment_type == "PART_TIME" else
+                    RosterImpactEventType.FULL_TIME_CHANGE,
+                    date.today(), staff_ids=[s.id], rebuild_baseline=False,
+                    reason="Employment type changed in roster profile.",
+                )
+            elif (
+                old_profile["contracted_minutes_per_week"]
+                != s.contracted_minutes_per_week
+            ):
+                record_roster_impact(
+                    RosterImpactEventType.WORK_PATTERN_CHANGE,
+                    date.today(), staff_ids=[s.id], rebuild_baseline=False,
+                    reason="Contracted weekly hours changed in roster profile.",
+                )
             db.session.commit()
             flash("Staff updated.", "ok")
         except Exception as e:
@@ -5292,6 +5761,11 @@ def admin_watch_move(sid):
     old_watch_id = s.watch_id
     if eff_d <= date.today():
         s.watch_id = new_watch_id
+    record_roster_impact(
+        RosterImpactEventType.WATCH_TRANSFER, eff_d,
+        staff_ids=[s.id], rebuild_baseline=True,
+        reason=f"Watch transfer to {new_watch.name} recorded.",
+    )
     db.session.commit()
 
     log_change("Staff", s.id, "watch_id", old_watch_id,
@@ -5342,6 +5816,11 @@ def admin_watch_move_edit(hid):
 
     hist.watch_id = new_watch_id
     hist.effective_date = eff_d
+    record_roster_impact(
+        RosterImpactEventType.WATCH_TRANSFER, min(old_eff, eff_d),
+        staff_ids=[hist.staff_id], rebuild_baseline=True,
+        reason="Effective-dated watch transfer changed.",
+    )
     db.session.commit()
 
     if old_watch_id != new_watch_id:
@@ -5369,6 +5848,11 @@ def admin_watch_move_delete(hid):
     old_eff = hist.effective_date
 
     db.session.delete(hist)
+    record_roster_impact(
+        RosterImpactEventType.WATCH_TRANSFER, old_eff,
+        staff_ids=[sid], rebuild_baseline=True,
+        reason="Scheduled watch transfer removed.",
+    )
     db.session.commit()
 
     log_change("StaffWatchHistory", hid, "delete", old_watch_id, None,
@@ -8062,6 +8546,11 @@ def qualification_compliance():
                 unit_id=unit_id, person_id=person.id,
                 qualification_type_id=qtype.id,
             ).first()
+            old_state = (
+                record.status if record else None,
+                record.valid_from if record else None,
+                record.expires_on if record else None,
+            )
             action_name = "renewed" if record else "assigned"
             if not record:
                 record = PersonQualification(
@@ -8079,6 +8568,23 @@ def qualification_compliance():
                 person, qtype, expires_on
             )
             _record_qualification_history(record, action_name)
+            impact_type, impact_date = _qualification_impact_type(
+                qtype.code, *old_state,
+                record.status, record.valid_from, record.expires_on,
+            )
+            if (
+                impact_type == RosterImpactEventType.FIRST_UE_ACHIEVED
+                and _person_has_other_valid_ue(
+                    unit_id, person.id, qtype.id, impact_date
+                )
+            ):
+                impact_type = RosterImpactEventType.ADDITIONAL_UE_ACHIEVED
+            if impact_type:
+                record_roster_impact(
+                    impact_type, impact_date, staff_ids=[person.id],
+                    rebuild_baseline=False,
+                    reason=f"{qtype.code} qualification {action_name}.",
+                )
             db.session.commit()
             flash("Person qualification saved.", "ok")
             return redirect(url_for("qualification_compliance"))
@@ -8154,6 +8660,11 @@ def qualification_compliance():
                     unit_id=unit_id, person_id=row["person_id"],
                     qualification_type_id=row["type_id"],
                 ).first()
+                old_state = (
+                    record.status if record else None,
+                    record.valid_from if record else None,
+                    record.expires_on if record else None,
+                )
                 if not record:
                     record = PersonQualification(
                         unit_id=unit_id, person_id=row["person_id"],
@@ -8178,6 +8689,23 @@ def qualification_compliance():
                     person, qtype, record.expires_on
                 )
                 _record_qualification_history(record, "imported")
+                impact_type, impact_date = _qualification_impact_type(
+                    qtype.code, *old_state,
+                    record.status, record.valid_from, record.expires_on,
+                )
+                if (
+                    impact_type == RosterImpactEventType.FIRST_UE_ACHIEVED
+                    and _person_has_other_valid_ue(
+                        unit_id, person.id, qtype.id, impact_date
+                    )
+                ):
+                    impact_type = RosterImpactEventType.ADDITIONAL_UE_ACHIEVED
+                if impact_type:
+                    record_roster_impact(
+                        impact_type, impact_date, staff_ids=[person.id],
+                        rebuild_baseline=False,
+                        reason=f"{qtype.code} qualification imported.",
+                    )
             db.session.commit()
             session.pop("_qualification_import_preview", None)
             flash("Qualification import applied.", "ok")
@@ -9288,6 +9816,7 @@ app.register_blueprint(create_work_pattern_blueprint(
         pattern_service=work_pattern_service,
         admin_service=work_pattern_admin_service,
         migration_service=work_pattern_migration_service,
+        record_roster_impact=record_roster_impact,
     )
 ))
 
@@ -9460,6 +9989,7 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     utcnow=utcnow,
     record_qualification_history=_record_qualification_history,
     sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
+    record_qualification_roster_impact=record_qualification_roster_impact,
     TrainingObjective=TrainingObjective,
 )))
 app.register_blueprint(create_fatigue_compliance_blueprint(

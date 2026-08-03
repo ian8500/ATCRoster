@@ -152,3 +152,26 @@ def test_failure_rolls_back_event_and_exceptions(impact_context):
         )
     assert app.RosterImpactEvent.query.filter_by(unit_id=unit.id).count() == 0
     assert app.RosterImpactException.query.filter_by(unit_id=unit.id).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("code", "old_status", "new_status", "expected"),
+    [
+        ("MEDICAL", None, "valid", "MEDICAL_RESTORED"),
+        ("MEDICAL", "valid", "suspended", "MEDICAL_EXPIRED"),
+        ("ADI", None, "valid", "FIRST_UE_ACHIEVED"),
+        ("APS", "valid", "suspended", "UE_SUSPENDED"),
+        ("APS", "suspended", "valid", "UE_RESTORED"),
+        ("OJTI", None, "valid", "OJTI_ACHIEVED"),
+        ("ASSESSOR", None, "valid", "ASSESSOR_ACHIEVED"),
+    ],
+)
+def test_qualification_transitions_map_to_required_events(
+    code, old_status, new_status, expected
+):
+    event_type, effective = app._qualification_impact_type(
+        code, old_status, None, None,
+        new_status, date(2026, 12, 1), date(2027, 12, 1),
+    )
+    assert event_type.value == expected
+    assert effective == date(2026, 12, 1)
