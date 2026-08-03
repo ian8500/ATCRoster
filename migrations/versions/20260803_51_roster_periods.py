@@ -20,8 +20,13 @@ def upgrade() -> None:
     if os.environ.get("ATCROSTER_SCHEMA_ROLE") == "control":
         return
     bind = op.get_bind()
-    if "roster_period" in sa.inspect(bind).get_table_names():
+    tables = sa.inspect(bind).get_table_names()
+    if "roster_period" in tables:
         return
+    unit_constraints = (
+        (sa.ForeignKeyConstraint(["unit_id"], ["unit.id"], ondelete="CASCADE"),)
+        if "unit" in tables else ()
+    )
     op.create_table(
         "roster_period",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -36,7 +41,7 @@ def upgrade() -> None:
         sa.Column("notes", sa.String(1000), nullable=False, server_default=""),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["unit_id"], ["unit.id"], ondelete="CASCADE"),
+        *unit_constraints,
         sa.UniqueConstraint("unit_id", "year", "month", name="uq_roster_period_unit_month"),
         sa.CheckConstraint("month BETWEEN 1 AND 12", name="ck_roster_period_month"),
         sa.CheckConstraint(

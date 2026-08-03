@@ -22,10 +22,13 @@ def upgrade() -> None:
     inspector = sa.inspect(op.get_bind())
     tables = set(inspector.get_table_names())
     if "roster_impact_event" not in tables:
+        unit_foreign_key = (
+            (sa.ForeignKey("unit.id"),) if "unit" in tables else ()
+        )
         op.create_table(
             "roster_impact_event",
             sa.Column("id", sa.Integer(), primary_key=True),
-            sa.Column("unit_id", sa.Integer(), sa.ForeignKey("unit.id"), nullable=False),
+            sa.Column("unit_id", sa.Integer(), *unit_foreign_key, nullable=False),
             sa.Column("event_type", sa.String(50), nullable=False),
             sa.Column("effective_from", sa.Date(), nullable=False),
             sa.Column("effective_to", sa.Date()),
