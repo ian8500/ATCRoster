@@ -103,6 +103,14 @@
     "rule": "/administration"
   },
   {
+    "endpoint": "work_patterns.bank_holidays",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/administration/bank-holidays"
+  },
+  {
     "endpoint": "kiosk_accounts",
     "methods": [
       "GET",
@@ -148,6 +156,13 @@
       "POST"
     ],
     "rule": "/assign/<int:staff_id>/<ym>/<day>"
+  },
+  {
+    "endpoint": "assignment_lock",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/assignment/<int:assignment_id>/lock"
   },
   {
     "endpoint": "briefing.home",
@@ -652,6 +667,13 @@
       "POST"
     ],
     "rule": "/reports"
+  },
+  {
+    "endpoint": "report_fairness",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/reports/fairness"
   },
   {
     "endpoint": "report_leave_year",
