@@ -36,6 +36,13 @@ def test_position_time_allowances_are_routed_to_operational_databases():
     assert "operational_position_time_allowance" in app.OPERATIONAL_TABLE_NAMES
 
 
+def test_roster_proposals_are_routed_to_operational_databases():
+    assert {
+        "roster_proposal",
+        "roster_proposal_assignment",
+    }.issubset(app.OPERATIONAL_TABLE_NAMES)
+
+
 def _seed_operational_unit(
     unit_id, secret_name, username, marker, create_schema=True
 ):
