@@ -39,6 +39,9 @@ from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
 from briefing_storage import configured_briefing_storage
+from fairness_service import (
+    FairnessAssignment, FairnessStaff, calculate_fairness,
+)
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -11153,6 +11156,132 @@ def admin_toil_new():
 # -------------------- Reports hub --------------------
 
 
+def _fairness_metrics_for_range(start_day: date, end_day: date):
+    """Adapt persisted roster data to the framework-neutral fairness service."""
+    unit_id = _current_unit_id()
+    people = Staff.query.filter_by(
+        unit_id=unit_id, is_operational=True, membership_status="active"
+    ).order_by(Staff.name).all()
+    shifts = {
+        shift.code.upper(): shift
+        for shift in ShiftType.query.filter_by(unit_id=unit_id).all()
+    }
+    assignments = Assignment.query.filter(
+        Assignment.unit_id == unit_id,
+        Assignment.day >= start_day,
+        Assignment.day <= end_day,
+    ).all()
+
+    expected_minutes: dict[int, int] = {}
+    eligible_nights: dict[int, bool] = {}
+    eligible_early: dict[int, bool] = {}
+    current_day = start_day
+    days = []
+    while current_day <= end_day:
+        days.append(current_day)
+        current_day += timedelta(days=1)
+    for person in people:
+        expected = 0
+        night_possible = False
+        early_possible = False
+        for day in days:
+            code = (code_from_pattern(person, day) or "").upper()
+            shift = shifts.get(code)
+            if shift and shift.is_working:
+                expected += shift_duration_minutes(shift)
+                night_possible = night_possible or code == "N"
+                early_possible = early_possible or bool(
+                    shift.start_time and shift.start_time < time(8, 0)
+                )
+        expected_minutes[person.id] = expected
+        eligible_nights[person.id] = night_possible
+        eligible_early[person.id] = early_possible
+
+    fairness_rows = []
+    assignment_ids_by_staff: dict[int, list[int]] = defaultdict(list)
+    for assignment in assignments:
+        shift = shifts.get((assignment.code or "").upper())
+        if not shift or not shift.is_working:
+            continue
+        fairness_rows.append(FairnessAssignment(
+            staff_id=assignment.staff_id,
+            day=assignment.day,
+            shift_code=shift.code,
+            minutes=shift_duration_minutes(shift),
+            start_time=shift.start_time,
+            source=assignment.source or "",
+            is_night=bool(
+                shift.start_time and shift.end_time
+                and shift.start_time >= time(18, 0)
+                and shift.end_time <= time(10, 0)
+            ),
+        ))
+        assignment_ids_by_staff[assignment.staff_id].append(assignment.id)
+
+    manual_changes = {}
+    for staff_id, assignment_ids in assignment_ids_by_staff.items():
+        manual_changes[staff_id] = ChangeLog.query.filter(
+            ChangeLog.unit_id == unit_id,
+            ChangeLog.entity_type == "Assignment",
+            ChangeLog.entity_id.in_(assignment_ids),
+        ).count()
+
+    people_by_id = {person.id: person for person in people}
+    return calculate_fairness(
+        [FairnessStaff(
+            staff_id=person.id,
+            name=person.name,
+            expected_minutes=expected_minutes[person.id],
+            eligible_nights=eligible_nights[person.id],
+            eligible_early=eligible_early[person.id],
+        ) for person in people],
+        fairness_rows,
+        expected_code_for=lambda staff_id, day: code_from_pattern(
+            people_by_id[staff_id], day
+        ),
+        manual_change_counts=manual_changes,
+    )
+
+
+@app.get("/reports/fairness")
+@login_required
+def report_fairness():
+    if not (
+        is_admin_user(current_user)
+        or getattr(current_user, "role", "") in ("editor", "admin")
+    ):
+        abort(403)
+    acknowledgement = _require_reports_sensitive_data_acknowledgement()
+    if acknowledgement:
+        return acknowledgement
+    today = date.today()
+    default_start = today - timedelta(days=179)
+    try:
+        start_day = date.fromisoformat(
+            request.args.get("start", default_start.isoformat())
+        )
+        end_day = date.fromisoformat(
+            request.args.get("end", today.isoformat())
+        )
+    except ValueError:
+        abort(400, "Dates must use YYYY-MM-DD format.")
+    if end_day < start_day or (end_day - start_day).days > 731:
+        abort(400, "Choose a valid date range of no more than two years.")
+    metrics = _fairness_metrics_for_range(start_day, end_day)
+    totals = {
+        "actual_minutes": sum(row.actual_minutes for row in metrics),
+        "target_minutes": sum(row.target_minutes for row in metrics),
+        "nights": sum(row.night_count for row in metrics),
+        "weekends": sum(row.weekend_count for row in metrics),
+        "earlies": sum(row.early_count for row in metrics),
+        "overtime_minutes": sum(row.overtime_minutes for row in metrics),
+    }
+    return render_template(
+        "report_fairness.html", metrics=metrics, totals=totals,
+        start=start_day, end=end_day,
+    )
+
+
 @app.route("/reports", methods=["GET", "POST"])
 @login_required
 def reports_index():
@@ -11195,6 +11324,7 @@ def reports_index():
             "sickness": url_for("report_sickness"),
             "roster": url_for("roster_month", ym=f"{today.year}-{today.month:02d}"),
             "metrics": url_for("metrics"),
+            "fairness": url_for("report_fairness"),
         }
         months = []  # hide month selector
         return render_template(
