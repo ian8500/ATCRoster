@@ -264,7 +264,8 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "controller_kiosk_credential", "position_session_audit",
     "toil_transaction", "work_pattern", "work_pattern_day",
     "work_pattern_day_allowed_shift", "staff_pattern_assignment",
-    "staff_rule", "roster_proposal", "roster_proposal_assignment",
+    "staff_rule", "bank_holiday", "roster_proposal",
+    "roster_proposal_assignment",
 })
 
 

@@ -38,6 +38,7 @@ def test_position_time_allowances_are_routed_to_operational_databases():
 
 def test_roster_proposals_are_routed_to_operational_databases():
     assert {
+        "bank_holiday",
         "roster_proposal",
         "roster_proposal_assignment",
     }.issubset(app.OPERATIONAL_TABLE_NAMES)
