@@ -131,3 +131,22 @@ This stage deliberately has no apply operation. Stage 13 will persist proposals,
 let authorised planners accept or reject each proposed duty, and audit every
 accepted change. A CP-SAT strategy can later replace this strategy behind the
 same proposal result types without changing that review workflow.
+
+## Proposal review workflow (Stage 13)
+
+Authorised roster editors open **Allocation proposals** from the monthly roster.
+They select an inclusive date range of up to 93 days, a fairness lookback and
+whether overtime may be considered. Generation persists a tenant-scoped draft
+and its proposed duties but does not alter `Assignment` rows.
+
+Each duty retains structured explanations and can be accepted or rejected
+individually. Applying a draft inserts accepted duties in one transaction and
+adds an audit row for each insertion. Every target staff/date cell is locked and
+rechecked first; if another editor has populated a cell since generation, the
+whole apply operation is rolled back and the planner must regenerate. Discarding
+a draft records who discarded it and leaves the roster untouched.
+
+The generator composes active patterns, dated hard and soft staff rules,
+approved leave, sickness, current medical/endorsement and shift qualification,
+existing duties, staffing requirements and fatigue rules. Earlier suggestions
+in the same proposal are included when later fatigue candidates are evaluated.

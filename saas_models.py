@@ -845,6 +845,77 @@ def register_saas_models(db, utcnow):
             db.UniqueConstraint("unit_id", "day", name="uq_bank_holiday_unit_day"),
         )
 
+    class RosterProposal(db.Model):
+        __tablename__ = "roster_proposal"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        start_date = db.Column(db.Date, nullable=False, index=True)
+        end_date = db.Column(db.Date, nullable=False, index=True)
+        status = db.Column(db.String(32), nullable=False)
+        workflow_state = db.Column(db.String(20), nullable=False, default="draft")
+        objective_score = db.Column(db.BigInteger, nullable=False, default=0)
+        configuration_json = db.Column(db.Text, nullable=False, default="{}")
+        warnings_json = db.Column(db.Text, nullable=False, default="[]")
+        uncovered_json = db.Column(db.Text, nullable=False, default="[]")
+        created_by_user_id = db.Column(db.Integer, nullable=False)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        applied_by_user_id = db.Column(db.Integer)
+        applied_at = db.Column(db.DateTime)
+        discarded_by_user_id = db.Column(db.Integer)
+        discarded_at = db.Column(db.DateTime)
+        __table_args__ = (
+            db.CheckConstraint(
+                "end_date >= start_date", name="ck_roster_proposal_date_range"
+            ),
+            db.CheckConstraint(
+                "workflow_state IN ('draft','applied','discarded')",
+                name="ck_roster_proposal_workflow_state",
+            ),
+            db.UniqueConstraint("unit_id", "id", name="uq_roster_proposal_unit_id"),
+        )
+
+    class RosterProposalAssignment(db.Model):
+        __tablename__ = "roster_proposal_assignment"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        proposal_id = db.Column(db.Integer, nullable=False, index=True)
+        staff_id = db.Column(db.Integer, nullable=False, index=True)
+        day = db.Column(db.Date, nullable=False, index=True)
+        shift_type_id = db.Column(db.Integer, nullable=False)
+        shift_code = db.Column(db.String(10), nullable=False)
+        review_state = db.Column(db.String(20), nullable=False, default="pending")
+        score = db.Column(db.BigInteger, nullable=False, default=0)
+        explanations_json = db.Column(db.Text, nullable=False, default="[]")
+        applied_assignment_id = db.Column(db.Integer)
+        reviewed_by_user_id = db.Column(db.Integer)
+        reviewed_at = db.Column(db.DateTime)
+        __table_args__ = (
+            db.ForeignKeyConstraint(
+                ["unit_id", "proposal_id"],
+                ["roster_proposal.unit_id", "roster_proposal.id"],
+                name="fk_proposal_assignment_proposal_unit",
+                ondelete="CASCADE",
+            ),
+            db.ForeignKeyConstraint(
+                ["unit_id", "staff_id"],
+                ["staff.unit_id", "staff.id"],
+                name="fk_proposal_assignment_staff_unit",
+            ),
+            db.ForeignKeyConstraint(
+                ["unit_id", "shift_type_id"],
+                ["shift_type.unit_id", "shift_type.id"],
+                name="fk_proposal_assignment_shift_unit",
+            ),
+            db.CheckConstraint(
+                "review_state IN ('pending','accepted','rejected','applied')",
+                name="ck_proposal_assignment_review_state",
+            ),
+            db.UniqueConstraint(
+                "unit_id", "proposal_id", "staff_id", "day",
+                name="uq_proposal_assignment_staff_day",
+            ),
+        )
+
     class RosterRuleVersion(db.Model):
         __tablename__ = "roster_rule_version"
         id = db.Column(db.Integer, primary_key=True)

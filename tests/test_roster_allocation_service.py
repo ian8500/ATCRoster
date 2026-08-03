@@ -165,3 +165,32 @@ def test_initial_service_refuses_regeneration_of_existing_assignments():
             existing=[ExistingAllocation(10, 1, DAY, 4, "N")],
             preserve_existing=False,
         )
+
+
+def test_later_candidates_can_validate_earlier_proposed_duties():
+    second_day = date(2026, 9, 2)
+    planned = set()
+
+    def sequence_constraint(staff_id, day, _shift_id):
+        if staff_id == 1 and day == second_day and (1, DAY) in planned:
+            return HardConstraintResult(
+                False, "FATIGUE_RULE", "Proposed sequence breaches fatigue rules."
+            )
+        return HardConstraintResult(True)
+
+    result = generate_roster_proposal(
+        DAY,
+        second_day,
+        staff=[
+            AllocationStaff(1, "Alex", 2400),
+            AllocationStaff(2, "Blair", 2400),
+        ],
+        shifts=[NIGHT],
+        staffing_needs=[StaffingNeed(DAY, 4, 1), StaffingNeed(second_day, 4, 1)],
+        hard_constraint=sequence_constraint,
+        on_assignment_selected=lambda staff_id, day, _shift_id: planned.add(
+            (staff_id, day)
+        ),
+    )
+
+    assert [row.staff_id for row in result.proposed_assignments] == [1, 2]
