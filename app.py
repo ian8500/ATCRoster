@@ -94,6 +94,10 @@ from roster_impact_service import (
     RosterImpactEventType,
     RosterImpactService,
 )
+from operational_capability import (
+    OperationalCapabilityDependencies,
+    OperationalCapabilityService,
+)
 from access_policy import (
     has_permission,
     is_admin,
@@ -1719,14 +1723,21 @@ def get_non_working_codes() -> set[str]:
 
 def staff_is_countable_on(person: Staff, on_date: date) -> bool:
     """Require a current medical and at least one current operational rating UE."""
-    if not person.medical_expiry or person.medical_expiry < on_date:
-        return False
-    return any(
-        expiry is not None and expiry >= on_date
-        for expiry in (
-            person.tower_ue_expiry,
-            person.radar_ue_expiry,
-        )
+    return get_staff_operational_capability(
+        person.id, on_date
+    ).counts_as_operational
+
+
+def operational_capability_service():
+    return OperationalCapabilityService(OperationalCapabilityDependencies(
+        db=db, Staff=Staff, QualificationType=QualificationType,
+        PersonQualification=PersonQualification,
+    ))
+
+
+def get_staff_operational_capability(staff_id: int, on_date: date):
+    return operational_capability_service().get_staff_operational_capability(
+        staff_id, on_date
     )
 
 
@@ -8538,6 +8549,9 @@ def qualification_compliance():
                 issued_on = optional_date("issued_on")
                 valid_from = optional_date("valid_from")
                 expires_on = optional_date("expires_on")
+                valid_to = optional_date("valid_to")
+                suspended_from = optional_date("suspended_from")
+                suspended_to = optional_date("suspended_to")
             except ValueError:
                 abort(400, "Qualification dates must be valid ISO dates.")
             if qtype.expiry_required and status == "valid" and not expires_on:
@@ -8562,6 +8576,17 @@ def qualification_compliance():
             record.issued_on = issued_on
             record.valid_from = valid_from
             record.expires_on = expires_on
+            record.valid_to = valid_to
+            record.suspended_from = suspended_from
+            record.suspended_to = suspended_to
+            record.evidence_reference = (
+                request.form.get("evidence_reference") or ""
+            ).strip()[:500]
+            record.created_by_user_id = (
+                record.created_by_user_id
+                or getattr(current_user, "person_id", None)
+                or getattr(current_user, "id", None)
+            )
             record.status = status
             record.updated_at = utcnow()
             _sync_qualification_to_roster_profile(

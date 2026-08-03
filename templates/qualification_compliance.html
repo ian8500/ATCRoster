@@ -60,8 +60,12 @@
     <label>Valid from <input class="form-control" type="date" name="valid_from"></label>
     <label>Expiry date <input class="form-control" type="date" name="expires_on"></label>
     <details class="qualification-optional">
-      <summary>Optional issue date</summary>
+      <summary>Effective dates and evidence</summary>
       <label>Issued on <input class="form-control" type="date" name="issued_on"></label>
+      <label>Valid until <input class="form-control" type="date" name="valid_to"></label>
+      <label>Suspended from <input class="form-control" type="date" name="suspended_from"></label>
+      <label>Suspended until <input class="form-control" type="date" name="suspended_to"></label>
+      <label>Evidence reference <input class="form-control" name="evidence_reference" maxlength="500" placeholder="Certificate, assessment or record reference"></label>
     </details>
     <button class="btn btn-primary qualification-save" type="submit">Save qualification</button>
   </form>

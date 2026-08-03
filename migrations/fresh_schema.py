@@ -560,9 +560,16 @@ def create_fresh_schema():
         sa.Column('issued_on', sa.Date()),
         sa.Column('valid_from', sa.Date()),
         sa.Column('expires_on', sa.Date()),
+        sa.Column('valid_to', sa.Date()),
+        sa.Column('suspended_from', sa.Date()),
+        sa.Column('suspended_to', sa.Date()),
+        sa.Column('evidence_reference', sa.String(500), nullable=False),
+        sa.Column('created_by_user_id', sa.Integer()),
         sa.Column('status', sa.String(20), nullable=False),
         sa.Column('updated_at', sa.DateTime(), nullable=False),
         sa.UniqueConstraint('unit_id', 'person_id', 'qualification_type_id', name='uq_person_qualification_type'),
+        sa.CheckConstraint('valid_to IS NULL OR valid_from IS NULL OR valid_to >= valid_from', name='ck_person_qualification_valid_range'),
+        sa.CheckConstraint('suspended_to IS NULL OR suspended_from IS NULL OR suspended_to >= suspended_from', name='ck_person_qualification_suspension_range'),
     )
     op.create_index('ix_person_qualification_person_id', 'person_qualification', ['person_id'], unique=False)
     op.create_index('ix_person_qualification_unit_id', 'person_qualification', ['unit_id'], unique=False)

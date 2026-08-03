@@ -271,12 +271,26 @@ def register_saas_models(db, utcnow):
         issued_on = db.Column(db.Date)
         valid_from = db.Column(db.Date)
         expires_on = db.Column(db.Date)
+        valid_to = db.Column(db.Date)
+        suspended_from = db.Column(db.Date)
+        suspended_to = db.Column(db.Date)
+        evidence_reference = db.Column(db.String(500), nullable=False, default="")
+        created_by_user_id = db.Column(db.Integer)
         status = db.Column(db.String(20), nullable=False, default="valid")
         updated_at = db.Column(db.DateTime, nullable=False, default=utcnow)
         __table_args__ = (
             db.UniqueConstraint(
                 "unit_id", "person_id", "qualification_type_id",
                 name="uq_person_qualification_type",
+            ),
+            db.CheckConstraint(
+                "valid_to IS NULL OR valid_from IS NULL OR valid_to >= valid_from",
+                name="ck_person_qualification_valid_range",
+            ),
+            db.CheckConstraint(
+                "suspended_to IS NULL OR suspended_from IS NULL OR "
+                "suspended_to >= suspended_from",
+                name="ck_person_qualification_suspension_range",
             ),
         )
 
