@@ -31,6 +31,7 @@ from reporting import csv_safe_cell
 class RosterDependencies:
     db: Any
     RosterPublication: Any
+    RosterImpactException: Any
     Staff: Any
     Notification: Any
     Assignment: Any
@@ -652,6 +653,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         roster_validation = dependencies.roster_validation.validate_range(
             unit_id, days[0], days[-1]
         )
+        open_impact_exceptions = dependencies.RosterImpactException.query.filter(
+            dependencies.RosterImpactException.unit_id == unit_id,
+            dependencies.RosterImpactException.status.in_(("OPEN", "ACKNOWLEDGED")),
+            dependencies.RosterImpactException.effective_from <= days[-1],
+            dependencies.RosterImpactException.effective_to >= days[0],
+        ).count()
         requests = dependencies.ShiftRequest.query.filter(
             dependencies.ShiftRequest.unit_id == unit_id,
             dependencies.ShiftRequest.day >= start,
@@ -772,6 +779,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             night_active=night_active,
             roster_publication=roster_publication,
             can_publish_roster=dependencies.can_publish_roster(current_user),
+            open_impact_exceptions=open_impact_exceptions,
         )
 
     @login_required

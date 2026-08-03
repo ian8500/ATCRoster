@@ -972,17 +972,30 @@ def register_saas_models(db, utcnow):
         preserve_overrides = db.Column(db.Boolean, nullable=False, default=True)
         reason = db.Column(db.String(500), nullable=False, default="")
         triggered_by_user_id = db.Column(db.Integer)
-        status = db.Column(db.String(20), nullable=False, default="PROCESSING", index=True)
+        status = db.Column(db.String(30), nullable=False, default="PENDING", index=True)
         protected_from = db.Column(db.Date)
         protected_to = db.Column(db.Date)
         automatic_from = db.Column(db.Date)
         automatic_to = db.Column(db.Date)
         result_json = db.Column(db.Text, nullable=False, default="{}")
+        started_at = db.Column(db.DateTime)
+        affected_dates = db.Column(db.Integer, nullable=False, default=0)
+        assignments_created = db.Column(db.Integer, nullable=False, default=0)
+        baselines_changed = db.Column(db.Integer, nullable=False, default=0)
+        baselines_removed = db.Column(db.Integer, nullable=False, default=0)
+        overrides_retained = db.Column(db.Integer, nullable=False, default=0)
+        redundant_overrides_found = db.Column(db.Integer, nullable=False, default=0)
+        exceptions_created = db.Column(db.Integer, nullable=False, default=0)
+        warnings_created = db.Column(db.Integer, nullable=False, default=0)
+        error_message = db.Column(db.String(2000), nullable=False, default="")
         created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
         completed_at = db.Column(db.DateTime)
         __table_args__ = (
             db.UniqueConstraint("unit_id", "id", name="uq_roster_impact_event_unit_id"),
-            db.CheckConstraint("status IN ('PROCESSING','COMPLETED')", name="ck_roster_impact_event_status"),
+            db.CheckConstraint(
+                "status IN ('PENDING','RUNNING','COMPLETED','COMPLETED_WITH_WARNINGS','FAILED')",
+                name="ck_roster_impact_event_status",
+            ),
             db.CheckConstraint("effective_to IS NULL OR effective_to >= effective_from", name="ck_roster_impact_event_range"),
         )
 
@@ -1008,7 +1021,7 @@ def register_saas_models(db, utcnow):
             db.ForeignKeyConstraint(["unit_id", "staff_id"], ["staff.unit_id", "staff.id"], name="fk_roster_impact_exception_staff_unit"),
             db.CheckConstraint("effective_to >= effective_from", name="ck_roster_impact_exception_range"),
             db.CheckConstraint("severity IN ('INFO','WARNING','CRITICAL')", name="ck_roster_impact_exception_severity"),
-            db.CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED')", name="ck_roster_impact_exception_status"),
+            db.CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED','NOT_APPLICABLE')", name="ck_roster_impact_exception_status"),
         )
 
     class MfaCredential(db.Model):

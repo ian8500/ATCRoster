@@ -78,6 +78,59 @@ class RosterImpactService:
         event_type: RosterImpactEventType | str,
         effective_from: date,
         effective_to: date | None = None,
+        **options: Any,
+    ) -> RosterImpactResult:
+        """Apply an impact atomically and retain an honest failed audit row."""
+        if options.get("preserve_overrides", True) is False:
+            raise ValueError("Roster-impact processing must preserve editor overrides.")
+        if effective_to is not None and effective_to < effective_from:
+            raise ValueError("Roster-impact event end date cannot precede its start date.")
+        try:
+            kind = event_type if isinstance(event_type, RosterImpactEventType) else RosterImpactEventType(str(event_type))
+        except ValueError as exc:
+            raise ValueError("Unknown roster-impact event type.") from exc
+        try:
+            return self._handle_roster_impact_event(
+                unit_id, kind, effective_from, effective_to, **options
+            )
+        except Exception as exc:
+            # Discard both the workforce mutation and partial recalculation,
+            # then write the failure in a clean transaction. This avoids the
+            # dangerous state where only half of an impact is persisted.
+            dep = self.dependencies
+            dep.db.session.rollback()
+            unit = dep.db.session.get(dep.Unit, int(unit_id))
+            if unit is not None:
+                failed_at = dep.utcnow()
+                failed = dep.RosterImpactEvent(
+                    unit_id=unit.id, event_type=kind.value,
+                    effective_from=effective_from, effective_to=effective_to,
+                    staff_ids_json=json.dumps(tuple(sorted({
+                        int(value) for value in options.get("staff_ids") or ()
+                    }))),
+                    watch_ids_json=json.dumps(tuple(sorted({
+                        int(value) for value in options.get("watch_ids") or ()
+                    }))),
+                    rebuild_baseline=bool(options.get("rebuild_baseline", False)),
+                    recalculate_coverage=bool(options.get("recalculate_coverage", True)),
+                    preserve_overrides=True,
+                    reason=(options.get("reason") or "")[:500],
+                    triggered_by_user_id=options.get("triggered_by_user_id"),
+                    status="FAILED", started_at=failed_at, completed_at=failed_at,
+                    error_message=str(exc)[:2000], created_at=failed_at,
+                    affected_dates=(effective_to - effective_from).days + 1
+                    if effective_to else 0,
+                )
+                dep.db.session.add(failed)
+                dep.db.session.commit()
+            raise
+
+    def _handle_roster_impact_event(
+        self,
+        unit_id: int,
+        event_type: RosterImpactEventType | str,
+        effective_from: date,
+        effective_to: date | None = None,
         *,
         staff_ids: Iterable[int] | None = None,
         watch_ids: Iterable[int] | None = None,
@@ -124,10 +177,11 @@ class RosterImpactService:
                 rebuild_baseline=bool(rebuild_baseline),
                 recalculate_coverage=bool(recalculate_coverage),
                 preserve_overrides=True, reason=(reason or "")[:500],
-                triggered_by_user_id=triggered_by_user_id, status="PROCESSING",
+                triggered_by_user_id=triggered_by_user_id, status="RUNNING",
                 protected_from=protected_from, protected_to=protected_to,
                 automatic_from=automatic_from, automatic_to=automatic_to,
-                created_at=dep.utcnow(),
+                created_at=dep.utcnow(), started_at=dep.utcnow(),
+                affected_dates=(horizon - effective_from).days + 1 if horizon else 0,
             )
             dep.db.session.add(event)
             dep.db.session.flush()
@@ -170,7 +224,20 @@ class RosterImpactService:
                 },
             }
             event.result_json = json.dumps(summary, default=str, sort_keys=True)
-            event.status = "COMPLETED"
+            population_summary = summary.get("population") or {}
+            event.assignments_created = int(population_summary.get("created") or 0)
+            event.baselines_changed = int(population_summary.get("updated") or 0)
+            event.overrides_retained = sum(
+                1 for change in getattr(population_result, "changes", ())
+                if change.effective_code != change.generated_code
+            )
+            event.exceptions_created = exception_count
+            event.warnings_created = exception_count + int(
+                population_summary.get("unresolved_flexible_dates") or 0
+            )
+            event.status = (
+                "COMPLETED_WITH_WARNINGS" if event.warnings_created else "COMPLETED"
+            )
             event.completed_at = dep.utcnow()
             dep.db.session.flush()
 

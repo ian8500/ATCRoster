@@ -32,6 +32,10 @@
      href="{{ url_for('change_log_page') }}">
     <i class="fa-solid fa-list-check"></i><span>Change log</span>
   </a>
+  <a class="admin-section-tab admin-section-link {% if request.blueprint == 'roster_impact' %}active{% endif %}"
+     href="{{ url_for('roster_impact.exceptions') }}">
+    <i class="fa-solid fa-triangle-exclamation"></i><span>Impact queue</span>
+  </a>
   <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_fatigue_rules' %}active{% endif %}"
      href="{{ url_for('admin_fatigue_rules') }}">
     <i class="fa-solid fa-gauge-high"></i><span>Fatigue rules</span>

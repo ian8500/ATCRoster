@@ -102,7 +102,13 @@ def test_event_splits_protected_and_automatic_ranges(impact_context):
     assert override.effective_code == "A"
     assert override.generation_event_id == result.event_id
     event = app.db.session.get(app.RosterImpactEvent, result.event_id)
-    assert event.status == "COMPLETED"
+    assert event.status == "COMPLETED_WITH_WARNINGS"
+    assert event.affected_dates == 49
+    assert event.assignments_created == 1
+    assert event.baselines_changed == 1
+    assert event.overrides_retained == 1
+    assert event.exceptions_created == 1
+    assert event.warnings_created == 1
     assert app.RosterImpactException.query.filter_by(event_id=event.id).count() == 1
 
 
@@ -139,7 +145,7 @@ def test_handler_rejects_override_destruction_and_unknown_events(impact_context)
     assert app.RosterImpactEvent.query.filter_by(unit_id=unit.id).count() == 0
 
 
-def test_failure_rolls_back_event_and_exceptions(impact_context):
+def test_failure_rolls_back_changes_and_records_failed_audit(impact_context):
     service, unit, person, _coverage_calls = impact_context
     service.dependencies.population_service.populate_or_recalculate_baseline = (
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("generation failed"))
@@ -150,7 +156,10 @@ def test_failure_rolls_back_event_and_exceptions(impact_context):
             date(2026, 9, 1), staff_ids=[person.id], rebuild_baseline=True,
             reference_date=date(2026, 8, 3),
         )
-    assert app.RosterImpactEvent.query.filter_by(unit_id=unit.id).count() == 0
+    event = app.RosterImpactEvent.query.filter_by(unit_id=unit.id).one()
+    assert event.status == "FAILED"
+    assert event.error_message == "generation failed"
+    assert event.completed_at is not None
     assert app.RosterImpactException.query.filter_by(unit_id=unit.id).count() == 0
 
 

@@ -9892,6 +9892,9 @@ from absence_requests_blueprint import (
 )
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
+from roster_impact_blueprint import (
+    RosterImpactBlueprintDependencies, create_roster_impact_blueprint,
+)
 from training_blueprint import TrainingDependencies, create_training_blueprint
 from operations_blueprint import OperationsDependencies, create_operations_blueprint
 from live_position_blueprint import (
@@ -10006,6 +10009,15 @@ app.register_blueprint(create_work_pattern_blueprint(
     )
 ))
 
+app.register_blueprint(create_roster_impact_blueprint(
+    RosterImpactBlueprintDependencies(
+        db=db, RosterImpactEvent=RosterImpactEvent,
+        RosterImpactException=RosterImpactException, Staff=Staff, Watch=Watch,
+        current_unit_id=_current_unit_id, can_edit_roster=can_edit_roster,
+        validate_csrf=_validate_csrf, utcnow=utcnow,
+    )
+))
+
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,
     OperationalPositionTimeAllowance=OperationalPositionTimeAllowance,
@@ -10069,6 +10081,7 @@ app.register_blueprint(create_reports_blueprint(ReportsDependencies(
 app.register_blueprint(create_roster_blueprint(RosterDependencies(
     db=db,
     RosterPublication=RosterPublication,
+    RosterImpactException=RosterImpactException,
     Staff=Staff,
     Notification=Notification,
     Assignment=Assignment,

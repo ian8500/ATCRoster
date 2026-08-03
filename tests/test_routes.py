@@ -3645,6 +3645,41 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
         ).counts_as_operational
 
 
+def test_roster_impact_exception_queue_is_actionable_and_unit_scoped(client):
+    login(client)
+    with app.app.app_context():
+        row = app.RosterImpactException.query.filter_by(
+            unit_id=1, status="OPEN"
+        ).order_by(app.RosterImpactException.id).first()
+        assert row is not None
+        exception_id = row.id
+        description = row.description.encode()
+    page = client.get("/roster-impact/exceptions")
+    assert page.status_code == 200
+    assert b"Roster impact queue" in page.data
+    assert description in page.data
+    missing_note = client.post(
+        f"/roster-impact/exceptions/{exception_id}/status",
+        data={"_csrf_token": csrf(client), "status": "RESOLVED"},
+        follow_redirects=True,
+    )
+    assert b"Add a resolution note" in missing_note.data
+    closed = client.post(
+        f"/roster-impact/exceptions/{exception_id}/status",
+        data={
+            "_csrf_token": csrf(client), "status": "NOT_APPLICABLE",
+            "resolution_note": "Reviewed against the protected published roster.",
+        },
+        follow_redirects=True,
+    )
+    assert closed.status_code == 200
+    assert b"Roster-impact exception updated." in closed.data
+    with app.app.app_context():
+        row = db.session.get(app.RosterImpactException, exception_id)
+        assert row.status == "NOT_APPLICABLE"
+        assert row.resolved_by_user_id is not None
+
+
 def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     ordinary = app.app.test_client()
     login_as(ordinary, "staff_test")

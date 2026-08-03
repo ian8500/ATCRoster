@@ -159,6 +159,7 @@
   <button class="btn" data-command="print-roster">Print</button>
   {% if can_edit %}
     <a class="btn" href="{{ url_for('roster_proposals') }}">Allocation proposals</a>
+    <a class="btn" href="{{ url_for('roster_impact.exceptions') }}">Impact queue{% if open_impact_exceptions %} · {{ open_impact_exceptions }}{% endif %}</a>
   {% endif %}
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
