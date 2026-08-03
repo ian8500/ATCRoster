@@ -448,7 +448,9 @@
     if (!rosterTable || !rosterStatusFrame) return;
     const renderedWidth = rosterTable.getBoundingClientRect().width;
     if (renderedWidth > 0) {
-      rosterStatusFrame.style.width = `${Math.ceil(renderedWidth)}px`;
+      rosterStatusFrame.style.setProperty(
+        '--roster-status-frame-width', `${Math.ceil(renderedWidth)}px`
+      );
     }
   };
   const updateRosterStickyTop = () => {

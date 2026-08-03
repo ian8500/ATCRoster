@@ -410,11 +410,6 @@
       }
 
       const host = table.closest('#roster') || table.parentElement;
-      // The publication-status frame follows the rendered table width. Reset
-      // it before measuring the available viewport for a fresh fit-width pass.
-      if (host?.classList.contains('roster-status-frame')) {
-        host.style.removeProperty('width');
-      }
       const hostRect = host ? host.getBoundingClientRect() : null;
       let containerWidth = hostRect && hostRect.width ? hostRect.width : 0;
 
