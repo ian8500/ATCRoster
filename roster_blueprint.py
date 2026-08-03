@@ -59,6 +59,7 @@ class RosterDependencies:
     month_range: Callable[[int, int], tuple[date, list[date]]]
     requirements_for_day: Callable[..., dict[str, int]]
     staff_is_countable_on: Callable[[Any, date], bool]
+    operational_capability_matrix: Callable[[list[Any], list[date]], dict]
     exclude_from_counters: Callable[[], set[str]]
     get_shift: Callable[[str], Any]
     shift_counter_group_for_day: Callable[[str, date, int], str | None]
@@ -581,13 +582,19 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             )
         )
         counters = {duty_day: Counter() for duty_day in days}
+        capability_matrix = dependencies.operational_capability_matrix(staff, days)
         excluded = dependencies.exclude_from_counters()
         for person in staff:
             if not getattr(person, "is_operational", True):
                 continue
             row = assignment_map.get(person.id, {})
             for duty_day in days:
-                if not dependencies.staff_is_countable_on(person, duty_day):
+                capability = capability_matrix.get((person.id, duty_day))
+                if capability is not None:
+                    countable = capability.counts_as_operational
+                else:
+                    countable = dependencies.staff_is_countable_on(person, duty_day)
+                if not countable:
                     continue
                 code = (row.get(duty_day) or "").upper()
                 if (

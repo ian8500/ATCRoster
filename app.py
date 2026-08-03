@@ -1774,6 +1774,10 @@ def get_staff_operational_capability(staff_id: int, on_date: date):
     )
 
 
+def get_operational_capability_matrix(staff: list[Staff], days: list[date]):
+    return operational_capability_service().get_capability_matrix(staff, days)
+
+
 def get_shift_counter_map(unit_id: int | None = None) -> dict[str, str]:
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
     raw = _roster_settings_snapshot(resolved_unit_id).get(
@@ -10150,6 +10154,7 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     month_range=month_range,
     requirements_for_day=requirements_for_day,
     staff_is_countable_on=staff_is_countable_on,
+    operational_capability_matrix=get_operational_capability_matrix,
     exclude_from_counters=get_exclude_from_counters,
     get_shift=get_shift,
     shift_counter_group_for_day=shift_counter_group_for_day,

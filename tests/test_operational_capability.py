@@ -61,6 +61,12 @@ def test_effective_dated_capability_controls_operational_contribution():
         assert qualified.counts_as_operational
         assert qualified.independent_competencies == frozenset({"ADI"})
 
+        matrix = service.get_capability_matrix(
+            [person], [date(2026, 9, 20), date(2026, 10, 1)]
+        )
+        assert not matrix[(person.id, date(2026, 9, 20))].counts_as_operational
+        assert matrix[(person.id, date(2026, 10, 1))].counts_as_operational
+
         ue.suspended_from = date(2026, 11, 1)
         ue.suspended_to = date(2026, 11, 30)
         app.db.session.commit()

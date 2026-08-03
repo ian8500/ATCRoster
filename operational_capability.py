@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from collections import defaultdict
 from typing import Any
 
 
@@ -43,6 +44,50 @@ class OperationalCapabilityService:
                 False, False, False, frozenset(), frozenset(), False,
                 ("Staff member does not exist.",),
             )
+        qualifications = dep.db.session.query(
+            dep.PersonQualification, dep.QualificationType
+        ).join(
+            dep.QualificationType,
+            dep.QualificationType.id
+            == dep.PersonQualification.qualification_type_id,
+        ).filter(
+            dep.PersonQualification.unit_id == person.unit_id,
+            dep.PersonQualification.person_id == person.id,
+        ).all()
+        return self._evaluate(person, on_date, qualifications)
+
+    def get_capability_matrix(
+        self, people: list[Any], dates: list[date]
+    ) -> dict[tuple[int, date], OperationalCapability]:
+        """Evaluate a roster with one qualification query, avoiding cell N+1s."""
+        persisted = [person for person in people if person.id is not None]
+        if not persisted or not dates:
+            return {}
+        person_ids = [person.id for person in persisted]
+        rows = self.dependencies.db.session.query(
+            self.dependencies.PersonQualification,
+            self.dependencies.QualificationType,
+        ).join(
+            self.dependencies.QualificationType,
+            self.dependencies.QualificationType.id
+            == self.dependencies.PersonQualification.qualification_type_id,
+        ).filter(
+            self.dependencies.PersonQualification.person_id.in_(person_ids),
+        ).all()
+        by_person: dict[int, list[tuple[Any, Any]]] = defaultdict(list)
+        for record, qualification_type in rows:
+            by_person[record.person_id].append((record, qualification_type))
+        return {
+            (person.id, on_date): self._evaluate(
+                person, on_date, by_person.get(person.id, ())
+            )
+            for person in persisted
+            for on_date in dates
+        }
+
+    def _evaluate(
+        self, person: Any, on_date: date, qualifications: Any
+    ) -> OperationalCapability:
         reasons: list[str] = []
         in_unit = self._in_unit(person, on_date)
         if not in_unit:
@@ -54,16 +99,6 @@ class OperationalCapabilityService:
         if not roster_active:
             reasons.append("Operational roster status is inactive.")
 
-        qualifications = dep.db.session.query(
-            dep.PersonQualification, dep.QualificationType
-        ).join(
-            dep.QualificationType,
-            dep.QualificationType.id
-            == dep.PersonQualification.qualification_type_id,
-        ).filter(
-            dep.PersonQualification.unit_id == person.unit_id,
-            dep.PersonQualification.person_id == person.id,
-        ).all()
         valid_codes: set[str] = set()
         supervised: set[str] = set()
         for record, qtype in qualifications:
