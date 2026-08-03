@@ -134,12 +134,14 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
             connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-                == "20260803_51"
+                == "20260803_52"
         )
         if "unit" in inspector.get_table_names():
-            assert "protected_roster_months_ahead" in {
+            unit_columns = {
                 column["name"] for column in inspector.get_columns("unit")
             }
+            assert "protected_roster_months_ahead" in unit_columns
+            assert "preserve_redundant_overrides" in unit_columns
         for table, count in before.items():
             assert (
                 connection.execute(text(f'SELECT COUNT(*) FROM "{table}"')).scalar_one()
