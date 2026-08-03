@@ -714,8 +714,8 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"Saving\xe2\x80\xa6" in response.data
     assert b"atcroster:scroll:" in response.data
     assert b"updateRosterStatusFrameWidth" in response.data
-    assert b"rosterStatusFrame.style.width" in response.data
-    assert b"host.style.removeProperty('width')" in response.data
+    assert b"--roster-status-frame-width" in response.data
+    assert b".roster-status-frame::before" in stylesheet.data
     assert b"annotationButton.dataset.version = payload.version" in response.data
 
 

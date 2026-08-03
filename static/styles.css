@@ -2510,14 +2510,28 @@ table.roster { zoom:var(--ui-scale); }
 .roster-status-banner--published { background:rgba(60,190,125,.12); border-color:rgba(60,190,125,.65); }
 .roster-status-banner--published > i { color:#54d696; }
 .roster-status-frame {
+  position:relative;
   padding:.65rem 0;
-  border:1px solid;
+  border:0;
   border-radius:12px;
+  --roster-status-frame-width:100%;
 }
-.roster-status-frame--draft {
+.roster-status-frame::before {
+  content:"";
+  position:absolute;
+  inset:0 auto auto 0;
+  width:var(--roster-status-frame-width);
+  height:100%;
+  box-sizing:border-box;
+  border:1px solid;
+  border-radius:inherit;
+  pointer-events:none;
+  z-index:20;
+}
+.roster-status-frame--draft::before {
   border-color:rgba(245,183,66,.65);
 }
-.roster-status-frame--published { border-color:rgba(60,190,125,.65); }
+.roster-status-frame--published::before { border-color:rgba(60,190,125,.65); }
 .roster-state-note {
   display:flex;
   align-items:center;
