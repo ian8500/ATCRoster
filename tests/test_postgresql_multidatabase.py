@@ -317,9 +317,9 @@ def _insert_staff(connection, unit_id, username):
         text(
             "INSERT INTO staff "
             "(unit_id, username, password_hash, role, membership_status, "
-            "permissions_json, name, staff_no, employment_type) VALUES "
+            "permissions_json, name, staff_no, employment_type, workforce_notes) VALUES "
             "(:unit_id, :username, 'not-a-login-hash', 'user', 'active', "
-            "'{}', :username, :staff_no, 'FULL_TIME') RETURNING id"
+            "'{}', :username, :staff_no, 'FULL_TIME', '') RETURNING id"
         ),
         {
             "unit_id": unit_id,
@@ -478,9 +478,9 @@ def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
             staff_id = runtime.execute(
                 "INSERT INTO staff "
                 "(unit_id, username, password_hash, role, membership_status, "
-                "permissions_json, name, staff_no, employment_type) VALUES "
+                "permissions_json, name, staff_no, employment_type, workforce_notes) VALUES "
                 "(1, 'grant-user', 'not-a-login-hash', 'user', 'active', "
-                "'{}', 'Grant User', 'GRANT-1', 'FULL_TIME') RETURNING id"
+                "'{}', 'Grant User', 'GRANT-1', 'FULL_TIME', '') RETURNING id"
             ).fetchone()[0]
             runtime.execute(
                 "INSERT INTO change_log "
@@ -651,9 +651,9 @@ def test_postgresql_publication_and_roster_mutations_share_a_coherent_month_lock
         person_id = connection.execute(
             "INSERT INTO staff "
             "(unit_id, username, password_hash, role, membership_status, "
-            "permissions_json, name, staff_no, employment_type) VALUES "
+            "permissions_json, name, staff_no, employment_type, workforce_notes) VALUES "
             "(1, 'publication-race', 'x', 'user', 'active', '{}', "
-            "'Publication Race', 'PUB-1', 'FULL_TIME') RETURNING id"
+            "'Publication Race', 'PUB-1', 'FULL_TIME', '') RETURNING id"
         ).fetchone()[0]
         requirement_id = connection.execute(
             "INSERT INTO requirement (unit_id, year, month) "
