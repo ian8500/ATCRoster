@@ -443,6 +443,14 @@
   const rosterTable = document.querySelector('table.roster');
   const siteHeader = document.querySelector('.site-header');
   const rosterStickyShield = document.querySelector('[data-roster-sticky-shield]');
+  const rosterStatusFrame = document.getElementById('roster');
+  const updateRosterStatusFrameWidth = () => {
+    if (!rosterTable || !rosterStatusFrame) return;
+    const renderedWidth = rosterTable.getBoundingClientRect().width;
+    if (renderedWidth > 0) {
+      rosterStatusFrame.style.width = `${Math.ceil(renderedWidth)}px`;
+    }
+  };
   const updateRosterStickyTop = () => {
     const height = siteHeader ? Math.ceil(siteHeader.getBoundingClientRect().height) : 0;
     if (rosterStickyShield) rosterStickyShield.style.height = `${height}px`;
@@ -451,6 +459,7 @@
     const scale = Number.isFinite(configuredScale) && configuredScale > 0
       ? configuredScale : 1;
     rosterTable?.style.setProperty('--roster-sticky-top', `${Math.ceil(height / scale)}px`);
+    updateRosterStatusFrameWidth();
   };
   updateRosterStickyTop();
   window.addEventListener('resize', updateRosterStickyTop, { passive: true });
