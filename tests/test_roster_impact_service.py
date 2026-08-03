@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -161,6 +162,42 @@ def test_failure_rolls_back_changes_and_records_failed_audit(impact_context):
     assert event.error_message == "generation failed"
     assert event.completed_at is not None
     assert app.RosterImpactException.query.filter_by(unit_id=unit.id).count() == 0
+
+
+def test_override_classification_preserves_redundant_and_flags_post_leaving(impact_context):
+    service, unit, person, _coverage_calls = impact_context
+    person.final_unit_date = date(2026, 11, 1)
+    redundant = app.Assignment(
+        unit_id=unit.id, staff_id=person.id, day=date(2026, 11, 1),
+        code="M", generated_code="M", override_code="M", override_type="MANUAL",
+    )
+    invalid = app.Assignment(
+        unit_id=unit.id, staff_id=person.id, day=date(2026, 11, 2),
+        code="A", generated_code="M", override_code="A", override_type="MANUAL",
+    )
+    app.db.session.add_all((redundant, invalid))
+    app.db.session.commit()
+    service.dependencies = replace(
+        service.dependencies, override_classifier=app.override_classification_service
+    )
+
+    result = service.handle_roster_impact_event(
+        unit.id, RosterImpactEventType.MANUAL_RECALCULATION,
+        date(2026, 11, 1), effective_to=date(2026, 11, 2),
+        staff_ids=[person.id], rebuild_baseline=False,
+        reference_date=date(2026, 8, 3),
+    )
+    app.db.session.commit()
+
+    assert redundant.override_code == "M"
+    assert redundant.override_classification == "REDUNDANT_MATCHES_BASELINE"
+    assert invalid.override_classification == "AFTER_UNIT_LEAVING_DATE"
+    event = app.db.session.get(app.RosterImpactEvent, result.event_id)
+    assert event.redundant_overrides_found == 1
+    assert event.exceptions_created == 1
+    finding = app.RosterImpactException.query.filter_by(event_id=event.id).one()
+    assert finding.exception_type == "OVERRIDE_AFTER_LEAVING_DATE"
+    assert finding.severity == "CRITICAL"
 
 
 @pytest.mark.parametrize(

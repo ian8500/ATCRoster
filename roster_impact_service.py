@@ -54,6 +54,7 @@ class RosterImpactDependencies:
     generated_horizon_end: Callable[[int, date], date | None]
     utcnow: Callable[[], Any]
     recalculate_coverage: Callable[[int, date, date, tuple[int, ...], tuple[int, ...]], None] | None = None
+    override_classifier: Any = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,35 @@ class RosterImpactService:
                     reference_date=reference_date, generation_event_id=event.id,
                 )
 
+            classification_result = None
+            if horizon is not None and dep.override_classifier is not None:
+                classification_result = dep.override_classifier.classify_range(
+                    unit.id, effective_from, horizon, staff_ids=staff,
+                    preserve_redundant=bool(
+                        getattr(unit, "preserve_redundant_overrides", True)
+                    ),
+                )
+                for finding in classification_result.findings:
+                    exception_type = {
+                        "AFTER_UNIT_LEAVING_DATE": "OVERRIDE_AFTER_LEAVING_DATE",
+                        "OUTSIDE_EMPLOYMENT": "INVALID_OPERATIONAL_CONTRIBUTION",
+                        "CONFLICTS_WITH_HARD_RESTRICTION": "PATTERN_CHANGE_REQUIRES_REVIEW",
+                        "REQUIRES_REVIEW": "PATTERN_CHANGE_REQUIRES_REVIEW",
+                    }[finding.classification]
+                    dep.db.session.add(dep.RosterImpactException(
+                        unit_id=unit.id, event_id=event.id,
+                        staff_id=finding.assignment.staff_id,
+                        effective_from=finding.assignment.day,
+                        effective_to=finding.assignment.day,
+                        exception_type=exception_type,
+                        severity="CRITICAL" if finding.classification in {
+                            "AFTER_UNIT_LEAVING_DATE", "OUTSIDE_EMPLOYMENT"
+                        } else "WARNING",
+                        description=finding.description[:1000], status="OPEN",
+                        created_at=dep.utcnow(),
+                    ))
+                    exception_count += 1
+
             coverage_done = False
             if recalculate_coverage and horizon is not None and dep.recalculate_coverage:
                 dep.recalculate_coverage(unit.id, effective_from, horizon, staff, watches)
@@ -222,6 +252,11 @@ class RosterImpactService:
                     key: value for key, value in asdict(population_result).items()
                     if key != "changes"
                 },
+                "overrides": None if classification_result is None else {
+                    "classified": classification_result.classified,
+                    "redundant": classification_result.redundant,
+                    "invalid": classification_result.invalid,
+                },
             }
             event.result_json = json.dumps(summary, default=str, sort_keys=True)
             population_summary = summary.get("population") or {}
@@ -232,6 +267,9 @@ class RosterImpactService:
                 if change.effective_code != change.generated_code
             )
             event.exceptions_created = exception_count
+            event.redundant_overrides_found = (
+                classification_result.redundant if classification_result else 0
+            )
             event.warnings_created = exception_count + int(
                 population_summary.get("unresolved_flexible_dates") or 0
             )

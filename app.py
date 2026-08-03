@@ -979,6 +979,9 @@ class Unit(db.Model):
     protected_roster_months_ahead = db.Column(
         db.Integer, nullable=False, default=2, server_default="2"
     )
+    preserve_redundant_overrides = db.Column(
+        db.Boolean, nullable=False, default=True, server_default="1"
+    )
     active_user_limit = db.Column(db.Integer, nullable=False, default=10)
     onboarding_step = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
@@ -1314,6 +1317,8 @@ class Assignment(db.Model):
     override_reason = db.Column(db.String(500), nullable=False, default="")
     override_by_user_id = db.Column(db.Integer)
     override_at = db.Column(db.DateTime)
+    override_classification = db.Column(db.String(50))
+    override_classified_at = db.Column(db.Date)
     source = db.Column(db.String(10), default="auto")
     note = db.Column(db.String(140), default="")
     # Annotation code (managed via AnnotationType, optional suffix like A6M)
@@ -2549,6 +2554,7 @@ def roster_impact_service():
         population_service=deterministic_roster_population_service(),
         generated_horizon_end=_generated_roster_horizon_end,
         recalculate_coverage=_invalidate_roster_impact_coverage,
+        override_classifier=globals().get("override_classification_service"),
         utcnow=utcnow,
     ))
 
@@ -9915,6 +9921,9 @@ from roster_proposal_service import (
 from work_pattern_migration_service import (
     WorkPatternMigrationDependencies, WorkPatternMigrationService,
 )
+from override_classification_service import (
+    OverrideClassificationDependencies, OverrideClassificationService,
+)
 
 work_pattern_service = WorkPatternService(WorkPatternDependencies(
     Staff=Staff,
@@ -9974,6 +9983,12 @@ roster_proposal_service = RosterProposalService(
         would_trigger_fatigue=would_trigger_fatigue_with_plan,
         compute_fairness_range=_compute_fairness_range,
         utcnow=utcnow,
+    )
+)
+override_classification_service = OverrideClassificationService(
+    OverrideClassificationDependencies(
+        Assignment=Assignment, Staff=Staff, ShiftType=ShiftType,
+        work_pattern_service=work_pattern_service,
     )
 )
 work_pattern_migration_service = WorkPatternMigrationService(
