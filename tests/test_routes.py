@@ -2087,6 +2087,7 @@ def test_onboarding_branding_rules_and_csv_preview(client):
             "action": "request_rules",
             "request_months_ahead": "6",
             "request_lock_day": "18",
+            "protected_roster_months_ahead": "4",
         },
         follow_redirects=True,
     )
@@ -2125,6 +2126,7 @@ def test_onboarding_branding_rules_and_csv_preview(client):
         unit = app.db.session.get(app.Unit, 1)
         assert unit.request_months_ahead == 6
         assert unit.request_lock_day == 18
+        assert unit.protected_roster_months_ahead == 4
 
 
 def test_unit_admin_is_guided_until_onboarding_is_completed(client):

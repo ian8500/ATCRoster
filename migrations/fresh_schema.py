@@ -80,6 +80,10 @@ def create_fresh_schema():
         sa.Column('plan', sa.String(40), nullable=False),
         sa.Column('request_months_ahead', sa.Integer(), nullable=False),
         sa.Column('request_lock_day', sa.Integer(), nullable=False),
+        sa.Column(
+            'protected_roster_months_ahead', sa.Integer(), nullable=False,
+            server_default='2',
+        ),
         sa.Column('active_user_limit', sa.Integer(), nullable=False),
         sa.Column('onboarding_step', sa.Integer(), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False),

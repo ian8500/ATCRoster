@@ -962,6 +962,9 @@ class Unit(db.Model):
     plan = db.Column(db.String(40), nullable=False, default="starter")
     request_months_ahead = db.Column(db.Integer, nullable=False, default=3)
     request_lock_day = db.Column(db.Integer, nullable=False, default=20)
+    protected_roster_months_ahead = db.Column(
+        db.Integer, nullable=False, default=2, server_default="2"
+    )
     active_user_limit = db.Column(db.Integer, nullable=False, default=10)
     onboarding_step = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
@@ -7630,12 +7633,25 @@ def unit_onboarding():
             try:
                 months = int(request.form.get("request_months_ahead") or 3)
                 lock_day = int(request.form.get("request_lock_day") or 20)
+                protected_months = int(
+                    request.form.get("protected_roster_months_ahead")
+                    or unit.protected_roster_months_ahead
+                )
             except ValueError:
                 abort(400, "Request rules must be whole numbers.")
-            if not 1 <= months <= 24 or not 1 <= lock_day <= 28:
-                abort(400, "Request window must be 1–24 months and lock day 1–28.")
+            if (
+                not 1 <= months <= 24
+                or not 1 <= lock_day <= 28
+                or not 0 <= protected_months <= 24
+            ):
+                abort(
+                    400,
+                    "Request window must be 1–24 months, lock day 1–28, "
+                    "and protected horizon 0–24 months.",
+                )
             unit.request_months_ahead = months
             unit.request_lock_day = lock_day
+            unit.protected_roster_months_ahead = protected_months
             unit.onboarding_step = max(unit.onboarding_step, 8)
             db.session.commit()
             flash("Fatigue and request rules saved.", "ok")
