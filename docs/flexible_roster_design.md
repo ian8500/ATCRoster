@@ -104,3 +104,30 @@ the legacy fallback. The server repeats the analysis when migration is submitted
 so a stale browser report cannot force an unsafe match. Migration only inserts
 an effective-dated `StaffPatternAssignment`, retaining the legacy anchor and
 leaving every existing roster assignment unchanged.
+
+## Initial automatic allocation (Stages 11 and 12)
+
+`roster_allocation_service.generate_roster_proposal` is the first safe
+gap-filling boundary. It accepts plain staff, shift, requirement and existing
+assignment snapshots plus callbacks for the application's eligibility,
+qualification, medical, leave and fatigue decisions. It returns an immutable
+`RosterProposal`; it has no database session and cannot alter the live roster.
+
+The initial strategy is deterministic and constraint-first. Existing
+assignments, including soft- and hard-locked assignments, are retained. A
+person can receive no more than one proposed duty per day. Hard constraint
+failures are rejected before scoring and can never be traded for fairness.
+Overtime is prohibited unless explicitly enabled.
+
+Legal candidates are ranked using centralised `AllocationWeights`. Coverage
+has the dominant penalty, followed by overtime, contractual-minute deviation,
+proportional night/weekend balance and soft preferences. The result contains
+proposed and retained duties, structured uncovered reasons and explanations,
+objective cost, fairness minute impact, elapsed time and configuration.
+`FEASIBLE` means this deterministic strategy filled every requested gap;
+`OPTIMAL` is reserved for a future solver that can prove optimality.
+
+This stage deliberately has no apply operation. Stage 13 will persist proposals,
+let authorised planners accept or reject each proposed duty, and audit every
+accepted change. A CP-SAT strategy can later replace this strategy behind the
+same proposal result types without changing that review workflow.
