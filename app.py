@@ -85,6 +85,10 @@ from fatigue_compliance import (
     create_fatigue_compliance_blueprint,
 )
 from work_pattern_service import WorkPatternDependencies, WorkPatternService
+from roster_population_service import (
+    DeterministicRosterPopulationService,
+    PopulationDependencies,
+)
 from access_policy import (
     has_permission,
     is_admin,
@@ -2421,6 +2425,29 @@ def code_from_pattern(staff: Staff, d: date):
     idx = (d - anchor).days % len(pat)
     code = pat[idx]
     return "OFF" if code == "N" and not _night_active_on(staff.unit_id, d) else code
+
+
+def _effective_watch_id(staff: Staff, duty_day: date) -> int | None:
+    watch = _effective_watch(staff, duty_day)
+    return watch.id if watch else None
+
+
+def deterministic_roster_population_service():
+    """Build the shared baseline-population service for application callers."""
+    return DeterministicRosterPopulationService(PopulationDependencies(
+        db=db,
+        Unit=Unit,
+        Staff=Staff,
+        Assignment=Assignment,
+        ShiftType=ShiftType,
+        WorkPattern=WorkPattern,
+        WorkPatternDay=WorkPatternDay,
+        WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
+        StaffPatternAssignment=StaffPatternAssignment,
+        utcnow=utcnow,
+        legacy_code_resolver=code_from_pattern,
+        watch_id_resolver=_effective_watch_id,
+    ))
 
 
 def _cycle_day_for(staff: Staff, d: date) -> int | None:
