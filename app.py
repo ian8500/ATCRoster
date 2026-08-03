@@ -281,7 +281,8 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "toil_transaction", "work_pattern", "work_pattern_day",
     "work_pattern_day_allowed_shift", "staff_pattern_assignment",
     "staff_rule", "bank_holiday", "roster_proposal",
-    "roster_proposal_assignment",
+    "roster_proposal_assignment", "roster_period",
+    "roster_impact_event", "roster_impact_exception",
 })
 
 

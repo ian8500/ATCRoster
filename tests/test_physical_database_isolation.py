@@ -44,6 +44,14 @@ def test_roster_proposals_are_routed_to_operational_databases():
     }.issubset(app.OPERATIONAL_TABLE_NAMES)
 
 
+def test_roster_maintenance_records_are_routed_to_operational_databases():
+    assert {
+        "roster_period",
+        "roster_impact_event",
+        "roster_impact_exception",
+    }.issubset(app.OPERATIONAL_TABLE_NAMES)
+
+
 def _seed_operational_unit(
     unit_id, secret_name, username, marker, create_schema=True
 ):
