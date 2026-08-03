@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
+from scripts.report_assignment_migration import classification_summary
+
 REPOSITORY = Path(__file__).resolve().parents[1]
 
 
@@ -132,7 +134,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
             connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            == "20260803_41"
+            == "20260803_42"
         )
         if "unit" in inspector.get_table_names():
             assert "protected_roster_months_ahead" in {
@@ -245,3 +247,41 @@ def test_invalid_position_matrix_blocks_the_data_migration(tmp_path):
     result = _run_alembic(database, "head")
     assert result.returncode != 0
     assert "outside the weekly matrix" in result.stderr
+
+
+def test_assignment_values_are_conservatively_classified(tmp_path):
+    database = tmp_path / "assignment-baseline-override.db"
+    assert _run_alembic(database, "20260803_41").returncode == 0
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO assignment "
+            "(id, unit_id, day, code, source, note) VALUES "
+            "(1, 1, '2026-11-01', 'M', 'auto', 'pattern'), "
+            "(2, 1, '2026-11-02', 'A', 'auto', 'generated watch coverage'), "
+            "(3, 1, '2026-11-03', 'N', 'manual', 'pattern'), "
+            "(4, 1, '2026-11-04', 'AL', 'auto', 'leave'), "
+            "(5, 1, '2026-11-05', 'D', 'legacy-import', '')"
+        ))
+    result = _run_alembic(database, "head")
+    assert result.returncode == 0, result.stdout + result.stderr
+    with engine.connect() as connection:
+        rows = connection.execute(text(
+            "SELECT id, code, generated_code, override_code, override_type "
+            "FROM assignment ORDER BY id"
+        )).all()
+    assert rows == [
+        (1, "M", "M", None, None),
+        (2, "A", "A", None, None),
+        (3, "N", None, "N", "MIGRATED_MANUAL"),
+        (4, "AL", None, "AL", "MIGRATED_ABSENCE"),
+        (5, "D", None, "D", "MIGRATED_UNCERTAIN"),
+    ]
+    summary, uncertain = classification_summary(f"sqlite:///{database}")
+    assert summary == {
+        "GENERATED_BASELINE": 2,
+        "MIGRATED_ABSENCE": 1,
+        "MIGRATED_MANUAL": 1,
+        "MIGRATED_UNCERTAIN": 1,
+    }
+    assert uncertain == [5]

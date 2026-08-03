@@ -1265,6 +1265,19 @@ class Assignment(db.Model):
     staff = db.relationship("Staff", backref="assignments")
     day = db.Column(db.Date, index=True)
     code = db.Column(db.String(10), nullable=False)
+    # Compatibility note: ``code`` remains the legacy materialised value while
+    # readers are moved in stages to ``effective_code``.
+    generated_code = db.Column(db.String(10))
+    override_code = db.Column(db.String(10))
+    generated_from_pattern_id = db.Column(db.Integer)
+    generated_from_pattern_day_index = db.Column(db.Integer)
+    generated_at = db.Column(db.DateTime)
+    generation_event_id = db.Column(db.Integer)
+    generation_version = db.Column(db.String(40))
+    override_type = db.Column(db.String(40))
+    override_reason = db.Column(db.String(500), nullable=False, default="")
+    override_by_user_id = db.Column(db.Integer)
+    override_at = db.Column(db.DateTime)
     source = db.Column(db.String(10), default="auto")
     note = db.Column(db.String(140), default="")
     # Annotation code (managed via AnnotationType, optional suffix like A6M)
@@ -1276,6 +1289,15 @@ class Assignment(db.Model):
     locked_by_user_id = db.Column(db.Integer)
     locked_at = db.Column(db.DateTime)
     lock_reason = db.Column(db.String(250), nullable=False, default="")
+
+    @property
+    def effective_code(self):
+        """Return the editor override, then baseline, then legacy fallback."""
+        if self.override_code is not None:
+            return self.override_code
+        if self.generated_code is not None:
+            return self.generated_code
+        return self.code
     __table_args__ = (db.UniqueConstraint(
         "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),
         db.CheckConstraint(
