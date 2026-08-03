@@ -37,8 +37,16 @@ class RosterProposalDependencies:
     staff_is_countable_on: Callable[[Any, date], bool]
     staff_has_qualification: Callable[[Any, Any, date], bool]
     would_trigger_fatigue: Callable[[Any, date, str, dict[date, str]], list[str]]
-    compute_fairness_range: Callable[[date, date], list[Any]]
+    compute_fairness_range: Callable[[date, date], tuple[list[Any], dict[str, Any]]]
     utcnow: Callable[[], Any]
+
+
+def index_fairness_rows(
+    result: tuple[list[Any], dict[str, Any]],
+) -> dict[int, Any]:
+    """Index the shared fairness helper's ``(rows, totals)`` result."""
+    rows, _totals = result
+    return {row.staff_id: row for row in rows}
 
 
 class RosterProposalService:
@@ -129,12 +137,9 @@ class RosterProposalService:
                 lock_status=row.lock_status or "UNLOCKED",
             ))
         lookback_start = start_date - timedelta(days=fairness_lookback_days)
-        fairness = {
-            row.staff_id: row
-            for row in self.dependencies.compute_fairness_range(
-                lookback_start, end_date
-            )
-        }
+        fairness = index_fairness_rows(
+            self.dependencies.compute_fairness_range(lookback_start, end_date)
+        )
         people = [
             AllocationStaff(
                 staff_id=row.id,
