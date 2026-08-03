@@ -65,11 +65,12 @@
   /* The roster is wider than the viewport and the document owns horizontal
      scrolling. Keep an opaque viewport-wide layer behind the site header so
      roster rows cannot appear above the sticky date headings at the far right. */
-  .roster-sticky-shield {
+  .roster-page .page-content > .roster-sticky-shield {
     position: fixed;
     inset: 0 0 auto 0;
     width: 100vw;
     height: 0;
+    margin: 0;
     background: #11161d;
     pointer-events: none;
     z-index: 9;
