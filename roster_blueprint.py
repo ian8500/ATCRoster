@@ -403,7 +403,9 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             dependencies.Assignment.day >= start,
             dependencies.Assignment.day < month_end,
         ):
-            assignment_map[assignment.staff_id][assignment.day] = assignment.code
+            assignment_map[assignment.staff_id][assignment.day] = (
+                assignment.effective_code
+            )
         requirement = dependencies.Requirement.query.filter_by(
             year=year, month=month
         ).first()
@@ -518,6 +520,11 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         assignment_lock_map = {
             (assignment.staff_id, assignment.day): assignment
             for assignment in month_assignments
+        }
+        assignment_override_map = {
+            (assignment.staff_id, assignment.day): True
+            for assignment in month_assignments
+            if assignment.override_code is not None
         }
         annotation_map: dict[int, dict[date, str]] = {}
         annotation_note_map: dict[int, dict[date, str]] = {}
@@ -676,7 +683,8 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                     dependencies.ShiftRequest.status == "fulfilled",
                     dependencies.ShiftRequest.day >= start,
                     dependencies.ShiftRequest.day < month_end,
-                    dependencies.Assignment.code == dependencies.ShiftRequest.code,
+                    dependencies.Assignment.effective_code
+                    == dependencies.ShiftRequest.code,
                 )
                 .all()
             )
@@ -733,6 +741,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             a_map=assignment_map,
             assignment_version_map=assignment_version_map,
             assignment_lock_map=assignment_lock_map,
+            assignment_override_map=assignment_override_map,
             ann_map=annotation_map,
             ann_note_map=annotation_note_map,
             req_by_day=requirements,
@@ -790,7 +799,10 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             assignments = dependencies.Assignment.query.filter_by(
                 unit_id=unit_id, day=duty_day
             ).all()
-            codes = {item.staff_id: (item.code or "").upper() for item in assignments}
+            codes = {
+                item.staff_id: (item.effective_code or "").upper()
+                for item in assignments
+            }
             excluded = dependencies.exclude_from_counters()
             _, training, _ = dependencies.shift_groups(unit_id)
             training_codes = {shift.code for shift in training}
@@ -871,14 +883,23 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 staff=person,
                 day=duty_day,
                 code="OFF",
+                generated_code="OFF",
+                generation_version="cell-created-v1",
             )
             dependencies.db.session.add(assignment)
 
-        code = (request.form.get("code") or "").strip().upper()
+        raw_code = (request.form.get("code") or "").strip().upper()
+        clear_override = raw_code == "__BASELINE__"
+        code = "" if clear_override else raw_code
         annotation = request.form.get("annotation")
-        old_code = assignment.code
+        old_code = assignment.effective_code
         code_changed = False
-        if code:
+        if clear_override:
+            assignment.clear_editor_override()
+            assignment.source = "auto"
+            assignment.note = "generated baseline"
+            code_changed = old_code != assignment.effective_code
+        elif code:
             if annual_leave and not annotation_is_soal(assignment.annotation):
                 return edit_error(
                     "This annual-leave cell is locked. Apply the SOAL annotation "
@@ -891,9 +912,13 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 )
             if not dependencies.get_shift(code):
                 return edit_error(f"Unknown shift code '{code}'")
-            assignment.code = code
+            assignment.set_editor_override(
+                code,
+                actor_id=current_user.id,
+                reason="Manual roster edit",
+            )
             assignment.source = "manual"
-            code_changed = old_code != code
+            code_changed = old_code != assignment.effective_code
 
         if annotation is not None:
             if not dependencies.can_apply_annotations(current_user):
@@ -978,7 +1003,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                         )
                     )
             if annual_leave and not annotation_is_soal(new_value):
-                assignment.code = "AL"
+                assignment.set_editor_override(
+                    "AL",
+                    actor_id=current_user.id,
+                    reason="Annual leave",
+                    override_type="SYSTEM_ABSENCE",
+                )
                 assignment.source = "leave"
                 assignment.note = "annual leave"
         assignment.version = current_version + 1
@@ -993,12 +1023,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 note="Manual roster edit", context_day=duty_day,
             )
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-            saved_shift = dependencies.get_shift(assignment.code)
+            saved_shift = dependencies.get_shift(assignment.effective_code)
             return jsonify(
                 ok=True,
                 staff_id=staff_id,
                 day=duty_day.isoformat(),
-                code=assignment.code,
+                code=assignment.effective_code,
                 annotation=assignment.annotation or "",
                 annotation_note=assignment.annotation_note or "",
                 version=assignment.version,

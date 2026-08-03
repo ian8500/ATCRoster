@@ -727,8 +727,16 @@ def test_roster_renders_annual_leave_as_static_al_code(client):
     duty_day = date(2025, 6, 3)
     with app.app.app_context():
         assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
-        original = (assignment.code, assignment.source, assignment.note)
-        assignment.code = "AL"
+        original = {
+            column: getattr(assignment, column)
+            for column in (
+                "code", "override_code", "override_type", "override_reason",
+                "override_by_user_id", "override_at", "source", "note",
+            )
+        }
+        assignment.set_editor_override(
+            "AL", reason="Annual leave", override_type="SYSTEM_ABSENCE"
+        )
         assignment.source = "leave"
         assignment.note = "annual leave"
         db.session.commit()
@@ -741,7 +749,8 @@ def test_roster_renders_annual_leave_as_static_al_code(client):
     finally:
         with app.app.app_context():
             assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
-            assignment.code, assignment.source, assignment.note = original
+            for column, value in original.items():
+                setattr(assignment, column, value)
             db.session.commit()
 
 
@@ -752,15 +761,17 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
     client.get(f"/roster/{ym}")
     with app.app.app_context():
         assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
-        original = (
-            assignment.code,
-            assignment.source,
-            assignment.note,
-            assignment.annotation,
-            assignment.annotation_note,
-            assignment.version,
+        original = {
+            column: getattr(assignment, column)
+            for column in (
+                "code", "override_code", "override_type", "override_reason",
+                "override_by_user_id", "override_at", "source", "note",
+                "annotation", "annotation_note", "version",
+            )
+        }
+        assignment.set_editor_override(
+            "AL", reason="Annual leave", override_type="SYSTEM_ABSENCE"
         )
-        assignment.code = "AL"
         assignment.source = "leave"
         assignment.note = "annual leave"
         assignment.annotation = ""
@@ -873,14 +884,8 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
                 if definition:
                     db.session.delete(definition)
             assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
-            (
-                assignment.code,
-                assignment.source,
-                assignment.note,
-                assignment.annotation,
-                assignment.annotation_note,
-                assignment.version,
-            ) = original
+            for column, value in original.items():
+                setattr(assignment, column, value)
             db.session.commit()
             app.refresh_annotation_cache()
 
@@ -1029,7 +1034,14 @@ def test_roster_shift_can_be_saved_without_a_page_reload(client):
         assignment = Assignment.query.filter_by(
             unit_id=1, staff_id=admin.id, day=duty_day
         ).one()
-        original = (assignment.code, assignment.source, assignment.version)
+        original = {
+            column: getattr(assignment, column)
+            for column in (
+                "code", "generated_code", "override_code", "override_type",
+                "override_reason", "override_by_user_id", "override_at",
+                "source", "note", "version",
+            )
+        }
         staff_id = admin.id
         version = assignment.version
     try:
@@ -1056,12 +1068,77 @@ def test_roster_shift_can_be_saved_without_a_page_reload(client):
         assert set(payload["day_summary"]) == {
             "counts", "night_active", "rag", "required", "total",
         }
+        with app.app.app_context():
+            saved = Assignment.query.filter_by(
+                unit_id=1, staff_id=staff_id, day=duty_day
+            ).one()
+            assert saved.override_code == "D"
+            assert saved.override_type == "MANUAL"
+            assert saved.effective_code == "D"
     finally:
         with app.app.app_context():
             assignment = Assignment.query.filter_by(
                 unit_id=1, staff_id=staff_id, day=duty_day
             ).one()
-            assignment.code, assignment.source, assignment.version = original
+            for column, value in original.items():
+                setattr(assignment, column, value)
+            db.session.commit()
+
+
+def test_roster_editor_can_clear_override_to_reveal_generated_baseline(client):
+    login(client)
+    duty_day = date(2025, 4, 4)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=admin.id, day=duty_day
+        ).one()
+        original = {
+            column: getattr(assignment, column)
+            for column in (
+                "code", "generated_code", "override_code", "override_type",
+                "override_reason", "override_by_user_id", "override_at",
+                "source", "note", "version",
+            )
+        }
+        assignment.generated_code = "M"
+        assignment.override_code = "A"
+        assignment.code = "A"
+        assignment.override_type = "MANUAL"
+        db.session.commit()
+        staff_id = admin.id
+        version = assignment.version
+
+    try:
+        response = client.post(
+            f"/assign/{staff_id}/2025-04/{duty_day.isoformat()}",
+            data={
+                "_csrf_token": csrf(client),
+                "code": "__BASELINE__",
+                "assignment_version": version,
+            },
+            headers={
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["code"] == "M"
+        with app.app.app_context():
+            saved = Assignment.query.filter_by(
+                unit_id=1, staff_id=staff_id, day=duty_day
+            ).one()
+            assert saved.override_code is None
+            assert saved.generated_code == "M"
+            assert saved.effective_code == "M"
+    finally:
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(
+                unit_id=1, staff_id=staff_id, day=duty_day
+            ).one()
+            for column, value in original.items():
+                setattr(assignment, column, value)
             db.session.commit()
 
 

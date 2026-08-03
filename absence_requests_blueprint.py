@@ -330,13 +330,18 @@ def create_absence_requests_blueprint(
                         staff_id=staff_id,
                         day=cur,
                     ).first()
-                    if a and a.code in {
+                    if a and a.effective_code in {
                         item["code"]
                         for item in dependencies.get_absence_types(
                             "sickness", active_only=False
                         )
                     }:
-                        a.code = new_code
+                        a.set_editor_override(
+                            new_code,
+                            actor_id=current_user.id,
+                            reason="Sickness record updated",
+                            override_type="SYSTEM_ABSENCE",
+                        )
                         a.annotation = ""
                         a.source = "manual"
                         a.note = "sickness"
@@ -830,7 +835,12 @@ def create_absence_requests_blueprint(
                     unit_id=unit_id, staff_id=r.staff_id, day=r.day
                 )
                 dependencies.db.session.add(assignment)
-            assignment.code = r.code
+            assignment.set_editor_override(
+                r.code,
+                actor_id=current_user.id,
+                reason=f"Applied from shift request #{r.id}",
+                override_type="REQUEST",
+            )
             assignment.source = "request"
             assignment.note = f"Applied from shift request #{r.id}"
             dependencies.db.session.flush()

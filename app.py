@@ -34,6 +34,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import HTTPException, SecurityError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.hybrid import hybrid_property
 from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
@@ -1290,7 +1291,7 @@ class Assignment(db.Model):
     locked_at = db.Column(db.DateTime)
     lock_reason = db.Column(db.String(250), nullable=False, default="")
 
-    @property
+    @hybrid_property
     def effective_code(self):
         """Return the editor override, then baseline, then legacy fallback."""
         if self.override_code is not None:
@@ -1298,6 +1299,50 @@ class Assignment(db.Model):
         if self.generated_code is not None:
             return self.generated_code
         return self.code
+
+    @effective_code.expression
+    def effective_code(cls):
+        return db.func.coalesce(cls.override_code, cls.generated_code, cls.code)
+
+    def materialise_effective_code(self):
+        """Keep the legacy column aligned during the compatibility rollout."""
+        effective = self.effective_code
+        self.code = effective if effective is not None else "OFF"
+        return self.code
+
+    def set_generated_baseline(
+        self,
+        code,
+        *,
+        generated_at=None,
+        generation_version=None,
+        pattern_id=None,
+        pattern_day_index=None,
+        generation_event_id=None,
+    ):
+        self.generated_code = code
+        self.generated_at = generated_at or utcnow()
+        self.generation_version = generation_version
+        self.generated_from_pattern_id = pattern_id
+        self.generated_from_pattern_day_index = pattern_day_index
+        self.generation_event_id = generation_event_id
+        return self.materialise_effective_code()
+
+    def set_editor_override(self, code, *, actor_id=None, reason="", override_type="MANUAL"):
+        self.override_code = code
+        self.override_type = override_type
+        self.override_reason = (reason or "")[:500]
+        self.override_by_user_id = actor_id
+        self.override_at = utcnow()
+        return self.materialise_effective_code()
+
+    def clear_editor_override(self):
+        self.override_code = None
+        self.override_type = None
+        self.override_reason = ""
+        self.override_by_user_id = None
+        self.override_at = None
+        return self.materialise_effective_code()
     __table_args__ = (db.UniqueConstraint(
         "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),
         db.CheckConstraint(
@@ -2042,7 +2087,7 @@ def _load_month_roster_core(unit_id: int, y: int, m: int):
         rows = (db.session.query(
             Assignment.staff_id,
             Assignment.day,
-            Assignment.code,
+            Assignment.effective_code.label("effective_code"),
             Assignment.source,
             Assignment.annotation,
             Assignment.annotation_note,
@@ -2388,23 +2433,31 @@ def _cycle_day_for(staff: Staff, d: date) -> int | None:
 
 def set_assignment(staff: Staff, d: date, code: str, source="auto", note=""):
     a = Assignment.query.filter_by(staff_id=staff.id, day=d).first()
-    if a and a.source == "manual":
-        return a
     if not a:
-        a = Assignment(staff=staff, day=d)
+        a = Assignment(staff=staff, day=d, code=code)
         db.session.add(a)
-    a.code, a.source, a.note = code, source, note
+    a.set_generated_baseline(
+        code,
+        generation_version="legacy-pattern-compat-v1",
+    )
+    if a.override_code is None:
+        a.source = source
+        a.note = note
     return a
 
 
 def overwrite_assignment(staff: Staff, d: date, code: str, note: str = ""):
-    """Set/replace assignment regardless of existing source (used when regenerating)."""
+    """Apply a system-managed absence overlay without losing the baseline."""
     a = Assignment.query.filter_by(staff_id=staff.id, day=d).first()
     if not a:
-        a = Assignment(staff=staff, day=d)
+        a = Assignment(staff=staff, day=d, code=code)
         db.session.add(a)
-    a.code = code
-    a.source = "auto"
+    a.set_editor_override(
+        code,
+        reason=note or "System-managed absence",
+        override_type="SYSTEM_ABSENCE",
+    )
+    a.source = "leave"
     a.note = note or a.note
     return a
 
@@ -2418,7 +2471,7 @@ def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
     - Do NOT clear annotations unless the auto logic changes the code.
     """
     existing = Assignment.query.filter_by(staff_id=staff.id, day=d).first()
-    prev_code = existing.code if existing else None
+    prev_code = existing.effective_code if existing else None
 
     # Do not touch manual or AI-written cells (leave/sick handled earlier)
     if existing and (existing.code or "").strip() and existing.source in ("manual", "ai"):
@@ -2455,6 +2508,10 @@ def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
         return a
 
     # No leave: (re)write pattern but preserve annotations unless code changes
+    if existing and existing.override_type in {
+        "MIGRATED_ABSENCE", "SYSTEM_ABSENCE"
+    }:
+        existing.clear_editor_override()
     a = set_assignment(staff, d, pat_code, source="auto", note="pattern")
     if prev_code is None or (prev_code != a.code and a.source != "manual"):
         a.annotation = ""
@@ -3493,15 +3550,19 @@ def _assignment(staff_id: int, d: date) -> "Assignment":
 
 
 def _cell_is_protected(a: "Assignment") -> bool:
-    return (a.code and (a.source in LOCKED_SOURCES))
+    return bool(a.effective_code and a.source in LOCKED_SOURCES)
 
 
 def _set_code(a: "Assignment", code: str, source: str, note: str = "", ctx_month: Optional[str] = None):
-    old = a.code
+    old = a.effective_code
     if old == code and a.source == source:
         return a
 
-    a.code = code
+    a.set_editor_override(
+        code,
+        reason=note or "Allocation proposal",
+        override_type="ALLOCATION",
+    )
     a.annotation = None
     a.source = source
 
@@ -6325,9 +6386,9 @@ def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_da
     for a in q.all():
         pa = parse_annotation(a.annotation)
         acc += _toil_accrual_half_days_from_annotation(pa)
-        if a.code == "TOU8":
+        if a.effective_code == "TOU8":
             use += 2
-        elif a.code == "TOUI":
+        elif a.effective_code == "TOUI":
             use += 1
     return acc, use
 

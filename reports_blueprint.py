@@ -283,7 +283,10 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
                 dependencies.Assignment.day >= start,
                 dependencies.Assignment.day <= report_end,
             ).all()
-            al_taken = sum(1 for assignment in assignments if assignment.code == "AL")
+            al_taken = sum(
+                1 for assignment in assignments
+                if assignment.effective_code == "AL"
+            )
             entitlement = person.leave_entitlement_days or 0
             public_holidays = person.leave_public_holidays or 0
             carryover = person.leave_carryover_days or 0

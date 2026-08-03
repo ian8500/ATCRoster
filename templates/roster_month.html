@@ -289,6 +289,9 @@
                       aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
                       aria-invalid="{% if f %}true{% else %}false{% endif %}">
                 <option value="" {% if not code %}selected{% endif %}>—</option>
+                {% if assignment_override_map.get((s.id, d)) %}
+                <option value="__BASELINE__">↺ Baseline</option>
+                {% endif %}
                 <optgroup label="Working shifts">
                   {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code in ['SC','SSC'] %} disabled{% endif %}{% if sh.code == code %} selected{% endif %}>{{ sh.code }}</option>{% endfor %}
                 </optgroup>
@@ -537,6 +540,7 @@
     if (!select || !cell) return;
     const previousValue = select.dataset.savedValue || '';
     const formData = new FormData(form);
+    const clearingOverride = formData.get('code') === '__BASELINE__';
     form.dataset.saving = '1';
     form.classList.add('is-saving');
     select.disabled = true;
@@ -554,6 +558,7 @@
       const prefix = code === 'EM' ? 'm' : (code === 'LA' ? 'a' : code.slice(0, 1).toLowerCase());
       select.value = code;
       select.dataset.savedValue = code;
+      if (clearingOverride) select.querySelector('option[value="__BASELINE__"]')?.remove();
       select.className = `code-input code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
       cell.querySelectorAll('input[name="assignment_version"]').forEach((input) => { input.value = payload.version; });
       cell.querySelectorAll('[data-roster-annotation-open]').forEach((annotationButton) => { annotationButton.dataset.version = payload.version; });
