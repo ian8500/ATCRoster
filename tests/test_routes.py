@@ -1543,6 +1543,8 @@ def test_roster_routes_render(client):
     export_resp = client.get(f"/roster/{month}/export")
     assert export_resp.status_code == 200
     assert export_resp.mimetype == "text/csv"
+    assert b'data-roster-sticky-shield' in roster_resp.data
+    assert b'rosterStickyShield.style.height' in roster_resp.data
 
 
 def test_position_monitor_account_is_hidden_from_roster_and_export(client):

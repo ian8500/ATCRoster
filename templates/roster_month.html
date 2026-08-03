@@ -62,6 +62,19 @@
      roster navigation, print or zoom controls before they scroll away. */
   .site-header { box-shadow: 0 2px 0 var(--head); }
 
+  /* The roster is wider than the viewport and the document owns horizontal
+     scrolling. Keep an opaque viewport-wide layer behind the site header so
+     roster rows cannot appear above the sticky date headings at the far right. */
+  .roster-sticky-shield {
+    position: fixed;
+    inset: 0 0 auto 0;
+    width: 100vw;
+    height: 0;
+    background: #11161d;
+    pointer-events: none;
+    z-index: 9;
+  }
+
   /* Ensure cells can host absolutely-positioned overlays */
   .roster th.dayhead { position: sticky; }
   .roster td.cell { position: relative; }
@@ -129,6 +142,7 @@
   }
 </style>
 
+<div class="roster-sticky-shield" data-roster-sticky-shield aria-hidden="true"></div>
 <h2>ATC Roster – {{ month_title }}</h2>
 <div class="roster-save-status" data-roster-save-status role="status" aria-live="polite"></div>
 
@@ -427,8 +441,10 @@
   function printRoster(){ window.print(); }
   const rosterTable = document.querySelector('table.roster');
   const siteHeader = document.querySelector('.site-header');
+  const rosterStickyShield = document.querySelector('[data-roster-sticky-shield]');
   const updateRosterStickyTop = () => {
     const height = siteHeader ? Math.ceil(siteHeader.getBoundingClientRect().height) : 0;
+    if (rosterStickyShield) rosterStickyShield.style.height = `${height}px`;
     const rosterHost = document.getElementById('roster');
     const configuredScale = Number(rosterHost?.dataset.scale || 1);
     const scale = Number.isFinite(configuredScale) && configuredScale > 0
