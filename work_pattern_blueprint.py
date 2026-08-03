@@ -22,6 +22,7 @@ class WorkPatternBlueprintDependencies:
     WorkPatternDayAllowedShift: Any
     StaffPatternAssignment: Any
     StaffRule: Any
+    BankHoliday: Any
     is_admin_user: Callable[[Any], bool]
     current_unit_id: Callable[[], int]
     validate_csrf: Callable[[], None]
@@ -44,6 +45,40 @@ def create_work_pattern_blueprint(
         return dependencies.ShiftType.query.filter_by(
             unit_id=unit_id, is_active=True
         ).order_by(dependencies.ShiftType.code).all()
+
+    @blueprint.route("/administration/bank-holidays", methods=["GET", "POST"])
+    @login_required
+    def bank_holidays():
+        unit_id = require_admin()
+        if request.method == "POST":
+            dependencies.validate_csrf()
+            try:
+                holiday_day = date.fromisoformat(request.form["day"])
+                name = (request.form.get("name") or "").strip()[:120]
+                if not name:
+                    raise ValueError("Holiday name is required.")
+                holiday = dependencies.BankHoliday.query.filter_by(
+                    unit_id=unit_id, day=holiday_day
+                ).first()
+                if holiday:
+                    holiday.name = name
+                    holiday.is_active = True
+                else:
+                    dependencies.db.session.add(dependencies.BankHoliday(
+                        unit_id=unit_id, day=holiday_day, name=name,
+                    ))
+                dependencies.db.session.commit()
+                flash("Bank holiday saved.", "ok")
+            except (KeyError, ValueError) as exc:
+                dependencies.db.session.rollback()
+                flash(str(exc) or "Choose a valid holiday date.", "error")
+            return redirect(url_for("work_patterns.bank_holidays"))
+        return render_template(
+            "work_patterns/bank_holidays.html",
+            holidays=dependencies.BankHoliday.query.filter_by(
+                unit_id=unit_id, is_active=True
+            ).order_by(dependencies.BankHoliday.day).all(),
+        )
 
     @blueprint.route("/administration/work-patterns", methods=["GET", "POST"])
     @login_required

@@ -46,6 +46,7 @@ class ReportsDependencies:
     toil_accrued_used: Callable[[int, date, date], tuple[int, int]]
     group_consecutive_days: Callable[[set[date]], int]
     get_absence_types: Callable[..., list]
+    compute_fairness_range: Callable[[date, date], tuple[list, dict]]
 
 
 def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
@@ -417,6 +418,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
                         "roster_month", ym=f"{today.year}-{today.month:02d}"
                     ),
                     "metrics": url_for("metrics"),
+                    "fairness": url_for("report_fairness"),
                 },
                 page_title="Annotation Totals",
                 requires_acknowledgement=False,
@@ -424,6 +426,26 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if getattr(current_user, "role", "") in ("editor", "admin"):
             return redirect(url_for("metrics"))
         abort(403)
+
+    @login_required
+    def report_fairness():
+        if not (
+            dependencies.is_admin_user(current_user)
+            or getattr(current_user, "role", "") in ("editor", "admin")
+        ):
+            abort(403)
+        if acknowledgement := require_acknowledgement():
+            return acknowledgement
+        today = date.today()
+        try:
+            start_day = date.fromisoformat(request.args.get("start", (today - timedelta(days=179)).isoformat()))
+            end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
+        except ValueError:
+            abort(400, "Dates must use YYYY-MM-DD format.")
+        if end_day < start_day or (end_day - start_day).days > 731:
+            abort(400, "Choose a valid date range of no more than two years.")
+        metrics, totals = dependencies.compute_fairness_range(start_day, end_day)
+        return render_template("report_fairness.html", metrics=metrics, totals=totals, start=start_day, end=end_day)
 
     @blueprint.record_once
     def register_routes(state):
@@ -435,6 +457,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             ("/reports/leave-year", "report_leave_year", report_leave_year, ["GET"]),
             ("/reports/sickness", "report_sickness", report_sickness, ["GET"]),
             ("/reports", "reports_index", reports_index, ["GET", "POST"]),
+            ("/reports/fairness", "report_fairness", report_fairness, ["GET"]),
         )
         for rule, endpoint, view_func, methods in routes:
             state.app.add_url_rule(

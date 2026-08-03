@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Roster Fairness{% endblock %}
+
+{% block content %}
+<div class="page-shell fairness-report">
+  <section class="compliance-hero fairness-hero">
+    <div>
+      <span class="admin-step">Decision support</span>
+      <h2>Roster fairness</h2>
+      <p>Actual duties compared with transparent, contracted-pattern-weighted targets. This report supports judgement; it is not a performance score.</p>
+    </div>
+    <button class="btn" type="button" onclick="window.print()"><i class="fa-solid fa-print" aria-hidden="true"></i> Print / save PDF</button>
+  </section>
+
+  <section class="card fairness-controls">
+    <form method="get">
+      <label>From<input type="date" name="start" value="{{ start.isoformat() }}" required></label>
+      <label>To<input type="date" name="end" value="{{ end.isoformat() }}" required></label>
+      <button class="btn btn-primary" type="submit">Update report</button>
+    </form>
+  </section>
+
+  <section class="fairness-summary" aria-label="Period totals">
+    <article class="card"><span>Assigned</span><strong>{{ '%.1f'|format(totals.actual_minutes / 60) }}h</strong></article>
+    <article class="card"><span>Pattern target</span><strong>{{ '%.1f'|format(totals.target_minutes / 60) }}h</strong></article>
+    <article class="card"><span>Nights</span><strong>{{ totals.nights }}</strong></article>
+    <article class="card"><span>Weekends</span><strong>{{ totals.weekends }}</strong></article>
+    <article class="card"><span>Early duties</span><strong>{{ totals.earlies }}</strong></article>
+    <article class="card"><span>Over target</span><strong>{{ '%.1f'|format(totals.overtime_minutes / 60) }}h</strong></article>
+  </section>
+
+  <section class="card">
+    <div class="card-hd">Individual comparison · {{ start.strftime('%d %b %Y') }} to {{ end.strftime('%d %b %Y') }}</div>
+    <div class="table-responsive">
+      <table class="table fairness-table">
+        <thead><tr><th>ATCO</th><th>Hours actual / target</th><th>Difference</th><th>Nights actual / target</th><th>Weekends actual / target</th><th>Bank holidays actual / target</th><th>Early actual / target</th><th>Over target</th><th>Pattern deviations</th><th>Preference breaches</th><th>Audited changes</th></tr></thead>
+        <tbody>
+        {% for row in metrics %}
+          <tr>
+            <th>{{ row.name }}</th>
+            <td>{{ '%.1f'|format(row.actual_minutes / 60) }} / {{ '%.1f'|format(row.target_minutes / 60) }}</td>
+            <td class="{{ 'fairness-over' if row.difference_minutes > 0 else ('fairness-under' if row.difference_minutes < 0 else '') }}">{{ '%+.1f'|format(row.difference_minutes / 60) }}h</td>
+            <td>{{ row.night_count }} / {{ '%.1f'|format(row.target_night_count) }}</td>
+            <td>{{ row.weekend_count }} / {{ '%.1f'|format(row.target_weekend_count) }}</td>
+            <td>{{ row.bank_holiday_count }} / {{ '%.1f'|format(row.target_bank_holiday_count) }}</td>
+            <td>{{ row.early_count }} / {{ '%.1f'|format(row.target_early_count) }}</td>
+            <td>{{ '%.1f'|format(row.overtime_minutes / 60) }}h</td>
+            <td>{{ row.pattern_deviations }}</td>
+            <td>{{ row.preference_breaches if row.preference_breaches else '—' }}</td>
+            <td>{{ row.manual_roster_changes }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="11">No operational staff or working assignments were found for this period.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="legend">Targets are proportional to each ATCO’s effective working pattern in this period. Staff without night or early eligibility receive a zero target for that duty.</p>
+  </section>
+</div>
+{% endblock %}

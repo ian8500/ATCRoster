@@ -385,14 +385,19 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             unit_id, year, month
         )
         assignment_map: dict[int, dict[date, str]] = {}
+        month_assignments = dependencies.Assignment.query.filter(
+            dependencies.Assignment.unit_id == unit_id,
+            dependencies.Assignment.day >= date(year, month, 1),
+            dependencies.Assignment.day
+            < date(*dependencies.add_months(year, month, 1), 1),
+        ).all()
         assignment_version_map: dict[tuple[int, date], int] = {
             (assignment.staff_id, assignment.day): assignment.version
-            for assignment in dependencies.Assignment.query.filter(
-                dependencies.Assignment.unit_id == unit_id,
-                dependencies.Assignment.day >= date(year, month, 1),
-                dependencies.Assignment.day
-                < date(*dependencies.add_months(year, month, 1), 1),
-            ).all()
+            for assignment in month_assignments
+        }
+        assignment_lock_map = {
+            (assignment.staff_id, assignment.day): assignment
+            for assignment in month_assignments
         }
         annotation_map: dict[int, dict[date, str]] = {}
         annotation_note_map: dict[int, dict[date, str]] = {}
@@ -607,6 +612,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             staff=staff,
             a_map=assignment_map,
             assignment_version_map=assignment_version_map,
+            assignment_lock_map=assignment_lock_map,
             ann_map=annotation_map,
             ann_note_map=annotation_note_map,
             req_by_day=requirements,
@@ -750,6 +756,8 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
 
         code = (request.form.get("code") or "").strip().upper()
         annotation = request.form.get("annotation")
+        old_code = assignment.code
+        code_changed = False
         if code:
             if annual_leave and not annotation_is_soal(assignment.annotation):
                 return edit_error(
@@ -765,6 +773,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 return edit_error(f"Unknown shift code '{code}'")
             assignment.code = code
             assignment.source = "manual"
+            code_changed = old_code != code
 
         if annotation is not None:
             if not dependencies.can_apply_annotations(current_user):
@@ -858,6 +867,11 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         except IntegrityError:
             dependencies.db.session.rollback()
             abort(409, "This roster cell changed concurrently.")
+        if code_changed:
+            dependencies.log_change(
+                "Assignment", assignment.id, "code", old_code, assignment.code,
+                note="Manual roster edit", context_day=duty_day,
+            )
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             saved_shift = dependencies.get_shift(assignment.code)
             return jsonify(
@@ -872,6 +886,40 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 day_summary=updated_day_summary(),
             )
         return redirect(url_for("roster_month", ym=ym))
+
+    @login_required
+    def assignment_lock(assignment_id):
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        dependencies.validate_csrf()
+        unit_id = dependencies.current_unit_id()
+        assignment = dependencies.Assignment.query.filter_by(
+            id=assignment_id, unit_id=unit_id
+        ).with_for_update().first_or_404()
+        status = (request.form.get("lock_status") or "").upper()
+        if status not in {"UNLOCKED", "SOFT_LOCKED", "HARD_LOCKED"}:
+            abort(400, "Invalid assignment lock status.")
+        old_status = assignment.lock_status or "UNLOCKED"
+        assignment.lock_status = status
+        if status == "UNLOCKED":
+            assignment.locked_by_user_id = None
+            assignment.locked_at = None
+            assignment.lock_reason = ""
+        else:
+            assignment.locked_by_user_id = current_user.id
+            assignment.locked_at = dependencies.utcnow()
+            assignment.lock_reason = (
+                request.form.get("lock_reason") or ""
+            ).strip()[:250]
+        assignment.version = int(assignment.version or 0) + 1
+        dependencies.db.session.commit()
+        dependencies.log_change(
+            "Assignment", assignment.id, "lock_status", old_status, status,
+            note=assignment.lock_reason, context_day=assignment.day,
+        )
+        return redirect(url_for(
+            "roster_month", ym=f"{assignment.day.year:04d}-{assignment.day.month:02d}"
+        ))
 
     @blueprint.record_once
     def register_routes(state):
@@ -893,6 +941,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 "/assign/<int:staff_id>/<ym>/<day>",
                 "assign_cell",
                 assign_cell,
+                ["POST"],
+            ),
+            (
+                "/assignment/<int:assignment_id>/lock",
+                "assignment_lock",
+                assignment_lock,
                 ["POST"],
             ),
             ("/roster/<ym>/export", "roster_export_csv", roster_export_csv, ["GET"]),

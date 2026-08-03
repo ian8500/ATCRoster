@@ -482,6 +482,12 @@ class WorkPatternService:
             ),
         )
 
+    def get_pattern_day_from_context(
+        self, staff_id: int, on_date: date, context: EligibilityContext
+    ) -> PatternResolution | None:
+        """Resolve a pattern day from preloaded range data without new queries."""
+        return self._pattern_resolution_from_context(staff_id, on_date, context)
+
     def calculate_soft_rule_penalty(
         self, staff_id: int, on_date: date, shift_type_id: int
     ) -> int:
