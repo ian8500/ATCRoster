@@ -141,6 +141,7 @@ class RosterImpactService:
         reason: str | None = None,
         triggered_by_user_id: int | None = None,
         reference_date: date | None = None,
+        allow_protected_rebuild: bool = False,
     ) -> RosterImpactResult:
         if not preserve_overrides:
             raise ValueError("Roster-impact processing must preserve editor overrides.")
@@ -169,6 +170,9 @@ class RosterImpactService:
             if horizon >= boundary:
                 automatic_from = max(effective_from, boundary)
                 automatic_to = horizon
+            if allow_protected_rebuild:
+                automatic_from = effective_from
+                automatic_to = horizon
 
         with dep.db.session.begin_nested():
             event = dep.RosterImpactEvent(
@@ -188,7 +192,7 @@ class RosterImpactService:
             dep.db.session.flush()
 
             exception_count = 0
-            if rebuild_baseline and protected_from is not None:
+            if rebuild_baseline and protected_from is not None and not allow_protected_rebuild:
                 exception_type, severity = _protected_exception_details(kind)
                 scopes = [(value, None) for value in staff] or [(None, value) for value in watches] or [(None, None)]
                 for staff_id, watch_id in scopes:
@@ -206,7 +210,8 @@ class RosterImpactService:
             if rebuild_baseline and automatic_from is not None:
                 population_result = dep.population_service.populate_or_recalculate_baseline(
                     unit.id, automatic_from, automatic_to, staff_ids=staff,
-                    watch_ids=watches, mode="event", reason=reason,
+                    watch_ids=watches,
+                    mode="manual" if allow_protected_rebuild else "event", reason=reason,
                     triggered_by_user_id=triggered_by_user_id,
                     reference_date=reference_date, generation_event_id=event.id,
                 )

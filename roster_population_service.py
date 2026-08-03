@@ -66,6 +66,7 @@ class PopulationDependencies:
     legacy_code_resolver: Callable[[Any, date], str]
     workforce_is_active: Callable[[Any, date], bool] | None = None
     watch_id_resolver: Callable[[Any, date], int | None] | None = None
+    RosterPeriod: Any = None
 
 
 class DeterministicRosterPopulationService:
@@ -198,6 +199,13 @@ class DeterministicRosterPopulationService:
             allowed_ids_by_day[row.work_pattern_day_id].add(row.shift_type_id)
         shifts = dep.ShiftType.query.filter_by(unit_id=unit.id).all()
         shifts_by_id = {row.id: row for row in shifts}
+        closed_periods = set()
+        if normalised_mode in AUTOMATIC_MODES and dep.RosterPeriod is not None:
+            closed_periods = {
+                (row.year, row.month) for row in dep.RosterPeriod.query.filter_by(
+                    unit_id=unit.id, status="CLOSED"
+                ).all()
+            }
 
         created = updated = unchanged = unresolved = 0
         changes: list[PopulationChange] = []
@@ -205,6 +213,10 @@ class DeterministicRosterPopulationService:
         generated_at = dep.utcnow()
         duty_day = population_start
         while duty_day <= effective_to:
+            if (duty_day.year, duty_day.month) in closed_periods:
+                protected_dates += 1
+                duty_day += timedelta(days=1)
+                continue
             for person in staff_rows:
                 if selected_watch_ids:
                     watch_resolver = dep.watch_id_resolver or _default_watch_id

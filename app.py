@@ -95,6 +95,7 @@ from roster_impact_service import (
     RosterImpactEventType,
     RosterImpactService,
 )
+from roster_horizon import get_unit_automatic_recalculation_start
 from operational_capability import (
     OperationalCapabilityDependencies,
     OperationalCapabilityService,
@@ -2514,6 +2515,7 @@ def deterministic_roster_population_service():
         utcnow=utcnow,
         legacy_code_resolver=code_from_pattern,
         watch_id_resolver=_effective_watch_id,
+        RosterPeriod=globals().get("RosterPeriod"),
     ))
 
 
@@ -10034,8 +10036,13 @@ app.register_blueprint(create_roster_impact_blueprint(
     RosterImpactBlueprintDependencies(
         db=db, RosterImpactEvent=RosterImpactEvent,
         RosterImpactException=RosterImpactException, Staff=Staff, Watch=Watch,
+        Unit=Unit, Assignment=Assignment, RosterPeriod=RosterPeriod,
         current_unit_id=_current_unit_id, can_edit_roster=can_edit_roster,
         validate_csrf=_validate_csrf, utcnow=utcnow,
+        is_admin_user=is_admin_user,
+        population_service=deterministic_roster_population_service(),
+        impact_service=roster_impact_service,
+        automatic_boundary=get_unit_automatic_recalculation_start,
     )
 ))
 

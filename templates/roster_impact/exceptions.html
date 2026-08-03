@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Roster impact queue{% endblock %}
 {% block content %}
-<section class="compliance-hero"><div><span class="admin-step">Roster assurance</span><h2>Roster impact queue</h2><p>Review protected-roster conflicts, workforce changes and recalculation warnings without silently rewriting published or locked duties.</p></div></section>
+<section class="compliance-hero"><div><span class="admin-step">Roster assurance</span><h2>Roster impact queue</h2><p>Review protected-roster conflicts, workforce changes and recalculation warnings without silently rewriting published or locked duties.</p><a class="btn btn-primary" href="{{ url_for('roster_impact.preview') }}">Preview or recalculate roster impact</a></div></section>
 
 <section class="card"><div class="card-hd">Queue filters</div><div class="card-bd">
   <form method="get" class="admin-form-grid">

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from datetime import date, timedelta
+
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
@@ -19,10 +21,17 @@ class RosterImpactBlueprintDependencies:
     RosterImpactException: Any
     Staff: Any
     Watch: Any
+    Unit: Any
+    Assignment: Any
+    RosterPeriod: Any
     current_unit_id: Callable[[], int]
     can_edit_roster: Callable[[Any], bool]
     validate_csrf: Callable[[], None]
     utcnow: Callable[[], Any]
+    is_admin_user: Callable[[Any], bool]
+    population_service: Any
+    impact_service: Callable[[], Any]
+    automatic_boundary: Callable[[Any, date | None], date]
 
 
 def create_roster_impact_blueprint(
@@ -116,4 +125,121 @@ def create_roster_impact_blueprint(
         flash("Roster-impact exception updated.", "ok")
         return redirect(url_for("roster_impact.exceptions"))
 
+    @blueprint.get("/preview")
+    @login_required
+    def preview():
+        unit_id = require_access()
+        unit = dependencies.db.session.get(dependencies.Unit, unit_id)
+        today = date.today()
+        boundary = dependencies.automatic_boundary(unit, today)
+        effective_from = _date_arg("effective_from", boundary)
+        effective_to = _date_arg("effective_to", effective_from + timedelta(days=30))
+        if effective_to < effective_from:
+            abort(400, "Impact end date cannot precede its start date.")
+        staff_id = request.args.get("staff_id", type=int)
+        watch_id = request.args.get("watch_id", type=int)
+        staff_ids = (staff_id,) if staff_id else ()
+        watch_ids = (watch_id,) if watch_id else ()
+        query = dependencies.Assignment.query.filter(
+            dependencies.Assignment.unit_id == unit_id,
+            dependencies.Assignment.day >= effective_from,
+            dependencies.Assignment.day <= effective_to,
+        )
+        if staff_id:
+            query = query.filter_by(staff_id=staff_id)
+        elif watch_id:
+            staff_for_watch = dependencies.Staff.query.filter_by(
+                unit_id=unit_id, watch_id=watch_id
+            ).with_entities(dependencies.Staff.id)
+            query = query.filter(dependencies.Assignment.staff_id.in_(staff_for_watch))
+        affected_assignments = query.count()
+        overrides_to_preserve = query.filter(
+            dependencies.Assignment.override_code.isnot(None)
+        ).count()
+        dry_run = dependencies.population_service.populate_or_recalculate_baseline(
+            unit_id, effective_from, effective_to, staff_ids=staff_ids,
+            watch_ids=watch_ids, mode="event", reference_date=today, dry_run=True,
+        )
+        protected_end = min(effective_to, boundary - timedelta(days=1)) \
+            if effective_from < boundary else None
+        automatic_from = max(effective_from, boundary) if effective_to >= boundary else None
+        periods = dependencies.RosterPeriod.query.filter_by(unit_id=unit_id).order_by(
+            dependencies.RosterPeriod.year, dependencies.RosterPeriod.month
+        ).all()
+        return render_template(
+            "roster_impact/preview.html", unit=unit,
+            effective_from=effective_from, effective_to=effective_to,
+            boundary=boundary, protected_end=protected_end,
+            automatic_from=automatic_from,
+            affected_assignments=affected_assignments,
+            overrides_to_preserve=overrides_to_preserve, dry_run=dry_run,
+            staff=dependencies.Staff.query.filter(
+                dependencies.Staff.unit_id == unit_id,
+                dependencies.Staff.role != "position_monitor",
+            ).order_by(dependencies.Staff.name).all(),
+            watches=dependencies.Watch.query.filter_by(unit_id=unit_id).order_by(
+                dependencies.Watch.order_index
+            ).all(), selected_staff_id=staff_id, selected_watch_id=watch_id,
+            periods=periods, is_admin=dependencies.is_admin_user(current_user),
+        )
+
+    @blueprint.post("/recalculate")
+    @login_required
+    def recalculate():
+        unit_id = require_access()
+        dependencies.validate_csrf()
+        unit = dependencies.db.session.get(dependencies.Unit, unit_id)
+        start, end, reason, staff_ids, watch_ids = _impact_form(request)
+        if start < dependencies.automatic_boundary(unit, date.today()):
+            abort(400, "Ordinary recalculation cannot modify a protected roster period.")
+        dependencies.impact_service().handle_roster_impact_event(
+            unit_id, "MANUAL_RECALCULATION", start, effective_to=end,
+            staff_ids=staff_ids, watch_ids=watch_ids, rebuild_baseline=True,
+            reason=reason, triggered_by_user_id=getattr(current_user, "id", None),
+        )
+        dependencies.db.session.commit()
+        flash("Automatic roster range recalculated; editor overrides were preserved.", "ok")
+        return redirect(url_for("roster_impact.exceptions"))
+
+    @blueprint.post("/protected-rebuild")
+    @login_required
+    def protected_rebuild():
+        require_access()
+        if not dependencies.is_admin_user(current_user):
+            abort(403)
+        dependencies.validate_csrf()
+        if (request.form.get("confirmation") or "").strip().upper() != "REBUILD":
+            abort(400, "Type REBUILD to confirm a protected-period rebuild.")
+        start, end, reason, staff_ids, watch_ids = _impact_form(request)
+        dependencies.impact_service().handle_roster_impact_event(
+            dependencies.current_unit_id(), "MANUAL_RECALCULATION", start,
+            effective_to=end, staff_ids=staff_ids, watch_ids=watch_ids,
+            rebuild_baseline=True, reason=reason,
+            triggered_by_user_id=getattr(current_user, "id", None),
+            allow_protected_rebuild=True,
+        )
+        dependencies.db.session.commit()
+        flash("Protected baseline rebuilt; all editor overrides were preserved.", "ok")
+        return redirect(url_for("roster_impact.exceptions"))
+
     return blueprint
+
+
+def _date_arg(name: str, default: date) -> date:
+    raw = request.args.get(name)
+    return date.fromisoformat(raw) if raw else default
+
+
+def _impact_form(req: Any) -> tuple[date, date, str, tuple[int, ...], tuple[int, ...]]:
+    start = date.fromisoformat(req.form["effective_from"])
+    end = date.fromisoformat(req.form["effective_to"])
+    if end < start:
+        abort(400, "Impact end date cannot precede its start date.")
+    reason = (req.form.get("reason") or "").strip()[:500]
+    if not reason:
+        abort(400, "A reason is required.")
+    staff_id = req.form.get("staff_id", type=int)
+    watch_id = req.form.get("watch_id", type=int)
+    if staff_id and watch_id:
+        abort(400, "Choose either a staff member or a watch, not both.")
+    return start, end, reason, (staff_id,) if staff_id else (), (watch_id,) if watch_id else ()
