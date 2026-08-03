@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Roster Validation{% endblock %}
+{% block content %}
+<div class="page-shell">
+  <section class="compliance-hero"><div><span class="admin-step">Pre-publication assurance</span><h2>{{ month_title }} validation</h2><p>Structured checks shared with future automatic allocation.</p></div><button class="btn" onclick="window.print()">Print / save PDF</button></section>
+  <section class="fairness-summary">
+    {% for severity, count in summary.counts_by_severity.items() %}<article class="card"><span>{{ severity }}</span><strong>{{ count }}</strong></article>{% endfor %}
+  </section>
+  <section class="card">
+    <div class="card-hd">{{ 'Blocking issues found' if summary.has_blocking_issues else 'No blocking issues found' }}</div>
+    <div class="table-responsive"><table class="table"><thead><tr><th>Severity</th><th>Date</th><th>ATCO</th><th>Code</th><th>Finding</th></tr></thead><tbody>
+    {% for issue in summary.issues %}<tr><td><span class="status-pill {{ 'danger' if issue.severity.value in ('ERROR','CRITICAL') else 'warning' }}">{{ issue.severity.value }}</span></td><td>{{ issue.day.strftime('%d/%m/%Y') if issue.day else '—' }}</td><td>{{ staff[issue.staff_id].name if issue.staff_id in staff else '—' }}</td><td>{{ issue.code }}</td><td>{{ issue.message }}</td></tr>{% else %}<tr><td colspan="5">The current checks found no issues.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <a class="btn" href="{{ url_for('roster_month', ym=ym) }}">Back to roster</a>
+</div>
+{% endblock %}

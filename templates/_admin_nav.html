@@ -36,6 +36,10 @@
      href="{{ url_for('admin_fatigue_rules') }}">
     <i class="fa-solid fa-gauge-high"></i><span>Fatigue rules</span>
   </a>
+  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_rostering' %}active{% endif %}"
+     href="{{ url_for('admin_rostering') }}">
+    <i class="fa-solid fa-scale-balanced"></i><span>Patterns & eligibility</span>
+  </a>
   {% if admin_nav_interactive %}
   <button type="button"
           class="admin-section-tab"

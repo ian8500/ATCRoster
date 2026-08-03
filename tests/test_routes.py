@@ -805,6 +805,43 @@ def test_health_endpoints_report_ready(client):
     assert ready.get_json()["status"] == "ready"
 
 
+def test_admin_can_open_rostering_foundations_and_validation(client):
+    login(client)
+    admin_page = client.get("/admin/rostering")
+    assert admin_page.status_code == 200
+    assert b"Patterns, eligibility and holidays" in admin_page.data
+    validation = client.get("/roster/2026-08/validation")
+    assert validation.status_code == 200
+    assert b"Pre-publication assurance" in validation.data
+
+
+def test_authorised_editor_can_lock_and_unlock_assignment(client):
+    login_as(client, "editor_test")
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        assignment = Assignment.query.filter_by(
+            staff_id=person.id, day=date(2026, 8, 3)
+        ).first()
+        if assignment is None:
+            assignment = Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 8, 3),
+                code="M",
+            )
+            db.session.add(assignment)
+            db.session.commit()
+        assignment_id = assignment.id
+    response = client.post(
+        f"/assignment/{assignment_id}/lock",
+        data={"_csrf_token": csrf(client), "lock_status": "HARD_LOCKED"},
+    )
+    assert response.status_code == 302
+    with app.app.app_context():
+        locked = db.session.get(Assignment, assignment_id)
+        assert locked.lock_status == "HARD_LOCKED"
+        assert locked.locked_by_user_id is not None
+        assert locked.locked_at is not None
+
+
 def test_login_next_uses_canonical_allowlisted_internal_route(client):
     client.get("/login")
     with client.session_transaction() as session:

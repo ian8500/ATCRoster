@@ -33,7 +33,7 @@
     <div class="card-hd">Individual comparison · {{ start.strftime('%d %b %Y') }} to {{ end.strftime('%d %b %Y') }}</div>
     <div class="table-responsive">
       <table class="table fairness-table">
-        <thead><tr><th>ATCO</th><th>Hours actual / target</th><th>Difference</th><th>Nights actual / target</th><th>Weekends actual / target</th><th>Early actual / target</th><th>Over target</th><th>Pattern deviations</th><th>Preference breaches</th><th>Audited changes</th></tr></thead>
+        <thead><tr><th>ATCO</th><th>Hours actual / target</th><th>Difference</th><th>Nights actual / target</th><th>Weekends actual / target</th><th>Bank holidays actual / target</th><th>Early actual / target</th><th>Over target</th><th>Pattern deviations</th><th>Preference breaches</th><th>Audited changes</th></tr></thead>
         <tbody>
         {% for row in metrics %}
           <tr>
@@ -42,6 +42,7 @@
             <td class="{{ 'fairness-over' if row.difference_minutes > 0 else ('fairness-under' if row.difference_minutes < 0 else '') }}">{{ '%+.1f'|format(row.difference_minutes / 60) }}h</td>
             <td>{{ row.night_count }} / {{ '%.1f'|format(row.target_night_count) }}</td>
             <td>{{ row.weekend_count }} / {{ '%.1f'|format(row.target_weekend_count) }}</td>
+            <td>{{ row.bank_holiday_count }} / {{ '%.1f'|format(row.target_bank_holiday_count) }}</td>
             <td>{{ row.early_count }} / {{ '%.1f'|format(row.target_early_count) }}</td>
             <td>{{ '%.1f'|format(row.overtime_minutes / 60) }}h</td>
             <td>{{ row.pattern_deviations }}</td>
@@ -49,12 +50,12 @@
             <td>{{ row.manual_roster_changes }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="10">No operational staff or working assignments were found for this period.</td></tr>
+          <tr><td colspan="11">No operational staff or working assignments were found for this period.</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
-    <p class="legend">Targets are proportional to each ATCO’s effective working pattern in this period. Staff without night or early duties in their pattern receive a zero target for that duty. Bank-holiday and preference metrics will activate when dated holiday and structured preference data are available.</p>
+    <p class="legend">Targets are proportional to each ATCO’s effective working pattern in this period. Staff without night or early eligibility receive a zero target for that duty.</p>
   </section>
 </div>
 {% endblock %}

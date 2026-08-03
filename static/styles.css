@@ -3481,3 +3481,4 @@ table:not(.roster) td {
 @media(max-width:900px){.fairness-summary{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:560px){.fairness-summary{grid-template-columns:repeat(2,1fr)}.fairness-controls form{align-items:stretch;flex-direction:column}}
 @media print{.fairness-controls,.fairness-hero .btn,.site-header,.site-footer{display:none!important}.fairness-summary{grid-template-columns:repeat(6,1fr)}.fairness-report{font-size:9pt}.fairness-table{min-width:0}}
+.assignment-lock{position:absolute;right:1px;bottom:1px;z-index:3}.assignment-lock select{width:23px;height:20px;padding:0;border:0;background:rgba(9,14,20,.78);color:#dbe7ef;font-size:11px;appearance:none;text-align:center;cursor:pointer}

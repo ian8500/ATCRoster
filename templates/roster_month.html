@@ -124,6 +124,7 @@
   <a class="btn ghost roster-next-link" href="{{ url_for('roster_month', ym=next_ym) }}">{{ next_ym }} &rarr;</a>
 
   <a class="btn roster-export-link" href="{{ url_for('roster_export_csv', ym=ym) }}">Export CSV</a>
+  {% if can_edit %}<a class="btn" href="{{ url_for('roster_validation_report', ym=ym) }}">Validate</a>{% endif %}
   <button class="btn" data-command="print-roster">Print</button>
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
@@ -192,11 +193,23 @@
           {% set ann = ann_map.get(s.id, {}).get(d, "") %}
           {% set ann_note = ann_note_map.get(s.id, {}).get(d, "") %}
           {% set applied_request = applied_request_map.get((s.id, d)) %}
+          {% set assignment_lock = lock_map.get((s.id, d)) %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
           <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
               {% if applied_request %}title="Applied from an approved shift request" aria-label="{{ s.name }}, {{ d.strftime('%d %B %Y') }}, {{ code }}, applied from an approved shift request"{% endif %}>
             {% if applied_request %}
               <span class="request-applied-marker" aria-hidden="true"></span>
+            {% endif %}
+            {% if assignment_lock and can_edit %}
+              <form class="assignment-lock" method="post" action="{{ url_for('assignment_lock', assignment_id=assignment_lock.id) }}" title="{{ assignment_lock.reason or assignment_lock.status|replace('_', ' ')|title }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="lock_reason" value="">
+                <select name="lock_status" data-auto-submit="true" aria-label="Lock status for {{ s.name }} on {{ d.strftime('%d %B %Y') }}">
+                  <option value="UNLOCKED" {% if assignment_lock.status == 'UNLOCKED' %}selected{% endif %}>🔓</option>
+                  <option value="SOFT_LOCKED" {% if assignment_lock.status == 'SOFT_LOCKED' %}selected{% endif %}>◐</option>
+                  <option value="HARD_LOCKED" {% if assignment_lock.status == 'HARD_LOCKED' %}selected{% endif %}>🔒</option>
+                </select>
+              </form>
             {% endif %}
             {% if f %}
               <span class="fatigue-hazard" tabindex="0" role="img"

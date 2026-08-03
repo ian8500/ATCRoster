@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Rostering Rules{% endblock %}
+{% block content %}
+<div class="page-shell">
+  {% include "_admin_nav.html" %}
+  <section class="compliance-hero"><div><span class="admin-step">Roster configuration</span><h2>Patterns, eligibility and holidays</h2><p>Dated configuration used by validation, fairness and future automatic allocation.</p></div></section>
+  <section class="card"><div class="card-hd">Create work pattern</div><form method="post" class="objective-admin-grid"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create_pattern"><label>Name<input name="name" required></label><label>Contracted minutes per cycle<input type="number" min="0" name="contracted_minutes" required></label><label>Description<input name="description"></label><label>Cycle days<input name="days" placeholder="M,M,A,A,N,N,OFF,OFF,OFF,OFF" required><small>Use shift codes, OFF, ANY, OPTIONAL, PROTECTED, or M|D for an allowed set.</small></label><button class="btn btn-primary" type="submit">Create pattern</button></form><div>{% for pattern in patterns %}<span class="status-chip">{{ pattern.name }} · {{ pattern.cycle_length_days }} days · {{ pattern.contracted_minutes_per_cycle }} min</span> {% endfor %}</div></section>
+  <section class="card"><div class="card-hd">Pattern assignments</div>
+    <form method="post" class="objective-admin-grid"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="assign_pattern">
+      <label>ATCO<select name="staff_id" required>{% for person in staff %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}</select></label>
+      <label>Pattern<select name="pattern_id" required>{% for pattern in patterns %}<option value="{{ pattern.id }}">{{ pattern.name }}</option>{% endfor %}</select></label>
+      <label>Effective from<input type="date" name="effective_from" required></label><label>Effective to<input type="date" name="effective_to"></label><label>Anchor date<input type="date" name="anchor_date" required></label><label>Anchor day (zero-based)<input type="number" min="0" name="anchor_day_index" value="0"></label><label>Contracted minutes override<input type="number" min="0" name="contracted_minutes_override"></label><label>Notes<input name="notes" maxlength="500"></label><button class="btn btn-primary" type="submit">Assign pattern</button>
+    </form>
+    <div class="table-responsive"><table class="table"><thead><tr><th>ATCO</th><th>Pattern</th><th>Dates</th><th>Anchor</th></tr></thead><tbody>{% for item in pattern_assignments %}<tr><td>{{ item.staff.name }}</td><td>{{ item.pattern.name }}</td><td>{{ item.effective_from }} – {{ item.effective_to or 'ongoing' }}</td><td>{{ item.anchor_date }} / {{ item.anchor_day_index }}</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  <section class="card"><div class="card-hd">Restrictions and preferences</div>
+    <form method="post" class="objective-admin-grid"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_rule">
+      <label>ATCO<select name="staff_id" required>{% for person in staff %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}</select></label>
+      <label>Rule<select name="rule_type">{% for value in ['NO_NIGHT','AVOID_NIGHT','NO_EARLY','AVOID_EARLY','ALLOWED_SHIFT','DISALLOWED_SHIFT','PREFERRED_SHIFT','PREFERRED_DAY_OFF'] %}<option>{{ value }}</option>{% endfor %}</select></label>
+      <label>Hardness<select name="hardness"><option>HARD</option><option>SOFT</option></select></label><label>From<input type="date" name="effective_from" required></label><label>To<input type="date" name="effective_to"></label><label>Shift (where applicable)<select name="shift_type_id"><option value="">Any</option>{% for shift in shifts %}<option value="{{ shift.id }}">{{ shift.code }} · {{ shift.name }}</option>{% endfor %}</select></label><label>Penalty weight<input type="number" min="0" name="penalty_weight" value="1"></label><label>Reason<input name="reason" maxlength="500"></label><button class="btn btn-primary" type="submit">Add rule</button>
+    </form>
+    <div class="table-responsive"><table class="table"><thead><tr><th>ATCO</th><th>Rule</th><th>Hardness</th><th>Dates</th><th>Reason</th></tr></thead><tbody>{% for rule in rules %}<tr><td>{{ rule.staff.name }}</td><td>{{ rule.rule_type }}</td><td>{{ rule.hardness }}</td><td>{{ rule.effective_from }} – {{ rule.effective_to or 'ongoing' }}</td><td>{{ rule.reason }}</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  <section class="card"><div class="card-hd">Bank holidays</div><form method="post" class="fairness-controls"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_holiday"><label>Date<input type="date" name="day" required></label><label>Name<input name="name" required></label><button class="btn btn-primary">Save holiday</button></form><p>{% for holiday in holidays %}<span class="status-chip">{{ holiday.day }} · {{ holiday.name }}</span> {% else %}No dated bank holidays configured.{% endfor %}</p></section>
+</div>
+{% endblock %}

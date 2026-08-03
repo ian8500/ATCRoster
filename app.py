@@ -42,6 +42,13 @@ from briefing_storage import configured_briefing_storage
 from fairness_service import (
     FairnessAssignment, FairnessStaff, calculate_fairness,
 )
+from rostering_rules import (
+    EffectiveRule, EligibilityResult, PatternResolution, cycle_index,
+    evaluate_eligibility,
+)
+from roster_validation_service import (
+    ValidationAssignment, validate_roster as run_roster_validation,
+)
 from tenancy import (
     authenticated_unit_id,
     bind_authenticated_unit,
@@ -1587,6 +1594,107 @@ class ShiftType(db.Model):
     __table_args__ = (db.UniqueConstraint("unit_id", "code", name="uq_shift_unit_code"),)
 
 
+class WorkPattern(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    cycle_length_days = db.Column(db.Integer, nullable=False)
+    contracted_minutes_per_cycle = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    __table_args__ = (
+        db.UniqueConstraint("unit_id", "name", name="uq_work_pattern_unit_name"),
+        db.CheckConstraint("cycle_length_days > 0", name="ck_work_pattern_cycle_positive"),
+        db.CheckConstraint("contracted_minutes_per_cycle >= 0", name="ck_work_pattern_minutes_nonnegative"),
+    )
+
+
+class WorkPatternDay(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    work_pattern_id = db.Column(db.Integer, db.ForeignKey("work_pattern.id"), nullable=False, index=True)
+    day_index = db.Column(db.Integer, nullable=False)
+    day_type = db.Column(db.String(40), nullable=False)
+    fixed_shift_type_id = db.Column(db.Integer, db.ForeignKey("shift_type.id"))
+    required_work = db.Column(db.Boolean, nullable=False, default=False)
+    notes = db.Column(db.Text, nullable=False, default="")
+    pattern = db.relationship("WorkPattern", backref=db.backref("days", cascade="all, delete-orphan"))
+    fixed_shift = db.relationship("ShiftType")
+    __table_args__ = (
+        db.UniqueConstraint("work_pattern_id", "day_index", name="uq_work_pattern_day_index"),
+        db.CheckConstraint("day_index >= 0", name="ck_work_pattern_day_index_nonnegative"),
+    )
+
+
+class WorkPatternDayAllowedShift(db.Model):
+    work_pattern_day_id = db.Column(db.Integer, db.ForeignKey("work_pattern_day.id"), primary_key=True)
+    shift_type_id = db.Column(db.Integer, db.ForeignKey("shift_type.id"), primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    pattern_day = db.relationship("WorkPatternDay", backref=db.backref("allowed_shift_links", cascade="all, delete-orphan"))
+    shift_type = db.relationship("ShiftType")
+
+
+class StaffPatternAssignment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    work_pattern_id = db.Column(db.Integer, db.ForeignKey("work_pattern.id"), nullable=False, index=True)
+    effective_from = db.Column(db.Date, nullable=False, index=True)
+    effective_to = db.Column(db.Date)
+    anchor_date = db.Column(db.Date, nullable=False)
+    anchor_day_index = db.Column(db.Integer, nullable=False, default=0)
+    contracted_minutes_override = db.Column(db.Integer)
+    notes = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    staff = db.relationship("Staff", backref="pattern_assignments")
+    pattern = db.relationship("WorkPattern")
+    __table_args__ = (
+        db.CheckConstraint("anchor_day_index >= 0", name="ck_staff_pattern_anchor_nonnegative"),
+        db.CheckConstraint("contracted_minutes_override IS NULL OR contracted_minutes_override >= 0", name="ck_staff_pattern_override_nonnegative"),
+        db.CheckConstraint("effective_to IS NULL OR effective_to >= effective_from", name="ck_staff_pattern_dates"),
+    )
+
+
+class StaffRule(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    rule_type = db.Column(db.String(40), nullable=False)
+    hardness = db.Column(db.String(10), nullable=False, default="HARD")
+    effective_from = db.Column(db.Date, nullable=False, index=True)
+    effective_to = db.Column(db.Date)
+    shift_type_id = db.Column(db.Integer, db.ForeignKey("shift_type.id"))
+    shift_group = db.Column(db.String(40))
+    maximum_count = db.Column(db.Integer)
+    rolling_period_days = db.Column(db.Integer)
+    penalty_weight = db.Column(db.Integer, nullable=False, default=1)
+    reason = db.Column(db.Text, nullable=False, default="")
+    authorised_by_user_id = db.Column(db.Integer)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    staff = db.relationship("Staff", backref="staff_rules")
+    shift_type = db.relationship("ShiftType")
+    __table_args__ = (
+        db.CheckConstraint("hardness IN ('HARD','SOFT')", name="ck_staff_rule_hardness"),
+        db.CheckConstraint("effective_to IS NULL OR effective_to >= effective_from", name="ck_staff_rule_dates"),
+        db.CheckConstraint("penalty_weight >= 0", name="ck_staff_rule_penalty_nonnegative"),
+    )
+
+
+class BankHoliday(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    day = db.Column(db.Date, nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    __table_args__ = (
+        db.UniqueConstraint("unit_id", "day", name="uq_bank_holiday_unit_day"),
+    )
+
+
 class Requirement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
@@ -1679,8 +1787,16 @@ class Assignment(db.Model):
     annotation = db.Column(db.String(20), default="")
     # User-facing detail for the annotation. Kept separate from system notes.
     annotation_note = db.Column(db.String(140), default="")
+    lock_status = db.Column(db.String(20), nullable=False, default="UNLOCKED")
+    locked_by_user_id = db.Column(db.Integer)
+    locked_at = db.Column(db.DateTime)
+    lock_reason = db.Column(db.String(250), nullable=False, default="")
     __table_args__ = (db.UniqueConstraint(
-        "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),)
+        "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),
+        db.CheckConstraint(
+            "lock_status IN ('UNLOCKED','SOFT_LOCKED','HARD_LOCKED')",
+            name="ck_assignment_lock_status",
+        ),)
 
 
 class ShiftRequest(db.Model):
@@ -1819,6 +1935,8 @@ from tenancy import authenticated_unit_id
 
 TENANT_OPERATIONAL_MODELS = (
     RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement,
+    WorkPattern, WorkPatternDay, WorkPatternDayAllowedShift,
+    StaffPatternAssignment, StaffRule, BankHoliday,
     SpecialRequirement, SmsAudit, Leave, Sickness,
     Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
     ChangeLog, StaffWatchHistory, QualificationType,
@@ -2697,12 +2815,100 @@ def day_leave_for(staff: Staff, d: date):
 
 
 def code_from_pattern(staff: Staff, d: date):
+    normalised = get_pattern_day_for_staff(staff.id, d)
+    if normalised:
+        if normalised.day_type == "FIXED_SHIFT" and normalised.fixed_shift_type_id:
+            shift = db.session.get(ShiftType, normalised.fixed_shift_type_id)
+            if shift and shift.unit_id == staff.unit_id:
+                return "OFF" if shift.code == "N" and not _night_active_on(staff.unit_id, d) else shift.code
+        # Flexible required days remain deliberately unallocated until an
+        # editor or the proposal optimiser chooses an eligible shift.
+        return "OFF"
     pat, anchor = _pattern_context(staff, d)
     if not pat:
         return "OFF"
     idx = (d - anchor).days % len(pat)
     code = pat[idx]
     return "OFF" if code == "N" and not _night_active_on(staff.unit_id, d) else code
+
+
+def get_pattern_day_for_staff(staff_id: int, on_date: date):
+    """Resolve the dated normalised pattern, falling back to legacy elsewhere."""
+    unit_id = _current_unit_id()
+    assignment = StaffPatternAssignment.query.filter(
+        StaffPatternAssignment.unit_id == unit_id,
+        StaffPatternAssignment.staff_id == staff_id,
+        StaffPatternAssignment.effective_from <= on_date,
+        db.or_(
+            StaffPatternAssignment.effective_to.is_(None),
+            StaffPatternAssignment.effective_to >= on_date,
+        ),
+    ).order_by(StaffPatternAssignment.effective_from.desc()).first()
+    if not assignment:
+        return None
+    index = cycle_index(
+        assignment.anchor_date, assignment.anchor_day_index, on_date,
+        assignment.pattern.cycle_length_days,
+    )
+    pattern_day = WorkPatternDay.query.filter_by(
+        unit_id=unit_id, work_pattern_id=assignment.work_pattern_id,
+        day_index=index,
+    ).first()
+    if not pattern_day:
+        return None
+    return PatternResolution(
+        assignment_id=assignment.id,
+        pattern_id=assignment.work_pattern_id,
+        cycle_index=index,
+        day_type=pattern_day.day_type,
+        fixed_shift_type_id=pattern_day.fixed_shift_type_id,
+        allowed_shift_type_ids=frozenset(
+            link.shift_type_id for link in pattern_day.allowed_shift_links
+        ),
+        required_work=pattern_day.required_work,
+        contracted_minutes=(
+            assignment.contracted_minutes_override
+            if assignment.contracted_minutes_override is not None
+            else assignment.pattern.contracted_minutes_per_cycle
+        ),
+    )
+
+
+def get_effective_staff_rules(staff_id: int, on_date: date):
+    rules = StaffRule.query.filter(
+        StaffRule.unit_id == _current_unit_id(),
+        StaffRule.staff_id == staff_id,
+        StaffRule.is_active.is_(True),
+        StaffRule.effective_from <= on_date,
+        db.or_(StaffRule.effective_to.is_(None), StaffRule.effective_to >= on_date),
+    ).order_by(StaffRule.id).all()
+    return [EffectiveRule(
+        rule_id=rule.id, rule_type=rule.rule_type,
+        hardness=rule.hardness, shift_type_id=rule.shift_type_id,
+        shift_group=rule.shift_group, penalty_weight=rule.penalty_weight,
+        reason=rule.reason,
+    ) for rule in rules]
+
+
+def is_staff_eligible_for_shift(staff_id: int, on_date: date, shift_type_id: int):
+    shift = ShiftType.query.filter_by(
+        id=shift_type_id, unit_id=_current_unit_id()
+    ).first()
+    if not shift:
+        return EligibilityResult(
+            False, "SHIFT_NOT_FOUND", "The requested shift does not exist."
+        )
+    group = "EARLY" if shift.start_time and shift.start_time < time(8) else None
+    return evaluate_eligibility(
+        get_pattern_day_for_staff(staff_id, on_date),
+        get_effective_staff_rules(staff_id, on_date),
+        shift_type_id=shift.id, shift_code=shift.code, shift_group=group,
+    )
+
+
+def calculate_soft_rule_penalty(staff_id: int, on_date: date, shift_type_id: int) -> int:
+    result = is_staff_eligible_for_shift(staff_id, on_date, shift_type_id)
+    return result.soft_penalty
 
 
 def _cycle_day_for(staff: Staff, d: date) -> int | None:
@@ -5350,6 +5556,18 @@ def roster_month(ym):
             .all()
         )
     }
+    lock_map = {
+        (row.staff_id, row.day): {
+            "id": row.id,
+            "status": row.lock_status or "UNLOCKED",
+            "reason": row.lock_reason or "",
+        }
+        for row in Assignment.query.filter(
+            Assignment.unit_id == unit_id,
+            Assignment.day >= start,
+            Assignment.day < month_end,
+        ).all()
+    }
 
     # --- Unified editability flags ---
     can_edit = can_edit_roster(current_user)
@@ -5430,6 +5648,7 @@ def roster_month(ym):
         today=today,
         req_pending_map=req_pending_map,
         applied_request_map=applied_request_map,
+        lock_map=lock_map,
         show_ot_finder=True,
         display_watch_by_staff=display_watch_by_staff,
         annotation_groups=get_annotation_groups(),
@@ -5493,8 +5712,18 @@ def assign_cell(staff_id, ym, day):
         if not get_shift(code):
             flash(f"Unknown shift code '{code}'", "error")
             return redirect(url_for("roster_month", ym=ym))
+        old_code = a.code
         a.code = code
         a.source = "manual"
+        if old_code != code:
+            db.session.flush()
+            db.session.add(ChangeLog(
+                unit_id=unit_id, when=utcnow(),
+                who_user_id=current_user.id, entity_type="Assignment",
+                entity_id=a.id, field="code", old_value=old_code,
+                new_value=code, context_month=ym,
+                note="Manual roster edit",
+            ))
 
     # if an annotation field was posted, apply delta + update
     if annot is not None:
@@ -5565,6 +5794,130 @@ def assign_cell(staff_id, ym, day):
 
     db.session.commit()
     return redirect(url_for("roster_month", ym=ym))
+
+
+@app.post("/assignment/<int:assignment_id>/lock")
+@login_required
+@roster_edit_required
+def assignment_lock(assignment_id):
+    _validate_csrf()
+    assignment = Assignment.query.filter_by(
+        id=assignment_id, unit_id=_current_unit_id()
+    ).first_or_404()
+    status = (request.form.get("lock_status") or "").upper()
+    if status not in {"UNLOCKED", "SOFT_LOCKED", "HARD_LOCKED"}:
+        abort(400, "Invalid assignment lock status.")
+    old_status = assignment.lock_status or "UNLOCKED"
+    assignment.lock_status = status
+    if status == "UNLOCKED":
+        assignment.locked_by_user_id = None
+        assignment.locked_at = None
+        assignment.lock_reason = ""
+    else:
+        assignment.locked_by_user_id = current_user.id
+        assignment.locked_at = utcnow()
+        assignment.lock_reason = (request.form.get("lock_reason") or "").strip()[:250]
+    db.session.flush()
+    db.session.add(ChangeLog(
+        unit_id=assignment.unit_id, when=utcnow(),
+        who_user_id=current_user.id, entity_type="Assignment",
+        entity_id=assignment.id, field="lock_status",
+        old_value=old_status, new_value=status,
+        context_month=_context_month_for_date(assignment.day),
+        note=assignment.lock_reason,
+    ))
+    db.session.commit()
+    _invalidate_month_cache_for_day(assignment.day)
+    return redirect(url_for(
+        "roster_month", ym=_context_month_for_date(assignment.day)
+    ))
+
+
+@app.get("/roster/<ym>/validation")
+@login_required
+def roster_validation_report(ym):
+    if not (is_admin_user(current_user) or is_editor_user(current_user)):
+        abort(403)
+    try:
+        year, month = parse_ym(ym)
+        start = date(year, month, 1)
+    except (TypeError, ValueError):
+        abort(400, "Invalid roster month.")
+    next_year, next_month = _month_add(year, month, 1)
+    end = date(next_year, next_month, 1)
+    unit_id = _current_unit_id()
+    staff = {
+        row.id: row for row in Staff.query.filter_by(
+            unit_id=unit_id, is_operational=True, membership_status="active"
+        ).all()
+    }
+    shifts = {
+        row.code.upper(): row
+        for row in ShiftType.query.filter_by(unit_id=unit_id).all()
+    }
+    rows = []
+    for assignment in Assignment.query.filter(
+        Assignment.unit_id == unit_id,
+        Assignment.day >= start,
+        Assignment.day < end,
+    ).all():
+        shift = shifts.get((assignment.code or "").upper())
+        if assignment.staff_id not in staff or not shift or not shift.is_working:
+            continue
+        rows.append(ValidationAssignment(
+            assignment.id, assignment.staff_id, assignment.day,
+            shift.id, shift.code,
+            shift_counter_group_for_day(shift.code, assignment.day, unit_id),
+        ))
+    absence_cache = {}
+    for leave in Leave.query.filter(
+        Leave.unit_id == unit_id, Leave.end >= start, Leave.start < end
+    ):
+        current = max(start, leave.start)
+        while current <= min(end - timedelta(days=1), leave.end):
+            absence_cache[(leave.staff_id, current)] = leave.leave_type
+            current += timedelta(days=1)
+    for sickness in Sickness.query.filter(
+        Sickness.unit_id == unit_id, Sickness.end >= start, Sickness.start < end
+    ):
+        current = max(start, sickness.start)
+        while current <= min(end - timedelta(days=1), sickness.end):
+            absence_cache[(sickness.staff_id, current)] = sickness.code or "sickness"
+            current += timedelta(days=1)
+    requirement = Requirement.query.filter_by(
+        unit_id=unit_id, year=year, month=month
+    ).first()
+    special = {
+        item.day: item for item in SpecialRequirement.query.filter(
+            SpecialRequirement.unit_id == unit_id,
+            SpecialRequirement.day >= start,
+            SpecialRequirement.day < end,
+        )
+    }
+    requirements = {}
+    current = start
+    while current < end:
+        daily = requirements_for_day(requirement, current, special.get(current))
+        for group in ("M", "D", "A", "N"):
+            requirements[(current, group)] = daily[group]
+        current += timedelta(days=1)
+
+    def eligibility(candidate):
+        result = is_staff_eligible_for_shift(
+            candidate.staff_id, candidate.day, candidate.shift_type_id
+        )
+        return result.eligible, result.reason_code, result.explanation
+
+    summary = run_roster_validation(
+        rows, eligibility_for=eligibility,
+        absence_for=lambda staff_id, day: absence_cache.get((staff_id, day)),
+        medical_expiry_for=lambda staff_id: staff[staff_id].medical_expiry,
+        requirements=requirements,
+    )
+    return render_template(
+        "roster_validation.html", ym=ym, summary=summary,
+        staff=staff, month_title=start.strftime("%B %Y"),
+    )
 
 
 @app.route("/roster/<ym>/export")
@@ -5673,6 +6026,117 @@ def roster_print_view(ym):
 
 
 # -------------------- Admin --------------------
+
+
+@app.route("/admin/rostering", methods=["GET", "POST"])
+@login_required
+def admin_rostering():
+    if not is_admin_user(current_user):
+        abort(403)
+    unit_id = _current_unit_id()
+    if request.method == "POST":
+        _validate_csrf()
+        action = request.form.get("action")
+        try:
+            if action == "create_pattern":
+                name = (request.form.get("name") or "").strip()
+                tokens = [token.strip().upper() for token in (request.form.get("days") or "").split(",") if token.strip()]
+                if not name or not tokens:
+                    raise ValueError("Enter a pattern name and at least one cycle day.")
+                if WorkPattern.query.filter_by(unit_id=unit_id, name=name).first():
+                    raise ValueError("A pattern with that name already exists.")
+                shift_map = {shift.code.upper(): shift for shift in ShiftType.query.filter_by(unit_id=unit_id)}
+                pattern = WorkPattern(unit_id=unit_id, name=name, description=(request.form.get("description") or "").strip(), cycle_length_days=len(tokens), contracted_minutes_per_cycle=max(0, int(request.form.get("contracted_minutes") or 0)))
+                db.session.add(pattern)
+                db.session.flush()
+                for index, token in enumerate(tokens):
+                    allowed_codes = [item.strip() for item in token.split("|") if item.strip()]
+                    if token == "OFF":
+                        day_type, shift_id, required = "OFF", None, False
+                    elif token == "ANY":
+                        day_type, shift_id, required = "WORK_ANY", None, True
+                    elif token == "OPTIONAL":
+                        day_type, shift_id, required = "OPTIONAL_WORK", None, False
+                    elif token == "PROTECTED":
+                        day_type, shift_id, required = "PROTECTED_NON_OPERATIONAL", None, False
+                    elif len(allowed_codes) > 1:
+                        if any(code not in shift_map for code in allowed_codes):
+                            raise ValueError(f"Unknown allowed shift on day {index + 1}.")
+                        day_type, shift_id, required = "WORK_ALLOWED_SET", None, True
+                    elif token in shift_map:
+                        day_type, shift_id, required = "FIXED_SHIFT", shift_map[token].id, True
+                    else:
+                        raise ValueError(f"Unknown cycle token '{token}'.")
+                    pattern_day = WorkPatternDay(unit_id=unit_id, work_pattern_id=pattern.id, day_index=index, day_type=day_type, fixed_shift_type_id=shift_id, required_work=required)
+                    db.session.add(pattern_day)
+                    db.session.flush()
+                    if day_type == "WORK_ALLOWED_SET":
+                        for code in allowed_codes:
+                            db.session.add(WorkPatternDayAllowedShift(unit_id=unit_id, work_pattern_day_id=pattern_day.id, shift_type_id=shift_map[code].id))
+            elif action == "assign_pattern":
+                staff_id = int(request.form["staff_id"])
+                pattern_id = int(request.form["pattern_id"])
+                effective_from = date.fromisoformat(request.form["effective_from"])
+                effective_to = _parse_date(request.form.get("effective_to"))
+                anchor_date = date.fromisoformat(request.form["anchor_date"])
+                anchor_index = int(request.form.get("anchor_day_index", 0))
+                pattern = WorkPattern.query.filter_by(id=pattern_id, unit_id=unit_id).first_or_404()
+                Staff.query.filter_by(id=staff_id, unit_id=unit_id).first_or_404()
+                if not 0 <= anchor_index < pattern.cycle_length_days:
+                    raise ValueError("Anchor day is outside the pattern cycle.")
+                new_end = effective_to or date.max
+                overlap = StaffPatternAssignment.query.filter(
+                    StaffPatternAssignment.unit_id == unit_id,
+                    StaffPatternAssignment.staff_id == staff_id,
+                    StaffPatternAssignment.effective_from <= new_end,
+                    db.or_(StaffPatternAssignment.effective_to.is_(None), StaffPatternAssignment.effective_to >= effective_from),
+                ).first()
+                if overlap:
+                    raise ValueError("This employee already has an overlapping pattern assignment.")
+                db.session.add(StaffPatternAssignment(
+                    unit_id=unit_id, staff_id=staff_id, work_pattern_id=pattern_id,
+                    effective_from=effective_from, effective_to=effective_to,
+                    anchor_date=anchor_date, anchor_day_index=anchor_index,
+                    contracted_minutes_override=(int(request.form["contracted_minutes_override"]) if request.form.get("contracted_minutes_override") else None),
+                    notes=(request.form.get("notes") or "").strip(),
+                ))
+            elif action == "add_rule":
+                staff_id = int(request.form["staff_id"])
+                Staff.query.filter_by(id=staff_id, unit_id=unit_id).first_or_404()
+                db.session.add(StaffRule(
+                    unit_id=unit_id, staff_id=staff_id,
+                    rule_type=request.form["rule_type"], hardness=request.form["hardness"],
+                    effective_from=date.fromisoformat(request.form["effective_from"]),
+                    effective_to=_parse_date(request.form.get("effective_to")),
+                    shift_type_id=(int(request.form["shift_type_id"]) if request.form.get("shift_type_id") else None),
+                    penalty_weight=max(0, int(request.form.get("penalty_weight") or 0)),
+                    reason=(request.form.get("reason") or "").strip(),
+                    authorised_by_user_id=current_user.id,
+                ))
+            elif action == "add_holiday":
+                holiday_day = date.fromisoformat(request.form["day"])
+                existing = BankHoliday.query.filter_by(unit_id=unit_id, day=holiday_day).first()
+                if existing:
+                    existing.name = (request.form.get("name") or "Bank holiday").strip()
+                else:
+                    db.session.add(BankHoliday(unit_id=unit_id, day=holiday_day, name=(request.form.get("name") or "Bank holiday").strip()))
+            else:
+                abort(400, "Unknown rostering administration action.")
+            db.session.commit()
+            flash("Rostering configuration saved.", "ok")
+        except (KeyError, TypeError, ValueError) as exc:
+            db.session.rollback()
+            flash(str(exc) or "Check the supplied values.", "error")
+        return redirect(url_for("admin_rostering"))
+    return render_template(
+        "admin_rostering.html",
+        patterns=WorkPattern.query.filter_by(unit_id=unit_id).order_by(WorkPattern.name).all(),
+        pattern_assignments=StaffPatternAssignment.query.filter_by(unit_id=unit_id).order_by(StaffPatternAssignment.effective_from.desc()).all(),
+        rules=StaffRule.query.filter_by(unit_id=unit_id).order_by(StaffRule.effective_from.desc()).all(),
+        holidays=BankHoliday.query.filter_by(unit_id=unit_id).order_by(BankHoliday.day).all(),
+        staff=Staff.query.filter_by(unit_id=unit_id, is_operational=True).order_by(Staff.name).all(),
+        shifts=ShiftType.query.filter_by(unit_id=unit_id, is_working=True).order_by(ShiftType.code).all(),
+    )
 
 
 @app.route("/admin", methods=["GET", "POST"])
@@ -11181,19 +11645,31 @@ def _fairness_metrics_for_range(start_day: date, end_day: date):
         days.append(current_day)
         current_day += timedelta(days=1)
     for person in people:
-        expected = 0
+        expected = 0.0
         night_possible = False
         early_possible = False
         for day in days:
+            normalised = get_pattern_day_for_staff(person.id, day)
+            if normalised:
+                assignment = db.session.get(
+                    StaffPatternAssignment, normalised.assignment_id
+                )
+                expected += normalised.contracted_minutes / max(
+                    1, assignment.pattern.cycle_length_days
+                )
             code = (code_from_pattern(person, day) or "").upper()
             shift = shifts.get(code)
             if shift and shift.is_working:
-                expected += shift_duration_minutes(shift)
+                if not normalised:
+                    expected += shift_duration_minutes(shift)
                 night_possible = night_possible or code == "N"
                 early_possible = early_possible or bool(
                     shift.start_time and shift.start_time < time(8, 0)
                 )
-        expected_minutes[person.id] = expected
+        hard_rules = get_effective_staff_rules(person.id, start_day)
+        if any(rule.hardness == "HARD" and rule.rule_type == "NO_NIGHT" for rule in hard_rules):
+            night_possible = False
+        expected_minutes[person.id] = int(round(expected))
         eligible_nights[person.id] = night_possible
         eligible_early[person.id] = early_possible
 
@@ -11227,6 +11703,20 @@ def _fairness_metrics_for_range(start_day: date, end_day: date):
         ).count()
 
     people_by_id = {person.id: person for person in people}
+    holidays = {
+        row.day for row in BankHoliday.query.filter(
+            BankHoliday.unit_id == unit_id,
+            BankHoliday.day >= start_day,
+            BankHoliday.day <= end_day,
+        )
+    }
+
+    def expected_code(staff_id, day):
+        normalised = get_pattern_day_for_staff(staff_id, day)
+        if normalised and normalised.day_type != "FIXED_SHIFT":
+            return None
+        return code_from_pattern(people_by_id[staff_id], day)
+
     return calculate_fairness(
         [FairnessStaff(
             staff_id=person.id,
@@ -11236,9 +11726,12 @@ def _fairness_metrics_for_range(start_day: date, end_day: date):
             eligible_early=eligible_early[person.id],
         ) for person in people],
         fairness_rows,
-        expected_code_for=lambda staff_id, day: code_from_pattern(
-            people_by_id[staff_id], day
+        expected_code_for=expected_code,
+        preference_breach_for=lambda staff_id, day, code: bool(
+            (shift := shifts.get(code.upper()))
+            and calculate_soft_rule_penalty(staff_id, day, shift.id)
         ),
+        bank_holidays=holidays,
         manual_change_counts=manual_changes,
     )
 
@@ -12032,6 +12525,113 @@ def bootstrap_platform(username, password):
     ))
     db.session.commit()
     click.echo(f"Platform Super Admin {username} created.")
+
+
+def _upsert_fixed_work_pattern(unit_id: int, name: str, codes: list[str], description: str):
+    pattern = WorkPattern.query.filter_by(unit_id=unit_id, name=name).first()
+    shift_map = {
+        shift.code.upper(): shift
+        for shift in ShiftType.query.filter_by(unit_id=unit_id).all()
+    }
+    missing = sorted({code for code in codes if code != "OFF" and code not in shift_map})
+    if missing:
+        raise click.ClickException(
+            "Create these shift types before seeding patterns: " + ", ".join(missing)
+        )
+    if not pattern:
+        minutes = sum(
+            shift_duration_minutes(shift_map.get(code))
+            for code in codes if code != "OFF"
+        )
+        pattern = WorkPattern(
+            unit_id=unit_id, name=name, description=description,
+            cycle_length_days=len(codes),
+            contracted_minutes_per_cycle=minutes,
+        )
+        db.session.add(pattern)
+        db.session.flush()
+    if not pattern.days:
+        for index, code in enumerate(codes):
+            shift = shift_map.get(code)
+            db.session.add(WorkPatternDay(
+                unit_id=unit_id, work_pattern_id=pattern.id,
+                day_index=index,
+                day_type="OFF" if code == "OFF" else "FIXED_SHIFT",
+                fixed_shift_type_id=shift.id if shift else None,
+                required_work=code != "OFF",
+            ))
+    return pattern
+
+
+@app.cli.command("seed-work-patterns")
+@click.option("--unit-id", type=int, required=True)
+def seed_work_patterns(unit_id):
+    """Idempotently add standard patterns without assigning staff."""
+    _upsert_fixed_work_pattern(
+        unit_id, "Standard 6-on/4-off",
+        ["M", "M", "A", "A", "N", "N", "OFF", "OFF", "OFF", "OFF"],
+        "Two mornings, two afternoons, two nights and four days off.",
+    )
+    pattern = WorkPattern.query.filter_by(
+        unit_id=unit_id, name="Part-time 4-on/6-off example"
+    ).first()
+    if not pattern:
+        pattern = WorkPattern(
+            unit_id=unit_id, name="Part-time 4-on/6-off example",
+            description="Configurable example; not assigned automatically.",
+            cycle_length_days=10, contracted_minutes_per_cycle=1920,
+        )
+        db.session.add(pattern)
+        db.session.flush()
+        shifts = {row.code.upper(): row for row in ShiftType.query.filter_by(unit_id=unit_id)}
+        for index in range(10):
+            if index in (0, 1):
+                row = WorkPatternDay(unit_id=unit_id, work_pattern_id=pattern.id, day_index=index, day_type="WORK_ALLOWED_SET", required_work=True)
+                db.session.add(row)
+                db.session.flush()
+                for code in ("M", "D"):
+                    if code in shifts:
+                        db.session.add(WorkPatternDayAllowedShift(unit_id=unit_id, work_pattern_day_id=row.id, shift_type_id=shifts[code].id))
+            else:
+                code = "A" if index in (2, 3) else "OFF"
+                shift = shifts.get(code)
+                db.session.add(WorkPatternDay(unit_id=unit_id, work_pattern_id=pattern.id, day_index=index, day_type="OFF" if code == "OFF" else "FIXED_SHIFT", fixed_shift_type_id=shift.id if shift else None, required_work=code != "OFF"))
+    db.session.commit()
+    click.echo("Standard work patterns are present; no staff assignments changed.")
+
+
+@app.cli.command("migrate-legacy-patterns")
+@click.option("--unit-id", type=int, required=True)
+@click.option("--apply", "apply_changes", is_flag=True)
+def migrate_legacy_patterns(unit_id, apply_changes):
+    """Preview or idempotently convert effective legacy CSV patterns."""
+    converted = skipped = 0
+    for person in Staff.query.filter_by(unit_id=unit_id).order_by(Staff.id):
+        if StaffPatternAssignment.query.filter_by(
+            unit_id=unit_id, staff_id=person.id
+        ).first():
+            skipped += 1
+            continue
+        codes, anchor = _pattern_context(person, date.today())
+        if not codes or any(code not in PATTERN_CODES for code in codes):
+            click.echo(f"UNCONVERTED staff={person.id} pattern={','.join(codes)}")
+            continue
+        digest = hashlib.sha256(",".join(codes).encode()).hexdigest()[:10]
+        if apply_changes:
+            pattern = _upsert_fixed_work_pattern(
+                unit_id, f"Imported {digest}", codes,
+                "Imported from the legacy CSV pattern; legacy data retained.",
+            )
+            db.session.add(StaffPatternAssignment(
+                unit_id=unit_id, staff_id=person.id,
+                work_pattern_id=pattern.id, effective_from=anchor,
+                anchor_date=anchor, anchor_day_index=0,
+                notes="Imported from legacy pattern",
+            ))
+        converted += 1
+    if apply_changes:
+        db.session.commit()
+    click.echo(f"convertible={converted} already_assigned={skipped} applied={apply_changes}")
 
 
 @app.cli.command("reset-platform-mfa")
