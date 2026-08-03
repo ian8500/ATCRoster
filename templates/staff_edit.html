@@ -128,6 +128,30 @@
   <div><button class="btn"><i class="fa-solid fa-floppy-disk"></i> Save</button></div>
 </form>
 
+<section class="card mt-3">
+  <div class="card-hd">Leaving the unit</div>
+  <div class="card-bd">
+    <p>Schedule the final operational date without deleting historical roster records.</p>
+    <form method="post" action="{{ url_for('admin_staff_leaving', sid=s.id) }}" class="admin-form-grid">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="schedule">
+      <label>Final unit date<input type="date" name="final_unit_date" value="{{ s.final_unit_date and s.final_unit_date.isoformat() or '' }}" required></label>
+      <label>Final operational duty<input type="date" name="final_operational_duty_date" value="{{ s.final_operational_duty_date and s.final_operational_duty_date.isoformat() or '' }}" required></label>
+      <label>Employment end, if applicable<input type="date" name="employment_end_date" value="{{ s.employment_end_date and s.employment_end_date.isoformat() or '' }}"></label>
+      <label>Reason<select name="reason_category"><option value="TRANSFER">Transfer</option><option value="RETIREMENT">Retirement</option><option value="RESIGNATION">Resignation</option><option value="END_OF_CONTRACT">End of contract</option><option value="OTHER">Other</option></select></label>
+      <label class="grid-span-full">Notes<textarea name="notes" maxlength="2000">{{ s.leaving_notes or '' }}</textarea></label>
+      <button class="btn btn-danger" type="submit">Schedule leaving date</button>
+    </form>
+    {% if s.final_unit_date %}
+    <form method="post" action="{{ url_for('admin_staff_leaving', sid=s.id) }}" class="mt-2">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="cancel">
+      <input type="hidden" name="reason" value="Leaving event cancelled by unit administrator.">
+      <button class="btn" type="submit">Cancel leaving event and restore future baseline</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
 <section class="card mt-3 access-readiness-card">
   <div class="card-hd">Account access</div>
   <div class="card-bd">

@@ -365,6 +365,7 @@ def _default_workforce_is_active(person: Any, _duty_day: date) -> bool:
             return False
     for field_name in (
         "employment_end_date", "unit_leave_date", "final_operational_duty_date",
+        "final_unit_date",
     ):
         value = getattr(person, field_name, None)
         if value and _duty_day > value:

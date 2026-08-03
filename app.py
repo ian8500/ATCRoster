@@ -1084,6 +1084,11 @@ class Staff(UserMixin, db.Model):
     )
     contracted_minutes_per_week = db.Column(db.Integer)
     workforce_notes = db.Column(db.Text, nullable=False, default="")
+    final_unit_date = db.Column(db.Date)
+    final_operational_duty_date = db.Column(db.Date)
+    employment_end_date = db.Column(db.Date)
+    leaving_reason_category = db.Column(db.String(40), nullable=False, default="")
+    leaving_notes = db.Column(db.Text, nullable=False, default="")
 
     watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"))
     watch = db.relationship("Watch", backref="members")
@@ -5722,6 +5727,110 @@ def admin_staff_edit(sid):
         account_membership=account_membership,
         pending_access_invitation=pending_access_invitation,
     )
+
+
+@app.route("/admin/staff/<int:sid>/leaving", methods=["POST"])
+@login_required
+@admin_required
+def admin_staff_leaving(sid):
+    person = Staff.query.filter_by(
+        id=sid, unit_id=_current_unit_id()
+    ).first_or_404()
+    action = (request.form.get("action") or "schedule").strip()
+    if action == "cancel":
+        restore_from = (
+            person.final_operational_duty_date
+            or person.final_unit_date
+            or date.today()
+        ) + timedelta(days=1)
+        person.final_unit_date = None
+        person.final_operational_duty_date = None
+        person.employment_end_date = None
+        person.leaving_reason_category = ""
+        person.leaving_notes = ""
+        record_roster_impact(
+            RosterImpactEventType.RETURN_TO_UNIT, restore_from,
+            staff_ids=[person.id], rebuild_baseline=True,
+            reason=(request.form.get("reason") or "Leaving event cancelled.")[:500],
+        )
+        db.session.commit()
+        flash("Leaving event cancelled and future baseline restored.", "ok")
+        return redirect(url_for("admin_staff_edit", sid=person.id))
+    try:
+        final_unit = date.fromisoformat(request.form["final_unit_date"])
+        final_operational = date.fromisoformat(
+            request.form.get("final_operational_duty_date")
+            or final_unit.isoformat()
+        )
+        employment_end = _parse_date(request.form.get("employment_end_date"))
+    except (KeyError, ValueError):
+        abort(400, "Enter valid leaving dates.")
+    if final_operational > final_unit or (
+        employment_end and employment_end < final_unit
+    ):
+        abort(400, "Final operational duty must not follow the final unit date.")
+    category = (request.form.get("reason_category") or "OTHER").strip().upper()
+    if category not in {"TRANSFER", "RETIREMENT", "RESIGNATION", "END_OF_CONTRACT", "OTHER"}:
+        abort(400, "Invalid leaving reason category.")
+    person.final_unit_date = final_unit
+    person.final_operational_duty_date = final_operational
+    person.employment_end_date = employment_end
+    person.leaving_reason_category = category
+    person.leaving_notes = (request.form.get("notes") or "").strip()[:2000]
+    impact_from = final_operational + timedelta(days=1)
+    result = record_roster_impact(
+        RosterImpactEventType.UNIT_LEAVER, impact_from,
+        staff_ids=[person.id], rebuild_baseline=True,
+        reason=f"Unit leaver: {category}. {person.leaving_notes}"[:500],
+    )
+    horizon = _generated_roster_horizon_end(person.unit_id, impact_from)
+    if horizon:
+        flagged = set()
+        for assignment in Assignment.query.filter(
+            Assignment.unit_id == person.unit_id,
+            Assignment.staff_id == person.id,
+            Assignment.day >= impact_from,
+            Assignment.override_code.isnot(None),
+        ).all():
+            key = ("OVERRIDE_AFTER_LEAVING_DATE", assignment.day)
+            if key not in flagged:
+                db.session.add(RosterImpactException(
+                    unit_id=person.unit_id, event_id=result.event_id,
+                    staff_id=person.id, effective_from=assignment.day,
+                    effective_to=assignment.day,
+                    exception_type=key[0], severity="CRITICAL", status="OPEN",
+                    description="Editor override exists after final operational duty.",
+                    created_at=utcnow(),
+                ))
+                flagged.add(key)
+        for leave in Leave.query.filter(
+            Leave.unit_id == person.unit_id, Leave.staff_id == person.id,
+            Leave.end >= impact_from,
+        ).all():
+            db.session.add(RosterImpactException(
+                unit_id=person.unit_id, event_id=result.event_id,
+                staff_id=person.id, effective_from=max(leave.start, impact_from),
+                effective_to=leave.end,
+                exception_type="LEAVE_AFTER_LEAVING_DATE", severity="WARNING",
+                status="OPEN", description="Approved leave extends beyond final operational duty.",
+                created_at=utcnow(),
+            ))
+        for swap in ShiftRequest.query.filter(
+            ShiftRequest.unit_id == person.unit_id,
+            ShiftRequest.staff_id == person.id,
+            ShiftRequest.day >= impact_from,
+            ShiftRequest.status.in_(("approved", "fulfilled")),
+        ).all():
+            db.session.add(RosterImpactException(
+                unit_id=person.unit_id, event_id=result.event_id,
+                staff_id=person.id, effective_from=swap.day, effective_to=swap.day,
+                exception_type="SWAP_AFTER_LEAVING_DATE", severity="WARNING",
+                status="OPEN", description="Approved shift request exists after leaving.",
+                created_at=utcnow(),
+            ))
+    db.session.commit()
+    flash("Leaving date saved; future baseline and exceptions updated.", "ok")
+    return redirect(url_for("admin_staff_edit", sid=person.id))
 
 
 @app.route("/admin/staff/<int:sid>/watch-move", methods=["POST"])

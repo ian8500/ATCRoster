@@ -134,7 +134,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
             connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-                == "20260803_45"
+                == "20260803_46"
         )
         if "unit" in inspector.get_table_names():
             assert "protected_roster_months_ahead" in {

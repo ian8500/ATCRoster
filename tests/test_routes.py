@@ -3515,6 +3515,84 @@ def test_unit_admin_creates_complete_effective_dated_joiner(client):
         ).count() > 0
 
 
+def test_leaver_preserves_history_stops_contribution_and_flags_future_work(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
+        person.final_unit_date = None
+        person.final_operational_duty_date = None
+        person.employment_end_date = None
+        person.is_operational = True
+        historical = Assignment.query.filter_by(
+            unit_id=1, staff_id=person.id, day=date(2026, 9, 10)
+        ).first()
+        if not historical:
+            historical = Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 9, 10), code="M",
+                generated_code="M",
+            )
+            db.session.add(historical)
+        protected = Assignment.query.filter_by(
+            unit_id=1, staff_id=person.id, day=date(2026, 9, 20)
+        ).first()
+        if not protected:
+            protected = Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 9, 20), code="A",
+                generated_code="M", override_code="A", override_type="MANUAL",
+            )
+            db.session.add(protected)
+        automatic = Assignment.query.filter_by(
+            unit_id=1, staff_id=person.id, day=date(2026, 11, 5)
+        ).first()
+        if not automatic:
+            automatic = Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 11, 5), code="M",
+                generated_code="M",
+            )
+            db.session.add(automatic)
+        db.session.commit()
+        person_id = person.id
+
+    response = client.post(
+        f"/admin/staff/{person_id}/leaving",
+        data={
+            "_csrf_token": csrf(client), "action": "schedule",
+            "final_unit_date": "2026-09-15",
+            "final_operational_duty_date": "2026-09-14",
+            "employment_end_date": "2026-09-30",
+            "reason_category": "TRANSFER", "notes": "Moving unit.",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    with app.app.app_context():
+        person = db.session.get(Staff, person_id)
+        assert person.final_unit_date == date(2026, 9, 15)
+        assert Assignment.query.filter_by(
+            unit_id=1, staff_id=person_id, day=date(2026, 9, 10)
+        ).one().effective_code == "M"
+        assert Assignment.query.filter_by(
+            unit_id=1, staff_id=person_id, day=date(2026, 9, 20)
+        ).one().effective_code == "A"
+        assert Assignment.query.filter_by(
+            unit_id=1, staff_id=person_id, day=date(2026, 11, 5)
+        ).one().generated_code == "OFF"
+        event = app.RosterImpactEvent.query.filter_by(
+            unit_id=1, event_type="UNIT_LEAVER"
+        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        assert event is not None
+        exception_types = {
+            row.exception_type for row in app.RosterImpactException.query.filter_by(
+                event_id=event.id
+            ).all()
+        }
+        assert "LEAVER_HAS_PROTECTED_DUTIES" in exception_types
+        assert "OVERRIDE_AFTER_LEAVING_DATE" in exception_types
+        assert not app.get_staff_operational_capability(
+            person_id, date(2026, 9, 16)
+        ).counts_as_operational
+
+
 def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     ordinary = app.app.test_client()
     login_as(ordinary, "staff_test")

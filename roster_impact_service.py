@@ -134,13 +134,14 @@ class RosterImpactService:
 
             exception_count = 0
             if rebuild_baseline and protected_from is not None:
+                exception_type, severity = _protected_exception_details(kind)
                 scopes = [(value, None) for value in staff] or [(None, value) for value in watches] or [(None, None)]
                 for staff_id, watch_id in scopes:
                     dep.db.session.add(dep.RosterImpactException(
                         unit_id=unit.id, event_id=event.id, staff_id=staff_id,
                         watch_id=watch_id, effective_from=protected_from,
-                        effective_to=protected_to, exception_type="PROTECTED_ROSTER_IMPACT",
-                        severity="WARNING",
+                        effective_to=protected_to, exception_type=exception_type,
+                        severity=severity,
                         description=(reason or f"{kind.value} requires review inside the protected roster period.")[:1000],
                         status="OPEN", created_at=dep.utcnow(),
                     ))
@@ -180,3 +181,20 @@ class RosterImpactService:
             coverage_recalculated=coverage_done,
             population_result=population_result,
         )
+
+
+def _protected_exception_details(
+    kind: RosterImpactEventType,
+) -> tuple[str, str]:
+    if kind == RosterImpactEventType.UNIT_JOINER:
+        return "JOINER_REQUIRES_MANUAL_ROSTER_ENTRY", "WARNING"
+    if kind == RosterImpactEventType.UNIT_LEAVER:
+        return "LEAVER_HAS_PROTECTED_DUTIES", "CRITICAL"
+    if kind == RosterImpactEventType.WATCH_TRANSFER:
+        return "WATCH_MOVE_NOT_APPLIED_TO_PROTECTED_ROSTER", "WARNING"
+    if kind in {
+        RosterImpactEventType.PART_TIME_CHANGE,
+        RosterImpactEventType.FULL_TIME_CHANGE,
+    }:
+        return "PART_TIME_CHANGE_REQUIRES_REVIEW", "WARNING"
+    return "PATTERN_CHANGE_REQUIRES_REVIEW", "WARNING"
