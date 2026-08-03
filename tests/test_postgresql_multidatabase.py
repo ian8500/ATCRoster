@@ -97,9 +97,9 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     dispose_operational_engines()
     for url in (CONTROL_URL, AIRPORT_A_URL, AIRPORT_B_URL):
         _reset_postgres(url)
-    assert upgrade_database(CONTROL_URL, "control") == "20260803_42"
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260803_42"
+    assert upgrade_database(CONTROL_URL, "control") == "20260803_52"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260803_52"
     secret_a = "ATCROSTER_UNIT_1_DATABASE_URL"
     secret_b = "ATCROSTER_UNIT_2_DATABASE_URL"
     monkeypatch.setenv(secret_a, AIRPORT_A_URL)
@@ -281,7 +281,7 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
 def test_generated_postgresql_backup_restores_and_preserves_key_records(tmp_path):
     _reset_postgres(AIRPORT_A_URL)
     _reset_postgres(RESTORE_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
     source = create_engine(AIRPORT_A_URL)
     with source.begin() as connection:
         connection.execute(
@@ -298,7 +298,7 @@ def test_generated_postgresql_backup_restores_and_preserves_key_records(tmp_path
         AIRPORT_A_URL, tmp_path, "airport-test", "operational"
     )
     result = restore_backup(archive, metadata, RESTORE_URL)
-    assert result.alembic_revision == "20260803_42"
+    assert result.alembic_revision == "20260803_52"
     restored = create_engine(RESTORE_URL)
     try:
         with restored.connect() as connection:
@@ -317,9 +317,10 @@ def _insert_staff(connection, unit_id, username):
         text(
             "INSERT INTO staff "
             "(unit_id, username, password_hash, role, membership_status, "
-            "permissions_json, name, staff_no) VALUES "
+            "permissions_json, name, staff_no, employment_type, workforce_notes, "
+            "leaving_reason_category, leaving_notes) VALUES "
             "(:unit_id, :username, 'not-a-login-hash', 'user', 'active', "
-            "'{}', :username, :staff_no) RETURNING id"
+            "'{}', :username, :staff_no, 'FULL_TIME', '', '', '') RETURNING id"
         ),
         {
             "unit_id": unit_id,
@@ -331,7 +332,7 @@ def _insert_staff(connection, unit_id, username):
 
 def test_postgresql_rejects_cross_unit_operational_relationships():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
     engine = create_engine(AIRPORT_A_URL)
     try:
         with engine.begin() as connection:
@@ -381,7 +382,7 @@ def test_tenant_integrity_migration_refuses_inconsistent_legacy_data():
 
 def test_postgresql_concurrent_toil_retry_changes_balance_once(monkeypatch):
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
     engine = create_engine(AIRPORT_A_URL)
     with engine.begin() as connection:
         person_id = _insert_staff(connection, 1, "toil-concurrency")
@@ -451,7 +452,7 @@ def test_postgresql_concurrent_toil_retry_changes_balance_once(monkeypatch):
 
 def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
     _reset_postgres(AIRPORT_B_URL)
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260803_52"
     role = f"atcroster_runtime_{os.getpid()}"
     password = "runtime-integration-only"
     owner_dsn = str(
@@ -478,9 +479,10 @@ def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
             staff_id = runtime.execute(
                 "INSERT INTO staff "
                 "(unit_id, username, password_hash, role, membership_status, "
-                "permissions_json, name, staff_no) VALUES "
+                "permissions_json, name, staff_no, employment_type, workforce_notes, "
+                "leaving_reason_category, leaving_notes) VALUES "
                 "(1, 'grant-user', 'not-a-login-hash', 'user', 'active', "
-                "'{}', 'Grant User', 'GRANT-1') RETURNING id"
+                "'{}', 'Grant User', 'GRANT-1', 'FULL_TIME', '', '', '') RETURNING id"
             ).fetchone()[0]
             runtime.execute(
                 "INSERT INTO change_log "
@@ -511,7 +513,7 @@ def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
 
 def test_postgresql_two_roster_editors_reject_the_stale_cell_version():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
     engine = create_engine(AIRPORT_A_URL)
     with engine.begin() as connection:
         person_id = _insert_staff(connection, 1, "roster-race")
@@ -562,7 +564,7 @@ def test_postgresql_two_roster_editors_reject_the_stale_cell_version():
 
 def test_postgresql_two_managers_create_one_request_transition_and_side_effects():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
     engine = create_engine(AIRPORT_A_URL)
     with engine.begin() as connection:
         person_id = _insert_staff(connection, 1, "request-race")
@@ -641,7 +643,7 @@ def test_postgresql_two_managers_create_one_request_transition_and_side_effects(
 
 def test_postgresql_publication_and_roster_mutations_share_a_coherent_month_lock():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
     dsn = (
         make_url(AIRPORT_A_URL)
         .set(drivername="postgresql")
@@ -651,9 +653,10 @@ def test_postgresql_publication_and_roster_mutations_share_a_coherent_month_lock
         person_id = connection.execute(
             "INSERT INTO staff "
             "(unit_id, username, password_hash, role, membership_status, "
-            "permissions_json, name, staff_no) VALUES "
+            "permissions_json, name, staff_no, employment_type, workforce_notes, "
+            "leaving_reason_category, leaving_notes) VALUES "
             "(1, 'publication-race', 'x', 'user', 'active', '{}', "
-            "'Publication Race', 'PUB-1') RETURNING id"
+            "'Publication Race', 'PUB-1', 'FULL_TIME', '', '', '') RETURNING id"
         ).fetchone()[0]
         requirement_id = connection.execute(
             "INSERT INTO requirement (unit_id, year, month) "
@@ -767,7 +770,7 @@ def test_postgresql_live_position_logon_retry_tenant_scope_and_handover_races(
     monkeypatch,
 ):
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_42"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260803_52"
     secret_name = "ATCROSTER_TEST_LIVE_CONCURRENCY_DATABASE_URL"
     monkeypatch.setenv(secret_name, AIRPORT_A_URL)
     dispose_operational_engines()

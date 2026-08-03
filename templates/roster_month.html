@@ -175,6 +175,21 @@
 
 </div>
 
+<section class="roster-overview" aria-label="Roster status and assurance summary">
+  <div class="roster-overview__state {{ 'is-published' if roster_publication else 'is-draft' }}">
+    <span class="eyebrow">{{ 'Published roster' if roster_publication else 'Draft roster' }}</span>
+    <strong>{{ month_title }}</strong>
+    <small>{% if roster_publication %}Published {{ roster_publication.published_at.strftime('%d %B %Y') }}{% else %}Not yet published to staff{% endif %}</small>
+  </div>
+  <div class="roster-overview__metric"><span>Staffing shortfall</span><strong>{{ staffing_shortfall_count }}</strong><small>required positions across the month</small></div>
+  <div class="roster-overview__metric"><span>Qualification warnings</span><strong>{{ qualification_warning_count }}</strong><small>assigned duties not counted operationally</small></div>
+  <div class="roster-overview__metric"><span>Validation</span><strong>{{ roster_validation.blocking_count }} / {{ roster_validation.advisory_count }}</strong><small>blocking / advisory findings</small></div>
+  {% if can_publish_roster %}
+    {% if roster_publication %}<form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}" data-confirm="Undo publication for the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Return to draft</button></form>
+    {% else %}<form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}" data-confirm="Publish the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-sm" type="submit" {% if roster_validation.blocking_count %}disabled title="Resolve blocking validation findings first"{% endif %}>Publish roster</button></form>{% endif %}
+  {% endif %}
+</section>
+
 <template id="roster-shift-options">
   <optgroup label="Working shifts">
     {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code in ['SC','SSC'] %} disabled{% endif %}>{{ sh.code }}</option>{% endfor %}
@@ -410,32 +425,6 @@
       {% endfor %}
     </div>
   </section>
-{% endif %}
-
-{% if roster_publication %}
-  <div class="roster-state-note roster-state-note--published" role="status">
-    <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-    <span><strong>Published roster</strong> · Published {{ roster_publication.published_at.strftime('%d %B %Y') }}</span>
-    {% if can_publish_roster %}
-      <form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}"
-            data-confirm="Undo publication for the {{ month_title }} roster? It will return to Draft and staff will be notified.">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm" type="submit">Undo publication</button>
-      </form>
-    {% endif %}
-  </div>
-{% else %}
-  <div class="roster-state-note roster-state-note--draft" role="status">
-    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-    <span><strong>Draft roster</strong> · This roster is a draft and may be subject to change.</span>
-    {% if can_publish_roster %}
-      <form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}"
-            data-confirm="Publish the {{ month_title }} roster? Staff will see it as the current published roster.">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-sm" type="submit" {% if roster_validation.blocking_count %}disabled title="Resolve blocking validation findings first"{% endif %}>Publish roster</button>
-      </form>
-    {% endif %}
-  </div>
 {% endif %}
 
 <div class="roster-expiry-key" aria-label="UE and medical date colour guide">

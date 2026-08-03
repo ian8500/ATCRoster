@@ -1,61 +1,21 @@
-<nav class="admin-section-nav" aria-label="Administration sections">
-  {% for section, icon, label in [
-    ('roster-setup', 'fa-people-group', 'Cycle & watches'),
-    ('requirements', 'fa-chart-column', 'Staffing levels'),
-    ('shifts', 'fa-clock', 'Shift types'),
-    ('staff', 'fa-user-group', 'People')
-  ] %}
-    {% if admin_nav_interactive %}
-    <button type="button"
-            class="admin-section-tab"
-            data-admin-section="{{ section }}"
-            aria-controls="admin-{{ section }}"
-            aria-selected="false">
-      <i class="fa-solid {{ icon }}"></i><span>{{ label }}</span>
-    </button>
-    {% else %}
-    <a class="admin-section-tab admin-section-link"
-       href="{{ url_for('admin') }}#{{ section }}">
-      <i class="fa-solid {{ icon }}"></i><span>{{ label }}</span>
-    </a>
-    {% endif %}
+<nav class="admin-section-nav" aria-label="Administration categories">
+  <a class="admin-section-tab admin-section-link" href="{{ url_for('unit_accounts') }}"><i class="fa-solid fa-users-gear"></i><span>People &amp; access</span></a>
+  {% for section, icon, label in [('roster-setup','fa-people-group','Roster structure'),('requirements','fa-chart-column','Staffing requirements'),('shifts','fa-clock','Shift definitions')] %}
+    {% if admin_nav_interactive %}<button type="button" class="admin-section-tab" data-admin-section="{{ section }}" aria-controls="admin-{{ section }}" aria-selected="false"><i class="fa-solid {{ icon }}"></i><span>{{ label }}</span></button>
+    {% else %}<a class="admin-section-tab admin-section-link" href="{{ url_for('admin') }}#{{ section }}"><i class="fa-solid {{ icon }}"></i><span>{{ label }}</span></a>{% endif %}
   {% endfor %}
-  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_reference' %}active{% endif %}"
-     href="{{ url_for('admin_reference') }}">
-    <i class="fa-solid fa-tags"></i><span>Roster codes</span>
-  </a>
-  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_toil_new' %}active{% endif %}"
-     href="{{ url_for('admin_toil_new') }}">
-    <i class="fa-solid fa-clock-rotate-left"></i><span>Manual TOIL</span>
-  </a>
-  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'change_log_page' %}active{% endif %}"
-     href="{{ url_for('change_log_page') }}">
-    <i class="fa-solid fa-list-check"></i><span>Change log</span>
-  </a>
-  <a class="admin-section-tab admin-section-link {% if request.blueprint == 'roster_impact' %}active{% endif %}"
-     href="{{ url_for('roster_impact.exceptions') }}">
-    <i class="fa-solid fa-triangle-exclamation"></i><span>Impact queue</span>
-  </a>
-  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_fatigue_rules' %}active{% endif %}"
-     href="{{ url_for('admin_fatigue_rules') }}">
-    <i class="fa-solid fa-gauge-high"></i><span>Fatigue rules</span>
-  </a>
-  {% if admin_nav_interactive %}
-  <button type="button"
-          class="admin-section-tab"
-          data-admin-section="sms"
-          aria-controls="admin-sms"
-          aria-selected="false">
-    <i class="fa-solid fa-comment-sms"></i><span>SMS settings</span>
-  </button>
-  {% else %}
-  <a class="admin-section-tab admin-section-link"
-     href="{{ url_for('admin') }}#sms">
-    <i class="fa-solid fa-comment-sms"></i><span>SMS settings</span>
-  </a>
-  {% endif %}
-  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_sms_audit' %}active{% endif %}"
-     href="{{ url_for('admin_sms_audit') }}">
-    <i class="fa-solid fa-receipt"></i><span>SMS audit</span>
-  </a>
+  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_reference' %}active{% endif %}" href="{{ url_for('admin_reference') }}"><i class="fa-solid fa-tags"></i><span>Leave &amp; annotations</span></a>
+  {% if admin_nav_interactive %}<button type="button" class="admin-section-tab" data-admin-section="sms" aria-controls="admin-sms" aria-selected="false"><i class="fa-solid fa-comments"></i><span>Communications</span></button>
+  {% else %}<a class="admin-section-tab admin-section-link" href="{{ url_for('admin') }}#sms"><i class="fa-solid fa-comments"></i><span>Communications</span></a>{% endif %}
+  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_fatigue_rules' %}active{% endif %}" href="{{ url_for('admin_fatigue_rules') }}"><i class="fa-solid fa-shield-heart"></i><span>Safety rules</span></a>
+  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'change_log_page' %}active{% endif %}" href="{{ url_for('change_log_page') }}"><i class="fa-solid fa-list-check"></i><span>Audit history</span></a>
 </nav>
+<details class="admin-nav-advanced">
+  <summary>Advanced configuration</summary>
+  <div class="admin-section-nav">
+    <a class="admin-section-tab admin-section-link" href="{{ url_for('work_patterns.patterns') }}"><span>Flexible patterns</span></a>
+    <a class="admin-section-tab admin-section-link" href="{{ url_for('admin_toil_new') }}"><span>Manual TOIL</span></a>
+    <a class="admin-section-tab admin-section-link" href="{{ url_for('roster_impact.exceptions') }}"><span>Impact queue</span></a>
+    <a class="admin-section-tab admin-section-link" href="{{ url_for('admin_sms_audit') }}"><span>SMS audit</span></a>
+  </div>
+</details>

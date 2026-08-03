@@ -5,31 +5,27 @@
   <div class="module-launcher__intro">
     <p class="eyebrow">{{ current_unit.name }}</p>
     <h1>Administration</h1>
-    <p>Manage shared information and services used across your subscribed modules.</p>
+    <p>Manage the shared information used across your unit’s subscribed products.</p>
   </div>
   <div class="module-launcher__grid">
-    <a class="module-card" href="{{ url_for('unit_accounts') }}">
-      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-users-gear"></i></span>
-      <span><strong>People and access</strong><small>Manage user accounts, roles and access.</small></span>
-      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
-    </a>
-    <a class="module-card" href="{{ url_for('work_patterns.patterns') }}">
-      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-calendar-days"></i></span>
-      <span><strong>Flexible work patterns</strong><small>Manage recurring cycles, dated staff assignments and eligibility rules.</small></span>
-      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
-    </a>
-    {% if show_live_position %}
-    <a class="module-card" href="{{ url_for('kiosk_accounts') }}">
-      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-display"></i></span>
-      <span><strong>Kiosk accounts</strong><small>Create and manage dedicated Live Position display accounts.</small></span>
-      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
-    </a>
-    <a class="module-card" href="{{ url_for('live_position.position_configuration') }}">
-      <span class="module-card__icon" aria-hidden="true"><i class="fa-solid fa-tower-broadcast"></i></span>
-      <span><strong>Position Monitoring setup</strong><small>Configure positions and currency categories.</small></span>
-      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
-    </a>
-    {% endif %}
+    <a class="module-card" href="{{ url_for('unit_accounts') }}"><span class="module-card__icon"><i class="fa-solid fa-users-gear"></i></span><span><strong>People and access</strong><small>Accounts, roles and access</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('admin') }}#roster-setup"><span class="module-card__icon"><i class="fa-solid fa-people-group"></i></span><span><strong>Roster structure</strong><small>Watches, cycles and roster setup</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('admin') }}#requirements"><span class="module-card__icon"><i class="fa-solid fa-chart-column"></i></span><span><strong>Staffing requirements</strong><small>Required staffing by duty and day</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('admin') }}#shifts"><span class="module-card__icon"><i class="fa-solid fa-clock"></i></span><span><strong>Shift definitions</strong><small>Times, counts and working rules</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('admin_reference') }}"><span class="module-card__icon"><i class="fa-solid fa-tags"></i></span><span><strong>Leave and annotations</strong><small>Reusable absence and roster codes</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('admin') }}#sms"><span class="module-card__icon"><i class="fa-solid fa-comments"></i></span><span><strong>Communications</strong><small>Unit messaging and SMS settings</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('admin_fatigue_rules') }}"><span class="module-card__icon"><i class="fa-solid fa-shield-heart"></i></span><span><strong>Safety rules</strong><small>Fatigue limits and duty definitions</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('change_log_page') }}"><span class="module-card__icon"><i class="fa-solid fa-list-check"></i></span><span><strong>Audit history</strong><small>Who changed what and when</small></span><i class="fa-solid fa-arrow-right"></i></a>
   </div>
 </section>
+<details class="card administration-advanced mt-3">
+  <summary><strong>Advanced configuration</strong><span class="muted">Specialist and less frequent tasks</span></summary>
+  <div class="module-launcher__grid mt-3">
+    <a class="module-card" href="{{ url_for('work_patterns.patterns') }}"><span><strong>Flexible work patterns</strong><small>Dated pattern assignments and eligibility</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('admin_toil_new') }}"><span><strong>Manual TOIL</strong><small>Record an authorised adjustment</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('roster_impact.exceptions') }}"><span><strong>Impact queue</strong><small>Review roster-impact exceptions</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    {% if show_live_position %}<a class="module-card" href="{{ url_for('kiosk_accounts') }}"><span><strong>Live kiosk accounts</strong><small>Dedicated display access</small></span><i class="fa-solid fa-arrow-right"></i></a>
+    <a class="module-card" href="{{ url_for('live_position.position_configuration') }}"><span><strong>Live position setup</strong><small>Positions, groups and currency categories</small></span><i class="fa-solid fa-arrow-right"></i></a>{% endif %}
+  </div>
+</details>
 {% endblock %}

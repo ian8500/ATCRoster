@@ -158,14 +158,14 @@ def test_module_navigation_keeps_roster_and_briefing_separate(
         f"/roster/{today.year}-{today.month:02d}"
     )
     assert roster.status_code == 200
-    assert b'href="/modules"' in roster.data
-    assert b'href="/briefing/"' not in roster.data
+    assert b"> Today</a>" in roster.data
+    assert b'href="/briefing/"' in roster.data
 
     briefing = briefing_client.get("/briefing/")
     assert briefing.status_code == 200
-    assert b'href="/modules"' in briefing.data
+    assert b"> Today</a>" in briefing.data
     assert b'href="/briefing/"' in briefing.data
-    assert b'href="/roster/' not in briefing.data
+    assert b'href="/roster/' in briefing.data
 
 
 def test_admin_configures_instruction_message_types(briefing_client):

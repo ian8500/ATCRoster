@@ -4110,6 +4110,197 @@ def password_change():
 # -------------------- Main / Roster --------------------
 
 
+def _dashboard_leave_balance(person: Staff, today: date) -> dict[str, float]:
+    start_month = max(1, min(12, int(person.leave_year_start_month or 1)))
+    start_year = today.year if today.month >= start_month else today.year - 1
+    leave_start = date(start_year, start_month, 1)
+    leave_end = date(start_year + 1, start_month, 1)
+    taken = 0
+    rows = Leave.query.filter(
+        Leave.unit_id == person.unit_id,
+        Leave.staff_id == person.id,
+        Leave.leave_type == "AL",
+        Leave.start < leave_end,
+        Leave.end >= leave_start,
+    ).all()
+    for row in rows:
+        first = max(row.start, leave_start)
+        final = min(row.end, leave_end - timedelta(days=1))
+        taken += max(0, (final - first).days + 1)
+    allowance = float(
+        (person.leave_entitlement_days or 0)
+        + (person.leave_carryover_days or 0)
+        + ((person.toil_half_days or 0) / 2)
+    )
+    return {"allowance": allowance, "taken": taken, "remaining": allowance - taken}
+
+
+def _today_dashboard_context() -> dict[str, object]:
+    today = date.today()
+    unit_id = _current_unit_id()
+    person = tenant_get(Staff, current_user.id)
+    if not person:
+        abort(404)
+    month_key = f"{today.year:04d}-{today.month:02d}"
+    future_assignments = Assignment.query.filter(
+        Assignment.unit_id == unit_id,
+        Assignment.staff_id == person.id,
+        Assignment.day >= today,
+    ).order_by(Assignment.day).limit(90).all()
+    next_duty = next((row for row in future_assignments if (
+        (shift := get_shift(row.effective_code, unit_id))
+        and shift.is_active and shift.is_working
+    )), None)
+    publication = _active_roster_publication(today.year, today.month)
+    own_requests = ShiftRequest.query.filter(
+        ShiftRequest.unit_id == unit_id,
+        ShiftRequest.staff_id == person.id,
+        ShiftRequest.status.in_(("pending", "approved")),
+    ).order_by(ShiftRequest.day).all()
+    qualification_rows = db.session.query(
+        PersonQualification, QualificationType
+    ).join(
+        QualificationType,
+        QualificationType.id == PersonQualification.qualification_type_id,
+    ).filter(
+        PersonQualification.unit_id == unit_id,
+        PersonQualification.person_id == person.id,
+        PersonQualification.status == "valid",
+    ).all()
+    qualification_attention = [
+        {"label": qtype.label, "expires_on": record.valid_to or record.expires_on}
+        for record, qtype in qualification_rows
+        if (record.valid_to or record.expires_on)
+        and (record.valid_to or record.expires_on) <= today + timedelta(days=90)
+    ]
+    manager = bool(
+        person.is_wm or person.is_dwm
+        or person.role in {"watch_manager", "duty_watch_manager"}
+    )
+    editor = bool(is_editor_user(person))
+    manager_summary = None
+    if manager:
+        watch_staff = Staff.query.filter(
+            Staff.unit_id == unit_id,
+            Staff.watch_id == person.watch_id,
+            Staff.membership_status.in_(("active", "no_login")),
+            Staff.is_operational.is_(True),
+        ).order_by(Staff.name).all()
+        staff_ids = [row.id for row in watch_staff]
+        today_assignments = Assignment.query.filter(
+            Assignment.unit_id == unit_id,
+            Assignment.staff_id.in_(staff_ids or [0]),
+            Assignment.day == today,
+        ).all()
+        capability = get_operational_capability_matrix(watch_staff, [today])
+        counts = Counter()
+        qualification_warnings = 0
+        for assignment in today_assignments:
+            status = capability.get((assignment.staff_id, today))
+            if not status or not status.counts_as_operational:
+                qualification_warnings += 1
+                continue
+            group = shift_counter_group_for_day(
+                assignment.effective_code, today, unit_id
+            )
+            if group:
+                counts[group] += 1
+        requirement = Requirement.query.filter_by(
+            unit_id=unit_id, year=today.year, month=today.month
+        ).first()
+        needed = requirements_for_day(requirement, today)
+        shortfalls = {
+            group: max(0, int(needed.get(group, 0)) - counts[group])
+            for group in ("M", "D", "A", "N")
+            if not (group == "N" and not _night_active_on(unit_id, today))
+        }
+        waiting = ShiftRequest.query.filter(
+            ShiftRequest.unit_id == unit_id,
+            ShiftRequest.staff_id.in_(staff_ids or [0]),
+            ShiftRequest.status.in_(("pending", "approved")),
+        ).count()
+        code_map = {row.id: {} for row in watch_staff}
+        for assignment in today_assignments:
+            code_map.setdefault(assignment.staff_id, {})[today] = assignment.effective_code
+        fatigue = roster_fatigue_flags_matrix(
+            watch_staff, [today], code_map, unit_id
+        )
+        manager_summary = {
+            "counts": counts,
+            "needed": needed,
+            "shortfalls": shortfalls,
+            "shortfall_total": sum(shortfalls.values()),
+            "requests_waiting": waiting,
+            "qualification_warnings": qualification_warnings,
+            "fatigue_warnings": sum(len(items) for items in fatigue.values()),
+            "watch_name": person.watch.name if person.watch else "your watch",
+        }
+    editor_summary = None
+    if editor:
+        _, current_days = month_range(today.year, today.month)
+        validation = roster_validation_service.validate_range(
+            unit_id, current_days[0], current_days[-1]
+        )
+        draft_months = []
+        for offset in range(4):
+            year, month = _month_add(today.year, today.month, offset)
+            start = date(year, month, 1)
+            next_year, next_month = _month_add(year, month, 1)
+            has_data = db.session.query(Assignment.id).filter(
+                Assignment.unit_id == unit_id,
+                Assignment.day >= start,
+                Assignment.day < date(next_year, next_month, 1),
+            ).first()
+            published = RosterPublication.query.filter_by(
+                unit_id=unit_id, year=year, month=month, state="published"
+            ).first()
+            if has_data and not published:
+                draft_months.append({
+                    "ym": f"{year:04d}-{month:02d}",
+                    "label": start.strftime("%B %Y"),
+                })
+        open_exceptions = RosterImpactException.query.filter(
+            RosterImpactException.unit_id == unit_id,
+            RosterImpactException.status.in_(("OPEN", "ACKNOWLEDGED")),
+        ).count()
+        configuration_issues = []
+        if not ShiftType.query.filter_by(unit_id=unit_id, is_active=True).first():
+            configuration_issues.append("No active shift definitions")
+        if not Requirement.query.filter_by(
+            unit_id=unit_id, year=today.year, month=today.month
+        ).first():
+            configuration_issues.append("This month has no staffing requirements")
+        pending_accounts = UnitMembership.query.filter_by(
+            unit_id=unit_id, status="pending"
+        ).count()
+        if pending_accounts:
+            configuration_issues.append(f"{pending_accounts} account invitation(s) pending")
+        recent_changes = ChangeLog.query.filter_by(unit_id=unit_id).order_by(
+            ChangeLog.when.desc()
+        ).limit(5).all()
+        editor_summary = {
+            "draft_months": draft_months,
+            "blocking": validation.blocking_count,
+            "advisory": validation.advisory_count,
+            "open_exceptions": open_exceptions,
+            "configuration_issues": configuration_issues,
+            "recent_changes": recent_changes,
+        }
+    return {
+        "today": today,
+        "month_key": month_key,
+        "next_duty": next_duty,
+        "publication": publication,
+        "own_requests": own_requests,
+        "leave_balance": _dashboard_leave_balance(person, today),
+        "qualification_attention": qualification_attention,
+        "manager_summary": manager_summary,
+        "editor_summary": editor_summary,
+        "can_manage_requests": manager or editor,
+        "can_edit_roster": editor,
+    }
+
+
 @app.route("/")
 @login_required
 def index():
@@ -4117,8 +4308,7 @@ def index():
         unit = db.session.get(Unit, _current_unit_id())
         if unit and int(unit.onboarding_step or 0) < 100:
             return redirect(url_for("unit_onboarding"))
-    t = date.today()
-    return redirect(url_for("roster_month", ym=f"{t.year}-{t.month:02d}"))
+    return render_template("today.html", **_today_dashboard_context())
 
 
 def _roster_snapshot(year: int, month: int) -> dict:
@@ -4393,6 +4583,7 @@ def inject_perms():
     has_training_module = False
     has_competency_module = False
     has_live_position_module = False
+    enabled_feature_keys = set()
     active_admin_count = 0
     if current_unit and au and is_admin_user(au):
         active_admin_count = Staff.query.filter(
@@ -4405,6 +4596,11 @@ def inject_perms():
             ShiftRequest.status.in_(("pending", "approved")),
         ).count()
     if current_unit and au:
+        enabled_feature_keys = {
+            row.key for row in FeatureFlag.query.filter_by(
+                unit_id=current_unit.id, enabled=True
+            ).all()
+        }
         unread_notification_count = Notification.query.filter_by(
             unit_id=current_unit.id,
             recipient_id=au.id,
@@ -4417,7 +4613,7 @@ def inject_perms():
         if (
             has_briefing_module
             and (
-                request.endpoint == "module_home"
+                request.endpoint in {"index", "module_home"}
                 or (
                     request.endpoint
                     and request.endpoint.startswith("briefing.")
@@ -4454,6 +4650,7 @@ def inject_perms():
         "has_training_module": has_training_module,
         "has_competency_module": has_competency_module,
         "has_live_position_module": has_live_position_module,
+        "enabled_feature_keys": enabled_feature_keys,
         "active_admin_count": active_admin_count,
         "current_unit": current_unit,
         "unit_branding": {
