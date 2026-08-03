@@ -832,6 +832,19 @@ def register_saas_models(db, utcnow):
             db.CheckConstraint("penalty_weight >= 0", name="ck_staff_rule_penalty"),
         )
 
+    class BankHoliday(db.Model):
+        __tablename__ = "bank_holiday"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        day = db.Column(db.Date, nullable=False, index=True)
+        name = db.Column(db.String(120), nullable=False)
+        is_active = db.Column(db.Boolean, nullable=False, default=True)
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "day", name="uq_bank_holiday_unit_day"),
+        )
+
     class RosterRuleVersion(db.Model):
         __tablename__ = "roster_rule_version"
         id = db.Column(db.Integer, primary_key=True)

@@ -1284,6 +1284,33 @@ def test_health_endpoints_report_ready(client):
     assert ready.get_json()["status"] == "ready"
 
 
+def test_editor_can_hard_lock_an_assignment(client):
+    login_as(client, "editor_test")
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        assignment = Assignment.query.filter_by(
+            staff_id=person.id, day=date(2026, 8, 3)
+        ).first()
+        if assignment is None:
+            assignment = Assignment(
+                unit_id=1, staff_id=person.id, day=date(2026, 8, 3),
+                code="M",
+            )
+            db.session.add(assignment)
+            db.session.commit()
+        assignment_id = assignment.id
+    response = client.post(
+        f"/assignment/{assignment_id}/lock",
+        data={"_csrf_token": csrf(client), "lock_status": "HARD_LOCKED"},
+    )
+    assert response.status_code == 302
+    with app.app.app_context():
+        assignment = db.session.get(Assignment, assignment_id)
+        assert assignment.lock_status == "HARD_LOCKED"
+        assert assignment.locked_by_user_id is not None
+        assert assignment.locked_at is not None
+
+
 def test_login_next_uses_canonical_allowlisted_internal_route(client):
     client.get("/login")
     with client.session_transaction() as session:
