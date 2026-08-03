@@ -285,3 +285,40 @@ def test_assignment_values_are_conservatively_classified(tmp_path):
         "MIGRATED_UNCERTAIN": 1,
     }
     assert uncertain == [5]
+
+
+def test_roster_impact_status_migration_handles_populated_legacy_rows(tmp_path):
+    database = tmp_path / "populated-roster-impact.db"
+    connection = sqlite3.connect(database)
+    connection.executescript(FIXTURES["full_original"])
+    connection.commit()
+    connection.close()
+    result = _run_alembic(database, "20260803_48")
+    assert result.returncode == 0, result.stdout + result.stderr
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO roster_impact_event "
+            "(id, unit_id, event_type, effective_from, staff_ids_json, "
+            "watch_ids_json, rebuild_baseline, recalculate_coverage, "
+            "preserve_overrides, reason, status, result_json, created_at) "
+            "VALUES (1, 1, 'MANUAL_RECALCULATION', '2026-08-01', '[]', "
+            "'[]', 0, 1, 1, '', 'PROCESSING', '{}', CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(text(
+            "INSERT INTO roster_impact_exception "
+            "(unit_id, event_id, effective_from, effective_to, exception_type, "
+            "severity, description, status, resolution_note, created_at) "
+            "VALUES (1, 1, '2026-08-01', '2026-08-01', "
+            "'PATTERN_CHANGE_REQUIRES_REVIEW', 'WARNING', 'legacy', "
+            "'DISMISSED', '', CURRENT_TIMESTAMP)"
+        ))
+    result = _run_alembic(database, "head")
+    assert result.returncode == 0, result.stdout + result.stderr
+    with engine.connect() as connection:
+        assert connection.execute(text(
+            "SELECT status FROM roster_impact_event WHERE id=1"
+        )).scalar_one() == "RUNNING"
+        assert connection.execute(text(
+            "SELECT status FROM roster_impact_exception WHERE event_id=1"
+        )).scalar_one() == "NOT_APPLICABLE"

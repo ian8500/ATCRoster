@@ -36,7 +36,6 @@ def upgrade() -> None:
     bind = op.get_bind()
     tables = sa.inspect(bind).get_table_names()
     if "roster_impact_event" in tables:
-        op.execute("UPDATE roster_impact_event SET status='RUNNING' WHERE status='PROCESSING'")
         existing = {c["name"] for c in sa.inspect(bind).get_columns("roster_impact_event")}
         with op.batch_alter_table("roster_impact_event") as batch:
             batch.drop_constraint("ck_roster_impact_event_status", type_="check")
@@ -44,6 +43,13 @@ def upgrade() -> None:
             for column in AUDIT_COLUMNS:
                 if column.name not in existing:
                     batch.add_column(column)
+            batch.create_check_constraint(
+                "ck_roster_impact_event_status",
+                "status IN ('PROCESSING','PENDING','RUNNING','COMPLETED','COMPLETED_WITH_WARNINGS','FAILED')",
+            )
+        op.execute("UPDATE roster_impact_event SET status='RUNNING' WHERE status='PROCESSING'")
+        with op.batch_alter_table("roster_impact_event") as batch:
+            batch.drop_constraint("ck_roster_impact_event_status", type_="check")
             batch.create_check_constraint(
                 "ck_roster_impact_event_status",
                 "status IN ('PENDING','RUNNING','COMPLETED','COMPLETED_WITH_WARNINGS','FAILED')",
@@ -55,6 +61,12 @@ def upgrade() -> None:
             # migration 43 still leaves a forward FK reference to it. SQLite
             # batch reflection needs the referenced table to exist briefly.
             op.create_table("watch", sa.Column("id", sa.Integer(), primary_key=True))
+        with op.batch_alter_table("roster_impact_exception") as batch:
+            batch.drop_constraint("ck_roster_impact_exception_status", type_="check")
+            batch.create_check_constraint(
+                "ck_roster_impact_exception_status",
+                "status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED','NOT_APPLICABLE')",
+            )
         op.execute("UPDATE roster_impact_exception SET status='NOT_APPLICABLE' WHERE status='DISMISSED'")
         with op.batch_alter_table("roster_impact_exception") as batch:
             batch.drop_constraint("ck_roster_impact_exception_status", type_="check")
@@ -72,6 +84,12 @@ def downgrade() -> None:
     bind = op.get_bind()
     tables = sa.inspect(bind).get_table_names()
     if "roster_impact_exception" in tables:
+        with op.batch_alter_table("roster_impact_exception") as batch:
+            batch.drop_constraint("ck_roster_impact_exception_status", type_="check")
+            batch.create_check_constraint(
+                "ck_roster_impact_exception_status",
+                "status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED','NOT_APPLICABLE')",
+            )
         op.execute("UPDATE roster_impact_exception SET status='DISMISSED' WHERE status='NOT_APPLICABLE'")
         with op.batch_alter_table("roster_impact_exception") as batch:
             batch.drop_constraint("ck_roster_impact_exception_status", type_="check")
@@ -80,9 +98,15 @@ def downgrade() -> None:
                 "status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED')",
             )
     if "roster_impact_event" in tables:
+        existing = {c["name"] for c in sa.inspect(bind).get_columns("roster_impact_event")}
+        with op.batch_alter_table("roster_impact_event") as batch:
+            batch.drop_constraint("ck_roster_impact_event_status", type_="check")
+            batch.create_check_constraint(
+                "ck_roster_impact_event_status",
+                "status IN ('PROCESSING','PENDING','RUNNING','COMPLETED','COMPLETED_WITH_WARNINGS','FAILED')",
+            )
         op.execute("UPDATE roster_impact_event SET status='COMPLETED' WHERE status='COMPLETED_WITH_WARNINGS'")
         op.execute("UPDATE roster_impact_event SET status='PROCESSING' WHERE status IN ('PENDING','RUNNING','FAILED')")
-        existing = {c["name"] for c in sa.inspect(bind).get_columns("roster_impact_event")}
         with op.batch_alter_table("roster_impact_event") as batch:
             batch.drop_constraint("ck_roster_impact_event_status", type_="check")
             batch.alter_column("status", type_=sa.String(20), existing_type=sa.String(30))
