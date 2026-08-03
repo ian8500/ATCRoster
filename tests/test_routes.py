@@ -1388,6 +1388,14 @@ def test_editor_can_hard_lock_an_assignment(client):
         assert assignment.locked_at is not None
 
 
+def test_obsolete_proposal_and_assignment_lock_controls_are_hidden(client):
+    login_as(client, "editor_test")
+    response = client.get("/roster/2025-04")
+    assert response.status_code == 200
+    assert b"Allocation proposals" not in response.data
+    assert b'name="lock_status"' not in response.data
+
+
 def test_login_next_uses_canonical_allowlisted_internal_route(client):
     client.get("/login")
     with client.session_transaction() as session:

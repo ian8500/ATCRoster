@@ -518,10 +518,6 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             (assignment.staff_id, assignment.day): assignment.version
             for assignment in month_assignments
         }
-        assignment_lock_map = {
-            (assignment.staff_id, assignment.day): assignment
-            for assignment in month_assignments
-        }
         assignment_override_map = {
             (assignment.staff_id, assignment.day): True
             for assignment in month_assignments
@@ -747,7 +743,6 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             staff=staff,
             a_map=assignment_map,
             assignment_version_map=assignment_version_map,
-            assignment_lock_map=assignment_lock_map,
             assignment_override_map=assignment_override_map,
             ann_map=annotation_map,
             ann_note_map=annotation_note_map,
