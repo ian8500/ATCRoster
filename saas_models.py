@@ -760,6 +760,8 @@ def register_saas_models(db, utcnow):
         anchor_date = db.Column(db.Date, nullable=False)
         anchor_day_index = db.Column(db.Integer, nullable=False, default=0)
         contracted_minutes_override = db.Column(db.Integer)
+        change_type = db.Column(db.String(40), nullable=False, default="WORK_PATTERN_CHANGE")
+        contracted_minutes_per_week = db.Column(db.Integer)
         notes = db.Column(db.String(500), nullable=False, default="")
         created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
         updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -781,6 +783,14 @@ def register_saas_models(db, utcnow):
             db.CheckConstraint(
                 "contracted_minutes_override IS NULL OR contracted_minutes_override >= 0",
                 name="ck_staff_pattern_minutes_nonnegative",
+            ),
+            db.CheckConstraint(
+                "change_type IN ('WORK_PATTERN_CHANGE','PART_TIME_CHANGE','FULL_TIME_CHANGE')",
+                name="ck_staff_pattern_change_type",
+            ),
+            db.CheckConstraint(
+                "contracted_minutes_per_week IS NULL OR contracted_minutes_per_week >= 0",
+                name="ck_staff_pattern_weekly_minutes_nonnegative",
             ),
         )
 

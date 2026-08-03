@@ -3367,12 +3367,12 @@ def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
             "_csrf_token": csrf(client), "action": "assign_pattern",
             "work_pattern_id": str(pattern_id), "effective_from": "2026-09-01",
             "anchor_date": "2026-09-01", "anchor_day_index": "0",
-            "notes": "Permanent cycle",
+            "reason": "Permanent cycle",
         },
         follow_redirects=True,
     )
     assert assigned.status_code == 200
-    assert b"Effective-dated pattern assignment added." in assigned.data
+    assert b"Scheduled working-arrangement change saved." in assigned.data
     rule = client.post(
         f"/administration/staff/{person_id}/work-rules",
         data={
@@ -3415,6 +3415,58 @@ def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
         assert app.StaffRule.query.filter_by(
             unit_id=1, staff_id=person_id, rule_type="NO_NIGHT"
         ).count() == 1
+
+
+def test_admin_schedules_part_time_arrangement_without_overwriting_history(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
+        patterns = app.WorkPattern.query.filter_by(unit_id=1).order_by(
+            app.WorkPattern.name
+        ).all()
+        assert len(patterns) >= 2
+        previous = app.StaffPatternAssignment.query.filter_by(
+            unit_id=1, staff_id=person.id
+        ).order_by(app.StaffPatternAssignment.effective_from.desc()).first()
+        assert previous is not None
+        previous_id = previous.id
+        person_id = person.id
+        pattern = next(row for row in patterns if row.id != previous.work_pattern_id)
+        pattern_id = pattern.id
+        cycle_days = pattern.cycle_length_days
+
+    response = client.post(
+        f"/administration/staff/{person_id}/work-rules",
+        data={
+            "_csrf_token": csrf(client), "action": "assign_pattern",
+            "change_type": "PART_TIME_CHANGE",
+            "work_pattern_id": str(pattern_id),
+            "effective_from": "2026-10-01", "anchor_date": "2026-10-01",
+            "anchor_day_index": "2", "contracted_hours_per_week": "22.5",
+            "reason": "Approved flexible-working agreement",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Scheduled working-arrangement change saved." in response.data
+    with app.app.app_context():
+        previous = db.session.get(app.StaffPatternAssignment, previous_id)
+        scheduled = app.StaffPatternAssignment.query.filter_by(
+            unit_id=1, staff_id=person_id, effective_from=date(2026, 10, 1)
+        ).one()
+        person = db.session.get(Staff, person_id)
+        event = app.RosterImpactEvent.query.filter_by(
+            unit_id=1, event_type="PART_TIME_CHANGE",
+        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        assert previous.effective_to == date(2026, 9, 30)
+        assert scheduled.anchor_day_index == 2
+        assert scheduled.contracted_minutes_override == round(22.5 * 60 * cycle_days / 7)
+        assert scheduled.change_type == "PART_TIME_CHANGE"
+        assert scheduled.contracted_minutes_per_week == 1350
+        assert person.employment_type == "FULL_TIME"
+        assert str(person_id) in event.staff_ids_json
+        assert event is not None
+        assert event.reason == "Approved flexible-working agreement"
 
 
 def test_unit_admin_creates_complete_effective_dated_joiner(client):

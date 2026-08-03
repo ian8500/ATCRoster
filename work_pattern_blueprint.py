@@ -296,28 +296,83 @@ def create_work_pattern_blueprint(
             action = (request.form.get("action") or "").strip()
             try:
                 if action == "assign_pattern":
+                    effective_from = date.fromisoformat(request.form["effective_from"])
+                    change_type = (request.form.get("change_type") or "WORK_PATTERN_CHANGE").strip().upper()
+                    if change_type not in {
+                        "WORK_PATTERN_CHANGE", "PART_TIME_CHANGE", "FULL_TIME_CHANGE",
+                    }:
+                        raise ValueError("Choose a supported working-arrangement change type.")
+                    reason = (request.form.get("reason") or "").strip()[:500]
+                    if not reason:
+                        raise ValueError("A reason is required for a scheduled working-arrangement change.")
+                    contracted_hours = request.form.get("contracted_hours_per_week")
+                    contracted_minutes_per_week = None
+                    if contracted_hours not in {None, ""}:
+                        hours = float(contracted_hours)
+                        if not 0 <= hours <= 168:
+                            raise ValueError("Contracted hours must be between 0 and 168 per week.")
+                        contracted_minutes_per_week = int(round(hours * 60))
+                    pattern = dependencies.WorkPattern.query.filter_by(
+                        id=int(request.form.get("work_pattern_id") or 0),
+                        unit_id=unit_id,
+                    ).first()
+                    if not pattern:
+                        raise ValueError("The selected pattern is unavailable in this airport.")
+                    cycle_minutes = (
+                        int(round(contracted_minutes_per_week * pattern.cycle_length_days / 7))
+                        if contracted_minutes_per_week is not None else None
+                    )
+
+                    # Close the arrangement that was in force immediately before the
+                    # new boundary. Historical rows remain immutable apart from their
+                    # effective end date, and later scheduled rows cap this new period.
+                    existing_rows = dependencies.StaffPatternAssignment.query.filter_by(
+                        unit_id=unit_id, staff_id=staff.id
+                    ).order_by(dependencies.StaffPatternAssignment.effective_from).all()
+                    if any(row.effective_from == effective_from for row in existing_rows):
+                        raise ValueError("A working arrangement already starts on this date.")
+                    previous = next((
+                        row for row in reversed(existing_rows)
+                        if row.effective_from < effective_from
+                        and (row.effective_to is None or row.effective_to >= effective_from)
+                    ), None)
+                    if previous:
+                        previous.effective_to = effective_from - timedelta(days=1)
+                    next_row = next((
+                        row for row in existing_rows if row.effective_from > effective_from
+                    ), None)
+                    requested_end = _optional_date(request.form.get("effective_to"))
+                    effective_to = requested_end
+                    if next_row and (effective_to is None or effective_to >= next_row.effective_from):
+                        effective_to = next_row.effective_from - timedelta(days=1)
                     assignment = dependencies.StaffPatternAssignment(
                         unit_id=unit_id,
                         staff_id=staff.id,
-                        work_pattern_id=int(request.form.get("work_pattern_id") or 0),
-                        effective_from=date.fromisoformat(request.form["effective_from"]),
-                        effective_to=_optional_date(request.form.get("effective_to")),
+                        work_pattern_id=pattern.id,
+                        effective_from=effective_from,
+                        effective_to=effective_to,
                         anchor_date=date.fromisoformat(request.form["anchor_date"]),
                         anchor_day_index=int(request.form.get("anchor_day_index") or 0),
-                        contracted_minutes_override=_optional_int(
-                            request.form.get("contracted_minutes_override")
-                        ),
-                        notes=(request.form.get("notes") or "").strip()[:500],
+                        contracted_minutes_override=cycle_minutes,
+                        change_type=change_type,
+                        contracted_minutes_per_week=contracted_minutes_per_week,
+                        notes=reason,
                     )
                     dependencies.pattern_service.validate_staff_pattern_assignment(assignment)
                     dependencies.db.session.add(assignment)
+                    if contracted_minutes_per_week is not None and effective_from <= date.today():
+                        staff.contracted_minutes_per_week = contracted_minutes_per_week
+                    if change_type == "PART_TIME_CHANGE" and effective_from <= date.today():
+                        staff.employment_type = "PART_TIME"
+                    elif change_type == "FULL_TIME_CHANGE" and effective_from <= date.today():
+                        staff.employment_type = "FULL_TIME"
                     dependencies.record_roster_impact(
-                        "WORK_PATTERN_CHANGE", assignment.effective_from,
+                        change_type, assignment.effective_from,
                         effective_to=assignment.effective_to,
                         staff_ids=[staff.id], rebuild_baseline=True,
-                        reason="Effective-dated work pattern assigned.",
+                        reason=reason,
                     )
-                    flash("Effective-dated pattern assignment added.", "ok")
+                    flash("Scheduled working-arrangement change saved.", "ok")
                 elif action == "end_assignment":
                     assignment = dependencies.StaffPatternAssignment.query.filter_by(
                         id=int(request.form.get("assignment_id") or 0),

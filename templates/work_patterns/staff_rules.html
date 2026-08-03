@@ -4,16 +4,17 @@
 <section class="compliance-hero"><div><span class="admin-step">Effective-dated roster configuration</span><h2>{{ staff.name }}</h2><p>Assign normalised patterns and record hard restrictions or soft preferences without changing historical roster calculations.</p></div></section>
 
 <section class="card"><div class="card-hd">Pattern history</div><div class="card-bd">
-  <div class="table-wrap"><table><thead><tr><th>Pattern</th><th>Effective period</th><th>Anchor</th><th>Minutes override</th><th>Action</th></tr></thead><tbody>
-  {% for row in assignments %}<tr><td>{{ pattern_names.get(row.work_pattern_id, 'Historical pattern #' ~ row.work_pattern_id) }}</td><td>{{ row.effective_from }} – {{ row.effective_to or 'open ended' }}</td><td>{{ row.anchor_date }} · day {{ row.anchor_day_index + 1 }}</td><td>{{ row.contracted_minutes_override if row.contracted_minutes_override is not none else 'Pattern default' }}</td><td>{% if not row.effective_to %}<form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="end_assignment"><input type="hidden" name="assignment_id" value="{{ row.id }}"><input type="date" name="effective_to" min="{{ row.effective_from.isoformat() }}" required><button class="btn btn-sm">Set end date</button></form>{% endif %}</td></tr>
-  {% else %}<tr><td colspan="5">No normalised assignment yet; existing CSV/watch logic remains the fallback.</td></tr>{% endfor %}
+  <div class="table-wrap"><table><thead><tr><th>Arrangement</th><th>Pattern</th><th>Effective period</th><th>Anchor</th><th>Hours/week</th><th>Reason</th><th>Action</th></tr></thead><tbody>
+  {% for row in assignments %}<tr><td>{{ row.change_type|replace('_', ' ')|title }}</td><td>{{ pattern_names.get(row.work_pattern_id, 'Historical pattern #' ~ row.work_pattern_id) }}</td><td>{{ row.effective_from }} – {{ row.effective_to or 'open ended' }}</td><td>{{ row.anchor_date }} · day {{ row.anchor_day_index + 1 }}</td><td>{{ (row.contracted_minutes_per_week / 60) if row.contracted_minutes_per_week is not none else 'Pattern default' }}</td><td>{{ row.notes or '—' }}</td><td>{% if not row.effective_to %}<form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="end_assignment"><input type="hidden" name="assignment_id" value="{{ row.id }}"><input type="date" name="effective_to" min="{{ row.effective_from.isoformat() }}" required><button class="btn btn-sm">Set end date</button></form>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="7">No normalised assignment yet; existing CSV/watch logic remains the fallback.</td></tr>{% endfor %}
   </tbody></table></div>
   <form method="post" class="admin-form-grid mt-3"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="assign_pattern">
+    <label>Change type<select name="change_type" required><option value="WORK_PATTERN_CHANGE">Work pattern</option><option value="PART_TIME_CHANGE">Move to part-time</option><option value="FULL_TIME_CHANGE">Move to full-time</option></select></label>
     <label>Pattern<select name="work_pattern_id" required><option value="">Select pattern</option>{% for pattern in patterns %}<option value="{{ pattern.id }}">{{ pattern.name }}</option>{% endfor %}</select></label>
     <label>Effective from<input type="date" name="effective_from" required></label><label>Effective to<input type="date" name="effective_to"></label>
     <label>Anchor date<input type="date" name="anchor_date" required></label><label>Anchor cycle day<input type="number" name="anchor_day_index" min="0" value="0" required></label>
-    <label>Contracted minutes override<input type="number" name="contracted_minutes_override" min="0"></label><label>Notes<input name="notes" maxlength="500"></label>
-    <div class="form-actions"><button class="btn btn-primary">Add pattern assignment</button></div>
+    <label>Contracted hours per week<input type="number" name="contracted_hours_per_week" min="0" max="168" step="0.25" value="{{ (staff.contracted_minutes_per_week / 60) if staff.contracted_minutes_per_week is not none else '' }}"></label><label>Reason<input name="reason" maxlength="500" required></label>
+    <div class="form-actions"><button class="btn btn-primary">Schedule arrangement change</button></div>
   </form>
 </div></section>
 
