@@ -86,6 +86,7 @@ class DeterministicRosterPopulationService:
         reason: str | None = None,
         triggered_by_user_id: int | None = None,
         reference_date: date | None = None,
+        generation_event_id: int | None = None,
         dry_run: bool = False,
     ) -> PopulationResult:
         del reason, triggered_by_user_id  # reserved for the event/audit stage
@@ -271,6 +272,7 @@ class DeterministicRosterPopulationService:
                     generation_version=GENERATION_VERSION,
                     pattern_id=pattern_id,
                     pattern_day_index=cycle_index,
+                    generation_event_id=generation_event_id,
                 )
                 if existing.override_code is None:
                     existing.source = "auto"

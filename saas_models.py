@@ -934,6 +934,59 @@ def register_saas_models(db, utcnow):
             db.UniqueConstraint("unit_id", "version", name="uq_roster_rule_unit_version"),
         )
 
+    class RosterImpactEvent(db.Model):
+        __tablename__ = "roster_impact_event"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        event_type = db.Column(db.String(50), nullable=False, index=True)
+        effective_from = db.Column(db.Date, nullable=False, index=True)
+        effective_to = db.Column(db.Date)
+        staff_ids_json = db.Column(db.Text, nullable=False, default="[]")
+        watch_ids_json = db.Column(db.Text, nullable=False, default="[]")
+        rebuild_baseline = db.Column(db.Boolean, nullable=False, default=False)
+        recalculate_coverage = db.Column(db.Boolean, nullable=False, default=True)
+        preserve_overrides = db.Column(db.Boolean, nullable=False, default=True)
+        reason = db.Column(db.String(500), nullable=False, default="")
+        triggered_by_user_id = db.Column(db.Integer)
+        status = db.Column(db.String(20), nullable=False, default="PROCESSING", index=True)
+        protected_from = db.Column(db.Date)
+        protected_to = db.Column(db.Date)
+        automatic_from = db.Column(db.Date)
+        automatic_to = db.Column(db.Date)
+        result_json = db.Column(db.Text, nullable=False, default="{}")
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        completed_at = db.Column(db.DateTime)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "id", name="uq_roster_impact_event_unit_id"),
+            db.CheckConstraint("status IN ('PROCESSING','COMPLETED')", name="ck_roster_impact_event_status"),
+            db.CheckConstraint("effective_to IS NULL OR effective_to >= effective_from", name="ck_roster_impact_event_range"),
+        )
+
+    class RosterImpactException(db.Model):
+        __tablename__ = "roster_impact_exception"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, nullable=False, index=True)
+        event_id = db.Column(db.Integer, nullable=False, index=True)
+        staff_id = db.Column(db.Integer, index=True)
+        watch_id = db.Column(db.Integer, db.ForeignKey("watch.id"), index=True)
+        effective_from = db.Column(db.Date, nullable=False, index=True)
+        effective_to = db.Column(db.Date, nullable=False)
+        exception_type = db.Column(db.String(40), nullable=False, index=True)
+        severity = db.Column(db.String(20), nullable=False, default="WARNING")
+        description = db.Column(db.String(1000), nullable=False)
+        status = db.Column(db.String(20), nullable=False, default="OPEN", index=True)
+        resolved_by_user_id = db.Column(db.Integer)
+        resolved_at = db.Column(db.DateTime)
+        resolution_note = db.Column(db.String(1000), nullable=False, default="")
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        __table_args__ = (
+            db.ForeignKeyConstraint(["unit_id", "event_id"], ["roster_impact_event.unit_id", "roster_impact_event.id"], name="fk_roster_impact_exception_event_unit", ondelete="CASCADE"),
+            db.ForeignKeyConstraint(["unit_id", "staff_id"], ["staff.unit_id", "staff.id"], name="fk_roster_impact_exception_staff_unit"),
+            db.CheckConstraint("effective_to >= effective_from", name="ck_roster_impact_exception_range"),
+            db.CheckConstraint("severity IN ('INFO','WARNING','CRITICAL')", name="ck_roster_impact_exception_severity"),
+            db.CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED')", name="ck_roster_impact_exception_status"),
+        )
+
     class MfaCredential(db.Model):
         __tablename__ = "mfa_credential"
         id = db.Column(db.Integer, primary_key=True)

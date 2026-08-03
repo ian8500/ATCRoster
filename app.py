@@ -89,6 +89,7 @@ from roster_population_service import (
     DeterministicRosterPopulationService,
     PopulationDependencies,
 )
+from roster_impact_service import RosterImpactDependencies, RosterImpactService
 from access_policy import (
     has_permission,
     is_admin,
@@ -1493,6 +1494,8 @@ BankHoliday = SaaS.BankHoliday
 RosterProposal = SaaS.RosterProposal
 RosterProposalAssignment = SaaS.RosterProposalAssignment
 RosterRuleVersion = SaaS.RosterRuleVersion
+RosterImpactEvent = SaaS.RosterImpactEvent
+RosterImpactException = SaaS.RosterImpactException
 MfaCredential = SaaS.MfaCredential
 
 from briefing_module import (
@@ -1519,6 +1522,7 @@ TENANT_OPERATIONAL_MODELS = (
     ControllerKioskCredential, PositionSessionAudit,
     PositionEndorsement, PositionRequirement, BreakPlan,
     AchievedDuty, FatigueReport, RosterRuleVersion,
+    RosterImpactEvent, RosterImpactException,
     MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
     BriefingAudit,
     BriefingAssuranceRun,
@@ -2447,6 +2451,48 @@ def deterministic_roster_population_service():
         utcnow=utcnow,
         legacy_code_resolver=code_from_pattern,
         watch_id_resolver=_effective_watch_id,
+    ))
+
+
+def _generated_roster_horizon_end(unit_id: int, effective_from: date) -> date | None:
+    """Return the last generated date; future events wait for future generation."""
+    return db.session.query(db.func.max(Assignment.day)).filter(
+        Assignment.unit_id == unit_id,
+        Assignment.day >= effective_from,
+    ).scalar()
+
+
+def _invalidate_roster_impact_coverage(
+    unit_id: int,
+    effective_from: date,
+    effective_to: date,
+    _staff_ids: tuple[int, ...],
+    _watch_ids: tuple[int, ...],
+):
+    """Invalidate each affected monthly coverage/roster cache entry."""
+    cursor = effective_from.replace(day=1)
+    final = effective_to.replace(day=1)
+    while cursor <= final:
+        if _cache:
+            try:
+                _cache.delete_memoized(
+                    _load_month_roster_fast, int(unit_id), cursor.year, cursor.month
+                )
+            except Exception:
+                pass
+        cursor = add_months(cursor, 1)
+
+
+def roster_impact_service():
+    return RosterImpactService(RosterImpactDependencies(
+        db=db,
+        Unit=Unit,
+        RosterImpactEvent=RosterImpactEvent,
+        RosterImpactException=RosterImpactException,
+        population_service=deterministic_roster_population_service(),
+        generated_horizon_end=_generated_roster_horizon_end,
+        recalculate_coverage=_invalidate_roster_impact_coverage,
+        utcnow=utcnow,
     ))
 
 
