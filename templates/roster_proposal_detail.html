@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Allocation proposal {{ proposal.id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><span class="admin-step">Draft allocation</span><h2>Proposal {{ proposal.id }}</h2><p class="muted">{{ proposal.start_date.strftime('%d %b %Y') }} – {{ proposal.end_date.strftime('%d %b %Y') }}</p></div>
+  <a class="btn ghost" href="{{ url_for('roster_proposals') }}">All proposals</a>
+</div>
+<div class="summary-grid">
+  <div class="card"><span class="muted">Solver result</span><strong>{{ proposal.status|replace('_', ' ')|title }}</strong></div>
+  <div class="card"><span class="muted">Workflow</span><strong>{{ proposal.workflow_state|title }}</strong></div>
+  <div class="card"><span class="muted">Objective cost</span><strong>{{ proposal.objective_score }}</strong></div>
+  <div class="card"><span class="muted">Suggestions</span><strong>{{ items|length }}</strong></div>
+</div>
+{% if uncovered %}<section class="card alert-warning"><h3>Uncovered requirements</h3><ul>{% for row in uncovered %}<li>{{ row.day }} · {{ row.shift_code }} · {{ row.missing_count }} missing — {{ row.explanations|join('; ') }}</li>{% endfor %}</ul></section>{% endif %}
+<section class="card">
+  <h3>Proposed duties</h3>
+  {% if items %}<div class="table-scroll"><table><thead><tr><th>Date</th><th>Staff</th><th>Shift</th><th>Why</th><th>Review</th></tr></thead><tbody>
+  {% for item in items %}<tr>
+    <td>{{ item.day.strftime('%a %d %b %Y') }}</td><td>{{ staff_by_id[item.staff_id].name }}</td><td><strong>{{ item.shift_code }}</strong></td>
+    <td><details><summary>Explanation</summary><ul>{% for reason in json_loads(item.explanations_json) %}<li>{{ reason }}</li>{% endfor %}</ul></details></td>
+    <td>{% if proposal.workflow_state == 'draft' %}<form method="post" action="{{ url_for('roster_proposal_review', proposal_id=proposal.id, item_id=item.id) }}" class="inline-actions"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm{% if item.review_state == 'accepted' %} btn-primary{% endif %}" name="review_state" value="accepted">Accept</button><button class="btn btn-sm{% if item.review_state == 'rejected' %} danger{% endif %}" name="review_state" value="rejected">Reject</button></form>{% else %}{{ item.review_state|title }}{% endif %}</td>
+  </tr>{% endfor %}</tbody></table></div>{% else %}<p class="muted">No new assignments were proposed.</p>{% endif %}
+</section>
+{% if proposal.workflow_state == 'draft' %}<section class="card"><div class="inline-actions">
+  <form method="post" action="{{ url_for('roster_proposal_apply', proposal_id=proposal.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">Apply accepted duties</button></form>
+  <form method="post" action="{{ url_for('roster_proposal_discard', proposal_id=proposal.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn danger" type="submit">Discard proposal</button></form>
+</div><p class="muted">Applying rechecks that every roster cell is still blank. Any intervening roster change stops the operation.</p></section>{% endif %}
+{% endblock %}

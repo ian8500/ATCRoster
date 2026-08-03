@@ -124,6 +124,7 @@ class RosterProposal:
 
 HardConstraint = Callable[[int, date, int], HardConstraintResult]
 SoftConstraint = Callable[[int, date, int], SoftConstraintResult]
+SelectionCallback = Callable[[int, date, int], None]
 
 
 def generate_roster_proposal(
@@ -136,6 +137,7 @@ def generate_roster_proposal(
     existing_assignments: Iterable[ExistingAllocation] = (),
     hard_constraint: HardConstraint,
     soft_constraint: SoftConstraint | None = None,
+    on_assignment_selected: SelectionCallback | None = None,
     staff_ids: Iterable[int] | None = None,
     shift_type_ids: Iterable[int] | None = None,
     preserve_existing: bool = True,
@@ -276,6 +278,8 @@ def generate_roster_proposal(
             actual_minutes[staff_id] += shift.minutes
             night_counts[staff_id] += int(shift.is_night)
             weekend_counts[staff_id] += int(need.day.weekday() >= 5)
+            if on_assignment_selected is not None:
+                on_assignment_selected(staff_id, need.day, shift.shift_type_id)
             objective += score
             missing -= 1
         if missing:

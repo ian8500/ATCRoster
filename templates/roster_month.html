@@ -157,6 +157,9 @@
 
   <a class="btn roster-export-link" href="{{ url_for('roster_export_csv', ym=ym) }}">Export CSV</a>
   <button class="btn" data-command="print-roster">Print</button>
+  {% if can_edit %}
+    <a class="btn" href="{{ url_for('roster_proposals') }}">Allocation proposals</a>
+  {% endif %}
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
     <span class="roster-zoom-label">Zoom</span>

@@ -132,7 +132,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
             connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            == "20260803_39"
+            == "20260803_40"
         )
         for table, count in before.items():
             assert (

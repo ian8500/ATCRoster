@@ -1415,6 +1415,8 @@ WorkPatternDayAllowedShift = SaaS.WorkPatternDayAllowedShift
 StaffPatternAssignment = SaaS.StaffPatternAssignment
 StaffRule = SaaS.StaffRule
 BankHoliday = SaaS.BankHoliday
+RosterProposal = SaaS.RosterProposal
+RosterProposalAssignment = SaaS.RosterProposalAssignment
 RosterRuleVersion = SaaS.RosterRuleVersion
 MfaCredential = SaaS.MfaCredential
 
@@ -2654,6 +2656,50 @@ def would_trigger_fatigue(staff: Staff, day: date, code: str):
         segs, observation_start=datetime.combine(start_lb, time.min)
     )
     return flags.get(day, [])
+
+
+def would_trigger_fatigue_with_plan(
+    staff: Staff,
+    day: date,
+    code: str,
+    proposed_codes: dict[date, str],
+):
+    """Evaluate a candidate together with earlier in-memory proposal duties."""
+    shift = get_shift(code, staff.unit_id)
+    if not _is_working(shift):
+        return []
+    start_day = min([day, *proposed_codes], default=day) - timedelta(days=30)
+    end_day = max([day, *proposed_codes], default=day)
+    segments = _segments_for_staff(staff, start_day, end_day)
+    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
+    for proposed_day, proposed_code in {**proposed_codes, day: code}.items():
+        proposed_shift = get_shift(proposed_code, staff.unit_id)
+        start_dt, end_dt = _span(proposed_day, proposed_shift)
+        if not start_dt:
+            continue
+        early, pre0600 = _is_early_start(start_dt, definitions)
+        segments.append({
+            "day": proposed_day,
+            "start": start_dt,
+            "end": end_dt,
+            "mins": int((end_dt - start_dt).total_seconds() // 60),
+            "night": _is_night_duty(start_dt, end_dt, definitions),
+            "early": early,
+            "early_pre0600": pre0600,
+            "morning": _is_morning_duty(start_dt),
+        })
+    segments.sort(key=lambda item: item["start"])
+    config = _fatigue_rule_config(staff.unit_id)
+    findings = _analyze_segments(
+        segments,
+        config,
+        observation_start=datetime.combine(start_day, time.min),
+    )
+    for finding_day, messages in _custom_fatigue_flags(
+        segments, config["custom"]
+    ).items():
+        findings.setdefault(finding_day, []).extend(messages)
+    return findings.get(day, [])
 
 
 def _year_month_iter(start_date: date, end_date: date):
@@ -8973,6 +9019,9 @@ from work_pattern_blueprint import (
 from roster_validation_service import (
     RosterValidationDependencies, RosterValidationService,
 )
+from roster_proposal_service import (
+    RosterProposalDependencies, RosterProposalService,
+)
 from work_pattern_migration_service import (
     WorkPatternMigrationDependencies, WorkPatternMigrationService,
 )
@@ -9012,6 +9061,29 @@ roster_validation_service = RosterValidationService(
         StaffPatternAssignment=StaffPatternAssignment,
         StaffRule=StaffRule,
         work_pattern_service=work_pattern_service,
+    )
+)
+roster_proposal_service = RosterProposalService(
+    RosterProposalDependencies(
+        db=db,
+        Staff=Staff,
+        ShiftType=ShiftType,
+        Assignment=Assignment,
+        Sickness=Sickness,
+        Requirement=Requirement,
+        SpecialRequirement=SpecialRequirement,
+        RosterProposal=RosterProposal,
+        RosterProposalAssignment=RosterProposalAssignment,
+        ChangeLog=ChangeLog,
+        work_pattern_service=work_pattern_service,
+        requirements_for_day=requirements_for_day,
+        shift_group_for_day=shift_counter_group_for_day,
+        shift_minutes=shift_duration_minutes,
+        staff_is_countable_on=staff_is_countable_on,
+        staff_has_qualification=_staff_has_shift_qualification,
+        would_trigger_fatigue=would_trigger_fatigue_with_plan,
+        compute_fairness_range=_compute_fairness_range,
+        utcnow=utcnow,
     )
 )
 work_pattern_migration_service = WorkPatternMigrationService(
@@ -9152,6 +9224,9 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     watch_ids_for_staff_on=watch_ids_for_staff_on,
     roster_fatigue_flags=roster_fatigue_flags_for_range,
     roster_validation=roster_validation_service,
+    RosterProposal=RosterProposal,
+    RosterProposalAssignment=RosterProposalAssignment,
+    roster_proposal_service=roster_proposal_service,
     get_annotation_groups=get_annotation_groups,
     lock_roster_month=_lock_roster_month,
 )))

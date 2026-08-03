@@ -3356,6 +3356,29 @@ def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     ).status_code == 404
 
 
+def test_allocation_proposals_are_editor_only_and_start_as_drafts():
+    ordinary = app.app.test_client()
+    login_as(ordinary, "staff_test")
+    assert ordinary.get("/roster/proposals").status_code == 403
+
+    editor = app.app.test_client()
+    login_as(editor, "editor_test")
+    page = editor.get("/roster/proposals")
+    assert page.status_code == 200
+    assert b"Generate a gap-filling proposal" in page.data
+    invalid = editor.post(
+        "/roster/proposals",
+        data={
+            "_csrf_token": csrf(editor),
+            "start_date": "2026-10-10",
+            "end_date": "2026-10-01",
+        },
+        follow_redirects=True,
+    )
+    assert invalid.status_code == 200
+    assert b"Choose a proposal period between 1 and 93 days" in invalid.data
+
+
 def test_admin_dry_runs_and_migrates_only_exact_legacy_pattern(client):
     login(client)
     effective_from = date(2025, 1, 1)

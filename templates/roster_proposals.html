@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Allocation proposals{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><span class="admin-step">Roster planning</span><h2>Automatic allocation proposals</h2></div>
+  <a class="btn ghost" href="{{ url_for('roster_month', ym=today.strftime('%Y-%m')) }}">Back to roster</a>
+</div>
+<section class="card">
+  <h3>Generate a gap-filling proposal</h3>
+  <p class="muted">This does not change the live roster. Existing duties are retained and every suggestion must be reviewed.</p>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label>Start date<input type="date" name="start_date" required></label>
+    <label>End date<input type="date" name="end_date" required></label>
+    <label>Fairness lookback (days)<input type="number" name="fairness_lookback_days" min="1" max="730" value="180" required></label>
+    <label class="checkbox-row"><input type="checkbox" name="allow_overtime" value="1"> Permit overtime when necessary</label>
+    <div><button class="btn btn-primary" type="submit">Generate proposal</button></div>
+  </form>
+</section>
+<section class="card">
+  <h3>Recent proposals</h3>
+  {% if proposals %}
+    <div class="table-scroll"><table><thead><tr><th>Dates</th><th>Result</th><th>Workflow</th><th>Created</th><th></th></tr></thead><tbody>
+    {% for proposal in proposals %}<tr>
+      <td>{{ proposal.start_date.strftime('%d %b %Y') }} – {{ proposal.end_date.strftime('%d %b %Y') }}</td>
+      <td>{{ proposal.status|replace('_', ' ')|title }}</td><td>{{ proposal.workflow_state|title }}</td>
+      <td>{{ proposal.created_at.strftime('%d %b %Y %H:%M') }}</td>
+      <td><a class="btn btn-sm" href="{{ url_for('roster_proposal_detail', proposal_id=proposal.id) }}">Review</a></td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+  {% else %}<p class="muted">No proposals have been generated.</p>{% endif %}
+</section>
+{% endblock %}

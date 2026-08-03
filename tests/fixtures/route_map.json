@@ -747,6 +747,42 @@
     "rule": "/roster/<ym>/unpublish"
   },
   {
+    "endpoint": "roster_proposals",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/roster/proposals"
+  },
+  {
+    "endpoint": "roster_proposal_detail",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/roster/proposals/<int:proposal_id>"
+  },
+  {
+    "endpoint": "roster_proposal_apply",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster/proposals/<int:proposal_id>/apply"
+  },
+  {
+    "endpoint": "roster_proposal_discard",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster/proposals/<int:proposal_id>/discard"
+  },
+  {
+    "endpoint": "roster_proposal_review",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster/proposals/<int:proposal_id>/items/<int:item_id>"
+  },
+  {
     "endpoint": "mfa_setup",
     "methods": [
       "GET",

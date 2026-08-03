@@ -76,6 +76,9 @@ class RosterDependencies:
     roster_validation: Any
     get_annotation_groups: Callable[[], list]
     lock_roster_month: Callable[[int, int, int], Any]
+    RosterProposal: Any = None
+    RosterProposalAssignment: Any = None
+    roster_proposal_service: Any = None
 
 
 def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
@@ -84,6 +87,123 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
     def annotation_is_soal(value: str | None) -> bool:
         parsed = dependencies.parse_annotation((value or "").strip().upper())
         return bool(parsed and parsed.get("type") == "SOAL")
+
+    def _proposal_or_404(proposal_id: int):
+        return dependencies.RosterProposal.query.filter_by(
+            id=proposal_id, unit_id=dependencies.current_unit_id()
+        ).first_or_404()
+
+    @login_required
+    def roster_proposals():
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        unit_id = dependencies.current_unit_id()
+        if request.method == "POST":
+            dependencies.validate_csrf()
+            try:
+                start_date = date.fromisoformat(request.form.get("start_date") or "")
+                end_date = date.fromisoformat(request.form.get("end_date") or "")
+                lookback = max(1, min(730, int(
+                    request.form.get("fairness_lookback_days") or 180
+                )))
+                proposal = dependencies.roster_proposal_service.generate(
+                    unit_id,
+                    start_date,
+                    end_date,
+                    current_user.id,
+                    allow_overtime=request.form.get("allow_overtime") == "1",
+                    fairness_lookback_days=lookback,
+                )
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or "Choose valid proposal dates.", "error")
+            else:
+                flash("Automatic allocation proposal generated for review.", "ok")
+                return redirect(url_for("roster_proposal_detail", proposal_id=proposal.id))
+        rows = dependencies.RosterProposal.query.filter_by(
+            unit_id=unit_id
+        ).order_by(dependencies.RosterProposal.created_at.desc()).limit(50).all()
+        return render_template(
+            "roster_proposals.html", proposals=rows, today=date.today()
+        )
+
+    @login_required
+    def roster_proposal_detail(proposal_id: int):
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        proposal = _proposal_or_404(proposal_id)
+        items = dependencies.RosterProposalAssignment.query.filter_by(
+            unit_id=proposal.unit_id, proposal_id=proposal.id
+        ).order_by(
+            dependencies.RosterProposalAssignment.day,
+            dependencies.RosterProposalAssignment.shift_code,
+        ).all()
+        staff = {
+            row.id: row for row in dependencies.Staff.query.filter(
+                dependencies.Staff.unit_id == proposal.unit_id,
+                dependencies.Staff.id.in_([item.staff_id for item in items] or [0]),
+            ).all()
+        }
+        uncovered = json.loads(proposal.uncovered_json or "[]")
+        return render_template(
+            "roster_proposal_detail.html",
+            proposal=proposal,
+            items=items,
+            staff_by_id=staff,
+            uncovered=uncovered,
+            json_loads=json.loads,
+        )
+
+    @login_required
+    def roster_proposal_review(proposal_id: int, item_id: int):
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        dependencies.validate_csrf()
+        proposal = _proposal_or_404(proposal_id)
+        if proposal.workflow_state != "draft":
+            abort(409, "This proposal is no longer open for review.")
+        item = dependencies.RosterProposalAssignment.query.filter_by(
+            id=item_id, proposal_id=proposal.id, unit_id=proposal.unit_id
+        ).first_or_404()
+        state = request.form.get("review_state") or ""
+        if state not in {"accepted", "rejected", "pending"}:
+            abort(400)
+        item.review_state = state
+        item.reviewed_by_user_id = current_user.id
+        item.reviewed_at = dependencies.utcnow()
+        dependencies.db.session.commit()
+        return redirect(url_for("roster_proposal_detail", proposal_id=proposal.id))
+
+    @login_required
+    def roster_proposal_apply(proposal_id: int):
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        dependencies.validate_csrf()
+        proposal = _proposal_or_404(proposal_id)
+        try:
+            applied = dependencies.roster_proposal_service.apply(
+                proposal, current_user.id
+            )
+        except ValueError as exc:
+            dependencies.db.session.rollback()
+            flash(str(exc), "error")
+        else:
+            flash(f"Applied {applied} accepted proposed duties.", "ok")
+        return redirect(url_for("roster_proposal_detail", proposal_id=proposal.id))
+
+    @login_required
+    def roster_proposal_discard(proposal_id: int):
+        if not dependencies.can_edit_roster(current_user):
+            abort(403)
+        dependencies.validate_csrf()
+        proposal = _proposal_or_404(proposal_id)
+        if proposal.workflow_state != "draft":
+            abort(409)
+        proposal.workflow_state = "discarded"
+        proposal.discarded_by_user_id = current_user.id
+        proposal.discarded_at = dependencies.utcnow()
+        dependencies.db.session.commit()
+        flash("Proposal discarded; the live roster was not changed.", "ok")
+        return redirect(url_for("roster_proposal_detail", proposal_id=proposal.id))
 
     @login_required
     def roster_month_publish(ym):
@@ -951,6 +1071,11 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             ),
             ("/roster/<ym>/export", "roster_export_csv", roster_export_csv, ["GET"]),
             ("/roster/<ym>/print", "roster_print_view", roster_print_view, ["GET"]),
+            ("/roster/proposals", "roster_proposals", roster_proposals, ["GET", "POST"]),
+            ("/roster/proposals/<int:proposal_id>", "roster_proposal_detail", roster_proposal_detail, ["GET"]),
+            ("/roster/proposals/<int:proposal_id>/items/<int:item_id>", "roster_proposal_review", roster_proposal_review, ["POST"]),
+            ("/roster/proposals/<int:proposal_id>/apply", "roster_proposal_apply", roster_proposal_apply, ["POST"]),
+            ("/roster/proposals/<int:proposal_id>/discard", "roster_proposal_discard", roster_proposal_discard, ["POST"]),
         )
         for rule, endpoint, view_func, methods in routes:
             state.app.add_url_rule(
