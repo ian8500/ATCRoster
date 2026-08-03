@@ -825,6 +825,13 @@
     "rule": "/roster/proposals/<int:proposal_id>/items/<int:item_id>"
   },
   {
+    "endpoint": "roster_telemetry",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster/telemetry"
+  },
+  {
     "endpoint": "mfa_setup",
     "methods": [
       "GET",

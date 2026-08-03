@@ -191,7 +191,8 @@
 <div id="roster" class="roster-status-frame {{ 'roster-status-frame--published' if roster_publication else 'roster-status-frame--draft' }}"
      data-can-edit="{{ '1' if can_edit else '0' }}"
      data-readonly="{{ '1' if readonly else '0' }}"
-     data-day-count="{{ days|length }}">
+     data-day-count="{{ days|length }}"
+     data-roster-telemetry-url="{{ url_for('roster_telemetry') }}">
 
 <table class="roster">
   <thead>
@@ -486,6 +487,29 @@
     });
   }
   const rosterRoot = document.getElementById('roster');
+  window.addEventListener('load', () => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const navigation = performance.getEntriesByType('navigation')[0];
+      const csrfToken = rosterRoot?.querySelector('input[name="_csrf_token"]')?.value;
+      const telemetryUrl = rosterRoot?.dataset.rosterTelemetryUrl;
+      if (!navigation || !csrfToken || !telemetryUrl) return;
+      fetch(telemetryUrl, {
+        method: 'POST',
+        keepalive: true,
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        body: JSON.stringify({
+          render_ms: performance.now(),
+          dom_ms: navigation.domInteractive - navigation.startTime,
+          transfer_bytes: navigation.transferSize || navigation.encodedBodySize || 0,
+          decoded_bytes: navigation.decodedBodySize || 0,
+        }),
+      }).catch(() => {});
+    }));
+  }, { once: true });
   const shiftOptionsTemplate = document.getElementById('roster-shift-options');
   const ensureShiftOptions = (select) => {
     if (!select || select.dataset.optionsLoaded === '1' || !shiftOptionsTemplate) return;

@@ -15,6 +15,7 @@ class SecurityHeaderDependencies:
     deployment_environment: str
     metrics: Any
     finish_request: Callable[..., float]
+    slow_roster_seconds: float = 2.0
 
 
 def csp_nonce() -> str:
@@ -81,6 +82,29 @@ def register_security_headers(
                 method=request.method,
                 status=response.status_code,
             )
+            if route == "roster_month":
+                dependencies.metrics.add("roster_page_requests_total")
+                dependencies.metrics.add(
+                    "roster_page_duration_seconds_sum", duration
+                )
+                dependencies.metrics.add("roster_page_duration_seconds_count")
+                response.headers["Server-Timing"] = (
+                    f"roster;dur={duration * 1000:.2f}"
+                )
+                if duration >= dependencies.slow_roster_seconds:
+                    dependencies.metrics.add("roster_page_slow_requests_total")
+                    app.logger.warning(
+                        "slow_roster_request",
+                        extra={"structured_fields": {
+                            "request_id": getattr(g, "request_id", ""),
+                            "route": route,
+                            "unit_id": getattr(current_user, "unit_id", None),
+                            "duration_ms": round(duration * 1000, 2),
+                            "threshold_ms": round(
+                                dependencies.slow_roster_seconds * 1000, 2
+                            ),
+                        }},
+                    )
             g.metrics_started_at = None
             if production:
                 app.logger.info(

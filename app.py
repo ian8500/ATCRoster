@@ -415,6 +415,9 @@ _security_headers = register_security_headers(
         deployment_environment=DEPLOYMENT_ENV,
         metrics=_operational_metrics,
         finish_request=finish_request,
+        slow_roster_seconds=float(os.environ.get(
+            "ATCROSTER_SLOW_ROSTER_SECONDS", "2.0"
+        )),
     ),
 )
 register_response_compression(app)
@@ -10263,6 +10266,7 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     roster_fatigue_matrix=roster_fatigue_flags_matrix,
     roster_validation=roster_validation_service,
     roster_month_cache=roster_month_cache,
+    metrics=_operational_metrics,
     RosterProposal=RosterProposal,
     RosterProposalAssignment=RosterProposalAssignment,
     roster_proposal_service=roster_proposal_service,

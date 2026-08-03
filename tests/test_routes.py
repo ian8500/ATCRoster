@@ -2,7 +2,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 
@@ -14,13 +13,6 @@ from conftest import finish_operational_login
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
-
-TEST_DB_PATH = os.path.join(tempfile.gettempdir(), "atc_roster_test.db")
-# Ensure a clean database path before importing the app module
-if os.path.exists(TEST_DB_PATH):
-    os.remove(TEST_DB_PATH)
-
-os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 import app
 import fatigue_compliance
@@ -205,10 +197,6 @@ def setup_database():
     with app.app.app_context():
         db.session.remove()
         db.drop_all()
-
-    if os.path.exists(TEST_DB_PATH):
-        os.remove(TEST_DB_PATH)
-
 
 @pytest.fixture()
 def client():
@@ -1405,6 +1393,25 @@ def test_operational_commit_invalidates_the_unit_roster_cache(client):
         assignment.version = int(assignment.version or 0) + 1
         db.session.commit()
         assert app.roster_month_cache.get(1, 2026, 8) is None
+
+
+def test_roster_browser_telemetry_is_authenticated_and_csrf_protected(client):
+    login_as(client, "editor_test")
+    client.get("/roster/2025-04")
+    response = client.post(
+        "/roster/telemetry",
+        json={
+            "render_ms": 450.5,
+            "dom_ms": 320.25,
+            "transfer_bytes": 48_000,
+            "decoded_bytes": 1_700_000,
+        },
+        headers={"X-CSRF-Token": csrf(client)},
+    )
+    assert response.status_code == 204
+    assert "atcroster_roster_browser_samples_total" in (
+        app._operational_metrics.render()
+    )
 
 
 def test_login_next_uses_canonical_allowlisted_internal_route(client):

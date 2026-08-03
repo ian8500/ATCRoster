@@ -78,6 +78,7 @@ class RosterDependencies:
     roster_fatigue_matrix: Callable[..., dict]
     roster_validation: Any
     roster_month_cache: Any
+    metrics: Any
     get_annotation_groups: Callable[[], list]
     lock_roster_month: Callable[[int, int, int], Any]
     RosterProposal: Any = None
@@ -498,6 +499,34 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
     @login_required
     def roster_print_view(ym):
         return redirect(url_for("roster_month", ym=ym))
+
+    @login_required
+    def roster_telemetry():
+        dependencies.validate_csrf()
+        payload = request.get_json(silent=True) or {}
+
+        def bounded_number(name: str, maximum: float) -> float:
+            try:
+                value = float(payload.get(name, 0) or 0)
+            except (TypeError, ValueError):
+                return 0.0
+            return min(max(value, 0.0), maximum)
+
+        render_ms = bounded_number("render_ms", 60_000)
+        dom_ms = bounded_number("dom_ms", 60_000)
+        transfer_bytes = bounded_number("transfer_bytes", 50_000_000)
+        decoded_bytes = bounded_number("decoded_bytes", 50_000_000)
+        dependencies.metrics.add("roster_browser_samples_total")
+        for metric, value in (
+            ("roster_browser_render_milliseconds_sum", render_ms),
+            ("roster_browser_dom_milliseconds_sum", dom_ms),
+            ("roster_browser_transfer_bytes_sum", transfer_bytes),
+            ("roster_browser_decoded_bytes_sum", decoded_bytes),
+        ):
+            dependencies.metrics.add(metric, value)
+        if render_ms >= 2_000:
+            dependencies.metrics.add("roster_browser_slow_renders_total")
+        return "", 204
 
     @login_required
     def roster_month(ym):
@@ -1108,6 +1137,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 ["POST"],
             ),
             ("/roster/<ym>", "roster_month", roster_month, ["GET"]),
+            ("/roster/telemetry", "roster_telemetry", roster_telemetry, ["POST"]),
             (
                 "/assign/<int:staff_id>/<ym>/<day>",
                 "assign_cell",

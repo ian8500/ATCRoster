@@ -8,6 +8,7 @@ from atcroster.security.headers import (
     content_security_policy,
     register_security_headers,
 )
+from production_operations import MetricsRegistry
 
 
 def test_content_security_policy_preserves_nonce_sources_and_directives():
@@ -86,3 +87,33 @@ def test_registered_headers_preserve_nonce_hsts_and_metrics_completion():
             "status": 200,
         }
     ]
+
+
+def test_roster_request_records_timing_and_slow_request_metric():
+    application = Flask(__name__)
+    application.secret_key = "roster-timing-test"
+    login_manager = LoginManager(application)
+
+    @login_manager.user_loader
+    def load_user(_user_id):
+        return None
+    registry = MetricsRegistry()
+
+    @application.before_request
+    def request_context():
+        g.metrics_started_at = 1.0
+
+    @application.get("/roster")
+    def roster_month():
+        return "roster"
+
+    register_security_headers(application, SecurityHeaderDependencies(
+        deployment_environment="test", metrics=registry,
+        finish_request=lambda *_args, **_kwargs: 2.5,
+        slow_roster_seconds=2.0,
+    ))
+    response = application.test_client().get("/roster")
+    rendered = registry.render()
+    assert response.headers["Server-Timing"] == "roster;dur=2500.00"
+    assert "atcroster_roster_page_requests_total 1" in rendered
+    assert "atcroster_roster_page_slow_requests_total 1" in rendered

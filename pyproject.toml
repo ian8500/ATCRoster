@@ -16,6 +16,11 @@ select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
+filterwarnings = [
+  # Flask-Login 0.6.3 is the latest release and still uses utcnow when
+  # calculating remember-cookie expiry. Keep all other deprecations visible.
+  "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated.*:DeprecationWarning:flask_login\\.login_manager",
+]
 
 [tool.coverage.run]
 source = ["."]
