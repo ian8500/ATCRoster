@@ -175,6 +175,18 @@
 
 </div>
 
+<template id="roster-shift-options">
+  <optgroup label="Working shifts">
+    {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code in ['SC','SSC'] %} disabled{% endif %}>{{ sh.code }}</option>{% endfor %}
+  </optgroup>
+  <optgroup label="Training shifts">
+    {% for sh in shifts_training %}<option value="{{ sh.code }}">{{ sh.code }}</option>{% endfor %}
+  </optgroup>
+  <optgroup label="Non-working">
+    {% for sh in shifts_non %}<option value="{{ sh.code }}">{{ sh.code }}</option>{% endfor %}
+  </optgroup>
+</template>
+
 <!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
 <div id="roster" class="roster-status-frame {{ 'roster-status-frame--published' if roster_publication else 'roster-status-frame--draft' }}"
      data-can-edit="{{ '1' if can_edit else '0' }}"
@@ -278,18 +290,10 @@
                       aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}"
                       aria-invalid="{% if f %}true{% else %}false{% endif %}">
                 <option value="" {% if not code %}selected{% endif %}>—</option>
+                {% if code %}<option value="{{ code }}" selected>{{ code }}</option>{% endif %}
                 {% if assignment_override_map.get((s.id, d)) %}
                 <option value="__BASELINE__">↺ Baseline</option>
                 {% endif %}
-                <optgroup label="Working shifts">
-                  {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code in ['SC','SSC'] %} disabled{% endif %}{% if sh.code == code %} selected{% endif %}>{{ sh.code }}</option>{% endfor %}
-                </optgroup>
-                <optgroup label="Training shifts">
-                  {% for sh in shifts_training %}<option value="{{ sh.code }}"{% if sh.code == code %} selected{% endif %}>{{ sh.code }}</option>{% endfor %}
-                </optgroup>
-                <optgroup label="Non-working">
-                  {% for sh in shifts_non %}<option value="{{ sh.code }}"{% if sh.code == code %} selected{% endif %}>{{ sh.code }}</option>{% endfor %}
-                </optgroup>
               </select>
             </form>
             {% endif %}
@@ -482,6 +486,18 @@
     });
   }
   const rosterRoot = document.getElementById('roster');
+  const shiftOptionsTemplate = document.getElementById('roster-shift-options');
+  const ensureShiftOptions = (select) => {
+    if (!select || select.dataset.optionsLoaded === '1' || !shiftOptionsTemplate) return;
+    select.append(shiftOptionsTemplate.content.cloneNode(true));
+    select.dataset.optionsLoaded = '1';
+  };
+  rosterRoot?.addEventListener('pointerdown', (event) => {
+    ensureShiftOptions(event.target.closest('[data-roster-auto-submit]'));
+  });
+  rosterRoot?.addEventListener('focusin', (event) => {
+    ensureShiftOptions(event.target.closest('[data-roster-auto-submit]'));
+  });
   const rosterScrollKey = `atcroster:scroll:${window.location.pathname}`;
   const rosterSaveStatus = document.querySelector('[data-roster-save-status]');
   let rosterSaveStatusTimer;

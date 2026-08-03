@@ -100,6 +100,7 @@ from operational_capability import (
     OperationalCapabilityDependencies,
     OperationalCapabilityService,
 )
+from roster_month_cache import RosterMonthCache
 from access_policy import (
     has_permission,
     is_admin,
@@ -1577,6 +1578,10 @@ TENANT_OPERATIONAL_MODELS = (
     WorkPatternDayAllowedShift, StaffPatternAssignment, StaffRule, BankHoliday,
 )
 
+roster_month_cache = RosterMonthCache(
+    float(os.environ.get("ATCROSTER_ROSTER_CACHE_SECONDS", "30"))
+)
+
 APPEND_ONLY_AUDIT_MODELS = (
     SmsAudit,
     RequestAudit,
@@ -1610,6 +1615,14 @@ def _scope_operational_selects(execute_state):
 
 @event.listens_for(OrmSession, "before_flush")
 def _stamp_operational_writes(session_obj, _flush_context, _instances):
+    touched_units = session_obj.info.setdefault(
+        "roster_cache_touched_units", set()
+    )
+    for record in session_obj.new | session_obj.dirty | session_obj.deleted:
+        if isinstance(record, TENANT_OPERATIONAL_MODELS):
+            unit_id = getattr(record, "unit_id", None)
+            if unit_id:
+                touched_units.add(int(unit_id))
     for record in session_obj.dirty:
         if isinstance(record, APPEND_ONLY_AUDIT_MODELS) and session_obj.is_modified(
             record, include_collections=False
@@ -1628,6 +1641,17 @@ def _stamp_operational_writes(session_obj, _flush_context, _instances):
             if supplied not in (None, unit_id):
                 raise PermissionError("Cross-unit writes are forbidden")
             record.unit_id = unit_id
+
+
+@event.listens_for(OrmSession, "after_commit")
+def _invalidate_roster_cache_after_commit(session_obj):
+    for unit_id in session_obj.info.pop("roster_cache_touched_units", set()):
+        roster_month_cache.invalidate_unit(unit_id)
+
+
+@event.listens_for(OrmSession, "after_rollback")
+def _discard_roster_cache_invalidation_after_rollback(session_obj):
+    session_obj.info.pop("roster_cache_touched_units", None)
 
 # -------------------- Reference data helpers --------------------
 
@@ -2896,15 +2920,9 @@ _save_fatigue_rule_config = _fatigue_rule_config_service.save
 
 
 
-def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
+def _segments_from_assignments(staff: Staff, assignments, definitions):
     segs = []
-    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
-    q = (Assignment.query
-         .filter(Assignment.staff_id == staff.id,
-                 Assignment.day >= start_day,
-                 Assignment.day <= end_day)
-         .order_by(Assignment.day.asc()))
-    for a in q.all():
+    for a in assignments:
         code = (a.code or "").upper()
 
         # SC/SSC are sickness days – treat as REST for fatigue (do not create duty segments)
@@ -2933,6 +2951,16 @@ def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
             "morning": is_morning,
         })
     return segs
+
+
+def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
+    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
+    assignments = (Assignment.query
+                   .filter(Assignment.staff_id == staff.id,
+                           Assignment.day >= start_day,
+                           Assignment.day <= end_day)
+                   .order_by(Assignment.day.asc()).all())
+    return _segments_from_assignments(staff, assignments, definitions)
 
 
 
@@ -2992,6 +3020,66 @@ def roster_fatigue_flags_for_range(
             and shift.is_working
         )
     }
+
+
+def roster_fatigue_flags_matrix(
+    staff: list[Staff], day_list: list[date],
+    code_by_staff: dict[int, dict[date, str]], unit_id: int,
+) -> dict[int, dict[date, list[str]]]:
+    """Calculate every displayed person's fatigue flags from one duty query."""
+    if not staff or not day_list:
+        return {}
+    ordered_days = sorted(day_list)
+    start_lb = ordered_days[0] - timedelta(days=30)
+    end_day = ordered_days[-1]
+    staff_ids = [person.id for person in staff if person.id is not None]
+    assignments = Assignment.query.filter(
+        Assignment.unit_id == unit_id,
+        Assignment.staff_id.in_(staff_ids or [0]),
+        Assignment.day >= start_lb,
+        Assignment.day <= end_day,
+    ).order_by(Assignment.staff_id, Assignment.day).all()
+    assignments_by_staff: dict[int, list[Assignment]] = defaultdict(list)
+    for assignment in assignments:
+        assignments_by_staff[assignment.staff_id].append(assignment)
+    config = _fatigue_rule_config(unit_id)
+    enabled_system = {
+        code for code, rule in config["system"].items() if rule["enabled"]
+    }
+    target_days = set(ordered_days)
+    result: dict[int, dict[date, list[str]]] = {}
+    for person in staff:
+        segments = _segments_from_assignments(
+            person, assignments_by_staff.get(person.id, ()), config["definitions"]
+        )
+        findings = _analyze_segments(
+            segments, config,
+            observation_start=datetime.combine(start_lb, time.min),
+        )
+        findings = {
+            finding_day: [
+                message for message in messages
+                if not (match := re.search(r"\b(D\d{2})\b", message))
+                or match.group(1) in enabled_system
+            ]
+            for finding_day, messages in findings.items()
+        }
+        for finding_day, messages in _custom_fatigue_flags(
+            segments, config["custom"]
+        ).items():
+            findings.setdefault(finding_day, []).extend(messages)
+        visible = {}
+        for finding_day, messages in findings.items():
+            shift = get_shift(
+                code_by_staff.get(person.id, {}).get(finding_day), unit_id
+            )
+            if (
+                finding_day in target_days and messages and shift
+                and shift.is_active and shift.is_working
+            ):
+                visible[finding_day] = messages
+        result[person.id] = visible
+    return result
 
 
 def would_trigger_fatigue(staff: Staff, day: date, code: str):
@@ -10170,7 +10258,9 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     shift_groups=_shift_groups_snapshot,
     watch_ids_for_staff_on=watch_ids_for_staff_on,
     roster_fatigue_flags=roster_fatigue_flags_for_range,
+    roster_fatigue_matrix=roster_fatigue_flags_matrix,
     roster_validation=roster_validation_service,
+    roster_month_cache=roster_month_cache,
     RosterProposal=RosterProposal,
     RosterProposalAssignment=RosterProposalAssignment,
     roster_proposal_service=roster_proposal_service,

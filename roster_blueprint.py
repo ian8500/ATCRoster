@@ -75,7 +75,9 @@ class RosterDependencies:
     shift_groups: Callable[[int], tuple]
     watch_ids_for_staff_on: Callable[[list[Any], date], dict[int, int | None]]
     roster_fatigue_flags: Callable[..., dict]
+    roster_fatigue_matrix: Callable[..., dict]
     roster_validation: Any
+    roster_month_cache: Any
     get_annotation_groups: Callable[[], list]
     lock_roster_month: Callable[[int, int, int], Any]
     RosterProposal: Any = None
@@ -582,7 +584,13 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             )
         )
         counters = {duty_day: Counter() for duty_day in days}
-        capability_matrix = dependencies.operational_capability_matrix(staff, days)
+        cached_analysis = dependencies.roster_month_cache.get(
+            unit_id, year, month
+        )
+        capability_matrix = (
+            cached_analysis["capability_matrix"] if cached_analysis else
+            dependencies.operational_capability_matrix(staff, days)
+        )
         excluded = dependencies.exclude_from_counters()
         for person in staff:
             if not getattr(person, "is_operational", True):
@@ -644,18 +652,21 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                     if available >= needed
                     else ("amber" if available >= max(0, needed - 1) else "red")
                 )
-        fatigue = {
-            person.id: dependencies.roster_fatigue_flags(
-                person,
-                days,
-                assignment_map.get(person.id, {}),
-                unit_id,
+        if cached_analysis:
+            fatigue = cached_analysis["fatigue"]
+            roster_validation = cached_analysis["roster_validation"]
+        else:
+            fatigue = dependencies.roster_fatigue_matrix(
+                staff, days, assignment_map, unit_id
             )
-            for person in staff
-        }
-        roster_validation = dependencies.roster_validation.validate_range(
-            unit_id, days[0], days[-1]
-        )
+            roster_validation = dependencies.roster_validation.validate_range(
+                unit_id, days[0], days[-1]
+            )
+            dependencies.roster_month_cache.set(unit_id, year, month, {
+                "capability_matrix": capability_matrix,
+                "fatigue": fatigue,
+                "roster_validation": roster_validation,
+            })
         open_impact_exceptions = dependencies.RosterImpactException.query.filter(
             dependencies.RosterImpactException.unit_id == unit_id,
             dependencies.RosterImpactException.status.in_(("OPEN", "ACKNOWLEDGED")),

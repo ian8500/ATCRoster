@@ -1394,6 +1394,17 @@ def test_obsolete_proposal_and_assignment_lock_controls_are_hidden(client):
     assert response.status_code == 200
     assert b"Allocation proposals" not in response.data
     assert b'name="lock_status"' not in response.data
+    assert response.data.count(b'id="roster-shift-options"') == 1
+
+
+def test_operational_commit_invalidates_the_unit_roster_cache(client):
+    with app.app.app_context():
+        assignment = Assignment.query.filter_by(unit_id=1).first()
+        assert assignment is not None
+        app.roster_month_cache.set(1, 2026, 8, "cached")
+        assignment.version = int(assignment.version or 0) + 1
+        db.session.commit()
+        assert app.roster_month_cache.get(1, 2026, 8) is None
 
 
 def test_login_next_uses_canonical_allowlisted_internal_route(client):
