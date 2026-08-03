@@ -1,41 +1,50 @@
-"""Conservative response compression without affecting streamed kiosk feeds."""
+"""Small response-compression boundary for dynamic application pages."""
 
 from __future__ import annotations
 
 import gzip
-from typing import Any
+
+from flask import Flask, Response, request
 
 
-COMPRESSIBLE_MIMETYPES = frozenset({
-    "text/html", "text/css", "text/javascript", "application/javascript",
-    "application/json", "application/manifest+json", "image/svg+xml",
-})
+COMPRESSIBLE_TYPES = (
+    "application/javascript",
+    "application/json",
+    "application/xml",
+    "image/svg+xml",
+    "text/",
+)
 
 
-def register_response_compression(app: Any, minimum_size: int = 1024) -> None:
-    @app.after_request
-    def compress_response(response):
-        from flask import request
+def register_response_compression(app: Flask, *, minimum_size: int = 1024) -> None:
+    """Gzip suitable responses when the browser advertises support."""
 
-        response.vary.add("Accept-Encoding")
-        accepts_gzip = request.accept_encodings["gzip"] > 0
+    def compress_response(response: Response) -> Response:
+        accepted = request.headers.get("Accept-Encoding", "").lower()
+        content_type = response.headers.get("Content-Type", "").lower()
         if (
-            not accepts_gzip
+            "gzip" not in accepted
+            or response.status_code < 200
+            or response.status_code >= 300
             or response.direct_passthrough
             or response.is_streamed
-            or response.status_code < 200
-            or response.status_code in {204, 304}
             or response.headers.get("Content-Encoding")
-            or response.mimetype not in COMPRESSIBLE_MIMETYPES
+            or content_type.startswith("text/event-stream")
+            or request.headers.get("Range")
+            or not any(content_type.startswith(item) for item in COMPRESSIBLE_TYPES)
         ):
             return response
         payload = response.get_data()
         if len(payload) < minimum_size:
             return response
-        response.set_data(gzip.compress(payload, compresslevel=5))
+        compressed = gzip.compress(payload, compresslevel=5)
+        if len(compressed) >= len(payload):
+            return response
+        response.set_data(compressed)
         response.headers["Content-Encoding"] = "gzip"
-        response.headers["Content-Length"] = str(len(response.get_data()))
-        response.headers.pop("ETag", None)
+        response.headers["Content-Length"] = str(len(compressed))
+        response.headers.add("Vary", "Accept-Encoding")
         return response
 
-    return None
+    compress_response.__name__ = "_compress_response"
+    app.after_request(compress_response)
