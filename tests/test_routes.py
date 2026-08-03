@@ -1557,7 +1557,28 @@ def test_position_monitor_account_is_hidden_from_roster_and_export(client):
         )
         kiosk.set_password("not-used")
         db.session.add(kiosk)
+        db.session.flush()
+        db.session.add_all(
+            [
+                Assignment(
+                    unit_id=1,
+                    staff_id=kiosk.id,
+                    day=date(2027, 1, 5),
+                    code="AL",
+                    annotation="AAVA",
+                    source="manual",
+                ),
+                Assignment(
+                    unit_id=1,
+                    staff_id=kiosk.id,
+                    day=date.today(),
+                    code="SC",
+                    source="manual",
+                ),
+            ]
+        )
         db.session.commit()
+        kiosk_id = kiosk.id
 
     login(client)
     roster = client.get("/roster/2027-01")
@@ -1569,8 +1590,24 @@ def test_position_monitor_account_is_hidden_from_roster_and_export(client):
     assert b"KIOSK-HIDDEN" not in roster.data
     assert "Hidden Position Monitor" not in export.data.decode()
     assert "KIOSK-HIDDEN" not in export.data.decode()
+
+    acknowledge_reports(client)
+    report_responses = [
+        client.get("/metrics?start=2027-01-01&end=2027-01-31"),
+        client.get("/metrics/export?start=2027-01-01&end=2027-01-31"),
+        client.get("/reports/leave/2027-01"),
+        client.get("/reports/leave.csv?ym=2027-01"),
+        client.get("/reports/leave-year"),
+        client.get("/reports/sickness"),
+    ]
+    for response in report_responses:
+        assert response.status_code == 200
+        assert b"Hidden Position Monitor" not in response.data
+        assert b"KIOSK-HIDDEN" not in response.data
+
     with app.app.app_context():
-        Staff.query.filter_by(username="roster_hidden_kiosk").delete()
+        Assignment.query.filter_by(staff_id=kiosk_id).delete()
+        Staff.query.filter_by(id=kiosk_id).delete()
         db.session.commit()
 
 

@@ -333,6 +333,7 @@ def create_live_position_blueprint(
             dependencies.Staff.query.filter_by(
                 unit_id=unit_id, membership_status="active", is_operational=True
             )
+            .filter(dependencies.Staff.role != "position_monitor")
             .order_by(dependencies.Staff.name)
             .all()
         )

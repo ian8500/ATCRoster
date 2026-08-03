@@ -614,6 +614,7 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     assert b"Alex Controller" in individual.data
     assert b"01:30" in individual.data
     assert b"Sam Instructor" in individual.data
+    assert b"Position screen" not in individual.data
     assert b"00:30" in individual.data
     assert b"75.0%" in individual.data
     position = client.get(
