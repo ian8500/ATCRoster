@@ -67,6 +67,13 @@
     "rule": "/admin/staff/<int:sid>"
   },
   {
+    "endpoint": "admin_staff_leaving",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/admin/staff/<int:sid>/leaving"
+  },
+  {
     "endpoint": "admin_watch_move",
     "methods": [
       "POST"
@@ -710,6 +717,41 @@
       "POST"
     ],
     "rule": "/requests"
+  },
+  {
+    "endpoint": "roster_impact.exceptions",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/roster-impact/exceptions"
+  },
+  {
+    "endpoint": "roster_impact.update_exception",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster-impact/exceptions/<int:exception_id>/status"
+  },
+  {
+    "endpoint": "roster_impact.preview",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/roster-impact/preview"
+  },
+  {
+    "endpoint": "roster_impact.protected_rebuild",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster-impact/protected-rebuild"
+  },
+  {
+    "endpoint": "roster_impact.recalculate",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster-impact/recalculate"
   },
   {
     "endpoint": "roster_month",

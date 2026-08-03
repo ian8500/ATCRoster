@@ -7,7 +7,7 @@ from datetime import date
 from typing import Any
 
 
-INDEPENDENT_UE_CODES = frozenset({"ADI", "APS", "MET", "UE"})
+INDEPENDENT_UE_CODES = frozenset({"ADI", "APS", "UE"})
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,6 @@ class OperationalCapabilityService:
             legacy = {
                 "ADI": person.tower_ue_expiry,
                 "APS": person.radar_ue_expiry,
-                "MET": person.met_ue_expiry,
             }
             independent = {
                 code for code, expiry in legacy.items()

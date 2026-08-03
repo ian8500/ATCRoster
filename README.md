@@ -179,6 +179,29 @@ On the effective date, roster generation picks up the new watch and its
 pattern automatically. Future and completed moves remain visible and
 auditable on the profile.
 
+### Deterministic roster maintenance
+
+Roster cells keep separate generated baseline and editor override values. The
+effective value shown in the roster, exports, totals and fatigue checks is the
+override when present, otherwise the current baseline. Recalculation updates
+only the baseline and preserves editor intent. Redundant and invalid overrides
+are classified rather than silently discarded.
+
+By default the current calendar month and following two whole months are
+protected. Automatic maintenance starts on the first day of the third future
+month; Unit Admins can configure the number of protected months during airport
+onboarding. Effective-dated joiners, leavers, competencies, watch moves and
+working arrangements trigger targeted recalculation outside this boundary and
+create actionable exceptions inside it. Editors can review those findings at
+`/roster-impact/exceptions` and calculate a true impact preview at
+`/roster-impact/preview`.
+
+Only a Unit Admin can explicitly rebuild a protected baseline. The action
+requires a reason and typed confirmation, retains overrides, and creates a
+recalculation audit. Closed roster periods remain immutable to automatic jobs.
+The detailed data model, workflows, limitations and operating procedure are in
+[`docs/roster_maintenance_architecture.md`](docs/roster_maintenance_architecture.md).
+
 ## Airport onboarding
 
 Unit Admins open `/unit/onboarding` to see a live readiness score based on the

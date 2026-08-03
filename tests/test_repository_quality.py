@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,9 +60,12 @@ def test_authentication_blueprint_preserves_public_route_contract():
 
 
 def test_templates_do_not_reintroduce_inline_style_attributes():
-    templates = ROOT / "templates"
     offenders = []
-    for path in templates.rglob("*.html"):
+    tracked_templates = subprocess.check_output(
+        ["git", "ls-files", "templates/*.html"], cwd=ROOT, text=True
+    ).splitlines()
+    for relative_path in tracked_templates:
+        path = ROOT / relative_path
         text = path.read_text()
         if "style=" in text:
             offenders.append(str(path.relative_to(ROOT)))

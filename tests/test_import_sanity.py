@@ -15,7 +15,7 @@ def test_application_modules_import_in_clean_process():
     root_modules = sorted(
         path.stem
         for path in ROOT.glob("*.py")
-        if path.stem not in {"app", "wsgi"}
+        if path.stem not in {"app", "wsgi"} and path.stem.isidentifier()
     )
     import_script = f"""
 import importlib

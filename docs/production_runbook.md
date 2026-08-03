@@ -72,6 +72,20 @@ docker compose up -d web worker
 ### Railway
 
 The repository includes `railway.toml` for a managed Railway deployment.
+
+Create a separate monthly Railway scheduled service for deterministic future
+roster generation. Use the same image and operational database secrets as the
+web service, set `ROSTER_GENERATION_MONTHS_AHEAD=18`, and run:
+
+```bash
+flask roster ensure-future-periods
+```
+
+The command is idempotent, skips protected and closed periods, retains editor
+overrides and records a `FUTURE_PERIOD_CREATED` audit. A non-zero exit is an
+operational alert; review `/roster-impact/exceptions` and the failed event
+before retrying. The scheduled service must not replace the normal pre-deploy
+migration step.
 Provision a control PostgreSQL service, a separate PostgreSQL service per
 airport, Redis, a web service and a worker service. Both application services
 receive the same encrypted variables:

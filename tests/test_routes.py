@@ -3571,6 +3571,7 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
     login(client)
     with app.app.app_context():
         person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
+        db.session.get(app.Unit, 1).protected_roster_months_ahead = 2
         person.final_unit_date = None
         person.final_operational_duty_date = None
         person.employment_end_date = None
@@ -3735,6 +3736,31 @@ def test_roster_impact_preview_and_admin_protected_rebuild_preserve_override(cli
             "COMPLETED", "COMPLETED_WITH_WARNINGS",
         }
         assert event.reason == "Admin-approved protected baseline correction"
+
+
+def test_only_admin_can_rebuild_protected_period_and_reason_is_required():
+    ordinary = app.app.test_client()
+    login_as(ordinary, "staff_test")
+    forbidden = ordinary.post(
+        "/roster-impact/protected-rebuild",
+        data={
+            "_csrf_token": csrf(ordinary), "effective_from": "2026-09-20",
+            "effective_to": "2026-09-20", "reason": "Not authorised",
+            "confirmation": "REBUILD",
+        },
+    )
+    assert forbidden.status_code == 403
+
+    admin = app.app.test_client()
+    login(admin)
+    missing_reason = admin.post(
+        "/roster-impact/protected-rebuild",
+        data={
+            "_csrf_token": csrf(admin), "effective_from": "2026-09-20",
+            "effective_to": "2026-09-20", "confirmation": "REBUILD",
+        },
+    )
+    assert missing_reason.status_code == 400
 
 
 def test_flexible_pattern_admin_is_permission_and_tenant_scoped():

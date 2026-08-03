@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, time
 
 import pytest
@@ -208,6 +209,24 @@ def test_automatic_mode_skips_whole_protected_months(population_service):
     assert app.Assignment.query.filter_by(
         unit_id=unit.id, day=date(2026, 10, 31)
     ).first() is None
+
+
+def test_automatic_mode_never_modifies_a_closed_roster_period(population_service):
+    service, unit, person, shifts = population_service
+    _assign_pattern(unit, person, shifts, [("FIXED_SHIFT", "M")])
+    app.db.session.add(app.RosterPeriod(
+        unit_id=unit.id, year=2026, month=11, status="CLOSED",
+        generated_at=app.utcnow(), generation_method="MANUAL",
+    ))
+    app.db.session.commit()
+    service.dependencies = replace(service.dependencies, RosterPeriod=app.RosterPeriod)
+    result = service.populate_or_recalculate_baseline(
+        unit.id, date(2026, 11, 1), date(2026, 11, 2), mode="automatic",
+        reference_date=date(2026, 8, 3),
+    )
+    assert result.changed == 0
+    assert result.protected_dates == 2
+    assert app.Assignment.query.filter_by(unit_id=unit.id).count() == 0
 
 
 def test_dry_run_reports_without_writing(population_service):

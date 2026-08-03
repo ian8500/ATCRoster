@@ -1743,6 +1743,18 @@ def get_non_working_codes() -> set[str]:
 
 def staff_is_countable_on(person: Staff, on_date: date) -> bool:
     """Require a current medical and at least one current operational rating UE."""
+    if person.id is None:
+        # Lightweight compatibility for unsaved profile previews and pure
+        # validation tests; persisted roster rows use the authoritative dated
+        # qualification service below.
+        medical_valid = bool(
+            person.medical_expiry and person.medical_expiry >= on_date
+        )
+        independent_ue = any(
+            expiry and expiry >= on_date
+            for expiry in (person.tower_ue_expiry, person.radar_ue_expiry)
+        )
+        return bool(medical_valid and independent_ue)
     return get_staff_operational_capability(
         person.id, on_date
     ).counts_as_operational
