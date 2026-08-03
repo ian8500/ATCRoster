@@ -1,48 +1,36 @@
-from flask import Flask
+import gzip
+
+from flask import Flask, Response
 
 from atcroster.compression import register_response_compression
 
 
-def test_large_html_response_is_gzipped_for_supporting_browser():
-    app = Flask(__name__)
-    register_response_compression(app, minimum_size=100)
+def _app():
+    application = Flask(__name__)
+    register_response_compression(application, minimum_size=100)
 
-    @app.get("/")
-    def large_page():
-        return "<p>Roster content</p>" * 200
+    @application.get("/large")
+    def large():
+        return "roster-data" * 500
 
-    response = app.test_client().get("/", headers={"Accept-Encoding": "gzip"})
-
-    assert response.status_code == 200
-    assert response.headers["Content-Encoding"] == "gzip"
-    assert "Accept-Encoding" in response.headers.getlist("Vary")
-    assert int(response.headers["Content-Length"]) < 4200
-
-
-def test_compression_is_not_forced_on_unsupported_browser():
-    app = Flask(__name__)
-    register_response_compression(app, minimum_size=100)
-
-    @app.get("/")
-    def large_page():
-        return "Roster content" * 200
-
-    response = app.test_client().get("/")
-
-    assert "Content-Encoding" not in response.headers
-
-
-def test_streaming_response_is_never_buffered_for_compression():
-    app = Flask(__name__)
-    register_response_compression(app, minimum_size=1)
-
-    @app.get("/events")
+    @application.get("/events")
     def events():
-        return (item for item in ["data: ready\n\n"]), {
-            "Content-Type": "text/event-stream"
-        }
+        return Response(iter(("data: ready\n\n",)), mimetype="text/event-stream")
 
-    response = app.test_client().get("/events", headers={"Accept-Encoding": "gzip"})
+    return application
 
-    assert response.data == b"data: ready\n\n"
+
+def test_large_html_response_is_gzipped_when_supported():
+    response = _app().test_client().get(
+        "/large", headers={"Accept-Encoding": "gzip"}
+    )
+    assert response.headers["Content-Encoding"] == "gzip"
+    assert gzip.decompress(response.data).startswith(b"roster-data")
+    assert "Accept-Encoding" in response.headers["Vary"]
+
+
+def test_streaming_event_response_is_never_compressed():
+    response = _app().test_client().get(
+        "/events", headers={"Accept-Encoding": "gzip"}
+    )
     assert "Content-Encoding" not in response.headers

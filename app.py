@@ -101,6 +101,7 @@ from operational_capability import (
     OperationalCapabilityService,
 )
 from roster_month_cache import RosterMonthCache
+from atcroster.compression import register_response_compression
 from access_policy import (
     has_permission,
     is_admin,
@@ -416,6 +417,7 @@ _security_headers = register_security_headers(
         finish_request=finish_request,
     ),
 )
+register_response_compression(app)
 
 
 _LOGIN_NEXT_ENDPOINTS = {
