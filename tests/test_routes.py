@@ -1222,7 +1222,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         "editor": {
             "roster": 200, "requests": 200,
             "overtime": 200, "leave": 200,
-            "reports": 302, "metrics": 200, "qualification": 200,
+            "reports": 200, "metrics": 200, "qualification": 200,
             "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
@@ -1230,7 +1230,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         "watch_manager": {
             "roster": 200, "requests": 200,
             "overtime": 200, "leave": 403,
-            "reports": 403, "metrics": 403, "qualification": 403,
+            "reports": 200, "metrics": 403, "qualification": 403,
             "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
@@ -1238,7 +1238,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         "duty_watch_manager": {
             "roster": 200, "requests": 200,
             "overtime": 200, "leave": 403,
-            "reports": 403, "metrics": 403, "qualification": 403,
+            "reports": 200, "metrics": 403, "qualification": 403,
             "operations": 403, "coverage": 200,
             "scenarios": 200, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
@@ -1246,7 +1246,7 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         "staff": {
             "roster": 200, "requests": 200,
             "overtime": 403, "leave": 403,
-            "reports": 403, "metrics": 403, "qualification": 403,
+            "reports": 200, "metrics": 403, "qualification": 403,
             "operations": 403, "coverage": 403,
             "scenarios": 403, "accounts": 403, "onboarding": 403,
             "admin": 403, "reference": 403, "platform": 403,
@@ -1663,11 +1663,17 @@ def test_standalone_fatigue_reporting_workflow_is_removed(client):
     ).status_code == 404
 
 
-def test_index_redirects_to_roster(client):
+def test_index_renders_role_based_today_dashboard(client):
     login(client)
     resp = client.get("/")
-    assert resp.status_code == 302
-    assert "/roster/" in resp.headers["Location"]
+    assert resp.status_code == 200
+    assert b"Today" in resp.data
+    assert b"Next duty" in resp.data
+    assert b"ATCRoster Core" in resp.data
+    assert b" Roster</a>" in resp.data
+    assert b" People" in resp.data
+    assert b" Reports</a>" in resp.data
+    assert b" More</summary>" in resp.data
 
 
 def test_roster_routes_render(client):
@@ -2257,7 +2263,8 @@ def test_unit_admin_is_guided_until_onboarding_is_completed(client):
     assert completed.status_code == 302
     assert completed.headers["Location"].endswith("/")
     dashboard = client.get("/", follow_redirects=False)
-    assert "/roster/" in dashboard.headers["Location"]
+    assert dashboard.status_code == 200
+    assert b"Today" in dashboard.data
     with app.app.app_context():
         assert db.session.get(Unit, 1).onboarding_step == 100
 
@@ -2774,7 +2781,9 @@ def test_mfa_challenge_completes_login(client):
         follow_redirects=False,
     )
     assert verified.status_code == 302
-    assert "/roster/" in client.get("/", follow_redirects=False).headers["Location"]
+    dashboard = client.get("/", follow_redirects=False)
+    assert dashboard.status_code == 200
+    assert b"Today" in dashboard.data
 
 
 def test_continuous_activity_cannot_extend_absolute_session(client):
@@ -3280,8 +3289,8 @@ def test_primary_navigation_matches_role_permissions():
     editor_client = app.app.test_client()
     login_as(editor_client, "editor_test")
     editor_page = editor_client.get("/")
-    assert editor_page.status_code == 302
-    editor_page = editor_client.get(editor_page.headers["Location"])
+    assert editor_page.status_code == 200
+    assert b"Today" in editor_page.data
     assert b'href="/compliance-centre"' not in editor_page.data
     assert editor_client.get("/compliance-centre").status_code == 403
 

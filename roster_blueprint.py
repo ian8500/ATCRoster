@@ -781,6 +781,21 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             if dependencies.publication_matches_live(active_publication, year, month)
             else None
         )
+        staffing_shortfall_count = sum(
+            max(0, requirements[duty_day][code] - counters[duty_day][code])
+            for duty_day in days
+            for code in ("M", "D", "A", "N")
+            if code != "N" or night_active[duty_day]
+        )
+        qualification_warning_count = sum(
+            1
+            for person in staff
+            for duty_day in days
+            if (assignment_map.get(person.id, {}).get(duty_day) or "").upper()
+            not in set(excluded) | training_codes | {"", "AL", "NOPS"}
+            and capability_matrix.get((person.id, duty_day)) is not None
+            and not capability_matrix[(person.id, duty_day)].counts_as_operational
+        )
         return render_template(
             "roster_month.html",
             ym=ym,
@@ -822,6 +837,8 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             roster_publication=roster_publication,
             can_publish_roster=dependencies.can_publish_roster(current_user),
             open_impact_exceptions=open_impact_exceptions,
+            staffing_shortfall_count=staffing_shortfall_count,
+            qualification_warning_count=qualification_warning_count,
         )
 
     @login_required

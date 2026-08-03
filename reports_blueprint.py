@@ -387,48 +387,53 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
 
     @login_required
     def reports_index():
-        can_view = dependencies.is_admin_user(current_user) or getattr(
+        privileged = dependencies.is_admin_user(current_user) or getattr(
             current_user, "role", ""
         ) in ("editor", "admin")
-        if not can_view:
-            abort(403)
+        manager = bool(
+            getattr(current_user, "is_wm", False)
+            or getattr(current_user, "is_dwm", False)
+            or getattr(current_user, "role", "") in (
+                "watch_manager", "duty_watch_manager"
+            )
+        )
         if request.method == "POST":
+            if not privileged:
+                abort(403)
             dependencies.validate_csrf()
             session["reports_sensitive_data_ack"] = acknowledgement_key()
             session["reports_sensitive_data_hub_entry"] = acknowledgement_key()
             return redirect(url_for("reports_index"))
-        if not sensitive_data_acknowledged():
+        if privileged and not sensitive_data_acknowledged():
             return render_template("reports_index.html", requires_acknowledgement=True)
-        if (
+        if privileged and (
             session.pop("reports_sensitive_data_hub_entry", None)
             != acknowledgement_key()
         ):
             session.pop("reports_sensitive_data_ack", None)
             return render_template("reports_index.html", requires_acknowledgement=True)
-        if dependencies.is_admin_user(current_user):
-            today = date.today()
-            return render_template(
-                "reports_index.html",
-                ym=f"{today.year}-{today.month:02d}",
-                year=today.year,
-                month=today.month,
-                month_title=datetime(today.year, today.month, 1).strftime("%B %Y"),
-                months=[],
-                links={
-                    "leave_year": url_for("report_leave_year"),
-                    "sickness": url_for("report_sickness"),
-                    "roster": url_for(
-                        "roster_month", ym=f"{today.year}-{today.month:02d}"
-                    ),
-                    "metrics": url_for("metrics"),
-                    "fairness": url_for("report_fairness"),
-                },
-                page_title="Annotation Totals",
-                requires_acknowledgement=False,
-            )
-        if getattr(current_user, "role", "") in ("editor", "admin"):
-            return redirect(url_for("metrics"))
-        abort(403)
+        today = date.today()
+        return render_template(
+            "reports_index.html",
+            ym=f"{today.year}-{today.month:02d}",
+            year=today.year,
+            month=today.month,
+            month_title=datetime(today.year, today.month, 1).strftime("%B %Y"),
+            months=[],
+            links={
+                "leave_year": url_for("report_leave_year"),
+                "sickness": url_for("report_sickness"),
+                "roster": url_for(
+                    "roster_month", ym=f"{today.year}-{today.month:02d}"
+                ),
+                "metrics": url_for("metrics"),
+                "fairness": url_for("report_fairness"),
+            },
+            page_title="Reports",
+            requires_acknowledgement=False,
+            privileged_reports=privileged,
+            manager_reports=manager or privileged,
+        )
 
     @login_required
     def report_fairness():
