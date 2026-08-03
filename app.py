@@ -15,6 +15,7 @@ import secrets
 import sys
 from functools import lru_cache
 from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 import json
 import json as _json
 import logging
@@ -1536,6 +1537,7 @@ BankHoliday = SaaS.BankHoliday
 RosterProposal = SaaS.RosterProposal
 RosterProposalAssignment = SaaS.RosterProposalAssignment
 RosterRuleVersion = SaaS.RosterRuleVersion
+RosterPeriod = SaaS.RosterPeriod
 RosterImpactEvent = SaaS.RosterImpactEvent
 RosterImpactException = SaaS.RosterImpactException
 MfaCredential = SaaS.MfaCredential
@@ -1564,7 +1566,7 @@ TENANT_OPERATIONAL_MODELS = (
     ControllerKioskCredential, PositionSessionAudit,
     PositionEndorsement, PositionRequirement, BreakPlan,
     AchievedDuty, FatigueReport, RosterRuleVersion,
-    RosterImpactEvent, RosterImpactException,
+    RosterPeriod, RosterImpactEvent, RosterImpactException,
     MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
     BriefingAudit,
     BriefingAssuranceRun,
@@ -9924,6 +9926,7 @@ from work_pattern_migration_service import (
 from override_classification_service import (
     OverrideClassificationDependencies, OverrideClassificationService,
 )
+from roster_period_service import RosterPeriodDependencies, RosterPeriodService
 
 work_pattern_service = WorkPatternService(WorkPatternDependencies(
     Staff=Staff,
@@ -9991,6 +9994,9 @@ override_classification_service = OverrideClassificationService(
         work_pattern_service=work_pattern_service,
     )
 )
+roster_period_service = RosterPeriodService(RosterPeriodDependencies(
+    db=db, RosterPeriod=RosterPeriod, utcnow=utcnow,
+))
 work_pattern_migration_service = WorkPatternMigrationService(
     WorkPatternMigrationDependencies(
         db=db,
@@ -10271,6 +10277,55 @@ register_operations_routes(
     required_tables=CONTROL_TABLES,
     additional_readiness_check=_operational_routes_ready,
 )
+
+
+@app.cli.group("roster")
+def roster_cli():
+    """Deterministic roster maintenance commands."""
+
+
+@roster_cli.command("ensure-future-periods")
+@click.option(
+    "--months-ahead", type=click.IntRange(min=0, max=60), default=None,
+    help="Override ROSTER_GENERATION_MONTHS_AHEAD for this run.",
+)
+@click.option("--unit-code", default=None, help="Limit maintenance to one airport code.")
+def ensure_future_roster_periods(months_ahead, unit_code):
+    """Create and populate the configured future roster horizon idempotently."""
+    configured = int(
+        months_ahead if months_ahead is not None
+        else os.environ.get("ROSTER_GENERATION_MONTHS_AHEAD", "18")
+    )
+    query = Unit.query.filter(Unit.status == "active", Unit.code != "CTRL")
+    if unit_code:
+        query = query.filter(db.func.upper(Unit.code) == unit_code.strip().upper())
+    created_periods = generated_periods = 0
+    for unit in query.order_by(Unit.id).all():
+        reference = datetime.now(ZoneInfo(unit.timezone or "Europe/London")).date()
+        for offset in range(configured + 1):
+            year, month = add_months(reference.year, reference.month, offset)
+            period, created = roster_period_service.ensure_period(
+                unit, year, month, reference_date=reference,
+            )
+            db.session.flush()
+            if created:
+                created_periods += 1
+            if created and period.status == "FUTURE_AUTOMATIC":
+                start = date(year, month, 1)
+                next_year, next_month = add_months(year, month, 1)
+                end = date(next_year, next_month, 1) - timedelta(days=1)
+                roster_impact_service().handle_roster_impact_event(
+                    unit.id, RosterImpactEventType.FUTURE_PERIOD_CREATED,
+                    start, effective_to=end, rebuild_baseline=True,
+                    reason=f"Automatic future roster period {year:04d}-{month:02d} created.",
+                    reference_date=reference,
+                )
+                generated_periods += 1
+            db.session.commit()
+    click.echo(
+        f"Roster horizon ready: {created_periods} period(s) created, "
+        f"{generated_periods} future period(s) populated."
+    )
 
 # -------------------- WSGI entry point --------------------
 # Compatibility alias for WSGI servers that import ``application``.

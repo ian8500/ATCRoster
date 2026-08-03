@@ -958,6 +958,29 @@ def register_saas_models(db, utcnow):
             db.UniqueConstraint("unit_id", "version", name="uq_roster_rule_unit_version"),
         )
 
+    class RosterPeriod(db.Model):
+        __tablename__ = "roster_period"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+        year = db.Column(db.Integer, nullable=False)
+        month = db.Column(db.Integer, nullable=False)
+        status = db.Column(db.String(30), nullable=False, index=True)
+        generated_at = db.Column(db.DateTime)
+        generated_by_user_id = db.Column(db.Integer)
+        generation_method = db.Column(db.String(40), nullable=False, default="AUTOMATIC")
+        generation_version = db.Column(db.String(40), nullable=False, default="")
+        notes = db.Column(db.String(1000), nullable=False, default="")
+        created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+        __table_args__ = (
+            db.UniqueConstraint("unit_id", "year", "month", name="uq_roster_period_unit_month"),
+            db.CheckConstraint("month BETWEEN 1 AND 12", name="ck_roster_period_month"),
+            db.CheckConstraint(
+                "status IN ('CURRENT','PROTECTED','FUTURE_AUTOMATIC','HISTORICAL','CLOSED')",
+                name="ck_roster_period_status",
+            ),
+        )
+
     class RosterImpactEvent(db.Model):
         __tablename__ = "roster_impact_event"
         id = db.Column(db.Integer, primary_key=True)
