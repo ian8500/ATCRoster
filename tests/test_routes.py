@@ -1663,17 +1663,80 @@ def test_standalone_fatigue_reporting_workflow_is_removed(client):
     ).status_code == 404
 
 
-def test_index_renders_role_based_today_dashboard(client):
+def test_index_redirects_to_current_roster_without_status_dashboard(client):
     login(client)
     resp = client.get("/")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith(
+        f"/roster/{date.today().year:04d}-{date.today().month:02d}"
+    )
+
+
+def test_module_home_restores_original_launcher_and_admin_card(client):
+    login(client)
+    resp = client.get("/modules")
     assert resp.status_code == 200
-    assert b"Today" in resp.data
-    assert b"Next duty" in resp.data
-    assert b"ATCRoster Core" in resp.data
-    assert b" Roster</a>" in resp.data
-    assert b" People" in resp.data
-    assert b" Reports</a>" in resp.data
-    assert b" More</summary>" in resp.data
+    assert b"Please select a module" in resp.data
+    assert b"<strong>Roster</strong>" in resp.data
+    assert b"<strong>Administration</strong>" in resp.data
+    assert b">Today</a>" not in resp.data
+
+
+def test_fatigue_segments_use_effective_override_and_airport_shift(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="admin_test").first()
+        shift = ShiftType.query.filter_by(unit_id=person.unit_id, is_working=True).first()
+        assignment = Assignment(
+            unit_id=person.unit_id,
+            staff_id=person.id,
+            day=date(2025, 4, 1),
+            code="OFF",
+            override_code=shift.code,
+        )
+        config = app._fatigue_rule_config(person.unit_id)
+        segments = app._segments_from_assignments(
+            person, [assignment], config["definitions"]
+        )
+    assert len(segments) == 1
+    assert segments[0]["day"] == date(2025, 4, 1)
+
+
+def test_edit_time_fatigue_check_uses_airport_configuration(monkeypatch):
+    duty_day = date(2025, 4, 1)
+    duty_start = datetime.combine(duty_day, time(8))
+    duty_end = datetime.combine(duty_day, time(16))
+    staff = SimpleNamespace(unit_id=37)
+    shift = SimpleNamespace(is_active=True, is_working=True)
+    config = {
+        "system": {"D18": {"enabled": True}},
+        "custom": [],
+        "definitions": {
+            "early_start_before": "06:30",
+            "night_period_start": "01:30",
+            "night_period_end": "05:30",
+        },
+    }
+    captured = {}
+    monkeypatch.setattr(app, "get_shift", lambda code, unit_id=None: shift)
+    monkeypatch.setattr(app, "_segments_for_staff", lambda *_args: [])
+    monkeypatch.setattr(app, "_span", lambda *_args: (duty_start, duty_end))
+    monkeypatch.setattr(app, "_fatigue_rule_config", lambda unit_id=None: config)
+
+    def configured_findings(segments, received_config, observation_start):
+        captured.update(
+            segments=segments,
+            config=received_config,
+            observation_start=observation_start,
+        )
+        return {duty_day: ["D18: configured finding"]}
+
+    monkeypatch.setattr(app, "_configured_fatigue_findings", configured_findings)
+    assert app.would_trigger_fatigue(staff, duty_day, "M") == [
+        "D18: configured finding"
+    ]
+    assert captured["config"] is config
+    assert captured["segments"][0]["day"] == duty_day
 
 
 def test_roster_routes_render(client):
@@ -2262,9 +2325,9 @@ def test_unit_admin_is_guided_until_onboarding_is_completed(client):
     )
     assert completed.status_code == 302
     assert completed.headers["Location"].endswith("/")
-    dashboard = client.get("/", follow_redirects=False)
-    assert dashboard.status_code == 200
-    assert b"Today" in dashboard.data
+    roster_landing = client.get("/", follow_redirects=False)
+    assert roster_landing.status_code == 302
+    assert "/roster/" in roster_landing.headers["Location"]
     with app.app.app_context():
         assert db.session.get(Unit, 1).onboarding_step == 100
 
@@ -2781,9 +2844,9 @@ def test_mfa_challenge_completes_login(client):
         follow_redirects=False,
     )
     assert verified.status_code == 302
-    dashboard = client.get("/", follow_redirects=False)
-    assert dashboard.status_code == 200
-    assert b"Today" in dashboard.data
+    roster_landing = client.get("/", follow_redirects=False)
+    assert roster_landing.status_code == 302
+    assert "/roster/" in roster_landing.headers["Location"]
 
 
 def test_continuous_activity_cannot_extend_absolute_session(client):
@@ -3288,9 +3351,9 @@ def test_users_can_mark_their_notifications_read_individually(client):
 def test_primary_navigation_matches_role_permissions():
     editor_client = app.app.test_client()
     login_as(editor_client, "editor_test")
-    editor_page = editor_client.get("/")
+    editor_page = editor_client.get("/roster/2025-04")
     assert editor_page.status_code == 200
-    assert b"Today" in editor_page.data
+    assert b">Today</a>" not in editor_page.data
     assert b'href="/compliance-centre"' not in editor_page.data
     assert editor_client.get("/compliance-centre").status_code == 403
 
