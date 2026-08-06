@@ -474,19 +474,10 @@ def _canonical_login_redirect(
 
 
 def _airport_login_endpoint(user) -> str:
-    """Land multi-module airport users on the module launcher."""
+    """Land airport users on their appropriate application launcher."""
     if getattr(user, "role", "") == "position_monitor":
         return "live_position.kiosk_hmi"
-    if is_admin_user(user):
-        return "module_home"
-    enabled = FeatureFlag.query.filter(
-        FeatureFlag.unit_id == user.unit_id,
-        FeatureFlag.key.in_((
-            "briefing_module", "training_module", "competency_module"
-        )),
-        FeatureFlag.enabled.is_(True),
-    ).first()
-    return "module_home" if enabled else "index"
+    return "module_home"
 
 
 # ----- Lightweight caching -----
@@ -4484,14 +4475,6 @@ def module_home():
     """Select between subscribed airport modules after authentication."""
     if current_user.role == "superadmin":
         return redirect(url_for("platform_admin"))
-    if not (
-        is_admin_user(current_user)
-        or
-        briefing_enabled(current_user.unit_id)
-        or training_enabled(current_user.unit_id)
-        or competency_enabled(current_user.unit_id)
-    ):
-        return redirect(url_for("index"))
     return render_template(
         "module_home.html",
         show_briefing=briefing_enabled(current_user.unit_id),
