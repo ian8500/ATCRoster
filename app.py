@@ -2928,13 +2928,13 @@ _save_fatigue_rule_config = _fatigue_rule_config_service.save
 def _segments_from_assignments(staff: Staff, assignments, definitions):
     segs = []
     for a in assignments:
-        code = (a.code or "").upper()
+        code = (a.effective_code or "").upper()
 
         # SC/SSC are sickness days – treat as REST for fatigue (do not create duty segments)
         if code in ("SC", "SSC"):
             continue
 
-        sh = get_shift(code) if code else None
+        sh = get_shift(code, staff.unit_id) if code else None
         if not _is_working(sh):
             continue
 
@@ -2958,6 +2958,33 @@ def _segments_from_assignments(staff: Staff, assignments, definitions):
     return segs
 
 
+def _configured_fatigue_findings(segments, config, observation_start):
+    """Run system and local rules from one airport-scoped configuration."""
+    findings = _analyze_segments(
+        segments, config, observation_start=observation_start
+    )
+    enabled_system = {
+        code for code, rule in config["system"].items() if rule["enabled"]
+    }
+    filtered = {
+        finding_day: [
+            message for message in messages
+            if not (match := re.search(r"\b(D\d{2})\b", message))
+            or match.group(1) in enabled_system
+        ]
+        for finding_day, messages in findings.items()
+    }
+    for finding_day, messages in _custom_fatigue_flags(
+        segments, config["custom"]
+    ).items():
+        filtered.setdefault(finding_day, []).extend(messages)
+    return {
+        finding_day: messages
+        for finding_day, messages in filtered.items()
+        if messages
+    }
+
+
 def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
     definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
     assignments = (Assignment.query
@@ -2978,26 +3005,9 @@ def fatigue_flags_for_range(staff: Staff, day_list, lookback_days=30):
     end_day = day_list[-1]
     segs = _segments_for_staff(staff, start_lb, end_day)
     config = _fatigue_rule_config(staff.unit_id)
-    all_flags = _analyze_segments(
-        segs, config, observation_start=datetime.combine(start_lb, time.min)
+    all_flags = _configured_fatigue_findings(
+        segs, config, datetime.combine(start_lb, time.min)
     )
-    enabled_system = {
-        code for code, rule in config["system"].items()
-        if rule["enabled"]
-    }
-    all_flags = {
-        finding_day: [
-            message for message in messages
-            if not (
-                match := re.search(r"\b(D\d{2})\b", message)
-            ) or match.group(1) in enabled_system
-        ]
-        for finding_day, messages in all_flags.items()
-    }
-    for finding_day, messages in _custom_fatigue_flags(
-        segs, config["custom"]
-    ).items():
-        all_flags.setdefault(finding_day, []).extend(messages)
     target_set = set(day_list)
     return {
         d: findings for d, findings in all_flags.items()
@@ -3048,31 +3058,15 @@ def roster_fatigue_flags_matrix(
     for assignment in assignments:
         assignments_by_staff[assignment.staff_id].append(assignment)
     config = _fatigue_rule_config(unit_id)
-    enabled_system = {
-        code for code, rule in config["system"].items() if rule["enabled"]
-    }
     target_days = set(ordered_days)
     result: dict[int, dict[date, list[str]]] = {}
     for person in staff:
         segments = _segments_from_assignments(
             person, assignments_by_staff.get(person.id, ()), config["definitions"]
         )
-        findings = _analyze_segments(
-            segments, config,
-            observation_start=datetime.combine(start_lb, time.min),
+        findings = _configured_fatigue_findings(
+            segments, config, datetime.combine(start_lb, time.min)
         )
-        findings = {
-            finding_day: [
-                message for message in messages
-                if not (match := re.search(r"\b(D\d{2})\b", message))
-                or match.group(1) in enabled_system
-            ]
-            for finding_day, messages in findings.items()
-        }
-        for finding_day, messages in _custom_fatigue_flags(
-            segments, config["custom"]
-        ).items():
-            findings.setdefault(finding_day, []).extend(messages)
         visible = {}
         for finding_day, messages in findings.items():
             shift = get_shift(
@@ -3088,13 +3082,17 @@ def roster_fatigue_flags_matrix(
 
 
 def would_trigger_fatigue(staff: Staff, day: date, code: str):
-    sh = get_shift(code)
+    sh = get_shift(code, staff.unit_id)
     if not _is_working(sh):
         return []
     start_lb = day - timedelta(days=30)
     end_day = day
-    segs = _segments_for_staff(staff, start_lb, end_day)
-    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
+    segs = [
+        segment for segment in _segments_for_staff(staff, start_lb, end_day)
+        if segment["day"] != day
+    ]
+    config = _fatigue_rule_config(staff.unit_id)
+    definitions = config["definitions"]
     sdt, edt = _span(day, sh)
     if sdt:
         is_early, is_pre0600 = _is_early_start(sdt, definitions)
@@ -3106,8 +3104,8 @@ def would_trigger_fatigue(staff: Staff, day: date, code: str):
             "early_pre0600": is_pre0600,
             "morning": _is_morning_duty(sdt),
         })
-    flags = _analyze_segments(
-        segs, observation_start=datetime.combine(start_lb, time.min)
+    flags = _configured_fatigue_findings(
+        segs, config, datetime.combine(start_lb, time.min)
     )
     return flags.get(day, [])
 
@@ -3124,8 +3122,14 @@ def would_trigger_fatigue_with_plan(
         return []
     start_day = min([day, *proposed_codes], default=day) - timedelta(days=30)
     end_day = max([day, *proposed_codes], default=day)
-    segments = _segments_for_staff(staff, start_day, end_day)
-    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
+    proposed_days = set(proposed_codes) | {day}
+    segments = [
+        segment
+        for segment in _segments_for_staff(staff, start_day, end_day)
+        if segment["day"] not in proposed_days
+    ]
+    config = _fatigue_rule_config(staff.unit_id)
+    definitions = config["definitions"]
     for proposed_day, proposed_code in {**proposed_codes, day: code}.items():
         proposed_shift = get_shift(proposed_code, staff.unit_id)
         start_dt, end_dt = _span(proposed_day, proposed_shift)
@@ -3143,16 +3147,9 @@ def would_trigger_fatigue_with_plan(
             "morning": _is_morning_duty(start_dt),
         })
     segments.sort(key=lambda item: item["start"])
-    config = _fatigue_rule_config(staff.unit_id)
-    findings = _analyze_segments(
-        segments,
-        config,
-        observation_start=datetime.combine(start_day, time.min),
+    findings = _configured_fatigue_findings(
+        segments, config, datetime.combine(start_day, time.min)
     )
-    for finding_day, messages in _custom_fatigue_flags(
-        segments, config["custom"]
-    ).items():
-        findings.setdefault(finding_day, []).extend(messages)
     return findings.get(day, [])
 
 
@@ -3183,22 +3180,26 @@ def would_create_new_fatigue_issues(
     lookback_days: int = 30,
     lookahead_days: int = 14,
 ):
-    sh = get_shift(proposed_code)
+    sh = get_shift(proposed_code, staff.unit_id)
     if not _is_working(sh):
         return {}
     start = proposed_day - timedelta(days=lookback_days)
     end = proposed_day + timedelta(days=lookahead_days)
     segs_base = _segments_for_staff(staff, start, end)
     observation_start = datetime.combine(start, time.min)
-    flags_base = _analyze_segments(
-        segs_base, observation_start=observation_start
+    config = _fatigue_rule_config(staff.unit_id)
+    flags_base = _configured_fatigue_findings(
+        segs_base, config, observation_start
     )
     sdt, edt = _span(proposed_day, sh)
     if not sdt:
         return {}
-    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
+    definitions = config["definitions"]
     is_early, is_pre0600 = _is_early_start(sdt, definitions)
-    segs_prop = list(segs_base)
+    segs_prop = [
+        segment for segment in segs_base
+        if segment["day"] != proposed_day
+    ]
     segs_prop.append({
         "day": proposed_day,
         "start": sdt,
@@ -3209,8 +3210,8 @@ def would_create_new_fatigue_issues(
         "early_pre0600": is_pre0600,
         "morning": _is_morning_duty(sdt),
     })
-    flags_prop = _analyze_segments(
-        segs_prop, observation_start=observation_start
+    flags_prop = _configured_fatigue_findings(
+        segs_prop, config, observation_start
     )
     new_flags = {}
     for d, lst in flags_prop.items():
@@ -4110,197 +4111,6 @@ def password_change():
 # -------------------- Main / Roster --------------------
 
 
-def _dashboard_leave_balance(person: Staff, today: date) -> dict[str, float]:
-    start_month = max(1, min(12, int(person.leave_year_start_month or 1)))
-    start_year = today.year if today.month >= start_month else today.year - 1
-    leave_start = date(start_year, start_month, 1)
-    leave_end = date(start_year + 1, start_month, 1)
-    taken = 0
-    rows = Leave.query.filter(
-        Leave.unit_id == person.unit_id,
-        Leave.staff_id == person.id,
-        Leave.leave_type == "AL",
-        Leave.start < leave_end,
-        Leave.end >= leave_start,
-    ).all()
-    for row in rows:
-        first = max(row.start, leave_start)
-        final = min(row.end, leave_end - timedelta(days=1))
-        taken += max(0, (final - first).days + 1)
-    allowance = float(
-        (person.leave_entitlement_days or 0)
-        + (person.leave_carryover_days or 0)
-        + ((person.toil_half_days or 0) / 2)
-    )
-    return {"allowance": allowance, "taken": taken, "remaining": allowance - taken}
-
-
-def _today_dashboard_context() -> dict[str, object]:
-    today = date.today()
-    unit_id = _current_unit_id()
-    person = tenant_get(Staff, current_user.id)
-    if not person:
-        abort(404)
-    month_key = f"{today.year:04d}-{today.month:02d}"
-    future_assignments = Assignment.query.filter(
-        Assignment.unit_id == unit_id,
-        Assignment.staff_id == person.id,
-        Assignment.day >= today,
-    ).order_by(Assignment.day).limit(90).all()
-    next_duty = next((row for row in future_assignments if (
-        (shift := get_shift(row.effective_code, unit_id))
-        and shift.is_active and shift.is_working
-    )), None)
-    publication = _active_roster_publication(today.year, today.month)
-    own_requests = ShiftRequest.query.filter(
-        ShiftRequest.unit_id == unit_id,
-        ShiftRequest.staff_id == person.id,
-        ShiftRequest.status.in_(("pending", "approved")),
-    ).order_by(ShiftRequest.day).all()
-    qualification_rows = db.session.query(
-        PersonQualification, QualificationType
-    ).join(
-        QualificationType,
-        QualificationType.id == PersonQualification.qualification_type_id,
-    ).filter(
-        PersonQualification.unit_id == unit_id,
-        PersonQualification.person_id == person.id,
-        PersonQualification.status == "valid",
-    ).all()
-    qualification_attention = [
-        {"label": qtype.label, "expires_on": record.valid_to or record.expires_on}
-        for record, qtype in qualification_rows
-        if (record.valid_to or record.expires_on)
-        and (record.valid_to or record.expires_on) <= today + timedelta(days=90)
-    ]
-    manager = bool(
-        person.is_wm or person.is_dwm
-        or person.role in {"watch_manager", "duty_watch_manager"}
-    )
-    editor = bool(is_editor_user(person))
-    manager_summary = None
-    if manager:
-        watch_staff = Staff.query.filter(
-            Staff.unit_id == unit_id,
-            Staff.watch_id == person.watch_id,
-            Staff.membership_status.in_(("active", "no_login")),
-            Staff.is_operational.is_(True),
-        ).order_by(Staff.name).all()
-        staff_ids = [row.id for row in watch_staff]
-        today_assignments = Assignment.query.filter(
-            Assignment.unit_id == unit_id,
-            Assignment.staff_id.in_(staff_ids or [0]),
-            Assignment.day == today,
-        ).all()
-        capability = get_operational_capability_matrix(watch_staff, [today])
-        counts = Counter()
-        qualification_warnings = 0
-        for assignment in today_assignments:
-            status = capability.get((assignment.staff_id, today))
-            if not status or not status.counts_as_operational:
-                qualification_warnings += 1
-                continue
-            group = shift_counter_group_for_day(
-                assignment.effective_code, today, unit_id
-            )
-            if group:
-                counts[group] += 1
-        requirement = Requirement.query.filter_by(
-            unit_id=unit_id, year=today.year, month=today.month
-        ).first()
-        needed = requirements_for_day(requirement, today)
-        shortfalls = {
-            group: max(0, int(needed.get(group, 0)) - counts[group])
-            for group in ("M", "D", "A", "N")
-            if not (group == "N" and not _night_active_on(unit_id, today))
-        }
-        waiting = ShiftRequest.query.filter(
-            ShiftRequest.unit_id == unit_id,
-            ShiftRequest.staff_id.in_(staff_ids or [0]),
-            ShiftRequest.status.in_(("pending", "approved")),
-        ).count()
-        code_map = {row.id: {} for row in watch_staff}
-        for assignment in today_assignments:
-            code_map.setdefault(assignment.staff_id, {})[today] = assignment.effective_code
-        fatigue = roster_fatigue_flags_matrix(
-            watch_staff, [today], code_map, unit_id
-        )
-        manager_summary = {
-            "counts": counts,
-            "needed": needed,
-            "shortfalls": shortfalls,
-            "shortfall_total": sum(shortfalls.values()),
-            "requests_waiting": waiting,
-            "qualification_warnings": qualification_warnings,
-            "fatigue_warnings": sum(len(items) for items in fatigue.values()),
-            "watch_name": person.watch.name if person.watch else "your watch",
-        }
-    editor_summary = None
-    if editor:
-        _, current_days = month_range(today.year, today.month)
-        validation = roster_validation_service.validate_range(
-            unit_id, current_days[0], current_days[-1]
-        )
-        draft_months = []
-        for offset in range(4):
-            year, month = _month_add(today.year, today.month, offset)
-            start = date(year, month, 1)
-            next_year, next_month = _month_add(year, month, 1)
-            has_data = db.session.query(Assignment.id).filter(
-                Assignment.unit_id == unit_id,
-                Assignment.day >= start,
-                Assignment.day < date(next_year, next_month, 1),
-            ).first()
-            published = RosterPublication.query.filter_by(
-                unit_id=unit_id, year=year, month=month, state="published"
-            ).first()
-            if has_data and not published:
-                draft_months.append({
-                    "ym": f"{year:04d}-{month:02d}",
-                    "label": start.strftime("%B %Y"),
-                })
-        open_exceptions = RosterImpactException.query.filter(
-            RosterImpactException.unit_id == unit_id,
-            RosterImpactException.status.in_(("OPEN", "ACKNOWLEDGED")),
-        ).count()
-        configuration_issues = []
-        if not ShiftType.query.filter_by(unit_id=unit_id, is_active=True).first():
-            configuration_issues.append("No active shift definitions")
-        if not Requirement.query.filter_by(
-            unit_id=unit_id, year=today.year, month=today.month
-        ).first():
-            configuration_issues.append("This month has no staffing requirements")
-        pending_accounts = UnitMembership.query.filter_by(
-            unit_id=unit_id, status="pending"
-        ).count()
-        if pending_accounts:
-            configuration_issues.append(f"{pending_accounts} account invitation(s) pending")
-        recent_changes = ChangeLog.query.filter_by(unit_id=unit_id).order_by(
-            ChangeLog.when.desc()
-        ).limit(5).all()
-        editor_summary = {
-            "draft_months": draft_months,
-            "blocking": validation.blocking_count,
-            "advisory": validation.advisory_count,
-            "open_exceptions": open_exceptions,
-            "configuration_issues": configuration_issues,
-            "recent_changes": recent_changes,
-        }
-    return {
-        "today": today,
-        "month_key": month_key,
-        "next_duty": next_duty,
-        "publication": publication,
-        "own_requests": own_requests,
-        "leave_balance": _dashboard_leave_balance(person, today),
-        "qualification_attention": qualification_attention,
-        "manager_summary": manager_summary,
-        "editor_summary": editor_summary,
-        "can_manage_requests": manager or editor,
-        "can_edit_roster": editor,
-    }
-
-
 @app.route("/")
 @login_required
 def index():
@@ -4308,7 +4118,10 @@ def index():
         unit = db.session.get(Unit, _current_unit_id())
         if unit and int(unit.onboarding_step or 0) < 100:
             return redirect(url_for("unit_onboarding"))
-    return render_template("today.html", **_today_dashboard_context())
+    today = date.today()
+    return redirect(
+        url_for("roster_month", ym=f"{today.year}-{today.month:02d}")
+    )
 
 
 def _roster_snapshot(year: int, month: int) -> dict:
