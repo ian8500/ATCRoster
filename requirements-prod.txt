@@ -11,7 +11,7 @@ psycopg==3.3.4
 
 # Security and MFA
 Werkzeug==3.1.8
-cryptography==49.0.0
+cryptography==50.0.0
 pyotp==2.10.0
 qrcode==8.2
 itsdangerous==2.2.0
