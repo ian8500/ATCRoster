@@ -1682,6 +1682,19 @@ def test_module_home_restores_original_launcher_and_admin_card(client):
     assert b">Today</a>" not in resp.data
 
 
+def test_standard_user_login_lands_on_module_selection(client):
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="staff_test").one()
+        assert app._airport_login_endpoint(user) == "module_home"
+
+    login_as(client, "staff_test", follow_redirects=False)
+    launcher = client.get("/modules")
+    assert launcher.status_code == 200
+    assert b"Please select a module" in launcher.data
+    assert b"<strong>Roster</strong>" in launcher.data
+    assert b"<strong>Administration</strong>" not in launcher.data
+
+
 def test_fatigue_segments_use_effective_override_and_airport_shift(client):
     login(client)
     with app.app.app_context():
