@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable, Iterator
 
 
-PATTERN_CODES = ("M", "A", "D", "N", "OFF")
+PATTERN_CODES = ("M", "A", "D", "N", "OPS", "OFF")
 
 
 def month_days(year: int, month: int) -> tuple[date, list[date]]:

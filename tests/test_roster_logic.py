@@ -23,6 +23,9 @@ def test_month_days_handles_leap_year():
 def test_patterns_support_legacy_multipliers_and_reject_unknown_codes():
     assert expand_pattern("2xM, A*2, off") == ["M", "M", "A", "A", "OFF"]
     assert validated_pattern("M,A,N,OFF") == ["M", "A", "N", "OFF"]
+    assert validated_pattern("OPS,OPS,OPS,OPS,OPS,OFF,OFF") == [
+        "OPS", "OPS", "OPS", "OPS", "OPS", "OFF", "OFF",
+    ]
     assert validated_pattern("M,UNKNOWN") == []
 
 

@@ -2426,7 +2426,7 @@ def _shift_groups_snapshot(unit_id: int):
     return working, training, nonwork
 
 
-PATTERN_CODES = ("M", "A", "D", "N", "OFF")
+PATTERN_CODES = ("M", "A", "D", "N", "OPS", "OFF")
 DEFAULT_BASE_PATTERN = "M,M,A,A,N,N,OFF,OFF,OFF,OFF"
 
 
