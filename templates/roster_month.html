@@ -81,6 +81,13 @@
   .roster td.cell { position: relative; }
   .roster td.totcell { position: relative; }
 
+  /* Keep the frozen identity area and date headings fully opaque while the
+     coloured shift cells move beneath them during horizontal/vertical scroll. */
+  .roster td.col-name {
+    background-color: #181e26 !important;
+    background-image: none !important;
+  }
+
   /* Subtle background tint for today */
   /* Keep the highlighted sticky heading opaque so roster values never bleed through. */
   .roster th.dayhead.is-today { background: #363d2e !important; }
@@ -157,9 +164,6 @@
 
   <a class="btn roster-export-link" href="{{ url_for('roster_export_csv', ym=ym) }}">Export CSV</a>
   <button class="btn" data-command="print-roster">Print</button>
-  {% if can_edit %}
-    <a class="btn" href="{{ url_for('roster_impact.exceptions') }}">Impact queue{% if open_impact_exceptions %} · {{ open_impact_exceptions }}{% endif %}</a>
-  {% endif %}
 
   <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
     <span class="roster-zoom-label">Zoom</span>
@@ -181,9 +185,6 @@
     <strong>{{ month_title }}</strong>
     <small>{% if roster_publication %}Published {{ roster_publication.published_at.strftime('%d %B %Y') }}{% else %}Not yet published to staff{% endif %}</small>
   </div>
-  <div class="roster-overview__metric"><span>Staffing shortfall</span><strong>{{ staffing_shortfall_count }}</strong><small>required positions across the month</small></div>
-  <div class="roster-overview__metric"><span>Qualification warnings</span><strong>{{ qualification_warning_count }}</strong><small>assigned duties not counted operationally</small></div>
-  <div class="roster-overview__metric"><span>Validation</span><strong>{{ roster_validation.blocking_count }} / {{ roster_validation.advisory_count }}</strong><small>blocking / advisory findings</small></div>
   {% if can_publish_roster %}
     {% if roster_publication %}<form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}" data-confirm="Undo publication for the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Return to draft</button></form>
     {% else %}<form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}" data-confirm="Publish the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-sm" type="submit" {% if roster_validation.blocking_count %}disabled title="Resolve blocking validation findings first"{% endif %}>Publish roster</button></form>{% endif %}
