@@ -11,7 +11,7 @@
     <article class="next-duty">
       <span>Next duty</span>
       <strong>{{ next_duty.code }} · {{ next_duty.day.strftime('%A %d %B') }}</strong>
-      <small>{{ next_duty.annotation or 'No annotation' }}</small>
+      <small>{{ next_duty.annotation or '' }}</small>
     </article>
   {% else %}
     <article class="next-duty"><span>Next duty</span><strong>None scheduled</strong><small>within 45 days</small></article>
@@ -48,7 +48,7 @@
         <div>
           <time datetime="{{ assignment.day.isoformat() }}">{{ assignment.day.strftime('%a %d %b') }}</time>
           <strong>{{ assignment.code }}</strong>
-          <span>{{ assignment.annotation or '—' }}</span>
+          <span>{{ assignment.annotation or '' }}</span>
         </div>
       {% else %}
         <p>No assignments are currently scheduled.</p>

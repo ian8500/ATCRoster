@@ -604,32 +604,29 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
         },
     )
     finish_operational_login(client)
-    query = "start=2026-07-30&end=2026-07-30"
+    query = (
+        "start=2026-07-30&end=2026-07-30&person_id="
+        f"{live_position_data['controller_id']}"
+    )
     individual = client.get(f"/live-positions/reports/operational-activity?{query}")
     assert individual.status_code == 200
-    assert b"Individual activity summary" in individual.data
-    assert b"Operational activity total" in individual.data
+    assert b"Alex Controller" in individual.data
+    assert b"Operational activity total" not in individual.data
+    assert b"All controllers" not in individual.data
     assert b"Breakdown by position" in individual.data
     assert b"operational-position-detail" in individual.data
-    assert b"Alex Controller" in individual.data
     assert b"01:30" in individual.data
-    assert b"Sam Instructor" in individual.data
+    assert b"Sam Instructor" not in individual.data
     assert b"Position screen" not in individual.data
-    assert b"00:30" in individual.data
     assert b"75.0%" in individual.data
-    position = client.get(
-        f"/live-positions/reports/operational-activity?{query}&report_type=position"
+
+    chooser = client.get(
+        "/live-positions/reports/operational-activity?"
+        "start=2026-07-30&end=2026-07-30"
     )
-    assert position.status_code == 200
-    assert b"Position utilisation" in position.data
-    assert b"Total position occupancy" in position.data
-    instruction = client.get(
-        f"/live-positions/reports/operational-activity?{query}&report_type=instruction"
-    )
-    assert instruction.status_code == 200
-    assert b"OJTI and assessor contribution" in instruction.data
-    assert b"Total contribution" in instruction.data
-    assert b"100.0%" in instruction.data
+    assert chooser.status_code == 200
+    assert b"Select a controller" in chooser.data
+    assert b"01:30" not in chooser.data
 
 
 def test_admin_can_configure_currency_category_and_position(live_position_data):

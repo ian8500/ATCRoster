@@ -360,11 +360,9 @@ def create_live_position_blueprint(
             ).all()
         }
         selected_person_id = request.args.get("person_id", type=int)
-        selected_watch_id = request.args.get("watch_id", type=int)
+        selected_watch_id = None
         selected_position_id = request.args.get("position_id", type=int)
-        report_type = request.args.get("report_type") or "individual"
-        if report_type not in {"individual", "position", "instruction"}:
-            abort(400, "Unknown operational report type.")
+        report_type = "individual"
         if not can_view_all:
             selected_person_id = current_user.id
             selected_watch_id = None
@@ -421,6 +419,10 @@ def create_live_position_blueprint(
         ) -> None:
             person = people_by_id.get(person_id)
             if not person or minutes <= 0:
+                return
+            # Operational activity is an individual report. Managers choose a
+            # controller explicitly rather than receiving unit-wide totals.
+            if can_view_all and selected_person_id is None:
                 return
             if selected_person_id and person.id != selected_person_id:
                 return
@@ -609,6 +611,7 @@ def create_live_position_blueprint(
             watches=watches,
             positions=positions,
             selected_person_id=selected_person_id,
+            selected_person=people_by_id.get(selected_person_id),
             selected_watch_id=selected_watch_id,
             selected_position_id=selected_position_id,
             can_view_all=can_view_all,

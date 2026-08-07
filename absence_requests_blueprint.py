@@ -19,6 +19,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from sqlalchemy.orm import load_only
 
 
 @dataclass(frozen=True)
@@ -439,9 +440,18 @@ def create_absence_requests_blueprint(
             for item in dependencies.get_absence_types("sickness", active_only=False)
         ]
         sickness = (
-            dependencies.Assignment.query.filter(
-                dependencies.Assignment.code.in_(all_sickness_codes)
+            dependencies.Assignment.query.options(
+                # The absence overview only needs these legacy fields. Avoid
+                # selecting newer baseline/override columns here so tenant
+                # databases can still open the page while migrations catch up.
+                load_only(
+                    dependencies.Assignment.id,
+                    dependencies.Assignment.staff_id,
+                    dependencies.Assignment.day,
+                    dependencies.Assignment.code,
+                )
             )
+            .filter(dependencies.Assignment.code.in_(all_sickness_codes))
             .order_by(
                 dependencies.Assignment.staff_id.asc(),
                 dependencies.Assignment.day.asc(),
@@ -466,6 +476,7 @@ def create_absence_requests_blueprint(
             next_ym=next_ym,
             watches=watches,
             selected_watch_id=selected_watch_id,
+            is_admin=dependencies.is_admin_user(current_user),
         )
 
     @login_required
