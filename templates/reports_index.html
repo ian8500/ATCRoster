@@ -8,7 +8,7 @@
   <div><span class="admin-step">Privacy check</span><h2 id="sensitive-data-title">Sensitive information ahead</h2><p id="sensitive-data-description">Reports may contain personal information about leave, sickness and staff records. Check your surroundings and make sure your screen cannot be viewed by anyone who is not authorised.</p><form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">OK, open reports</button></form></div>
 </section>
 {% else %}
-<section class="compliance-hero"><div><span class="admin-step">Operational evidence</span><h2>Reports</h2><p>Review the published plan, prove it is supportable and compare it with operational activity.</p></div></section>
+<section class="compliance-hero"><div><span class="admin-step">Roster records</span><h2>Reports</h2><p>Review published duties and authorised personal records.</p></div></section>
 
 <section class="report-group" aria-labelledby="core-reports"><header><span class="eyebrow">ATCRoster Core</span><h3 id="core-reports">Roster and personal records</h3></header><div class="reports-menu-grid">
   <a class="btn report-menu-item" href="{{ links.roster }}"><strong>Current roster</strong><span>Published duties, staffing totals and annotations</span></a>
@@ -20,15 +20,6 @@
   <a class="btn report-menu-item" href="{{ links.fairness }}"><strong>Roster fairness</strong><span>Actual and proportional duties and hours</span></a>
   {% endif %}
 </div></section>
-
-{% if privileged_reports %}
-<section class="report-group" aria-labelledby="assurance-reports"><header><span class="eyebrow">ATCRoster Assurance</span><h3 id="assurance-reports">Supportability and safety</h3></header><div class="reports-menu-grid">
-  <a class="btn report-menu-item" href="{{ url_for('coverage_heatmap', ym=ym) }}"><strong>Coverage heatmap</strong><span>Daily staffing coverage and competence exclusions</span></a>
-  <a class="btn report-menu-item" href="{{ url_for('qualification_compliance') }}"><strong>Qualification compliance</strong><span>Current validity and upcoming expiries</span></a>
-  {% if 'scenario_planning' in enabled_feature_keys %}<a class="btn report-menu-item" href="{{ url_for('scenarios_page') }}"><strong>Scenario planning</strong><span>Test changes without altering the live roster</span></a>{% endif %}
-  <a class="btn report-menu-item" href="{{ url_for('operations_assurance', ym=ym) }}"><strong>Operational assurance</strong><span>Planned versus achieved duty, breaks and fatigue reports</span></a>
-</div></section>
-{% endif %}
 
 {% if has_live_position_module and (is_admin or is_editor) %}<section class="report-group" aria-labelledby="live-reports"><header><span class="eyebrow">ATCRoster Live</span><h3 id="live-reports">Operational activity</h3></header><div class="reports-menu-grid"><a class="btn report-menu-item" href="{{ url_for('live_position.operational_activity') }}"><strong>Operational activity</strong><span>Solo, OJTI, assessment and position utilisation</span></a></div></section>{% endif %}
 {% if has_training_module and (is_admin or current_user.is_wm or current_user.is_dwm or current_user.has_assessor) %}<section class="report-group" aria-labelledby="training-reports"><header><span class="eyebrow">Training &amp; Competency</span><h3 id="training-reports">Training evidence</h3></header><div class="reports-menu-grid"><a class="btn report-menu-item" href="{{ url_for('training_analytics') }}"><strong>Training analytics</strong><span>Objectives, progress and recorded outcomes</span></a></div></section>{% endif %}
