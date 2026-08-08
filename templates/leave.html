@@ -19,7 +19,7 @@
   {% endwith %}
 
   <!-- Add Leave -->
-  <details class="card mb-4 absence-entry-panel">
+  <details class="card mb-4 absence-entry-panel" data-persist-details="leave-add">
     <summary class="card-header">
       <strong><i class="fa-solid fa-calendar-plus" aria-hidden="true"></i> Add leave</strong>
       <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
@@ -62,7 +62,7 @@
   </details>
 
   <!-- Add Sickness -->
-  <details class="card mb-4 absence-entry-panel">
+  <details class="card mb-4 absence-entry-panel" data-persist-details="sickness-add">
     <summary class="card-header">
       <strong><i class="fa-solid fa-notes-medical" aria-hidden="true"></i> Add sickness</strong>
       <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
@@ -114,7 +114,7 @@
   </div>
 
   <!-- Sickness instances overlapping the selected month -->
-  <details class="card mb-4 absence-entry-panel">
+  <details class="card mb-4 absence-entry-panel" data-persist-details="sickness-instances">
     <summary class="card-header">
       <strong>Sickness instances — {{ month_title }}</strong>
       <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
@@ -172,7 +172,7 @@
   </details>
 
   <!-- Existing Leave (month) -->
-  <details class="card absence-entry-panel">
+  <details class="card absence-entry-panel" data-persist-details="existing-leave">
     <summary class="card-header">
       <strong>Existing Leave — {{ month_title }}</strong>
       <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
@@ -237,4 +237,16 @@
     </div>
   </details>
 </div>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const keyPrefix = 'atcroster:leave-panel:';
+  document.querySelectorAll('[data-persist-details]').forEach(panel => {
+    const key = keyPrefix + panel.dataset.persistDetails;
+    if (localStorage.getItem(key) === 'open') panel.open = true;
+    panel.addEventListener('toggle', () => {
+      localStorage.setItem(key, panel.open ? 'open' : 'closed');
+    });
+  });
+})();
+</script>
 {% endblock %}
