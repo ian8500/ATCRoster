@@ -34,7 +34,7 @@ from flask_login import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import HTTPException, SecurityError
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.hybrid import hybrid_property
 from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
@@ -7135,13 +7135,19 @@ def unit_messages():
     sender_options = _sms_sender_options()
     if current_user.is_wm:
         now = utcnow()
-        verified = SmsSenderRegistration.query.filter(
-            SmsSenderRegistration.unit_id == _current_unit_id(),
-            SmsSenderRegistration.staff_id == current_user.id,
-            SmsSenderRegistration.provider == "messagemedia",
-            SmsSenderRegistration.status == "verified",
-            db.or_(SmsSenderRegistration.expires_at.is_(None), SmsSenderRegistration.expires_at > now),
-        ).order_by(SmsSenderRegistration.verified_at.desc()).all()
+        try:
+            verified = SmsSenderRegistration.query.filter(
+                SmsSenderRegistration.unit_id == _current_unit_id(),
+                SmsSenderRegistration.staff_id == current_user.id,
+                SmsSenderRegistration.provider == "messagemedia",
+                SmsSenderRegistration.status == "verified",
+                db.or_(SmsSenderRegistration.expires_at.is_(None), SmsSenderRegistration.expires_at > now),
+            ).order_by(SmsSenderRegistration.verified_at.desc()).all()
+        except ProgrammingError:
+            # Existing units can be served safely during a delayed schema rollout.
+            db.session.rollback()
+            app.logger.warning("sms_sender_registration_schema_unavailable")
+            verified = []
         sender_options = ([{"number": item.number, "label": "My verified mobile"} for item in verified]
                           or sender_options)
     operational_options = _sms_operational_options()
