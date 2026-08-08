@@ -17,7 +17,7 @@
 - [ ] Have a UK data/privacy solicitor review the customer terms, DPA,
   limitations, insurance, aviation/safety wording and employment-data roles.
 - [ ] Sign the customer agreement/DPA before loading live customer data.
-- [ ] Obtain and retain Railway, Twilio, email and backup provider terms/DPAs.
+- [ ] Obtain and retain Railway, Sinch MessageMedia, email and backup provider terms/DPAs.
 - [ ] Confirm hosting/processing regions and complete required transfer
   assessments/UK transfer instruments.
 

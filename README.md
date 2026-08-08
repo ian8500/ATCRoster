@@ -488,13 +488,12 @@ step.
   shortcut. Unit Admins can add or deactivate airport-specific types there.
   Deactivation preserves history while removing the type from new entries and
   reports.
-- Configure Twilio before sending overtime or unit SMS messages.
+- Configure Sinch MessageMedia before sending overtime or unit SMS messages.
 - **Messages** is available only to Admin, WM and DWM users. It can target one
   person, a named watch, or all active airport users with a custom message or
-  a personalised today-shift reminder. Unit Admins configure approved Twilio
-  sender numbers, named operational destination numbers, and defaults in
-  **Admin → SMS settings**. The Messages page preselects those defaults and
-  lets the sender choose another airport-approved number.
+  a personalised today-shift reminder. Watch Managers register their own
+  verified UK mobile sender; a configured Sinch fallback sender is used only
+  when no verified personal sender is available.
 - Every successful unit, operational, shift-reminder, and overtime SMS is
   retained in the airport-isolated **Admin → SMS audit**. The audit records
   who initiated it, the actual sender and recipient numbers, delivery time,
@@ -509,18 +508,18 @@ than relying on fixed OT/Swap/EXT codes. If a retired annotation appears in
 the selected date range, it remains visible as a historical column so earlier
 records are not hidden. The CSV export uses the same columns as the screen.
 
-Twilio environment variables:
+Sinch MessageMedia environment variables:
 
 ```text
-TWILIO_ACCOUNT_SID
-TWILIO_AUTH_TOKEN
-TWILIO_FROM_NUMBER
+MESSAGEMEDIA_API_KEY
+MESSAGEMEDIA_API_SECRET
+MESSAGEMEDIA_FALLBACK_SENDER
 ```
 
 When they are absent, SMS sending is disabled.
 
-Twilio never chooses a random sender. Each configured sender must be a number
-owned by or approved for the Twilio account. Airport settings are tenant
+Sinch MessageMedia never chooses a random sender. A Watch Manager's personal
+sender must be verified in Sinch MessageMedia. Airport settings are tenant
 scoped; one airport cannot select another airport's sender or operational
 destination. Enter numbers in E.164 format, for example `+447700900123`.
 

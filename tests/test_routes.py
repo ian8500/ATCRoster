@@ -3166,9 +3166,9 @@ def test_unit_messages_recipient_order_and_default(client):
 
 def test_admin_configures_airport_sms_numbers(client, monkeypatch):
     login(client)
-    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
-    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "secret")
-    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+447700900999")
+    monkeypatch.setenv("MESSAGEMEDIA_API_KEY", "test-key")
+    monkeypatch.setenv("MESSAGEMEDIA_API_SECRET", "test-secret")
+    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900999")
 
     response = client.post(
         "/admin",
@@ -3201,16 +3201,16 @@ def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
     client, monkeypatch
 ):
     login(client)
-    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
-    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "secret")
-    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+447700900999")
+    monkeypatch.setenv("MESSAGEMEDIA_API_KEY", "test-key")
+    monkeypatch.setenv("MESSAGEMEDIA_API_SECRET", "test-secret")
+    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900999")
     sent = []
 
-    def fake_send(to_number, body, creds=None, from_number=None):
+    def fake_send(to_number, body, from_number=None):
         sent.append((to_number, body, from_number))
         return True, "SMtest"
 
-    monkeypatch.setattr(app, "_send_sms_via_twilio", fake_send)
+    monkeypatch.setattr(app, "_send_sms_via_messagemedia", fake_send)
     rejected = client.post(
         "/messages",
         data={

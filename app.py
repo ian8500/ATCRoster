@@ -514,19 +514,6 @@ def _invalidate_month_cache_for_day(d: date):
             pass
 
 
-def _twilio_credentials() -> tuple[str, str, str]:
-    return (
-        os.getenv("TWILIO_ACCOUNT_SID", ""),
-        os.getenv("TWILIO_AUTH_TOKEN", ""),
-        os.getenv("TWILIO_FROM_NUMBER", ""),
-    )
-
-
-def _sms_provider_name() -> str:
-    """Configured SMS delivery provider; Twilio remains an explicit rollback."""
-    return os.getenv("SMS_PROVIDER", "twilio").strip().lower()
-
-
 def _messagemedia_credentials() -> tuple[str, str, str]:
     return (
         os.getenv("MESSAGEMEDIA_API_KEY", ""),
@@ -577,15 +564,9 @@ def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, 
 
 
 def _sms_sender_options(unit_id: int | None = None) -> list[dict[str, str]]:
-    if _sms_provider_name() == "messagemedia":
-        fallback = _normalise_uk_mobile(_messagemedia_credentials()[2])
-        return ([{"number": fallback, "label": "Unit fallback sender"}]
-                if fallback else [])
-    options = _sms_number_options("sms_sender_numbers", unit_id)
-    fallback = _normalise_sms_number(_twilio_credentials()[2])
-    if fallback and not options:
-        options = [{"number": fallback, "label": "Twilio account default"}]
-    return options
+    fallback = _normalise_uk_mobile(_messagemedia_credentials()[2])
+    return ([{"number": fallback, "label": "Unit fallback sender"}]
+            if fallback else [])
 
 
 def _sms_operational_options(unit_id: int | None = None) -> list[dict[str, str]]:
@@ -606,11 +587,8 @@ def _sms_default_number(
 
 
 def _sms_service_configured() -> bool:
-    if _sms_provider_name() == "messagemedia":
-        key, secret, fallback = _messagemedia_credentials()
-        return bool(key and secret and _normalise_sms_number(fallback))
-    account_sid, auth_token, _from_number = _twilio_credentials()
-    return bool(account_sid and auth_token and _sms_sender_options())
+    key, secret, fallback = _messagemedia_credentials()
+    return bool(key and secret and _normalise_sms_number(fallback))
 
 
 def _email_service_configured() -> bool:
@@ -695,58 +673,6 @@ def _unit_admin_emails(unit_id: int) -> list[str]:
     return list(dict.fromkeys(row.email for row in rows if row.email))
 
 
-def _send_sms_via_twilio(
-    to_number: str,
-    body: str,
-    creds: tuple[str, str, str] | None = None,
-    from_number: str | None = None,
-) -> tuple[bool, str]:
-    account_sid, auth_token, configured_from = creds or _twilio_credentials()
-    from_number = _normalise_sms_number(from_number or configured_from)
-    if not (account_sid and auth_token and from_number):
-        return False, "SMS credentials are not configured."
-
-    to_number = _normalise_sms_number(to_number)
-    if not to_number:
-        return False, "Missing or invalid destination number."
-
-    payload = urllib_parse.urlencode({
-        "To": to_number,
-        "From": from_number,
-        "Body": body,
-    }).encode("utf-8")
-
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
-    req = urllib_request.Request(url, data=payload, method="POST")
-    token = base64.b64encode(f"{account_sid}:{auth_token}".encode("utf-8")).decode("ascii")
-    req.add_header("Authorization", f"Basic {token}")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
-
-    try:
-        # The destination is the fixed HTTPS Twilio API origin above.
-        with urllib_request.urlopen(req, timeout=10) as resp:  # nosec B310
-            data = resp.read().decode("utf-8")
-            if 200 <= resp.status < 300:
-                try:
-                    parsed = json.loads(data)
-                except Exception:
-                    parsed = {}
-                return True, parsed.get("sid", "sent")
-            return False, f"HTTP {resp.status}: {data[:200]}"
-    except urllib_error.HTTPError as err:
-        try:
-            detail = err.read().decode("utf-8")
-            parsed = json.loads(detail)
-            message = parsed.get("message") or detail
-        except Exception:
-            message = getattr(err, "reason", None) or str(err)
-        return False, f"{err.code}: {message}"
-    except urllib_error.URLError as err:
-        return False, getattr(err, "reason", None) or str(err)
-    except Exception as exc:
-        return False, str(exc)
-
-
 def _send_sms_via_messagemedia(
     to_number: str, body: str, from_number: str | None = None,
 ) -> tuple[bool, str]:
@@ -787,11 +713,7 @@ def _send_sms_via_messagemedia(
 
 
 def _send_sms(to_number: str, body: str, from_number: str | None = None) -> tuple[bool, str]:
-    if _sms_provider_name() == "messagemedia":
-        return _send_sms_via_messagemedia(to_number, body, from_number)
-    if _sms_provider_name() == "twilio":
-        return _send_sms_via_twilio(to_number, body, from_number=from_number)
-    return False, "SMS provider is disabled or not recognised."
+    return _send_sms_via_messagemedia(to_number, body, from_number)
 
 
 def _record_sms_audit(
@@ -815,7 +737,7 @@ def _record_sms_audit(
         message_type=(message_type or "unit")[:30],
         message_content=body,
         provider_message_id=(provider_message_id or "")[:64],
-        provider=_sms_provider_name()[:30],
+        provider="messagemedia",
         delivery_status=delivery_status[:30],
     ))
     db.session.commit()
@@ -1365,7 +1287,7 @@ class SmsAudit(db.Model):
     message_type = db.Column(db.String(30), nullable=False, default="unit")
     message_content = db.Column(db.Text, nullable=False)
     provider_message_id = db.Column(db.String(64), nullable=False, default="")
-    provider = db.Column(db.String(30), nullable=False, default="twilio")
+    provider = db.Column(db.String(30), nullable=False, default="messagemedia")
     delivery_status = db.Column(db.String(30), nullable=False, default="submitted")
 
 
@@ -7211,7 +7133,7 @@ def unit_messages():
     selected_recipient = request.form.get("recipient_id", "")
     selected_watch = request.form.get("watch_id", "")
     sender_options = _sms_sender_options()
-    if _sms_provider_name() == "messagemedia" and current_user.is_wm:
+    if current_user.is_wm:
         now = utcnow()
         verified = SmsSenderRegistration.query.filter(
             SmsSenderRegistration.unit_id == _current_unit_id(),

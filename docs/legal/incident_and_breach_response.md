@@ -49,5 +49,5 @@ the incident record according to the approved schedule.
 - IDAviation incident lead: `[NAME / 24H METHOD]`
 - Privacy lead: Ian John Dickson — privacy@atcroster.com
 - Railway support/escalation: `[DETAILS]`
-- Twilio support/escalation: `[DETAILS]`
+- Sinch MessageMedia support/escalation: `[DETAILS]`
 - Customer incident contacts: maintained in each order form

@@ -24,7 +24,7 @@ def upgrade():
         columns = {column["name"] for column in inspector.get_columns("sms_audit")}
         with op.batch_alter_table("sms_audit") as batch:
             if "provider" not in columns:
-                batch.add_column(sa.Column("provider", sa.String(30), nullable=False, server_default="twilio"))
+                batch.add_column(sa.Column("provider", sa.String(30), nullable=False, server_default="messagemedia"))
             if "delivery_status" not in columns:
                 batch.add_column(sa.Column("delivery_status", sa.String(30), nullable=False, server_default="submitted"))
     if "sms_sender_registration" not in tables:

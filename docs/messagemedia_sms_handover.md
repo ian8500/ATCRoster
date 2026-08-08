@@ -26,5 +26,4 @@ state; it never stores verification codes or API secrets. Use operational SMS
 only where there is a lawful basis and recipient consent/process coverage.
 
 Failed provider submissions are reported to the sender and are not presented as
-delivered. The legacy provider can only be re-enabled deliberately with
-`SMS_PROVIDER=twilio` while its credentials remain configured.
+delivered. Sinch MessageMedia is the application's sole SMS provider.
