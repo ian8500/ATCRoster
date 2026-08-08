@@ -6409,10 +6409,15 @@ def staff_profile(sid):
             if not number:
                 flash("Enter a UK mobile number, for example +447700900123.", "error")
             else:
-                row = SmsSenderRegistration.query.filter_by(
-                    unit_id=s.unit_id, staff_id=s.id, number=number,
-                    provider="messagemedia",
-                ).first()
+                try:
+                    row = SmsSenderRegistration.query.filter_by(
+                        unit_id=s.unit_id, staff_id=s.id, number=number,
+                        provider="messagemedia",
+                    ).first()
+                except ProgrammingError:
+                    db.session.rollback()
+                    flash("Personal sender registration is being enabled for this airport. Please try again shortly.", "error")
+                    return redirect(url_for("staff_profile", sid=s.id) + "#contact")
                 if not row:
                     row = SmsSenderRegistration(
                         unit_id=s.unit_id, staff_id=s.id, number=number,
@@ -6548,9 +6553,12 @@ def staff_profile(sid):
     )
     sms_sender_registrations = []
     if s.id == current_user.id and s.is_wm:
-        sms_sender_registrations = SmsSenderRegistration.query.filter_by(
-            unit_id=s.unit_id, staff_id=s.id, provider="messagemedia"
-        ).order_by(SmsSenderRegistration.id.desc()).all()
+        try:
+            sms_sender_registrations = SmsSenderRegistration.query.filter_by(
+                unit_id=s.unit_id, staff_id=s.id, provider="messagemedia"
+            ).order_by(SmsSenderRegistration.id.desc()).all()
+        except ProgrammingError:
+            db.session.rollback()
     return render_template(
         "staff_profile.html", staff=s,
         al_days=al_days, sick_days=sick_days,
@@ -7308,9 +7316,13 @@ def admin_sms_audit():
     rows = SmsAudit.query.order_by(
         SmsAudit.sent_at.desc(), SmsAudit.id.desc()
     ).limit(1000).all()
-    registrations = SmsSenderRegistration.query.filter_by(
-        unit_id=_current_unit_id(), provider="messagemedia"
-    ).order_by(SmsSenderRegistration.verification_requested_at.desc()).all()
+    try:
+        registrations = SmsSenderRegistration.query.filter_by(
+            unit_id=_current_unit_id(), provider="messagemedia"
+        ).order_by(SmsSenderRegistration.verification_requested_at.desc()).all()
+    except ProgrammingError:
+        db.session.rollback()
+        registrations = []
     return render_template("admin_sms_audit.html", rows=rows, registrations=registrations)
 
 
