@@ -35,12 +35,6 @@
 </nav>
 
 <div class="profile-workspace">
-  <div class="admin-selection-prompt" data-profile-selection-prompt>
-    <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
-    <strong>Select a profile function</strong>
-    <span>Choose an option from the toolbar above.</span>
-  </div>
-
   <section id="profile-overview" class="profile-panel" data-profile-panel="overview" hidden>
     <div class="profile-dashboard">
     <section class="card">
@@ -230,7 +224,6 @@
 (() => {
   const tabs = [...document.querySelectorAll('[data-profile-section]')];
   const panels = [...document.querySelectorAll('[data-profile-panel]')];
-  const prompt = document.querySelector('[data-profile-selection-prompt]');
   const valid = new Set(tabs.map(tab => tab.dataset.profileSection));
   const show = name => {
     if (!valid.has(name)) return;
@@ -243,11 +236,10 @@
       const selected = panel.dataset.profilePanel === name;
       panel.hidden = !selected;
     });
-    if (prompt) prompt.hidden = true;
     history.replaceState(null, '', `#${name}`);
   };
   const initial = location.hash.slice(1);
-  if (valid.has(initial)) show(initial);
+  show(valid.has(initial) ? initial : 'overview');
   tabs.forEach(tab => tab.addEventListener('click', () => show(tab.dataset.profileSection)));
 })();
 </script>

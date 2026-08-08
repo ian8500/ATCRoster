@@ -1449,24 +1449,6 @@ tfoot td{background:var(--card); font-weight:bold; color:var(--text);}
 }
 
 .admin-workspace{scroll-margin-top:180px;}
-.admin-selection-prompt{
-  min-height:280px;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:.55rem;
-  padding:2rem;
-  border:1px dashed rgba(108,179,255,.34);
-  border-radius:var(--radius-lg);
-  background:rgba(12,23,41,.42);
-  color:var(--text-muted);
-  text-align:center;
-}
-.admin-selection-prompt[hidden]{display:none;}
-.admin-selection-prompt i{color:var(--accent); font-size:1.3rem;}
-.admin-selection-prompt strong{color:var(--text); font-size:1.05rem;}
-
 .admin-panel{
   min-height:460px;
   padding:clamp(1.25rem, 2vw, 2rem);
@@ -2889,7 +2871,6 @@ button:hover,
 .admin-actions,
 .admin-staff-card,
 .admin-shift-row,
-.admin-selection-prompt,
 .admin-create-drawer,
 .admin-optional-fields,
 .form-check,
@@ -3217,7 +3198,6 @@ section,
 .admin-actions,
 .admin-staff-card,
 .admin-shift-row,
-.admin-selection-prompt,
 .admin-create-drawer,
 .admin-optional-fields,
 .form-check,

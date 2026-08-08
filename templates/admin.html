@@ -14,12 +14,6 @@
 {% include "_admin_nav.html" %}
 
 <div class="admin-workspace">
-  <div class="admin-selection-prompt" data-admin-selection-prompt>
-    <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
-    <strong>Select an administration function</strong>
-    <span>Choose an option from the toolbar above to begin.</span>
-  </div>
-
   <section id="admin-sms" class="admin-panel" data-admin-panel="sms" hidden>
     <header class="admin-panel-heading">
       <div>
@@ -440,7 +434,6 @@
 (() => {
   const tabs = [...document.querySelectorAll('[data-admin-section]')];
   const panels = [...document.querySelectorAll('[data-admin-panel]')];
-  const prompt = document.querySelector('[data-admin-selection-prompt]');
   const valid = new Set(tabs.map(tab => tab.dataset.adminSection));
   const show = (name, updateUrl = true) => {
     if (!valid.has(name)) name = 'roster-setup';
@@ -454,12 +447,11 @@
       panel.classList.toggle('active', selected);
       panel.hidden = !selected;
     });
-    if (prompt) prompt.hidden = true;
     localStorage.setItem('atc-admin-section', name);
     if (updateUrl) history.replaceState(null, '', `#${name}`);
   };
   const initial = location.hash.slice(1);
-  if (valid.has(initial)) show(initial, false);
+  show(valid.has(initial) ? initial : 'roster-setup', false);
   tabs.forEach(tab => tab.addEventListener('click', () => show(tab.dataset.adminSection)));
   const toggle = (buttonSelector, drawerSelector) => {
     const button = document.querySelector(buttonSelector);
