@@ -2,6 +2,8 @@
 {% block title %}Migrate legacy patterns{% endblock %}
 {% block content %}
 <section class="compliance-hero"><div><span class="admin-step">Safe migration</span><h2>Legacy pattern migration</h2><p>Review a dry-run before creating effective-dated assignments. Only exact ordered cycle matches can be selected. Existing roster duties are never edited.</p></div></section>
+{% set setup_steps = [('Choose an effective date', 'Pick the first date from which the normalised pattern should apply.'), ('Review the dry-run', 'Only exact matches are suitable for migration; unmatched staff remain on the legacy pattern.'), ('Migrate selected people', 'Select the confirmed matches and retain the report as your review record.')] %}
+{% include "_setup_walkthrough.html" %}
 
 <section class="card"><div class="card-hd">Dry-run date</div><div class="card-bd">
   <form method="get" class="admin-form-grid"><label>Effective from<input type="date" name="effective_from" value="{{ effective_from.isoformat() }}" required></label><div class="form-actions"><button class="btn">Run dry-run</button></div></form>

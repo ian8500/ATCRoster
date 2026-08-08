@@ -2,6 +2,8 @@
 {% block title %}Patterns and rules · {{ staff.name }}{% endblock %}
 {% block content %}
 <section class="compliance-hero"><div><span class="admin-step">Effective-dated roster configuration</span><h2>{{ staff.name }}</h2><p>Assign normalised patterns and record hard restrictions or soft preferences without changing historical roster calculations.</p></div></section>
+{% set setup_steps = [('Schedule the pattern', 'Set an effective date, anchor and reason for every new working arrangement.'), ('Record restrictions carefully', 'Use hard rules only for requirements that cannot be breached; use soft rules for preferences.'), ('Check the preview', 'Review the next 28 days to confirm the effective-dated changes resolve as intended.')] %}
+{% include "_setup_walkthrough.html" %}
 
 <section class="card"><div class="card-hd">Pattern history</div><div class="card-bd">
   <div class="table-wrap"><table><thead><tr><th>Arrangement</th><th>Pattern</th><th>Effective period</th><th>Anchor</th><th>Hours/week</th><th>Reason</th><th>Action</th></tr></thead><tbody>

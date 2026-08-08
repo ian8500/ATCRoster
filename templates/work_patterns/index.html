@@ -3,6 +3,8 @@
 {% block content %}
 <a class="btn" href="{{ url_for('work_patterns.bank_holidays') }}">Bank holidays</a>
 <section class="compliance-hero"><div><span class="admin-step">Roster administration</span><h2>Flexible work patterns</h2><p>Create reusable cycles for full-time and part-time staff. Existing CSV patterns remain available until each person is migrated.</p></div></section>
+{% set setup_steps = [('Choose or create a pattern', 'Start with a reusable cycle for the working arrangement you need.'), ('Configure each cycle day', 'Set the duty type and permitted shifts before making it available.'), ('Assign it with dates', 'Apply the finished pattern from the person profile so roster history stays intact.')] %}
+{% include "_setup_walkthrough.html" %}
 
 <section class="card"><div class="card-hd">Pattern library</div><div class="card-bd">
   <p><a class="btn" href="{{ url_for('work_patterns.migration') }}">Migrate legacy staff patterns</a></p>

@@ -166,6 +166,8 @@
     <header class="admin-panel-heading">
       <div><span class="admin-step">Roster configuration</span><h3>Leave &amp; sickness types</h3><p>Control the leave and sickness choices available when recording absence for this airport.</p></div>
     </header>
+    {% set setup_steps = [('Review the active choices', 'These are the options managers can select when recording leave or sickness.'), ('Add a type', 'Use a clear name, a short code and the correct category.'), ('Retire rather than erase', 'Removing a type preserves its history while preventing new use.')] %}
+    {% include "_setup_walkthrough.html" %}
     <section class="card card-body roster-setup-card">
       <p class="text-muted">Removing a type keeps historical records but hides it from new entries and reports.</p>
       <div class="d-flex flex-wrap gap-2 mb-3">
@@ -193,6 +195,8 @@
     <header class="admin-panel-heading">
       <div><span class="admin-step">Staffing levels</span><h3>Minimum people needed on duty</h3><p>Enter the minimum number of operational ATCOs needed on each duty. These figures drive the red, amber and green coverage indicators.</p></div>
     </header>
+    {% set setup_steps = [('Set the normal requirement', 'Enter the minimum staffing level for each duty and day type.'), ('Copy carefully', 'Use Copy below to carry a confirmed month forward, then review each row.'), ('Handle exceptions separately', 'Add a special date only when its requirements differ from the normal pattern.')] %}
+    {% include "_setup_walkthrough.html" %}
     <form method="post" class="section-body">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="req">
@@ -283,6 +287,8 @@
       <div><span class="admin-step">Shift types</span><h3>Duties people can be assigned</h3><p>Create each duty once, then tell the system whether it contributes to Morning, Day, Afternoon or Night staffing.</p></div>
       <button type="button" class="btn btn-primary" data-toggle-create-shift aria-expanded="false"><i class="fa-solid fa-plus"></i> Add a shift type</button>
     </header>
+    {% set setup_steps = [('Define the duty', 'Give each shift a short roster code, a name and its start and finish times.'), ('Set its behaviour', 'Choose whether it is working time, training, active and requestable.'), ('Map staffing totals', 'Confirm which working shifts count toward Morning, Day, Afternoon or Night cover.')] %}
+    {% include "_setup_walkthrough.html" %}
 
     <div class="admin-create-drawer" data-create-shift hidden>
       <h4>Add a shift type</h4>

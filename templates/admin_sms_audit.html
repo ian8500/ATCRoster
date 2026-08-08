@@ -9,6 +9,8 @@
     <p>Delivered messages sent from this airport. This record is visible only to Unit Administrators.</p>
   </div>
 </section>
+{% set setup_steps = [('Review the delivery record', 'Use this page to confirm the messages successfully delivered for this unit.'), ('Check sender and recipient', 'Verify who sent the message and the number that received it.'), ('Use Communications for new messages', 'This is an audit record; send operational messages from the Communications page.')] %}
+{% include "_setup_walkthrough.html" %}
 
 {% include "_admin_nav.html" %}
 

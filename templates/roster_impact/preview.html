@@ -2,6 +2,8 @@
 {% block title %}Roster impact preview{% endblock %}
 {% block content %}
 <section class="compliance-hero"><div><span class="admin-step">Calculated impact preview</span><h2>Roster maintenance</h2><p>Preview the actual protected boundary, affected assignments and retained overrides before starting a recalculation.</p></div></section>
+{% set setup_steps = [('Set the scope', 'Choose the dates and, where needed, the person or watch to review.'), ('Read the boundary', 'Protected dates need manual review; only the automatic range can be recalculated here.'), ('Recalculate deliberately', 'Confirm the preview and give a clear reason before changing the automatic range.')] %}
+{% include "_setup_walkthrough.html" %}
 
 <section class="card"><div class="card-hd">Preview scope</div><div class="card-bd"><form method="get" class="admin-form-grid">
   <label>Effective from<input type="date" name="effective_from" value="{{ effective_from }}" required></label><label>Effective to<input type="date" name="effective_to" value="{{ effective_to }}" required></label>

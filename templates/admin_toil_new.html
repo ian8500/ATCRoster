@@ -9,6 +9,8 @@
     <p>Record a manual correction or an award that is not already created by a roster annotation.</p>
   </div>
 </section>
+{% set setup_steps = [('Choose the person', 'Check their current balance before recording an adjustment.'), ('Enter the direction and amount', 'Add or deduct only the agreed number of days or hours.'), ('Record the reason', 'Use a clear reference so the correction can be understood later.')] %}
+{% include "_setup_walkthrough.html" %}
 <form method="post" class="card card-body admin-form-grid">
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="transaction_key" value="{{ transaction_key }}">

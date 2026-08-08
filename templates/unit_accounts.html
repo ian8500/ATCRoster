@@ -5,6 +5,8 @@
   <section class="compliance-hero">
     <div><span class="admin-step">Airport access</span><h2>Account management</h2><p>Invite configured roster staff and control access to this airport.</p></div>
   </section>
+  {% set setup_steps = [('Choose the roster person', 'Complete their roster profile before giving them account access.'), ('Select the right role', 'Grant only the access level needed for their unit duties.'), ('Manage the invitation', 'Share the one-time link securely and disable it when it is no longer needed.')] %}
+  {% include "_setup_walkthrough.html" %}
   <div class="alert {{ 'alert-danger' if active_count >= unit.active_user_limit else 'alert-info' }}" role="status">
     <strong>{{ active_count }} of {{ unit.active_user_limit }}</strong> active accounts used.
     {% if active_count >= unit.active_user_limit %}Deactivate an account before adding another.{% endif %}

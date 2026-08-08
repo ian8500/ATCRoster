@@ -13,6 +13,8 @@
     <a class="btn" href="{{ url_for('admin') }}">Back to Admin</a>
   </div>
 </section>
+{% set setup_steps = [('Set duty definitions', 'Confirm the local times used to identify early starts and night duties.'), ('Review system rules', 'Adjust warning levels and thresholds to reflect the unit operating environment.'), ('Add local rules', 'Use a custom rule only when the established rules do not cover a local safety need.')] %}
+{% include "_setup_walkthrough.html" %}
 
 <div class="compliance-summary" aria-label="Fatigue rule summary">
   <article><span>System rules</span><strong>{{ system_rules|length }}</strong></article>

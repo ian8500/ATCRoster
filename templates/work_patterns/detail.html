@@ -2,6 +2,8 @@
 {% block title %}{{ pattern.name }}{% endblock %}
 {% block content %}
 <section class="compliance-hero"><div><span class="admin-step">Flexible pattern</span><h2>{{ pattern.name }}</h2><p>Configure every day in the recurring cycle. Day one has index zero internally.</p></div></section>
+{% set setup_steps = [('Set the pattern details', 'Confirm the name, contracted time and whether the pattern can be assigned.'), ('Configure cycle days', 'Choose the day type, fixed or allowed shifts, and any required working days.'), ('Check the preview', 'Review the 28-day preview before using the pattern for a person.')] %}
+{% include "_setup_walkthrough.html" %}
 {% if is_in_use %}<div class="release-ready-message"><i class="fa-solid fa-lock"></i><div><strong>Pattern definition locked</strong><span>This pattern has staff history. Create a replacement pattern to change its cycle.</span></div></div>{% endif %}
 
 <form method="post" class="grid">

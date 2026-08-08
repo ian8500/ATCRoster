@@ -1,0 +1,5 @@
+<div class="setup-walkthrough" aria-label="How to use this page">
+  {% for title, detail in setup_steps %}
+    <article><span>{{ loop.index }}</span><div><strong>{{ title }}</strong><small>{{ detail }}</small></div></article>
+  {% endfor %}
+</div>

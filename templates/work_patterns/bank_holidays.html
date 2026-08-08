@@ -3,6 +3,8 @@
 {% block content %}
 <div class="page-shell">
   <section class="compliance-hero"><div><span class="admin-step">Roster configuration</span><h2>Bank holidays</h2><p>Dated holidays used by fairness reporting and future allocation.</p></div></section>
+  {% set setup_steps = [('Add the date', 'Enter each holiday date once for this roster unit.'), ('Use a clear name', 'Name the holiday so it is recognisable in fairness reporting.'), ('Review the list', 'Check configured dates before using future allocation or fairness reports.')] %}
+  {% include "_setup_walkthrough.html" %}
   <section class="card"><form method="post" class="fairness-controls"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label>Date<input type="date" name="day" required></label><label>Name<input name="name" maxlength="120" required></label><button class="btn btn-primary" type="submit">Save holiday</button></form></section>
   <section class="card"><div class="card-hd">Configured dates</div><div>{% for holiday in holidays %}<span class="status-chip">{{ holiday.day.strftime('%d %b %Y') }} · {{ holiday.name }}</span> {% else %}No bank holidays configured.{% endfor %}</div></section>
   <a class="btn" href="{{ url_for('work_patterns.patterns') }}">Back to work patterns</a>
