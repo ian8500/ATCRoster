@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import json
+import re
+import time
 from typing import Any, Callable
+from urllib import parse as urllib_parse, request as urllib_request
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
@@ -24,6 +27,10 @@ class HandoverDependencies:
     FeatureFlag: Any
     HandoverField: Any
     HandoverRecord: Any
+    HandoverOperationalState: Any
+    HandoverEquipment: Any
+    OperationalPosition: Any
+    PositionSession: Any
     current_unit_id: Callable[[], int]
     validate_csrf: Callable[[], None]
     is_admin_user: Callable[[Any], bool]
@@ -31,10 +38,12 @@ class HandoverDependencies:
     requirements_for_day: Callable[..., dict[str, int]]
     shift_group_for_day: Callable[[str, int, date], str | None]
     utcnow: Callable[[], datetime]
+    live_position_enabled: Callable[[int], bool]
 
 
 def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
     bp = Blueprint("handover", __name__, url_prefix="/handover")
+    metar_cache: dict[str, tuple[float, dict[str, str]]] = {}
 
     def enabled(unit_id: int | None = None) -> bool:
         resolved = int(unit_id or deps.current_unit_id() or 0)
@@ -160,6 +169,85 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         except (TypeError, ValueError):
             record.responses = []
 
+    def operational_state(unit_id: int):
+        state = deps.HandoverOperationalState.query.filter_by(unit_id=unit_id).first()
+        if state is None:
+            state = deps.HandoverOperationalState(unit_id=unit_id)
+            deps.db.session.add(state)
+            deps.db.session.flush()
+        return state
+
+    def equipment_rows(unit_id: int, active_only: bool = True) -> list[Any]:
+        query = deps.HandoverEquipment.query.filter_by(unit_id=unit_id)
+        if active_only:
+            query = query.filter(deps.HandoverEquipment.active.is_(True))
+        return query.order_by(
+            deps.HandoverEquipment.display_order, deps.HandoverEquipment.id
+        ).all()
+
+    def current_metar(icao: str) -> dict[str, str]:
+        code = (icao or "").strip().upper()
+        if not re.fullmatch(r"[A-Z]{4}", code):
+            return {"available": "false", "raw": "", "observed": ""}
+        cached = metar_cache.get(code)
+        if cached and time.monotonic() - cached[0] < 60:
+            return cached[1]
+        result = {"available": "false", "raw": "", "observed": ""}
+        try:
+            url = "https://aviationweather.gov/api/data/metar?" + urllib_parse.urlencode({"ids": code, "format": "json"})
+            req = urllib_request.Request(url, headers={"User-Agent": "ATCRoster/1.0 operational-handover"})
+            with urllib_request.urlopen(req, timeout=4) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if isinstance(payload, list) and payload:
+                item = payload[0]
+                result = {
+                    "available": "true",
+                    "raw": str(item.get("rawOb") or item.get("raw_text") or ""),
+                    "observed": str(item.get("reportTime") or item.get("obsTime") or ""),
+                }
+        except Exception:
+            pass
+        metar_cache[code] = (time.monotonic(), result)
+        return result
+
+    def live_positions(unit_id: int) -> list[dict[str, str]]:
+        if not deps.live_position_enabled(unit_id):
+            return []
+        rows = deps.db.session.query(
+            deps.OperationalPosition.code,
+            deps.OperationalPosition.label,
+            deps.Staff.name,
+        ).join(
+            deps.PositionSession,
+            deps.PositionSession.position_id == deps.OperationalPosition.id,
+        ).join(
+            deps.Staff, deps.Staff.id == deps.PositionSession.primary_person_id,
+        ).filter(
+            deps.PositionSession.unit_id == unit_id,
+            deps.PositionSession.ended_at.is_(None),
+            deps.PositionSession.is_void.is_(False),
+        ).order_by(deps.OperationalPosition.code).all()
+        return [{"code": code, "label": label, "name": name} for code, label, name in rows]
+
+    def persistent_values(unit_id: int) -> dict[int, str]:
+        latest = deps.HandoverRecord.query.filter_by(
+            unit_id=unit_id, status="published"
+        ).order_by(deps.HandoverRecord.created_at.desc()).first()
+        if not latest:
+            return {}
+        decode_record(latest)
+        return {int(item.get("field_id") or 0): str(item.get("value") or "") for item in latest.responses}
+
+    def page_context(unit_id: int) -> dict[str, Any]:
+        state = operational_state(unit_id)
+        return {
+            "operational_state": state,
+            "metar": current_metar(state.metar_icao),
+            "equipment": equipment_rows(unit_id),
+            "live_positions": live_positions(unit_id),
+            "live_position_active": deps.live_position_enabled(unit_id),
+        }
+
     @bp.before_request
     @login_required
     def protect_module():
@@ -174,10 +262,13 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         for record in records:
             decode_record(record)
         latest = records[0] if records else None
+        context = page_context(unit_id)
+        deps.db.session.commit()
         return render_template(
             "handover/home.html", latest=latest, history=records[1:],
             next_shift=next_shift(unit_id, deps.db.session.get(deps.Unit, unit_id)),
             can_write_handover=can_write(),
+            **context,
         )
 
     @bp.route("/new", methods=["GET", "POST"])
@@ -187,8 +278,22 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         unit = deps.db.session.get(deps.Unit, unit_id)
         fields = active_fields(unit_id)
         shift = next_shift(unit_id, unit)
+        retained_values = persistent_values(unit_id)
+        context = page_context(unit_id)
         if request.method == "POST":
             deps.validate_csrf()
+            state = context["operational_state"]
+            state.runway_in_use = (request.form.get("runway_in_use") or "").strip()[:40]
+            state.updated_by_id = current_user.id
+            state.updated_by_name = current_user.name
+            for equipment in context["equipment"]:
+                status = (request.form.get(f"equipment_status_{equipment.id}") or equipment.status).strip().lower()
+                if status not in {"green", "amber", "red"}:
+                    abort(400, "Invalid equipment status.")
+                equipment.status = status
+                equipment.note = (request.form.get(f"equipment_note_{equipment.id}") or "").strip()[:240]
+                equipment.updated_by_id = current_user.id
+                equipment.updated_by_name = current_user.name
             responses = []
             errors = []
             for field in fields:
@@ -226,15 +331,21 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
                 deps.db.session.commit()
                 flash("Watch handover published.", "ok")
                 return redirect(url_for("handover.view", record_id=record.id))
-        return render_template("handover/create.html", fields=fields, next_shift=shift)
+        return render_template(
+            "handover/create.html", fields=fields, next_shift=shift,
+            retained_values=retained_values, **context,
+        )
 
     @bp.get("/<int:record_id>")
     def view(record_id: int):
+        unit_id = deps.current_unit_id()
         record = deps.HandoverRecord.query.filter_by(
-            id=record_id, unit_id=deps.current_unit_id(), status="published",
+            id=record_id, unit_id=unit_id, status="published",
         ).first_or_404()
         decode_record(record)
-        return render_template("handover/view.html", handover=record)
+        context = page_context(unit_id)
+        deps.db.session.commit()
+        return render_template("handover/view.html", handover=record, **context)
 
     @bp.route("/settings", methods=["GET", "POST"])
     def settings():
@@ -264,11 +375,36 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
                     display_order=highest + 10,
                 ))
                 flash("Handover field added.", "ok")
+            elif action == "save_operational":
+                state = operational_state(unit_id)
+                icao = (request.form.get("metar_icao") or "").strip().upper()
+                if icao and not re.fullmatch(r"[A-Z]{4}", icao):
+                    abort(400, "Enter a four-letter ICAO code.")
+                state.metar_icao = icao
+                state.updated_by_id = current_user.id
+                state.updated_by_name = current_user.name
+                flash("Operational header settings saved.", "ok")
+            elif action == "add_equipment":
+                name = (request.form.get("equipment_name") or "").strip()[:120]
+                if not name:
+                    abort(400, "Enter an equipment name.")
+                highest = deps.db.session.query(deps.db.func.max(deps.HandoverEquipment.display_order)).filter_by(unit_id=unit_id).scalar() or 0
+                deps.db.session.add(deps.HandoverEquipment(
+                    unit_id=unit_id, name=name, display_order=highest + 10,
+                    updated_by_id=current_user.id, updated_by_name=current_user.name,
+                ))
+                flash("Equipment added.", "ok")
             else:
                 try:
                     field_id = int(request.form.get("field_id") or 0)
                 except ValueError:
                     abort(400)
+                if action == "toggle_equipment":
+                    equipment = deps.HandoverEquipment.query.filter_by(id=field_id, unit_id=unit_id).first_or_404()
+                    equipment.active = not equipment.active
+                    flash("Equipment list updated.", "ok")
+                    deps.db.session.commit()
+                    return redirect(url_for("handover.settings"))
                 field = deps.HandoverField.query.filter_by(id=field_id, unit_id=unit_id).first_or_404()
                 if action == "toggle":
                     field.active = not field.active
@@ -284,7 +420,10 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         ).all()
         for field in fields:
             field.select_options = field_options(field)
-        return render_template("handover/settings.html", fields=fields)
+        state = operational_state(unit_id)
+        equipment = equipment_rows(unit_id, active_only=False)
+        deps.db.session.commit()
+        return render_template("handover/settings.html", fields=fields, operational_state=state, equipment=equipment)
 
     bp.handover_enabled = enabled
     return bp

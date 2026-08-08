@@ -2,6 +2,8 @@
 {% block title %}Watch handover{% endblock %}
 {% block content %}
 <section class="compliance-hero"><div><span class="admin-step">Operational continuity</span><h2>Watch handover</h2><p>The information the incoming watch needs, with the next rostered shift alongside it.</p></div>{% if can_write_handover %}<div class="compliance-actions"><a class="btn btn-primary" href="{{ url_for('handover.create') }}"><i class="fa-solid fa-plus"></i> New handover</a></div>{% endif %}</section>
+{% include "handover/_operational_header.html" %}
+{% include "handover/_equipment.html" %}
 {% include "handover/_next_shift.html" %}
 {% if latest %}
 <section class="handover-latest">

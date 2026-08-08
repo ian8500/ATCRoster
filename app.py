@@ -276,7 +276,8 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_rule_version", "mfa_credential",
     "briefing_item", "briefing_delivery", "briefing_audit",
     "briefing_assurance_run", "briefing_message_type",
-    "handover_field", "handover_record",
+    "handover_field", "handover_record", "handover_operational_state",
+    "handover_equipment",
     "training_level", "training_objective", "training_session",
     "training_score", "position_currency_category",
     "position_participant_role", "position_status_event",
@@ -1345,6 +1346,33 @@ class HandoverRecord(db.Model):
     responses_json = db.Column(db.Text, nullable=False, default="[]")
 
 
+class HandoverOperationalState(db.Model):
+    __tablename__ = "handover_operational_state"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, unique=True, index=True)
+    runway_in_use = db.Column(db.String(40), nullable=False, default="")
+    metar_icao = db.Column(db.String(4), nullable=False, default="")
+    updated_by_id = db.Column(db.Integer)
+    updated_by_name = db.Column(db.String(80), nullable=False, default="")
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class HandoverEquipment(db.Model):
+    __tablename__ = "handover_equipment"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    status = db.Column(db.String(10), nullable=False, default="green")
+    note = db.Column(db.String(240), nullable=False, default="")
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    display_order = db.Column(db.Integer, nullable=False, default=100)
+    updated_by_id = db.Column(db.Integer)
+    updated_by_name = db.Column(db.String(80), nullable=False, default="")
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class Leave(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
@@ -1637,7 +1665,8 @@ TENANT_OPERATIONAL_MODELS = (
     MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
     BriefingAudit,
     BriefingAssuranceRun,
-    HandoverField, HandoverRecord,
+    HandoverField, HandoverRecord, HandoverOperationalState,
+    HandoverEquipment,
     TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
     ToilTransaction, WorkPattern, WorkPatternDay,
     WorkPatternDayAllowedShift, StaffPatternAssignment, StaffRule, BankHoliday,
@@ -10510,10 +10539,15 @@ app.register_blueprint(create_handover_blueprint(HandoverDependencies(
     db=db, Unit=Unit, Staff=Staff, ShiftType=ShiftType, Assignment=Assignment,
     Requirement=Requirement, SpecialRequirement=SpecialRequirement,
     FeatureFlag=FeatureFlag, HandoverField=HandoverField,
-    HandoverRecord=HandoverRecord, current_unit_id=_current_unit_id,
+    HandoverRecord=HandoverRecord,
+    HandoverOperationalState=HandoverOperationalState,
+    HandoverEquipment=HandoverEquipment,
+    OperationalPosition=OperationalPosition, PositionSession=PositionSession,
+    current_unit_id=_current_unit_id,
     validate_csrf=_validate_csrf, is_admin_user=is_admin_user,
     is_editor_user=is_editor_user, requirements_for_day=requirements_for_day,
     shift_group_for_day=shift_counter_group_for_day, utcnow=utcnow,
+    live_position_enabled=live_position_enabled,
 )))
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(

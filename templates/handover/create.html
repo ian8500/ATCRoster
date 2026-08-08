@@ -2,15 +2,19 @@
 {% block title %}New handover{% endblock %}
 {% block content %}
 <section class="compliance-hero"><div><span class="admin-step">Outgoing watch</span><h2>Prepare handover</h2><p>Record concise, actionable information for the incoming Watch Manager.</p></div><div class="compliance-actions"><a class="btn" href="{{ url_for('handover.home') }}">Cancel</a></div></section>
+{% include "handover/_operational_header.html" %}
 {% include "handover/_next_shift.html" %}
 <form method="post" class="handover-form">
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <section class="card handover-form-section"><div class="card-hd">Current operation</div><div class="card-bd handover-fields"><label><span>Runway in use</span><input name="runway_in_use" maxlength="40" value="{{ request.form.get('runway_in_use', operational_state.runway_in_use) }}" placeholder="e.g. 23 or 05/23"></label></div></section>
+  {% if equipment %}<section class="card handover-form-section"><div class="card-hd">Equipment serviceability</div><div class="card-bd handover-equipment-editor">{% for item in equipment %}<article><div><strong>{{ item.name }}</strong><small>Last state remains until changed</small></div><label>Status<select name="equipment_status_{{ item.id }}"><option value="green" {% if item.status == 'green' %}selected{% endif %}>Green · serviceable</option><option value="amber" {% if item.status == 'amber' %}selected{% endif %}>Amber · degraded</option><option value="red" {% if item.status == 'red' %}selected{% endif %}>Red · unavailable</option></select></label><label>Serviceability statement<input name="equipment_note_{{ item.id }}" maxlength="240" value="{{ item.note }}" placeholder="Current condition or restriction"></label></article>{% endfor %}</div></section>{% endif %}
   {% set state = namespace(section='') %}
   {% for field in fields %}
     {% if field.section_name != state.section %}{% if not loop.first %}</div></section>{% endif %}<section class="card handover-form-section"><div class="card-hd">{{ field.section_name }}</div><div class="card-bd handover-fields">{% set state.section = field.section_name %}{% endif %}
     <label><span>{{ field.label }}{% if field.required %} <b aria-label="required">*</b>{% endif %}</span>
-      {% if field.field_type == 'select' %}<select name="field_{{ field.id }}" {% if field.required %}required{% endif %}><option value="">Select an option</option>{% for option in field.select_options %}<option value="{{ option }}" {% if request.form.get('field_' ~ field.id|string) == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
-      {% else %}<textarea name="field_{{ field.id }}" rows="4" placeholder="{{ field.placeholder }}" {% if field.required %}required{% endif %}>{{ request.form.get('field_' ~ field.id|string, '') }}</textarea>{% endif %}
+      {% set retained = retained_values.get(field.id, '') %}{% set entered = request.form.get('field_' ~ field.id|string, retained) %}
+      {% if field.field_type == 'select' %}<select name="field_{{ field.id }}" {% if field.required %}required{% endif %}><option value="">Select an option</option>{% for option in field.select_options %}<option value="{{ option }}" {% if entered == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+      {% else %}<textarea name="field_{{ field.id }}" rows="4" placeholder="{{ field.placeholder }}" {% if field.required %}required{% endif %}>{{ entered }}</textarea>{% endif %}
       {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
     </label>
   {% else %}<section class="card card-body handover-empty"><strong>No handover fields are configured</strong><span>An administrator can add fields in Handover Setup.</span></section>

@@ -309,9 +309,14 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
             options_json='["Normal","Restricted"]', required=True,
             display_order=10,
         )
-        db.session.add(field)
+        equipment = app.HandoverEquipment(
+            unit_id=1, name="Primary radar", status="green",
+            display_order=10,
+        )
+        db.session.add_all([field, equipment])
         db.session.commit()
         field_id = field.id
+        equipment_id = equipment.id
 
     landing = client.get("/handover/")
     assert landing.status_code == 200
@@ -327,7 +332,11 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
 
     published = client.post(
         "/handover/new",
-        data={"_csrf_token": csrf(client), f"field_{field_id}": "Restricted"},
+        data={
+            "_csrf_token": csrf(client), f"field_{field_id}": "Restricted",
+            "runway_in_use": "23", f"equipment_status_{equipment_id}": "amber",
+            f"equipment_note_{equipment_id}": "Main channel degraded",
+        },
         follow_redirects=True,
     )
     assert published.status_code == 200
@@ -340,6 +349,16 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
         assert roster_snapshot["staffing"] == 1
         assert roster_snapshot["people"][0]["name"] == "Admin Test"
         assert response_snapshot[0]["value"] == "Restricted"
+        state = app.HandoverOperationalState.query.filter_by(unit_id=1).one()
+        equipment = db.session.get(app.HandoverEquipment, equipment_id)
+        assert state.runway_in_use == "23"
+        assert equipment.status == "amber"
+        assert equipment.note == "Main channel degraded"
+
+    retained = client.get("/handover/new")
+    assert b'<option value="Restricted" selected>' in retained.data
+    assert b'value="23"' in retained.data
+    assert b'Main channel degraded' in retained.data
 
 
 def test_handover_settings_adds_managed_dropdown(client):
