@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}New handover{% endblock %}
+{% block title %}Current handover{% endblock %}
 {% block content %}
-<section class="compliance-hero"><div><span class="admin-step">Outgoing watch</span><h2>Prepare handover</h2><p>Record concise, actionable information for the incoming Watch Manager.</p></div><div class="compliance-actions"><a class="btn" href="{{ url_for('handover.home') }}">Cancel</a></div></section>
+<section class="compliance-hero"><div><span class="admin-step">Operational continuity</span><h2>Current handover</h2><p>Keep this shared handover current for the incoming Watch Manager.</p></div><div class="compliance-actions"><a class="btn" href="{{ url_for('handover.home') }}">View record</a></div></section>
 {% include "handover/_operational_header.html" %}
 {% include "handover/_next_shift.html" %}
 <form method="post" class="handover-form">
@@ -19,6 +19,6 @@
     </label>
   {% else %}<section class="card card-body handover-empty"><strong>No handover fields are configured</strong><span>An administrator can add fields in Handover Setup.</span></section>
   {% endfor %}{% if fields %}</div></section>{% endif %}
-  <div class="bar"><button class="btn btn-primary" type="submit"><i class="fa-solid fa-paper-plane"></i> Publish handover</button></div>
+  <div class="bar"><button class="btn btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Save changes</button></div>
 </form>
 {% endblock %}

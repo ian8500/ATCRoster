@@ -325,13 +325,13 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
     assert b"Admin Test" in landing.data
     assert b"Rostered staffing" in landing.data
 
-    form = client.get("/handover/new")
+    form = client.get("/handover/edit")
     assert form.status_code == 200
     assert b"Airfield status" in form.data
     assert b"Restricted" in form.data
 
-    published = client.post(
-        "/handover/new",
+    updated = client.post(
+        "/handover/edit",
         data={
             "_csrf_token": csrf(client), f"field_{field_id}": "Restricted",
             "runway_in_use": "23", f"equipment_status_{equipment_id}": "amber",
@@ -339,9 +339,9 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
         },
         follow_redirects=True,
     )
-    assert published.status_code == 200
-    assert b"Published handover" in published.data
-    assert b"Restricted" in published.data
+    assert updated.status_code == 200
+    assert b"Current handover updated" in updated.data
+    assert b"Save changes" in updated.data
     with app.app.app_context():
         record = app.HandoverRecord.query.filter_by(unit_id=1).one()
         roster_snapshot = json.loads(record.next_shift_json)
@@ -355,10 +355,20 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
         assert equipment.status == "amber"
         assert equipment.note == "Main channel degraded"
 
-    retained = client.get("/handover/new")
+    retained = client.get("/handover/edit")
     assert b'<option value="Restricted" selected>' in retained.data
     assert b'value="23"' in retained.data
     assert b'Main channel degraded' in retained.data
+    client.post(
+        "/handover/edit",
+        data={
+            "_csrf_token": csrf(client), f"field_{field_id}": "Normal",
+            "runway_in_use": "05", f"equipment_status_{equipment_id}": "green",
+            f"equipment_note_{equipment_id}": "Serviceable",
+        },
+    )
+    with app.app.app_context():
+        assert app.HandoverRecord.query.filter_by(unit_id=1).count() == 1
 
 
 def test_handover_settings_adds_managed_dropdown(client):

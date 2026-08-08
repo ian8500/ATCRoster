@@ -271,8 +271,14 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
             **context,
         )
 
+    @bp.route("/edit", methods=["GET", "POST"])
     @bp.route("/new", methods=["GET", "POST"])
-    def create():
+    def edit():
+        """Edit the unit's single current handover record.
+
+        ``/new`` remains as a compatibility URL for existing bookmarks, but
+        does not create a succession of published handovers.
+        """
         require_writer()
         unit_id = deps.current_unit_id()
         unit = deps.db.session.get(deps.Unit, unit_id)
@@ -315,22 +321,28 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
                     flash(message, "error")
             else:
                 start = datetime.fromisoformat(shift["start"]) if shift.get("start") else None
-                record = deps.HandoverRecord(
-                    unit_id=unit_id,
-                    status="published",
-                    created_by_id=current_user.id,
-                    created_by_name=current_user.name,
-                    target_shift_day=date.fromisoformat(shift["day"]) if shift.get("day") else None,
-                    target_shift_code=shift.get("code", ""),
-                    target_shift_name=shift.get("name", ""),
-                    target_shift_start=start.replace(tzinfo=None) if start else None,
-                    next_shift_json=json.dumps(shift, separators=(",", ":")),
-                    responses_json=json.dumps(responses, separators=(",", ":")),
+                record = deps.HandoverRecord.query.filter_by(
+                    unit_id=unit_id, status="published"
+                ).order_by(deps.HandoverRecord.created_at.desc()).first()
+                if record is None:
+                    record = deps.HandoverRecord(
+                        unit_id=unit_id,
+                        status="published",
+                        created_by_id=current_user.id,
+                        created_by_name=current_user.name,
+                    )
+                    deps.db.session.add(record)
+                record.target_shift_day = (
+                    date.fromisoformat(shift["day"]) if shift.get("day") else None
                 )
-                deps.db.session.add(record)
+                record.target_shift_code = shift.get("code", "")
+                record.target_shift_name = shift.get("name", "")
+                record.target_shift_start = start.replace(tzinfo=None) if start else None
+                record.next_shift_json = json.dumps(shift, separators=(",", ":"))
+                record.responses_json = json.dumps(responses, separators=(",", ":"))
                 deps.db.session.commit()
-                flash("Watch handover published.", "ok")
-                return redirect(url_for("handover.view", record_id=record.id))
+                flash("Current handover updated.", "ok")
+                return redirect(url_for("handover.edit"))
         return render_template(
             "handover/create.html", fields=fields, next_shift=shift,
             retained_values=retained_values, **context,
