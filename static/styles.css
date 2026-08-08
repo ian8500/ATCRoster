@@ -3582,6 +3582,44 @@ table:not(.roster) td {
   line-height:1.4;
 }
 
+/* Report landing-page cards use their own alignment instead of inheriting the
+   centred button treatment. Six grid tracks let incomplete rows remain even. */
+.report-group .reports-menu-grid {
+  grid-template-columns:repeat(6,minmax(0,1fr));
+}
+
+.report-group .reports-menu-grid .report-menu-item {
+  grid-column:span 2;
+  justify-content:start;
+  justify-items:start;
+  align-content:start;
+  align-items:start;
+  width:100%;
+  padding:1rem 1.1rem;
+  text-align:left;
+}
+
+.report-group .reports-menu-grid .report-menu-item strong,
+.report-group .reports-menu-grid .report-menu-item span {
+  width:100%;
+  text-align:left;
+}
+
+.report-group .reports-menu-grid--five .report-menu-item:nth-last-child(-n + 2),
+.report-group .reports-menu-grid--two .report-menu-item {
+  grid-column:span 3;
+}
+
+.report-group .reports-menu-grid--single .report-menu-item {
+  grid-column:1 / -1;
+}
+
+@media (max-width:900px) {
+  .report-group .reports-menu-grid .report-menu-item {
+    grid-column:1 / -1;
+  }
+}
+
 .report-filter{
   display:flex;
   flex-direction:row;
