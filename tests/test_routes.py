@@ -56,7 +56,7 @@ def test_public_legal_pages(client, path, expected):
 def test_privacy_notice_identifies_operator_and_contact(client):
     response = client.get("/privacy")
     assert response.status_code == 200
-    assert b"Ian John Dickson trading as IDAviation" in response.data
+    assert b"Readback Correct" in response.data
     assert b"Flat 0/2, 24 Caird Drive" in response.data
     assert b"privacy@atcroster.com" in response.data
 

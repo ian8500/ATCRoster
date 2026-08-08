@@ -14,7 +14,7 @@ def legal_context() -> dict[str, str]:
     return {
         "legal_entity": os.environ.get(
             "ATCROSTER_LEGAL_ENTITY",
-            "Ian John Dickson trading as IDAviation",
+            "Readback Correct",
         ).strip(),
         "privacy_email": os.environ.get(
             "ATCROSTER_PRIVACY_EMAIL",
