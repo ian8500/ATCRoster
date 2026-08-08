@@ -74,17 +74,13 @@
           </td>
           <td>{{ row.active_accounts }} / {{ row.unit.active_user_limit }}</td>
           <td>
-            {% for key in feature_keys %}
+            {% for key in module_feature_keys %}
               {% set feature_label = {
-                'advanced_coverage': 'Advanced coverage',
-                'briefing_module': 'Briefing module',
-                'competency_module': 'Competency module',
-                'calendar_exports': 'Calendar exports',
-                'custom_branding': 'Custom branding',
-                'fatigue_reporting': 'Fatigue reporting',
+                'briefing_module': 'Briefing',
+                'competency_module': 'Competency',
+                'handover_module': 'Watch handover',
                 'live_position_monitoring': 'Live Position Monitoring',
-                'scenario_planning': 'Scenario planning',
-                'training_module': 'Training module'
+                'training_module': 'Training'
               }.get(key, key|replace('_', ' ')|title) %}
               <form method="post" class="d-flex gap-1 mb-1">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

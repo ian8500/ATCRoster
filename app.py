@@ -230,6 +230,13 @@ PLATFORM_FEATURE_FLAGS = frozenset({
     "handover_module",
 })
 
+# The platform feature registry also contains supporting capabilities. Keep
+# Super Admin's product controls focused on the modules an airport can launch.
+PLATFORM_MODULE_FLAGS = frozenset({
+    "briefing_module", "training_module", "competency_module",
+    "live_position_monitoring", "handover_module",
+})
+
 
 def _current_unit_id() -> int:
     """Derive tenancy from the authenticated membership, never request data."""
@@ -8232,7 +8239,7 @@ def platform_admin():
         })
     return render_template(
         "platform_admin.html", rows=rows,
-        feature_keys=sorted(PLATFORM_FEATURE_FLAGS),
+        module_feature_keys=sorted(PLATFORM_MODULE_FLAGS),
     )
 
 

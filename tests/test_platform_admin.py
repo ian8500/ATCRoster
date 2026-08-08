@@ -110,8 +110,11 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
     )
     assert created.status_code == 200
     assert b"Test Airport metadata created" in created.data
-    assert b"Training module" in created.data
-    assert b"Competency module" in created.data
+    assert b"Training" in created.data
+    assert b"Competency" in created.data
+    assert b"Advanced coverage" not in created.data
+    assert b"Scenario planning" not in created.data
+    assert b"Calendar exports" not in created.data
     assert b'name="key" value="training_module"' in created.data
     assert b'name="key" value="competency_module"' in created.data
     # The control-plane listing does not display personnel details.
