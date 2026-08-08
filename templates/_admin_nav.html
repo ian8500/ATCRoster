@@ -10,13 +10,6 @@
   {% else %}<a class="admin-section-tab admin-section-link" href="{{ url_for('admin') }}#sms"><i class="fa-solid fa-comments"></i><span>Communications</span></a>{% endif %}
   <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_fatigue_rules' %}active{% endif %}" href="{{ url_for('admin_fatigue_rules') }}"><i class="fa-solid fa-shield-heart"></i><span>Safety rules</span></a>
   <a class="admin-section-tab admin-section-link {% if request.endpoint == 'change_log_page' %}active{% endif %}" href="{{ url_for('change_log_page') }}"><i class="fa-solid fa-list-check"></i><span>Audit history</span></a>
+  {% if has_live_position_module %}<a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_operational_currency' %}active{% endif %}" href="{{ url_for('admin_operational_currency') }}"><i class="fa-solid fa-stopwatch"></i><span>Operational currency</span></a>{% endif %}
+  <a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_sms_audit' %}active{% endif %}" href="{{ url_for('admin_sms_audit') }}"><i class="fa-solid fa-message"></i><span>SMS audit</span></a>
 </nav>
-<details class="admin-nav-advanced">
-  <summary>Advanced configuration</summary>
-  <div class="admin-section-nav">
-    {% if has_live_position_module %}<a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_operational_currency' %}active{% endif %}" href="{{ url_for('admin_operational_currency') }}"><span>Operational currency</span></a>{% endif %}
-    <a class="admin-section-tab admin-section-link" href="{{ url_for('work_patterns.patterns') }}"><span>Flexible patterns</span></a>
-    <a class="admin-section-tab admin-section-link" href="{{ url_for('admin_toil_new') }}"><span>Manual TOIL</span></a>
-    <a class="admin-section-tab admin-section-link" href="{{ url_for('admin_sms_audit') }}"><span>SMS audit</span></a>
-  </div>
-</details>
