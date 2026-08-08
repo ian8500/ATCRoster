@@ -47,6 +47,9 @@ class ReportsDependencies:
     group_consecutive_days: Callable[[set[date]], int]
     get_absence_types: Callable[..., list]
     compute_fairness_range: Callable[[date, date], tuple[list, dict]]
+    live_position_enabled: Callable[[int], bool]
+    competency_enabled: Callable[[int], bool]
+    operational_currency_shortfalls: Callable[[int], dict]
 
 
 def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
@@ -413,6 +416,12 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             session.pop("reports_sensitive_data_ack", None)
             return render_template("reports_index.html", requires_acknowledgement=True)
         today = date.today()
+        unit_id = dependencies.current_unit_id()
+        operational_currency = (
+            dependencies.operational_currency_shortfalls(unit_id)
+            if dependencies.live_position_enabled(unit_id)
+            else {"enabled": False, "rows": []}
+        )
         return render_template(
             "reports_index.html",
             ym=f"{today.year}-{today.month:02d}",
@@ -433,6 +442,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             requires_acknowledgement=False,
             privileged_reports=privileged,
             manager_reports=manager or privileged,
+            operational_currency=operational_currency,
         )
 
     @login_required

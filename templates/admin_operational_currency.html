@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Operational currency{% endblock %}
+{% block content %}
+{% include "_admin_nav.html" %}
+<section class="admin-function-heading"><div><span class="admin-step">Live position monitoring</span><h2>Operational currency</h2><p>Set the minimum credited operational time each controller must achieve for every current unit endorsement.</p></div></section>
+{% set setup_steps = [('Choose the currency period', 'Use a rolling number of days or the current and previous calendar months.'), ('Set the target per UE', 'The required total is automatically multiplied by each controller’s current UEs.'), ('Limit OJTI credit', 'OJTI time may count towards the target, up to the percentage you set.')] %}
+{% include "_setup_walkthrough.html" %}
+<form method="post" class="card card-body admin-form-grid">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <label class="checkbox"><input type="checkbox" name="enabled" {% if requirement.enabled %}checked{% endif %}> Monitor minimum operational time</label>
+  <label>Currency period<select name="period_type" data-currency-period><option value="rolling_days" {% if requirement.period_type == 'rolling_days' %}selected{% endif %}>Rolling days</option><option value="calendar_months" {% if requirement.period_type == 'calendar_months' %}selected{% endif %}>Calendar months</option></select></label>
+  <label data-currency-days>Rolling period (days)<input type="number" name="period_days" min="1" max="731" value="{{ requirement.period_days|int }}"><small>For example, 30 or 45 days.</small></label>
+  <label data-currency-months>Calendar months to include<input type="number" name="period_months" min="1" max="24" value="{{ requirement.period_months|int }}"><small>Includes the current calendar month.</small></label>
+  <label>Monitoring starts on<input type="date" name="start_date" value="{{ requirement.start_date }}"><small>Optional. No time before this date is counted.</small></label>
+  <label>Minimum operational hours per UE<input type="number" name="hours_per_ue" min="0.25" max="1000" step="0.25" value="{{ requirement.hours_per_ue }}" required></label>
+  <label>Maximum OJTI credit (% of required total)<input type="number" name="ojti_credit_percent" min="0" max="100" step="1" value="{{ requirement.ojti_credit_percent|int }}" required></label>
+  <div class="form-actions"><button class="btn btn-primary">Save operational currency requirement</button></div>
+</form>
+{% if requirement.enabled %}<section class="card mt-3"><div class="card-hd">Current status preview · {{ currency_preview.start_day.strftime('%d %b %Y') }} to {{ currency_preview.end_day.strftime('%d %b %Y') }}</div><div class="card-bd"><p class="mb-0">{{ currency_preview.rows|length }} controller{{ '' if currency_preview.rows|length == 1 else 's' }} currently below the configured requirement. The same flag appears on the Reports page.</p></div></section>{% endif %}
+<script>document.addEventListener('DOMContentLoaded',()=>{const select=document.querySelector('[data-currency-period]'),days=document.querySelector('[data-currency-days]'),months=document.querySelector('[data-currency-months]'),sync=()=>{const calendar=select.value==='calendar_months';days.hidden=calendar;months.hidden=!calendar};select.addEventListener('change',sync);sync()});</script>
+{% endblock %}

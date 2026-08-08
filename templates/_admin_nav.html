@@ -13,6 +13,7 @@
 <details class="admin-nav-advanced">
   <summary>Advanced configuration</summary>
   <div class="admin-section-nav">
+    {% if has_live_position_module %}<a class="admin-section-tab admin-section-link {% if request.endpoint == 'admin_operational_currency' %}active{% endif %}" href="{{ url_for('admin_operational_currency') }}"><span>Operational currency</span></a>{% endif %}
     <a class="admin-section-tab admin-section-link" href="{{ url_for('work_patterns.patterns') }}"><span>Flexible patterns</span></a>
     <a class="admin-section-tab admin-section-link" href="{{ url_for('admin_toil_new') }}"><span>Manual TOIL</span></a>
     <a class="admin-section-tab admin-section-link" href="{{ url_for('roster_impact.exceptions') }}"><span>Impact queue</span></a>

@@ -3561,6 +3561,16 @@ table:not(.roster) td {
   background:#1b252c;
 }
 
+.report-menu-item--alert {
+  border-color:#c78a32;
+  background:#2b2318;
+}
+
+.report-menu-item--alert:hover {
+  border-color:#f0b458;
+  background:#352918;
+}
+
 /* Keep report-card titles and descriptions on shared baselines even when a
    title wraps. This makes each row read as a single, orderly set of options. */
 .reports-menu-grid {

@@ -359,12 +359,22 @@ def create_live_position_blueprint(
                 unit_id=unit_id
             ).all()
         }
+        report_type = request.args.get("scope", "individual")
+        if report_type not in {"individual", "watch", "unit"}:
+            abort(400, "Choose an individual, watch or unit report.")
         selected_person_id = request.args.get("person_id", type=int)
-        selected_watch_id = None
+        selected_watch_id = request.args.get("watch_id", type=int)
         selected_position_id = request.args.get("position_id", type=int)
-        report_type = "individual"
         if not can_view_all:
+            report_type = "individual"
             selected_person_id = current_user.id
+            selected_watch_id = None
+        elif report_type == "individual" and not selected_person_id:
+            selected_watch_id = None
+        elif report_type == "watch":
+            selected_person_id = None
+        else:
+            selected_person_id = None
             selected_watch_id = None
         if selected_person_id and selected_person_id not in people_by_id:
             abort(404)
@@ -420,13 +430,9 @@ def create_live_position_blueprint(
             person = people_by_id.get(person_id)
             if not person or minutes <= 0:
                 return
-            # Operational activity is an individual report. Managers choose a
-            # controller explicitly rather than receiving unit-wide totals.
-            if can_view_all and selected_person_id is None:
+            if report_type == "individual" and selected_person_id and person.id != selected_person_id:
                 return
-            if selected_person_id and person.id != selected_person_id:
-                return
-            if selected_watch_id and person.watch_id != selected_watch_id:
+            if report_type == "watch" and selected_watch_id and person.watch_id != selected_watch_id:
                 return
             if selected_position_id and position.id != selected_position_id:
                 return

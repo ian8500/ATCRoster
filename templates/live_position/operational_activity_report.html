@@ -16,12 +16,14 @@
   <label>From <input type="date" name="start" value="{{ start_day.isoformat() }}" required></label>
   <label>To <input type="date" name="end" value="{{ end_day.isoformat() }}" required></label>
   {% if can_view_all %}
-  <label>Controller
-    <select name="person_id" required>
-      <option value="" {% if not selected_person_id %}selected{% endif %} disabled>Select a controller</option>
+  <label>Report for<select name="scope" data-activity-scope><option value="individual" {% if report_type == 'individual' %}selected{% endif %}>Individual controller</option><option value="watch" {% if report_type == 'watch' %}selected{% endif %}>Watch</option><option value="unit" {% if report_type == 'unit' %}selected{% endif %}>Entire unit</option></select></label>
+  <label data-activity-person>Controller
+    <select name="person_id">
+      <option value="" {% if not selected_person_id %}selected{% endif %}>Select a controller</option>
       {% for person in people %}<option value="{{ person.id }}" {% if selected_person_id == person.id %}selected{% endif %}>{{ person.name }}</option>{% endfor %}
     </select>
   </label>
+  <label data-activity-watch>Watch<select name="watch_id"><option value="">Select a watch</option>{% for watch in watches %}<option value="{{ watch.id }}" {% if selected_watch_id == watch.id %}selected{% endif %}>{{ watch.name }}</option>{% endfor %}</select></label>
   {% endif %}
   <label>Position
     <select name="position_id">
@@ -34,13 +36,15 @@
 
 {% include "_report_actions.html" %}
 
-{% if can_view_all and not selected_person_id %}
+{% if can_view_all and report_type == 'individual' and not selected_person_id %}
 <section class="card card-body empty-state">
   Select a controller to view their operational activity figures.
 </section>
+{% elif can_view_all and report_type == 'watch' and not selected_watch_id %}
+<section class="card card-body empty-state">Select a watch to view its operational activity figures.</section>
 {% else %}
 <section class="card operational-report-section">
-  <div class="card-hd">{{ selected_person.name if selected_person else current_user.name }} · {{ start_day.strftime('%d %b %Y') }} to {{ end_day.strftime('%d %b %Y') }}</div>
+  <div class="card-hd">{% if report_type == 'unit' %}Entire unit{% elif report_type == 'watch' %}{{ (watches|selectattr('id', 'equalto', selected_watch_id)|first).name }}{% else %}{{ selected_person.name if selected_person else current_user.name }}{% endif %} · {{ start_day.strftime('%d %b %Y') }} to {{ end_day.strftime('%d %b %Y') }}</div>
   <div class="table-responsive"><table class="table operational-report-table">
     <thead><tr><th>Controller</th><th>Watch</th><th>Solo</th><th>Under instruction</th><th>OJTI</th><th>Under assessment</th><th>Assessor</th><th>Total</th><th>Solo score</th><th>OJTI score</th></tr></thead>
     <tbody>
@@ -63,6 +67,8 @@
   {% else %}<p class="card card-body empty-state">No position activity matches these filters.</p>{% endfor %}
 </section>
 {% endif %}
+
+{% if can_view_all %}<script>document.addEventListener('DOMContentLoaded',()=>{const scope=document.querySelector('[data-activity-scope]'),person=document.querySelector('[data-activity-person]'),watch=document.querySelector('[data-activity-watch]'),sync=()=>{person.hidden=scope.value!=='individual';watch.hidden=scope.value!=='watch'};scope.addEventListener('change',sync);sync()});</script>{% endif %}
 
 <section class="card card-body operational-report-notes">
   <h2>How the figures are calculated</h2>
