@@ -3561,6 +3561,33 @@ table:not(.roster) td {
   background:#1b252c;
 }
 
+/* Keep report-card titles and descriptions on shared baselines even when a
+   title wraps. This makes each row read as a single, orderly set of options. */
+.reports-menu-grid {
+  grid-auto-rows:1fr;
+  align-items:stretch;
+}
+
+.reports-menu-grid .report-menu-item {
+  display:grid !important;
+  grid-template-rows:2.5rem minmax(0, 1fr);
+  gap:.35rem;
+  height:100%;
+  min-height:104px;
+  align-items:start;
+}
+
+.reports-menu-grid .report-menu-item strong {
+  display:flex;
+  align-items:center;
+  line-height:1.25;
+}
+
+.reports-menu-grid .report-menu-item span {
+  display:block;
+  line-height:1.4;
+}
+
 .report-filter{
   display:flex;
   flex-direction:row;
