@@ -162,6 +162,33 @@
     </div>
   </section>
 
+  <section id="admin-leave-types" class="admin-panel" data-admin-panel="leave-types" hidden>
+    <header class="admin-panel-heading">
+      <div><span class="admin-step">Roster configuration</span><h3>Leave &amp; sickness types</h3><p>Control the leave and sickness choices available when recording absence for this airport.</p></div>
+    </header>
+    <section class="card card-body roster-setup-card">
+      <p class="text-muted">Removing a type keeps historical records but hides it from new entries and reports.</p>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        {% for item in absence_types if item.active %}
+          <form method="post" data-confirm="Remove {{ item.label }} from this airport?">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form" value="absence_type_delete">
+            <input type="hidden" name="code" value="{{ item.code }}">
+            <button class="btn btn-sm" type="submit">{{ item.label }} ({{ item.code }}) ×</button>
+          </form>
+        {% endfor %}
+      </div>
+      <form class="row g-3 align-items-end" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form" value="absence_type_add">
+        <div class="col-md-4"><label class="form-label">Name<input class="form-control" name="label" maxlength="80" placeholder="e.g. Compassionate leave" required></label></div>
+        <div class="col-md-2"><label class="form-label">Code<input class="form-control" name="code" maxlength="10" placeholder="e.g. CL" pattern="[A-Za-z0-9]{1,10}" required></label></div>
+        <div class="col-md-3"><label class="form-label">Category<select class="form-select" name="category"><option value="leave">Leave</option><option value="sickness">Sickness</option></select></label></div>
+        <div class="col-md-3 d-grid"><button class="btn btn-primary" type="submit">Add type</button></div>
+      </form>
+    </section>
+  </section>
+
   <section id="admin-requirements" class="admin-panel" data-admin-panel="requirements" hidden>
     <header class="admin-panel-heading">
       <div><span class="admin-step">Staffing levels</span><h3>Minimum people needed on duty</h3><p>Enter the minimum number of operational ATCOs needed on each duty. These figures drive the red, amber and green coverage indicators.</p></div>

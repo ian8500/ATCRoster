@@ -4641,6 +4641,50 @@ def admin():
     if request.method == "POST":
         form = request.form.get("form", "")
 
+        if form in {"absence_type_add", "absence_type_delete"}:
+            _validate_csrf()
+            types = get_absence_types(active_only=False)
+            if form == "absence_type_add":
+                code = (request.form.get("code") or "").strip().upper()
+                label = (request.form.get("label") or "").strip()
+                category = (request.form.get("category") or "").strip().lower()
+                if (
+                    not re.fullmatch(r"[A-Z0-9]{1,10}", code)
+                    or category not in {"leave", "sickness"}
+                    or not label
+                ):
+                    flash("Enter a name, category and a 1–10 character code.", "error")
+                else:
+                    existing = next(
+                        (item for item in types if item["code"] == code), None
+                    )
+                    if existing:
+                        existing.update(
+                            label=label[:80], category=category, active=True
+                        )
+                    else:
+                        types.append({
+                            "code": code,
+                            "label": label[:80],
+                            "category": category,
+                            "active": True,
+                        })
+                    _save_absence_types(types)
+                    flash(f"{label} is now available for this airport.", "ok")
+            else:
+                code = (request.form.get("code") or "").strip().upper()
+                item = next((item for item in types if item["code"] == code), None)
+                if not item:
+                    abort(404)
+                item["active"] = False
+                _save_absence_types(types)
+                flash(
+                    f"{item['label']} was removed from new records and reports. "
+                    "Historical records were retained.",
+                    "ok",
+                )
+            return redirect(url_for("admin") + "#leave-types")
+
         if form == "sms_settings":
             _validate_csrf()
             senders, sender_errors = _parse_sms_number_lines(
@@ -5352,6 +5396,7 @@ def admin():
                            sms_operational_numbers=sms_operational_numbers,
                            sms_default_sender=sms_default_sender,
                            sms_default_operational_number=sms_default_operational_number,
+                           absence_types=get_absence_types(active_only=False),
                            current_unit=current_unit)
 
 

@@ -3099,7 +3099,7 @@ def test_airport_absence_catalogue_and_calendar_token(client):
     client.post("/logout", data={"_csrf_token": csrf(client)})
     login(client)
     added = client.post(
-        "/leave?ym=2026-07",
+        "/admin",
         data={
             "_csrf_token": csrf(client),
             "form": "absence_type_add",

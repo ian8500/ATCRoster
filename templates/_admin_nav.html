@@ -1,6 +1,6 @@
 <nav class="admin-section-nav" aria-label="Administration categories">
   <a class="admin-section-tab admin-section-link" href="{{ url_for('unit_accounts') }}"><i class="fa-solid fa-users-gear"></i><span>People &amp; access</span></a>
-  {% for section, icon, label in [('roster-setup','fa-people-group','Roster structure'),('requirements','fa-chart-column','Staffing requirements'),('shifts','fa-clock','Shift definitions')] %}
+  {% for section, icon, label in [('roster-setup','fa-people-group','Roster structure'),('leave-types','fa-clipboard-list','Leave & sickness types'),('requirements','fa-chart-column','Staffing requirements'),('shifts','fa-clock','Shift definitions')] %}
     {% if admin_nav_interactive %}<button type="button" class="admin-section-tab" data-admin-section="{{ section }}" aria-controls="admin-{{ section }}" aria-selected="false"><i class="fa-solid {{ icon }}"></i><span>{{ label }}</span></button>
     {% else %}<a class="admin-section-tab admin-section-link" href="{{ url_for('admin') }}#{{ section }}"><i class="fa-solid {{ icon }}"></i><span>{{ label }}</span></a>{% endif %}
   {% endfor %}
