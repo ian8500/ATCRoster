@@ -54,6 +54,15 @@
       <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
     </a>
     {% endif %}
+    {% if show_handover %}
+    <a class="module-card module-card--handover" href="{{ url_for('handover.home') }}">
+      <span class="module-card__icon module-card__icon--handover" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M4 5h11v10H8l-4 4z"></path><path d="M9 9h10v10l-4-4"></path></svg>
+      </span>
+      <span><strong>Watch handover</strong><small>Operational continuity between shifts</small></span>
+      <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    </a>
+    {% endif %}
     {% if show_administration %}
     <a class="module-card" href="{{ url_for('administration_home') }}">
       <span class="module-card__icon" aria-hidden="true">

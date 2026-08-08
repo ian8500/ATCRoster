@@ -8,6 +8,7 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <meta name="theme-color" content="#11161d">
   {% set in_briefing_module = request.endpoint and request.endpoint.startswith('briefing.') %}
+  {% set in_handover_module = request.endpoint and request.endpoint.startswith('handover.') %}
   {% set in_training_module = request.endpoint and request.endpoint.startswith('training_') %}
   {% set in_competency_module = request.endpoint and (request.endpoint.startswith('competency_') or (request.endpoint == 'live_position.operational_activity' and has_competency_module)) %}
   {% set in_shared_admin = request.endpoint in (
@@ -20,7 +21,7 @@
     'live_position.operational_activity',
     'admin_sms_audit', 'briefing.audit', 'briefing.assurance'
   ) %}
-  <title>{% block title %}{% endblock %} – {{ 'ATC Administration' if in_shared_admin else ('ATC Competency' if in_competency_module else ('ATC Training' if in_training_module else ('ATC Briefing' if in_briefing_module else 'ATC Roster'))) }}</title>
+  <title>{% block title %}{% endblock %} – {{ 'ATC Administration' if in_shared_admin else ('ATC Handover' if in_handover_module else ('ATC Competency' if in_competency_module else ('ATC Training' if in_training_module else ('ATC Briefing' if in_briefing_module else 'ATC Roster')))) }}</title>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-TbP2oT4maGdTKStZJ9+doRTO1D94avYVbwybXDq3s1ymUOI1IKXey9HvK+nZd9kpGdn6FQkR0fF6Bw7+Xw8FfA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
@@ -90,7 +91,7 @@
           {% if current_user.role == 'superadmin' %}
             <a href="{{ url_for('platform_admin') }}" {% if request.endpoint == 'platform_admin' %}aria-current="page"{% endif %} class="nav-link {% if request.endpoint == 'platform_admin' %}active{% endif %}"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Platform Admin</a>
           {% else %}
-            {% if is_admin or has_briefing_module or has_training_module or has_competency_module %}
+            {% if is_admin or has_briefing_module or has_training_module or has_competency_module or has_handover_module %}
               <a href="{{ url_for('module_home') }}" class="nav-link {% if request.endpoint == 'module_home' %}active{% endif %}"><i class="fa-solid fa-house" aria-hidden="true"></i> Home</a>
             {% endif %}
             {% if in_shared_admin %}
@@ -100,6 +101,8 @@
                 <a href="{{ url_for('kiosk_accounts') }}" class="nav-link {% if request.endpoint == 'kiosk_accounts' %}active{% endif %}"><i class="fa-solid fa-display" aria-hidden="true"></i> Kiosk accounts</a>
                 <a href="{{ url_for('live_position.position_configuration') }}" class="nav-link {% if request.endpoint == 'live_position.position_configuration' %}active{% endif %}"><i class="fa-solid fa-tower-broadcast" aria-hidden="true"></i> Positions</a>
               {% endif %}
+            {% elif in_handover_module %}
+              {% include "handover/_nav_links.html" %}
             {% elif in_briefing_module %}
               {% include "briefing/_nav_links.html" %}
             {% elif in_training_module %}

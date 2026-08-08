@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Watch handover{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Operational continuity</span><h2>Watch handover</h2><p>The information the incoming watch needs, with the next rostered shift alongside it.</p></div>{% if can_write_handover %}<div class="compliance-actions"><a class="btn btn-primary" href="{{ url_for('handover.create') }}"><i class="fa-solid fa-plus"></i> New handover</a></div>{% endif %}</section>
+{% include "handover/_next_shift.html" %}
+{% if latest %}
+<section class="handover-latest">
+  <header><div><span class="admin-step">Latest published handover</span><h2>{{ latest.created_at.strftime('%d %b %Y · %H:%M') }}</h2></div><a class="btn" href="{{ url_for('handover.view', record_id=latest.id) }}">Open full handover</a></header>
+  <div class="handover-response-grid">
+    {% for item in latest.responses if item.value %}<article><span>{{ item.section }}</span><h3>{{ item.label }}</h3><p>{{ item.value }}</p></article>{% else %}<div class="handover-empty">No operational notes were entered.</div>{% endfor %}
+  </div>
+  <footer>Published by <strong>{{ latest.created_by_name }}</strong></footer>
+</section>
+{% else %}<section class="card card-body handover-empty"><strong>No handover has been published yet</strong><span>Create the first handover when the outgoing watch is ready.</span></section>{% endif %}
+{% if history %}<section class="handover-history"><header><span class="admin-step">Previous handovers</span><h2>Recent record</h2></header><div>{% for item in history %}<a href="{{ url_for('handover.view', record_id=item.id) }}"><span><strong>{{ item.created_at.strftime('%d %b %Y · %H:%M') }}</strong><small>{{ item.created_by_name }}{% if item.target_shift_code %} · for {{ item.target_shift_code }}{% endif %}</small></span><i class="fa-solid fa-chevron-right"></i></a>{% endfor %}</div></section>{% endif %}
+{% endblock %}

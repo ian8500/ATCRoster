@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Handover {{ handover.created_at.strftime('%d %b %Y') }}{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Published handover</span><h2>{{ handover.created_at.strftime('%d %b %Y · %H:%M') }}</h2><p>Prepared by {{ handover.created_by_name }}.</p></div><div class="compliance-actions"><a class="btn" href="{{ url_for('handover.home') }}">All handovers</a></div></section>
+{% set next_shift = handover.next_shift %}{% include "handover/_next_shift.html" %}
+<section class="handover-response-grid handover-response-grid--detail">
+  {% for item in handover.responses if item.value %}<article><span>{{ item.section }}</span><h3>{{ item.label }}</h3><p>{{ item.value }}</p></article>{% else %}<div class="card card-body handover-empty">No operational notes were entered.</div>{% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,15 @@
+<section class="handover-shift-card" aria-labelledby="next-shift-title">
+  <div class="handover-shift-card__heading">
+    <div><span class="admin-step">Roster intelligence</span><h2 id="next-shift-title">Next shift</h2></div>
+    {% if next_shift.available %}<span class="handover-shift-code">{{ next_shift.code }}</span>{% endif %}
+  </div>
+  {% if next_shift.available %}
+  <div class="handover-shift-summary">
+    <div><span>Duty</span><strong>{{ next_shift.name }}</strong><small>{{ next_shift.day_label }} · {{ next_shift.start_label }}</small></div>
+    <div><span>Rostered staffing</span><strong>{{ next_shift.staffing }}</strong><small>{% if next_shift.required is not none %}Requirement {{ next_shift.required }} · {{ next_shift.staffing - next_shift.required if next_shift.staffing >= next_shift.required else next_shift.required - next_shift.staffing }} {{ 'above' if next_shift.staffing >= next_shift.required else 'below' }}{% else %}No requirement configured{% endif %}</small></div>
+  </div>
+  <div class="handover-people" aria-label="Controllers rostered for the next shift">
+    {% for person in next_shift.people %}<span><strong>{{ person.name }}</strong><small>{{ person.staff_no }}</small></span>{% endfor %}
+  </div>
+  {% else %}<div class="handover-empty"><strong>No upcoming staffed shift found</strong><span>Check that future roster assignments and shift start times have been configured.</span></div>{% endif %}
+</section>

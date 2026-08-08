@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}New handover{% endblock %}
+{% block content %}
+<section class="compliance-hero"><div><span class="admin-step">Outgoing watch</span><h2>Prepare handover</h2><p>Record concise, actionable information for the incoming Watch Manager.</p></div><div class="compliance-actions"><a class="btn" href="{{ url_for('handover.home') }}">Cancel</a></div></section>
+{% include "handover/_next_shift.html" %}
+<form method="post" class="handover-form">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  {% set state = namespace(section='') %}
+  {% for field in fields %}
+    {% if field.section_name != state.section %}{% if not loop.first %}</div></section>{% endif %}<section class="card handover-form-section"><div class="card-hd">{{ field.section_name }}</div><div class="card-bd handover-fields">{% set state.section = field.section_name %}{% endif %}
+    <label><span>{{ field.label }}{% if field.required %} <b aria-label="required">*</b>{% endif %}</span>
+      {% if field.field_type == 'select' %}<select name="field_{{ field.id }}" {% if field.required %}required{% endif %}><option value="">Select an option</option>{% for option in field.select_options %}<option value="{{ option }}" {% if request.form.get('field_' ~ field.id|string) == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+      {% else %}<textarea name="field_{{ field.id }}" rows="4" placeholder="{{ field.placeholder }}" {% if field.required %}required{% endif %}>{{ request.form.get('field_' ~ field.id|string, '') }}</textarea>{% endif %}
+      {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+    </label>
+  {% else %}<section class="card card-body handover-empty"><strong>No handover fields are configured</strong><span>An administrator can add fields in Handover Setup.</span></section>
+  {% endfor %}{% if fields %}</div></section>{% endif %}
+  <div class="bar"><button class="btn btn-primary" type="submit"><i class="fa-solid fa-paper-plane"></i> Publish handover</button></div>
+</form>
+{% endblock %}

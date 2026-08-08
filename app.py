@@ -227,6 +227,7 @@ PLATFORM_FEATURE_FLAGS = frozenset({
     "advanced_coverage", "scenario_planning", "calendar_exports",
     "fatigue_reporting", "custom_branding", "briefing_module",
     "training_module", "competency_module", "live_position_monitoring",
+    "handover_module",
 })
 
 
@@ -275,6 +276,7 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_rule_version", "mfa_credential",
     "briefing_item", "briefing_delivery", "briefing_audit",
     "briefing_assurance_run", "briefing_message_type",
+    "handover_field", "handover_record",
     "training_level", "training_objective", "training_session",
     "training_score", "position_currency_category",
     "position_participant_role", "position_status_event",
@@ -1306,6 +1308,43 @@ class SmsSenderRegistration(db.Model):
     __table_args__ = (db.UniqueConstraint("unit_id", "staff_id", "number", "provider", name="uq_sms_sender_registration"),)
 
 
+class HandoverField(db.Model):
+    """An airport-defined prompt shown on each operational handover."""
+    __tablename__ = "handover_field"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    section_name = db.Column(db.String(80), nullable=False, default="Operational overview")
+    label = db.Column(db.String(120), nullable=False)
+    field_type = db.Column(db.String(20), nullable=False, default="text")
+    options_json = db.Column(db.Text, nullable=False, default="[]")
+    help_text = db.Column(db.String(240), nullable=False, default="")
+    placeholder = db.Column(db.String(160), nullable=False, default="")
+    required = db.Column(db.Boolean, nullable=False, default=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    display_order = db.Column(db.Integer, nullable=False, default=100)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class HandoverRecord(db.Model):
+    """Immutable roster and field snapshot shared between watch managers."""
+    __tablename__ = "handover_record"
+
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default="published", index=True)
+    created_by_id = db.Column(db.Integer, nullable=False, index=True)
+    created_by_name = db.Column(db.String(80), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow, index=True)
+    target_shift_day = db.Column(db.Date, nullable=True, index=True)
+    target_shift_code = db.Column(db.String(10), nullable=False, default="")
+    target_shift_name = db.Column(db.String(80), nullable=False, default="")
+    target_shift_start = db.Column(db.DateTime, nullable=True)
+    next_shift_json = db.Column(db.Text, nullable=False, default="{}")
+    responses_json = db.Column(db.Text, nullable=False, default="[]")
+
+
 class Leave(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, default=1, index=True)
@@ -1598,6 +1637,7 @@ TENANT_OPERATIONAL_MODELS = (
     MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
     BriefingAudit,
     BriefingAssuranceRun,
+    HandoverField, HandoverRecord,
     TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
     ToilTransaction, WorkPattern, WorkPatternDay,
     WorkPatternDayAllowedShift, StaffPatternAssignment, StaffRule, BankHoliday,
@@ -4548,6 +4588,7 @@ def inject_perms():
     has_training_module = False
     has_competency_module = False
     has_live_position_module = False
+    has_handover_module = False
     enabled_feature_keys = set()
     active_admin_count = 0
     if current_unit and au and is_admin_user(au):
@@ -4575,6 +4616,7 @@ def inject_perms():
         has_training_module = training_enabled(current_unit.id)
         has_competency_module = competency_enabled(current_unit.id)
         has_live_position_module = live_position_enabled(current_unit.id)
+        has_handover_module = "handover_module" in enabled_feature_keys
         if (
             has_briefing_module
             and (
@@ -4615,6 +4657,7 @@ def inject_perms():
         "has_training_module": has_training_module,
         "has_competency_module": has_competency_module,
         "has_live_position_module": has_live_position_module,
+        "has_handover_module": has_handover_module,
         "enabled_feature_keys": enabled_feature_keys,
         "active_admin_count": active_admin_count,
         "current_unit": current_unit,
@@ -4641,6 +4684,9 @@ def module_home():
         show_briefing=briefing_enabled(current_user.unit_id),
         show_training=training_enabled(current_user.unit_id),
         show_competency=competency_enabled(current_user.unit_id),
+        show_handover=FeatureFlag.query.filter_by(
+            unit_id=current_user.unit_id, key="handover_module", enabled=True
+        ).first() is not None,
         show_administration=is_admin_user(current_user),
     )
 
@@ -10319,6 +10365,7 @@ from operations_blueprint import OperationsDependencies, create_operations_bluep
 from live_position_blueprint import (
     LivePositionDependencies, create_live_position_blueprint,
 )
+from handover_blueprint import HandoverDependencies, create_handover_blueprint
 from work_pattern_admin_service import (
     WorkPatternAdminDependencies, WorkPatternAdminService,
 )
@@ -10457,6 +10504,16 @@ app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     competency_enabled=competency_enabled,
     authenticated_database_route_optional=authenticated_database_route_optional,
     authenticated_unit_context=authenticated_unit_context,
+)))
+
+app.register_blueprint(create_handover_blueprint(HandoverDependencies(
+    db=db, Unit=Unit, Staff=Staff, ShiftType=ShiftType, Assignment=Assignment,
+    Requirement=Requirement, SpecialRequirement=SpecialRequirement,
+    FeatureFlag=FeatureFlag, HandoverField=HandoverField,
+    HandoverRecord=HandoverRecord, current_unit_id=_current_unit_id,
+    validate_csrf=_validate_csrf, is_admin_user=is_admin_user,
+    is_editor_user=is_editor_user, requirements_for_day=requirements_for_day,
+    shift_group_for_day=shift_counter_group_for_day, utcnow=utcnow,
 )))
 
 app.register_blueprint(create_auth_blueprint(AuthDependencies(

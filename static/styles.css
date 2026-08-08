@@ -3628,6 +3628,31 @@ table:not(.roster) td {
   margin-bottom:1rem;
   padding:.75rem 1rem;
 }
+
+/* Watch handover module */
+.module-card--handover .module-card__icon{background:rgba(83,170,255,.12);color:#9bcaff;}
+.handover-shift-card{margin:1rem 0;padding:clamp(1rem,2vw,1.4rem);border:1px solid #385b59;border-radius:var(--radius-lg);background:linear-gradient(135deg,#172321,#151b22);}
+.handover-shift-card__heading,.handover-latest>header,.handover-latest>footer,.handover-history>header{display:flex;align-items:center;justify-content:space-between;gap:1rem;}
+.handover-shift-card h2,.handover-latest h2,.handover-history h2{margin:.2rem 0 0;}
+.handover-shift-code{display:grid;place-items:center;min-width:3rem;min-height:3rem;padding:.5rem;border:1px solid #5b9994;border-radius:50%;background:#203936;color:#c7eeeb;font-size:1rem;font-weight:800;}
+.handover-shift-summary{display:grid;grid-template-columns:2fr 1fr;gap:.75rem;margin-top:1rem;}
+.handover-shift-summary>div{display:grid;gap:.15rem;padding:1rem;border-radius:8px;background:rgba(255,255,255,.04);}
+.handover-shift-summary span,.handover-response-grid article>span,.handover-field-list article span{color:#91aaa8;font-size:.7rem;font-weight:750;letter-spacing:.08em;text-transform:uppercase;}
+.handover-shift-summary strong{font-size:1.2rem;}.handover-shift-summary small{color:var(--text-muted);}
+.handover-people{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.55rem;margin-top:.75rem;}
+.handover-people>span{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.65rem .8rem;border:1px solid var(--line);border-radius:7px;background:#151b21;}
+.handover-people small{color:var(--text-muted);font-family:var(--font-mono);}
+.handover-latest{margin-top:1rem;padding:clamp(1rem,2vw,1.5rem);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--card);}
+.handover-latest>header{padding-bottom:1rem;border-bottom:1px solid var(--line);}.handover-latest>footer{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--line);color:var(--text-muted);}
+.handover-response-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:1rem;}
+.handover-response-grid article{min-width:0;padding:1rem;border:1px solid var(--line);border-radius:8px;background:#171d24;}
+.handover-response-grid article h3{margin:.35rem 0 .5rem;}.handover-response-grid article p{margin:0;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;}
+.handover-response-grid--detail{margin-top:1rem;}.handover-history{margin-top:1rem;}.handover-history>header{margin-bottom:.65rem;}.handover-history>div{display:grid;gap:.5rem;}
+.handover-history a{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1rem;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text);text-decoration:none;}.handover-history a>span{display:grid;gap:.2rem}.handover-history small{color:var(--text-muted);}
+.handover-empty{display:grid;gap:.25rem;padding:1rem;color:var(--text-muted);}.handover-empty strong{color:var(--text);}
+.handover-form{margin-top:1rem;}.handover-form-section{margin-bottom:.75rem;}.handover-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;}.handover-fields label{display:grid;align-content:start;gap:.35rem;}.handover-fields label:has(textarea){grid-column:1/-1;}.handover-fields b{color:#e5a45b;}
+.handover-settings-layout{display:grid;grid-template-columns:minmax(300px,.8fr) minmax(420px,1.2fr);gap:1rem;align-items:start;}.handover-field-list{display:grid;gap:.55rem;}.handover-field-list article{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem;border:1px solid var(--line);border-radius:7px;background:#171d24;}.handover-field-list article>div:first-child{display:grid;gap:.2rem;}.handover-field-list article.is-inactive{opacity:.5;}.handover-field-actions{display:flex;gap:.35rem;}.handover-field-actions form{margin:0;}
+@media(max-width:800px){.handover-shift-summary,.handover-response-grid,.handover-fields,.handover-settings-layout{grid-template-columns:1fr}.handover-fields label:has(textarea){grid-column:auto}.handover-shift-card__heading,.handover-latest>header{align-items:flex-start}.handover-field-list article{align-items:flex-start;flex-direction:column}.handover-field-actions{width:100%}}
 .report-filter label{
   margin:0;
   color:var(--text-muted);

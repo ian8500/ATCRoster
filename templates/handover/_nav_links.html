@@ -1,0 +1,3 @@
+<a href="{{ url_for('handover.home') }}" class="nav-link {% if request.endpoint in ('handover.home', 'handover.view') %}active{% endif %}"><i class="fa-solid fa-right-left" aria-hidden="true"></i> Handovers</a>
+{% if is_admin or is_editor or current_user.is_wm or current_user.is_dwm %}<a href="{{ url_for('handover.create') }}" class="nav-link {% if request.endpoint == 'handover.create' %}active{% endif %}"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i> New handover</a>{% endif %}
+{% if is_admin %}<a href="{{ url_for('handover.settings') }}" class="nav-link {% if request.endpoint == 'handover.settings' %}active{% endif %}"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Setup</a>{% endif %}

@@ -275,6 +275,109 @@ def _clear_flexible_patterns(unit_id=1):
     db.session.commit()
 
 
+def test_handover_module_configures_fields_and_snapshots_next_shift(client):
+    login(client)
+    tomorrow = date.today() + timedelta(days=1)
+    with app.app.app_context():
+        flag = app.FeatureFlag.query.filter_by(
+            unit_id=1, key="handover_module"
+        ).first()
+        if flag is None:
+            db.session.add(app.FeatureFlag(
+                unit_id=1, key="handover_module", enabled=True
+            ))
+        else:
+            flag.enabled = True
+        shift = app.ShiftType.query.filter_by(unit_id=1, code="HND").first()
+        if shift is None:
+            shift = app.ShiftType(
+                unit_id=1, code="HND", name="Handover duty",
+                start_time=time(23, 59), end_time=time(7, 0),
+                is_working=True, is_active=True,
+            )
+            db.session.add(shift)
+        person = app.Staff.query.filter_by(
+            unit_id=1, username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        db.session.add(app.Assignment(
+            unit_id=1, staff_id=person.id, day=tomorrow, code="HND",
+            source="manual",
+        ))
+        field = app.HandoverField(
+            unit_id=1, section_name="Operational status",
+            label="Airfield status", field_type="select",
+            options_json='["Normal","Restricted"]', required=True,
+            display_order=10,
+        )
+        db.session.add(field)
+        db.session.commit()
+        field_id = field.id
+
+    landing = client.get("/handover/")
+    assert landing.status_code == 200
+    assert b"Next shift" in landing.data
+    assert b"Handover duty" in landing.data
+    assert b"Admin Test" in landing.data
+    assert b"Rostered staffing" in landing.data
+
+    form = client.get("/handover/new")
+    assert form.status_code == 200
+    assert b"Airfield status" in form.data
+    assert b"Restricted" in form.data
+
+    published = client.post(
+        "/handover/new",
+        data={"_csrf_token": csrf(client), f"field_{field_id}": "Restricted"},
+        follow_redirects=True,
+    )
+    assert published.status_code == 200
+    assert b"Published handover" in published.data
+    assert b"Restricted" in published.data
+    with app.app.app_context():
+        record = app.HandoverRecord.query.filter_by(unit_id=1).one()
+        roster_snapshot = json.loads(record.next_shift_json)
+        response_snapshot = json.loads(record.responses_json)
+        assert roster_snapshot["staffing"] == 1
+        assert roster_snapshot["people"][0]["name"] == "Admin Test"
+        assert response_snapshot[0]["value"] == "Restricted"
+
+
+def test_handover_settings_adds_managed_dropdown(client):
+    login(client)
+    with app.app.app_context():
+        flag = app.FeatureFlag.query.filter_by(
+            unit_id=1, key="handover_module"
+        ).first()
+        if flag is None:
+            db.session.add(app.FeatureFlag(
+                unit_id=1, key="handover_module", enabled=True
+            ))
+        else:
+            flag.enabled = True
+        db.session.commit()
+    response = client.post(
+        "/handover/settings",
+        data={
+            "_csrf_token": csrf(client), "action": "add",
+            "section_name": "Equipment", "label": "Radar service",
+            "field_type": "select", "options": "Normal\nDegraded\nUnavailable",
+            "help_text": "Select the current service state.", "required": "on",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Radar service" in response.data
+    assert b"Normal, Degraded, Unavailable" in response.data
+    with app.app.app_context():
+        field = app.HandoverField.query.filter_by(
+            unit_id=1, label="Radar service"
+        ).one()
+        assert json.loads(field.options_json) == [
+            "Normal", "Degraded", "Unavailable"
+        ]
+        assert field.required is True
+
+
 def test_reports_require_sensitive_data_acknowledgement(client):
     login(client)
     warning = client.get("/reports")
