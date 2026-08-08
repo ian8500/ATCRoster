@@ -17,7 +17,7 @@
   <label>Who is the adjustment for?
   <select name="staff_id" required>
     {% for s in atcos %}
-      <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }}) — current balance: {{ (s.toil_half_days or 0)/2 }} days</option>
+      <option value="{{ s.id }}" {% if s.id == selected_staff_id %}selected{% endif %}>{{ s.name }} ({{ s.staff_no }}) — current balance: {{ (s.toil_half_days or 0)/2 }} days</option>
     {% endfor %}
   </select>
   </label>

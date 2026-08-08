@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ s.name }}{% endblock %}
 {% block content %}
+{% include "_admin_nav.html" %}
 <section class="compliance-hero">
   <div><span class="admin-step">Staff administration</span><h2>Edit {{ s.name }}</h2><p>Maintain identity, roster placement, qualifications and account settings.</p></div>
 </section>
@@ -46,6 +47,11 @@
         <label><input type="checkbox" name="permission_apply_annotations" {% if permissions.get('apply_annotations') %}checked{% endif %}> May apply annotations</label>
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Manual TOIL</div>
+    <div class="card-bd"><p>Current balance: <strong>{{ (s.toil_half_days or 0) / 2 }} days</strong>.</p><a class="btn" href="{{ url_for('admin_toil_new', staff_id=s.id) }}">Adjust {{ s.name }}’s TOIL</a></div>
   </div>
 
   <div class="card">

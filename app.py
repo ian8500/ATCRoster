@@ -9387,8 +9387,12 @@ def admin_toil_new():
             "ok",
         )
         return redirect(url_for("admin_toil_new"))
+    selected_staff_id = request.args.get("staff_id", type=int)
+    if selected_staff_id and selected_staff_id not in {staff.id for staff in atcos}:
+        abort(404)
     return render_template(
-        "admin_toil_new.html", atcos=atcos, transaction_key=secrets.token_hex(24)
+        "admin_toil_new.html", atcos=atcos, selected_staff_id=selected_staff_id,
+        transaction_key=secrets.token_hex(24)
     )
 
 LOGIN_RATE_WINDOW = timedelta(minutes=15)

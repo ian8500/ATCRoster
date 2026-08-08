@@ -372,9 +372,11 @@
 
   <section id="admin-staff" class="admin-panel" data-admin-panel="staff" hidden>
     <header class="admin-panel-heading">
-      <div><span class="admin-step">People</span><h3>People on the roster</h3><p>Create and fully configure a roster profile first. You can send their account invitation when the profile is ready.</p></div>
+      <div><span class="admin-step">People &amp; access</span><h3>People on the roster</h3><p>Create and manage every person from one place: their roster details, access, leave allowance, personal pattern and TOIL.</p></div>
       <button type="button" class="btn btn-primary" data-toggle-create-staff aria-expanded="false"><i class="fa-solid fa-user-plus"></i> Add a person</button>
     </header>
+    {% set setup_steps = [('Add or find a person', 'Create a roster profile here or search the existing people list.'), ('Open their profile', 'Manage access, leave allowance, individual pattern and all roster details together.'), ('Keep their history', 'Schedule changes or a leaving date instead of deleting a person with roster history.')] %}
+    {% include "_setup_walkthrough.html" %}
     <div class="admin-create-drawer" data-create-staff hidden>
       <h4>Add a person to the roster</h4>
       <form method="post" class="admin-form-grid">
