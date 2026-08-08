@@ -23,7 +23,6 @@
   <div class="module-launcher__grid mt-3">
     <a class="module-card" href="{{ url_for('work_patterns.patterns') }}"><span><strong>Flexible work patterns</strong><small>Dated pattern assignments and eligibility</small></span><i class="fa-solid fa-arrow-right"></i></a>
     <a class="module-card" href="{{ url_for('admin_toil_new') }}"><span><strong>Manual TOIL</strong><small>Record an authorised adjustment</small></span><i class="fa-solid fa-arrow-right"></i></a>
-    <a class="module-card" href="{{ url_for('roster_impact.exceptions') }}"><span><strong>Impact queue</strong><small>Review roster-impact exceptions</small></span><i class="fa-solid fa-arrow-right"></i></a>
     {% if show_live_position %}<a class="module-card" href="{{ url_for('kiosk_accounts') }}"><span><strong>Live kiosk accounts</strong><small>Dedicated display access</small></span><i class="fa-solid fa-arrow-right"></i></a>
     <a class="module-card" href="{{ url_for('live_position.position_configuration') }}"><span><strong>Live position setup</strong><small>Positions, groups and currency categories</small></span><i class="fa-solid fa-arrow-right"></i></a>{% endif %}
   </div>

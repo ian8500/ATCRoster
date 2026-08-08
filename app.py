@@ -6139,58 +6139,13 @@ def admin_staff_leaving(sid):
     person.leaving_reason_category = category
     person.leaving_notes = (request.form.get("notes") or "").strip()[:2000]
     impact_from = final_operational + timedelta(days=1)
-    result = record_roster_impact(
+    record_roster_impact(
         RosterImpactEventType.UNIT_LEAVER, impact_from,
         staff_ids=[person.id], rebuild_baseline=True,
         reason=f"Unit leaver: {category}. {person.leaving_notes}"[:500],
     )
-    horizon = _generated_roster_horizon_end(person.unit_id, impact_from)
-    if horizon:
-        flagged = set()
-        for assignment in Assignment.query.filter(
-            Assignment.unit_id == person.unit_id,
-            Assignment.staff_id == person.id,
-            Assignment.day >= impact_from,
-            Assignment.override_code.isnot(None),
-        ).all():
-            key = ("OVERRIDE_AFTER_LEAVING_DATE", assignment.day)
-            if key not in flagged:
-                db.session.add(RosterImpactException(
-                    unit_id=person.unit_id, event_id=result.event_id,
-                    staff_id=person.id, effective_from=assignment.day,
-                    effective_to=assignment.day,
-                    exception_type=key[0], severity="CRITICAL", status="OPEN",
-                    description="Editor override exists after final operational duty.",
-                    created_at=utcnow(),
-                ))
-                flagged.add(key)
-        for leave in Leave.query.filter(
-            Leave.unit_id == person.unit_id, Leave.staff_id == person.id,
-            Leave.end >= impact_from,
-        ).all():
-            db.session.add(RosterImpactException(
-                unit_id=person.unit_id, event_id=result.event_id,
-                staff_id=person.id, effective_from=max(leave.start, impact_from),
-                effective_to=leave.end,
-                exception_type="LEAVE_AFTER_LEAVING_DATE", severity="WARNING",
-                status="OPEN", description="Approved leave extends beyond final operational duty.",
-                created_at=utcnow(),
-            ))
-        for swap in ShiftRequest.query.filter(
-            ShiftRequest.unit_id == person.unit_id,
-            ShiftRequest.staff_id == person.id,
-            ShiftRequest.day >= impact_from,
-            ShiftRequest.status.in_(("approved", "fulfilled")),
-        ).all():
-            db.session.add(RosterImpactException(
-                unit_id=person.unit_id, event_id=result.event_id,
-                staff_id=person.id, effective_from=swap.day, effective_to=swap.day,
-                exception_type="SWAP_AFTER_LEAVING_DATE", severity="WARNING",
-                status="OPEN", description="Approved shift request exists after leaving.",
-                created_at=utcnow(),
-            ))
     db.session.commit()
-    flash("Leaving date saved; future baseline and exceptions updated.", "ok")
+    flash("Leaving date saved and future roster baseline updated.", "ok")
     return redirect(url_for("admin_staff_edit", sid=person.id))
 
 
@@ -10238,9 +10193,6 @@ from absence_requests_blueprint import (
 )
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
-from roster_impact_blueprint import (
-    RosterImpactBlueprintDependencies, create_roster_impact_blueprint,
-)
 from training_blueprint import TrainingDependencies, create_training_blueprint
 from operations_blueprint import OperationsDependencies, create_operations_blueprint
 from live_position_blueprint import (
@@ -10368,20 +10320,6 @@ app.register_blueprint(create_work_pattern_blueprint(
     )
 ))
 
-app.register_blueprint(create_roster_impact_blueprint(
-    RosterImpactBlueprintDependencies(
-        db=db, RosterImpactEvent=RosterImpactEvent,
-        RosterImpactException=RosterImpactException, Staff=Staff, Watch=Watch,
-        Unit=Unit, Assignment=Assignment, RosterPeriod=RosterPeriod,
-        current_unit_id=_current_unit_id, can_edit_roster=can_edit_roster,
-        validate_csrf=_validate_csrf, utcnow=utcnow,
-        is_admin_user=is_admin_user,
-        population_service=deterministic_roster_population_service(),
-        impact_service=roster_impact_service,
-        automatic_boundary=get_unit_automatic_recalculation_start,
-    )
-))
-
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     db=db, Unit=Unit, OperationalPosition=OperationalPosition,
     OperationalPositionTimeAllowance=OperationalPositionTimeAllowance,
@@ -10448,7 +10386,6 @@ app.register_blueprint(create_reports_blueprint(ReportsDependencies(
 app.register_blueprint(create_roster_blueprint(RosterDependencies(
     db=db,
     RosterPublication=RosterPublication,
-    RosterImpactException=RosterImpactException,
     Staff=Staff,
     Notification=Notification,
     Assignment=Assignment,
