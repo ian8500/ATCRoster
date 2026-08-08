@@ -522,10 +522,35 @@ def _twilio_credentials() -> tuple[str, str, str]:
     )
 
 
+def _sms_provider_name() -> str:
+    """Configured SMS delivery provider; Twilio remains an explicit rollback."""
+    return os.getenv("SMS_PROVIDER", "twilio").strip().lower()
+
+
+def _messagemedia_credentials() -> tuple[str, str, str]:
+    return (
+        os.getenv("MESSAGEMEDIA_API_KEY", ""),
+        os.getenv("MESSAGEMEDIA_API_SECRET", ""),
+        os.getenv("MESSAGEMEDIA_FALLBACK_SENDER", ""),
+    )
+
+
 def _normalise_sms_number(value: str | None) -> str:
     """Return an E.164 number, accepting harmless display punctuation."""
     candidate = re.sub(r"[\s().-]+", "", value or "")
     return candidate if re.fullmatch(r"\+[1-9]\d{7,14}", candidate) else ""
+
+
+def _normalise_uk_mobile(value: str | None) -> str:
+    """Normalise UK mobile input to E.164; only UK mobile numbers are valid senders."""
+    candidate = re.sub(r"[\s().-]+", "", value or "")
+    if candidate.startswith("0044"):
+        candidate = "+44" + candidate[4:]
+    elif candidate.startswith("44") and len(candidate) == 12:
+        candidate = "+" + candidate
+    elif candidate.startswith("07") and len(candidate) == 11:
+        candidate = "+44" + candidate[1:]
+    return candidate if re.fullmatch(r"\+447\d{9}", candidate) else ""
 
 
 def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, str]]:
@@ -552,6 +577,10 @@ def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, 
 
 
 def _sms_sender_options(unit_id: int | None = None) -> list[dict[str, str]]:
+    if _sms_provider_name() == "messagemedia":
+        fallback = _normalise_uk_mobile(_messagemedia_credentials()[2])
+        return ([{"number": fallback, "label": "Unit fallback sender"}]
+                if fallback else [])
     options = _sms_number_options("sms_sender_numbers", unit_id)
     fallback = _normalise_sms_number(_twilio_credentials()[2])
     if fallback and not options:
@@ -577,6 +606,9 @@ def _sms_default_number(
 
 
 def _sms_service_configured() -> bool:
+    if _sms_provider_name() == "messagemedia":
+        key, secret, fallback = _messagemedia_credentials()
+        return bool(key and secret and _normalise_sms_number(fallback))
     account_sid, auth_token, _from_number = _twilio_credentials()
     return bool(account_sid and auth_token and _sms_sender_options())
 
@@ -715,6 +747,53 @@ def _send_sms_via_twilio(
         return False, str(exc)
 
 
+def _send_sms_via_messagemedia(
+    to_number: str, body: str, from_number: str | None = None,
+) -> tuple[bool, str]:
+    """Send via Sinch MessageMedia's documented REST messages endpoint."""
+    api_key, api_secret, fallback = _messagemedia_credentials()
+    sender = _normalise_sms_number(from_number or fallback)
+    recipient = _normalise_sms_number(to_number)
+    if not (api_key and api_secret and sender):
+        return False, "Sinch MessageMedia credentials or fallback sender are not configured."
+    if not recipient:
+        return False, "Missing or invalid destination number."
+    payload = json.dumps({"messages": [{
+        "content": body, "source_number": sender,
+        "destination_number": recipient, "delivery_report": True,
+    }]}).encode("utf-8")
+    req = urllib_request.Request(
+        "https://api.messagemedia.com/v1/messages", data=payload, method="POST"
+    )
+    token = base64.b64encode(f"{api_key}:{api_secret}".encode("utf-8")).decode("ascii")
+    req.add_header("Authorization", f"Basic {token}")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib_request.urlopen(req, timeout=10) as resp:  # nosec B310 - fixed provider API origin
+            parsed = json.loads(resp.read().decode("utf-8") or "{}")
+            message = (parsed.get("messages") or [{}])[0]
+            return True, str(message.get("message_id") or message.get("id") or "submitted")
+    except urllib_error.HTTPError as err:
+        try:
+            detail = err.read().decode("utf-8")[:300]
+        except Exception:
+            detail = str(err)
+        return False, f"{err.code}: {detail}"
+    except urllib_error.URLError as err:
+        return False, str(getattr(err, "reason", err))
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _send_sms(to_number: str, body: str, from_number: str | None = None) -> tuple[bool, str]:
+    if _sms_provider_name() == "messagemedia":
+        return _send_sms_via_messagemedia(to_number, body, from_number)
+    if _sms_provider_name() == "twilio":
+        return _send_sms_via_twilio(to_number, body, from_number=from_number)
+    return False, "SMS provider is disabled or not recognised."
+
+
 def _record_sms_audit(
     *,
     sender_number: str,
@@ -723,6 +802,7 @@ def _record_sms_audit(
     body: str,
     message_type: str,
     provider_message_id: str,
+    delivery_status: str = "submitted",
 ) -> None:
     """Persist one successful provider delivery in the airport database."""
     db.session.add(SmsAudit(
@@ -735,6 +815,8 @@ def _record_sms_audit(
         message_type=(message_type or "unit")[:30],
         message_content=body,
         provider_message_id=(provider_message_id or "")[:64],
+        provider=_sms_provider_name()[:30],
+        delivery_status=delivery_status[:30],
     ))
     db.session.commit()
 
@@ -742,12 +824,11 @@ def _record_sms_audit(
 def _send_overtime_sms_notifications(
     staff_list: list["Staff"], message: str
 ) -> tuple[int, list[tuple[Optional["Staff"], str]]]:
-    creds = _twilio_credentials()
     sender_options = _sms_sender_options()
     from_number = _sms_default_number(
         "sms_default_sender", sender_options
     )
-    if not (creds[0] and creds[1] and from_number):
+    if not (_sms_service_configured() and from_number):
         return 0, [(None, "SMS sending is not configured." )]
 
     sent = 0
@@ -756,9 +837,7 @@ def _send_overtime_sms_notifications(
         if not (staff and staff.phone_number):
             failures.append((staff, "No phone number on file."))
             continue
-        ok, detail = _send_sms_via_twilio(
-            staff.phone_number, message, creds, from_number
-        )
+        ok, detail = _send_sms(staff.phone_number, message, from_number)
         if ok:
             _record_sms_audit(
                 sender_number=from_number,
@@ -1286,6 +1365,23 @@ class SmsAudit(db.Model):
     message_type = db.Column(db.String(30), nullable=False, default="unit")
     message_content = db.Column(db.Text, nullable=False)
     provider_message_id = db.Column(db.String(64), nullable=False, default="")
+    provider = db.Column(db.String(30), nullable=False, default="twilio")
+    delivery_status = db.Column(db.String(30), nullable=False, default="submitted")
+
+
+class SmsSenderRegistration(db.Model):
+    """Dashboard-assisted verification record for a Watch Manager's own mobile."""
+    id = db.Column(db.Integer, primary_key=True)
+    unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
+    number = db.Column(db.String(20), nullable=False)
+    provider = db.Column(db.String(30), nullable=False, default="messagemedia")
+    status = db.Column(db.String(30), nullable=False, default="pending_dashboard_verification")
+    provider_identifier = db.Column(db.String(120), nullable=False, default="")
+    verification_requested_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    verified_at = db.Column(db.DateTime, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    __table_args__ = (db.UniqueConstraint("unit_id", "staff_id", "number", "provider", name="uq_sms_sender_registration"),)
 
 
 class Leave(db.Model):
@@ -6384,6 +6480,30 @@ def staff_profile(sid):
         _validate_csrf()
         if s.id != current_user.id:
             abort(403)
+        if request.form.get("form") == "sms_sender_registration":
+            if not s.is_wm:
+                abort(403)
+            number = _normalise_uk_mobile(request.form.get("sender_number"))
+            if not number:
+                flash("Enter a UK mobile number, for example +447700900123.", "error")
+            else:
+                row = SmsSenderRegistration.query.filter_by(
+                    unit_id=s.unit_id, staff_id=s.id, number=number,
+                    provider="messagemedia",
+                ).first()
+                if not row:
+                    row = SmsSenderRegistration(
+                        unit_id=s.unit_id, staff_id=s.id, number=number,
+                    )
+                    db.session.add(row)
+                else:
+                    row.status = "pending_dashboard_verification"
+                    row.verification_requested_at = utcnow()
+                    row.verified_at = None
+                    row.expires_at = None
+                db.session.commit()
+                flash("Number recorded. Verify it in Sinch MessageMedia, then ask a Unit Administrator to confirm it here.", "ok")
+            return redirect(url_for("staff_profile", sid=s.id) + "#contact")
         email = _valid_email(request.form.get("email") or "")
         phone = _normalise_phone_number(request.form.get("phone_number"))
         if not email:
@@ -6504,6 +6624,11 @@ def staff_profile(sid):
         .limit(8)
         .all()
     )
+    sms_sender_registrations = []
+    if s.id == current_user.id and s.is_wm:
+        sms_sender_registrations = SmsSenderRegistration.query.filter_by(
+            unit_id=s.unit_id, staff_id=s.id, provider="messagemedia"
+        ).order_by(SmsSenderRegistration.id.desc()).all()
     return render_template(
         "staff_profile.html", staff=s,
         al_days=al_days, sick_days=sick_days,
@@ -6517,6 +6642,7 @@ def staff_profile(sid):
         mfa_provisioning_uri=mfa_provisioning_uri,
         mfa_qr_data_uri=mfa_qr_data_uri,
         mfa_recovery_codes=mfa_recovery_codes,
+        sms_sender_registrations=sms_sender_registrations,
     )
 
 
@@ -7085,6 +7211,17 @@ def unit_messages():
     selected_recipient = request.form.get("recipient_id", "")
     selected_watch = request.form.get("watch_id", "")
     sender_options = _sms_sender_options()
+    if _sms_provider_name() == "messagemedia" and current_user.is_wm:
+        now = utcnow()
+        verified = SmsSenderRegistration.query.filter(
+            SmsSenderRegistration.unit_id == _current_unit_id(),
+            SmsSenderRegistration.staff_id == current_user.id,
+            SmsSenderRegistration.provider == "messagemedia",
+            SmsSenderRegistration.status == "verified",
+            db.or_(SmsSenderRegistration.expires_at.is_(None), SmsSenderRegistration.expires_at > now),
+        ).order_by(SmsSenderRegistration.verified_at.desc()).all()
+        sender_options = ([{"number": item.number, "label": "My verified mobile"} for item in verified]
+                          or sender_options)
     operational_options = _sms_operational_options()
     default_sender = _sms_default_number(
         "sms_default_sender", sender_options
@@ -7111,7 +7248,7 @@ def unit_messages():
             item["number"] for item in operational_options
         }
         if selected_sender not in allowed_senders:
-            abort(400, "Choose an approved sender number for this airport.")
+            abort(400, "Choose your verified mobile sender, or the configured unit fallback.")
         if selected_scope == "all":
             recipients = people
         elif selected_scope == "watch" and selected_watch.isdigit():
@@ -7153,7 +7290,7 @@ def unit_messages():
                     f"{assignment.code if assignment else 'no assigned'} shift today "
                     f"({today.strftime('%d %b %Y')})."
                 )
-                ok, detail = _send_sms_via_twilio(
+                ok, detail = _send_sms(
                     person.phone_number, body, from_number=selected_sender
                 )
                 preview.append((person.name, body))
@@ -7175,7 +7312,7 @@ def unit_messages():
         elif len(message) > 480:
             flash("Message is too long (limit 480 characters).", "error")
         elif direct_recipient:
-            ok, detail = _send_sms_via_twilio(
+            ok, detail = _send_sms(
                 direct_recipient, message, from_number=selected_sender
             )
             label = next(
@@ -7203,7 +7340,7 @@ def unit_messages():
             sent = 0
             failures = []
             for person in recipients:
-                ok, detail = _send_sms_via_twilio(
+                ok, detail = _send_sms(
                     person.phone_number,
                     message,
                     from_number=selected_sender,
@@ -7243,7 +7380,51 @@ def admin_sms_audit():
     rows = SmsAudit.query.order_by(
         SmsAudit.sent_at.desc(), SmsAudit.id.desc()
     ).limit(1000).all()
-    return render_template("admin_sms_audit.html", rows=rows)
+    registrations = SmsSenderRegistration.query.filter_by(
+        unit_id=_current_unit_id(), provider="messagemedia"
+    ).order_by(SmsSenderRegistration.verification_requested_at.desc()).all()
+    return render_template("admin_sms_audit.html", rows=rows, registrations=registrations)
+
+
+@app.post("/admin/sms-senders/<int:registration_id>/confirm")
+@login_required
+@admin_required
+def confirm_sms_sender(registration_id):
+    _validate_csrf()
+    row = SmsSenderRegistration.query.filter_by(
+        id=registration_id, unit_id=_current_unit_id(), provider="messagemedia"
+    ).first_or_404()
+    expiry = request.form.get("expires_at", "").strip()
+    try:
+        expires_at = datetime.strptime(expiry, "%Y-%m-%d") if expiry else utcnow() + timedelta(days=365)
+    except ValueError:
+        flash("Enter a valid verification expiry date.", "error")
+        return redirect(url_for("admin_sms_audit"))
+    row.status = "verified"
+    row.verified_at = utcnow()
+    row.expires_at = expires_at
+    row.provider_identifier = (request.form.get("provider_identifier") or row.number).strip()[:120]
+    db.session.commit()
+    flash("Sinch sender verification recorded.", "ok")
+    return redirect(url_for("admin_sms_audit"))
+
+
+@app.post("/webhooks/messagemedia/delivery")
+def messagemedia_delivery_webhook():
+    """Accept configured MessageMedia delivery reports without storing secrets."""
+    expected = os.getenv("MESSAGEMEDIA_WEBHOOK_TOKEN", "")
+    supplied = request.headers.get("X-ATCRoster-Webhook-Token", "")
+    if not expected or not secrets.compare_digest(expected, supplied):
+        abort(403)
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    message_id = str(payload.get("id") or payload.get("message_id") or payload.get("mtId") or "")
+    status = str(payload.get("status") or payload.get("statusCode") or "submitted").lower()[:30]
+    if message_id:
+        row = SmsAudit.query.filter_by(provider="messagemedia", provider_message_id=message_id).first()
+        if row:
+            row.delivery_status = status
+            db.session.commit()
+    return Response(status=204)
 
 # -------------------- Calendar subscription --------------------
 

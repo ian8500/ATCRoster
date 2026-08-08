@@ -121,6 +121,21 @@
         </label>
         <div class="form-actions"><button class="btn btn-primary" type="submit">Save contact details</button></div>
       </form>
+      {% if staff.is_wm %}
+      <hr>
+      <h3>My SMS sender</h3>
+      <p class="text-muted">Use your own verified UK mobile number when sending operational messages. Replies go directly to that handset and are not shown in ATCRoster.</p>
+      <form method="post" class="profile-contact-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form" value="sms_sender_registration">
+        <label>UK mobile number <input type="tel" name="sender_number" required placeholder="+447700900123"></label>
+        <small>After saving, verify the number in Sinch MessageMedia: Settings → Numbers → Active → My own numbers. Sinch requires re-verification every 12 months.</small>
+        <div class="form-actions"><button class="btn" type="submit">Register number for verification</button></div>
+      </form>
+      {% if sms_sender_registrations %}
+      <div class="table-scroll mt-3"><table class="mini"><thead><tr><th>Number</th><th>Status</th><th>Expiry</th></tr></thead><tbody>{% for item in sms_sender_registrations %}<tr><td>{{ item.number }}</td><td>{{ item.status.replace('_', ' ')|title }}</td><td>{{ item.expires_at.strftime('%d %b %Y') if item.expires_at else 'Awaiting confirmation' }}</td></tr>{% endfor %}</tbody></table></div>
+      {% endif %}
+      {% endif %}
     </div>
     </section>
   </section>

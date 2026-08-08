@@ -1,20 +1,23 @@
 {% extends "base.html" %}
 {% block title %}SMS Audit{% endblock %}
 {% block content %}
+{% set admin_page_title = 'SMS audit' %}
+{% include "_admin_context_header.html" %}
 {% include "_report_actions.html" %}
-<section class="compliance-hero">
-  <div>
-    <span class="admin-step">Operational communications</span>
-    <h2>SMS audit</h2>
-    <p>Delivered messages sent from this airport. This record is visible only to Unit Administrators.</p>
-  </div>
-</section>
 {% set setup_steps = [('Review the delivery record', 'Use this page to confirm the messages successfully delivered for this unit.'), ('Check sender and recipient', 'Verify who sent the message and the number that received it.'), ('Use Communications for new messages', 'This is an audit record; send operational messages from the Communications page.')] %}
 {% include "_setup_walkthrough.html" %}
 
-{% include "_admin_nav.html" %}
-
 <section class="card">
+  <div class="card-hd">Sinch personal sender verification</div>
+  <div class="card-bd">
+    <p class="text-muted">Watch Managers verify their own number in the Sinch dashboard. Confirm it here only after checking the dashboard; verification codes are never entered or stored in ATCRoster.</p>
+    <div class="table-scroll"><table class="mini admin-table"><thead><tr><th>Watch Manager</th><th>Number</th><th>Status</th><th>Confirm verification</th></tr></thead><tbody>
+    {% for item in registrations %}<tr><td>{{ item.staff_id }}</td><td class="mono">{{ item.number }}</td><td>{{ item.status.replace('_', ' ')|title }}</td><td>{% if item.status != 'verified' %}<form method="post" action="{{ url_for('confirm_sms_sender', registration_id=item.id) }}" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="date" name="expires_at"><input name="provider_identifier" placeholder="Sinch sender ID (optional)"><button class="btn btn-small" type="submit">Confirm</button></form>{% else %}Expires {{ item.expires_at.strftime('%d %b %Y') if item.expires_at else '—' }}{% endif %}</td></tr>{% else %}<tr><td colspan="4">No personal sender numbers registered.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</section>
+
+<section class="card mt-3">
   <div class="card-hd">Successful SMS deliveries</div>
   <div class="card-bd">
     <div class="table-scroll">
@@ -26,6 +29,7 @@
             <th>From</th>
             <th>To</th>
             <th>Type</th>
+            <th>Status</th>
             <th>Message</th>
           </tr>
         </thead>
@@ -37,10 +41,11 @@
             <td><span class="mono">{{ row.sender_number }}</span></td>
             <td>{{ row.recipient_label }}<br><small class="mono">{{ row.recipient_number }}</small></td>
             <td>{{ row.message_type.replace('_', ' ')|title }}</td>
+            <td>{{ row.delivery_status|title }}</td>
             <td class="sms-audit-message">{{ row.message_content }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="6">No successful SMS deliveries have been recorded yet.</td></tr>
+          <tr><td colspan="7">No successful SMS deliveries have been recorded yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>

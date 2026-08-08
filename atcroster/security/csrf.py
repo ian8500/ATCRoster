@@ -38,6 +38,10 @@ def register_csrf_protection(
     app.jinja_env.globals["csrf_token"] = csrf_token
 
     def enforce_csrf() -> None:
+        # Provider callbacks authenticate with their dedicated bearer token;
+        # they do not have a browser session from which to obtain a CSRF token.
+        if request.endpoint == "messagemedia_delivery_webhook":
+            return
         if request.method in UNSAFE_METHODS:
             validate_csrf()
 

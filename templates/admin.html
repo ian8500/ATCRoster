@@ -2,16 +2,11 @@
 {% block title %}Admin{% endblock %}
 
 {% block content %}
-<section class="compliance-hero">
-  <div>
-    <span class="admin-step">Airport configuration</span>
-    <h2 data-admin-page-title>Roster structure</h2>
-    <p>Manage the people, roster rules and operational settings for {{ current_unit.name }}.</p>
-  </div>
-</section>
-
 {% set admin_nav_interactive = true %}
-{% include "_admin_nav.html" %}
+{% set admin_page_eyebrow = 'Roster setup' %}
+{% set admin_page_title = 'Roster structure' %}
+{% set admin_page_title_dynamic = true %}
+{% include "_admin_context_header.html" %}
 
 <div class="admin-workspace">
   <section id="admin-sms" class="admin-panel" data-admin-panel="sms" hidden>
@@ -26,14 +21,14 @@
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="sms_settings">
       <div class="setup-walkthrough">
-        <article><span>1</span><div><strong>Add Twilio sender numbers</strong><small>Twilio only permits numbers owned by, or approved for, your Twilio account.</small></div></article>
+        <article><span>1</span><div><strong>Set a unit fallback sender</strong><small>Use this only when a Watch Manager has no current verified personal sender.</small></div></article>
         <article><span>2</span><div><strong>Add operational destinations</strong><small>These can be unit mobiles or telephones capable of receiving SMS.</small></div></article>
         <article><span>3</span><div><strong>Choose defaults</strong><small>The Messages page preselects these, but an authorised sender can choose another configured option.</small></div></article>
       </div>
       <div class="admin-form-grid">
         <label>Approved sender numbers
           <textarea name="sms_sender_numbers" rows="6" placeholder="Operations | +447700900123">{% for item in sms_senders %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
-          <small>One per line as “Name | +international number”. These must be Twilio-owned sender numbers; arbitrary caller ID is not allowed.</small>
+          <small>One per line as “Name | +international number”. With Sinch MessageMedia, Watch Managers register and verify their own number from their profile.</small>
         </label>
         <label>Operational destination numbers
           <textarea name="sms_operational_numbers" rows="6" placeholder="Duty desk | +441412345678">{% for item in sms_operational_numbers %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>

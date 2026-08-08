@@ -6,7 +6,7 @@
 </section>
 
 {% if not sms_ready %}
-<div class="alert alert-warning">SMS is unavailable until the Twilio account settings are configured.</div>
+<div class="alert alert-warning">SMS is unavailable until the configured provider credentials and unit fallback sender are set.</div>
 {% endif %}
 
 <section class="card">
@@ -18,7 +18,7 @@
         <select name="sender_number" required>
           {% for item in sender_options %}<option value="{{ item.number }}" {% if selected_sender == item.number %}selected{% endif %}>{{ item.label }} · {{ item.number }}</option>{% endfor %}
         </select>
-        <small>Only sender numbers approved in this airport’s Admin settings can be used.</small>
+        <small>Watch Managers use their own verified mobile sender when available. Replies go directly to that handset, not to ATCRoster.</small>
       </label>
       <label>Recipients
         <select name="scope" id="message-scope">
