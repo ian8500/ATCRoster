@@ -5557,8 +5557,8 @@ def admin_operational_currency():
             requirement = {
                 "enabled": request.form.get("enabled") == "on",
                 "period_type": request.form.get("period_type"),
-                "period_days": int(request.form.get("period_days") or 30),
-                "period_months": int(request.form.get("period_months") or 1),
+                "period_days": int(request.form.get("period_days") or requirement["period_days"]),
+                "period_months": int(request.form.get("period_months") or requirement["period_months"]),
                 "start_date": request.form.get("start_date") or "",
                 "hours_per_ue": float(request.form.get("hours_per_ue") or 0),
                 "ojti_credit_percent": float(request.form.get("ojti_credit_percent") or 0),

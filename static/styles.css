@@ -3571,6 +3571,10 @@ table:not(.roster) td {
   background:#352918;
 }
 
+.currency-period-option--inactive {
+  opacity:.48;
+}
+
 /* Keep report-card titles and descriptions on shared baselines even when a
    title wraps. This makes each row read as a single, orderly set of options. */
 .reports-menu-grid {
