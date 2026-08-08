@@ -3,13 +3,15 @@
 {% macro duration(minutes) -%}{{ '%02d:%02d'|format((minutes or 0) // 60, (minutes or 0) % 60) }}{%- endmacro %}
 {% macro percentage(value, total) -%}{{ '%.1f'|format((100 * (value or 0) / total) if total else 0) }}%{%- endmacro %}
 {% block content %}
-<section class="page-header operational-report-header">
+<section class="compliance-hero operational-report-header">
   <div>
-    <p class="eyebrow">{{ 'Competency' if competency_location else 'Roster' }} · Live Position Monitoring</p>
-    <h1>Operational activity</h1>
+    <span class="admin-step">{{ 'Competency' if competency_location else 'Roster' }} · Live position monitoring</span>
+    <h2>Operational activity</h2>
     <p>Auditable operational time recorded by the live position monitor. Durations are shown as hours and minutes.</p>
   </div>
-  <a class="btn btn-secondary" href="{{ url_for('competency_home') if competency_location else url_for('index') }}">Back to {{ 'competency' if competency_location else 'roster' }}</a>
+  <div class="compliance-actions">
+    <a class="btn btn-secondary" href="{{ url_for('competency_home') if competency_location else url_for('index') }}">Back to {{ 'competency' if competency_location else 'roster' }}</a>
+  </div>
 </section>
 
 <form class="card card-body operational-report-filters" method="get">
