@@ -28,7 +28,9 @@
   <button type="button" class="admin-section-tab" data-profile-section="calendar" aria-controls="profile-calendar" aria-selected="false"><i class="fa-regular fa-calendar"></i><span>Calendar</span></button>
   {% if staff.id == current_user.id %}
   <button type="button" class="admin-section-tab" data-profile-section="security" aria-controls="profile-security" aria-selected="false"><i class="fa-solid fa-key"></i><span>Security</span></button>
+  {% if not mfa_enabled or mfa_recovery_codes %}
   <button type="button" class="admin-section-tab" data-profile-section="mfa" aria-controls="profile-mfa" aria-selected="false"><i class="fa-solid fa-shield-halved"></i><span>MFA</span></button>
+  {% endif %}
   {% endif %}
 </nav>
 
@@ -185,6 +187,7 @@
     </section>
   </section>
 
+  {% if not mfa_enabled or mfa_recovery_codes %}
   <section id="profile-mfa" class="profile-panel" data-profile-panel="mfa" hidden>
     <section class="card">
       <div class="card-hd">Multi-factor authentication</div>
@@ -219,6 +222,7 @@
       </div>
     </section>
   </section>
+  {% endif %}
   {% endif %}
 </div>
 

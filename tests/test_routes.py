@@ -641,9 +641,9 @@ def test_user_can_update_own_profile_contact_details(client):
     assert b'data-profile-section="overview"' in response.data
     assert b'data-profile-section="contact"' in response.data
     assert b'data-profile-section="security"' in response.data
-    assert b'data-profile-section="mfa"' in response.data
+    assert b'data-profile-section="mfa"' not in response.data
     assert b'action="/password"' in response.data
-    assert b"Multi-factor authentication is enabled." in response.data
+    assert b"Multi-factor authentication is enabled." not in response.data
     assert b"Select a profile function" in response.data
     with app.app.app_context():
         staff = db.session.get(Staff, staff_id)
