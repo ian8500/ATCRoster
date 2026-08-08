@@ -1,18 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Roster Fatigue Rules{% endblock %}
 {% block content %}
-{% include "_admin_nav.html" %}
-<section class="admin-function-heading">
-  <div>
-    <span class="admin-step">Compliance configuration</span>
-    <h2>Roster fatigue rules</h2>
-    <p>Control which warnings appear on the roster for <strong>{{ current_unit.name }}</strong> ({{ current_unit.code }}). Every change on this page is isolated to this airport.</p>
-  </div>
-  <div class="compliance-actions">
-    <a class="btn" href="{{ url_for('index') }}">View roster warnings</a>
-    <a class="btn" href="{{ url_for('admin') }}">Back to Admin</a>
-  </div>
-</section>
+{% set admin_page_title = 'Roster fatigue rules' %}
+{% include "_admin_context_header.html" %}
+<div class="compliance-actions admin-page-actions">
+  <a class="btn" href="{{ url_for('index') }}">View roster warnings</a>
+  <a class="btn" href="{{ url_for('admin') }}">Back to roster setup</a>
+</div>
 {% set setup_steps = [('Set duty definitions', 'Confirm the times used to identify early starts and night duties.'), ('Review system rules', 'Adjust warning levels and thresholds to reflect the unit operating environment.'), ('Save the configuration', 'Apply the confirmed settings so roster warnings use the current safety rules.')] %}
 {% include "_setup_walkthrough.html" %}
 

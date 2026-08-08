@@ -1,0 +1,7 @@
+<section class="compliance-hero admin-context-header">
+  <div>
+    <span class="admin-step">{{ admin_page_eyebrow|default('Roster setup') }}</span>
+    <h2{% if admin_page_title_dynamic %} data-admin-page-title{% endif %}>{{ admin_page_title }}</h2>
+  </div>
+</section>
+{% include "_admin_nav.html" %}

@@ -1,14 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Adjust TOIL{% endblock %}
 {% block content %}
-{% include "_admin_nav.html" %}
-<section class="admin-function-heading">
-  <div>
-    <span class="admin-step">People · time off in lieu</span>
-    <h2>Adjust a TOIL balance</h2>
-    <p>Record a manual correction or an award that is not already created by a roster annotation.</p>
-  </div>
-</section>
+{% set admin_page_title = 'People & access' %}
+{% include "_admin_context_header.html" %}
+<section class="admin-function-heading"><div><span class="admin-step">Time off in lieu</span><h3>Adjust a TOIL balance</h3></div></section>
 {% set setup_steps = [('Choose the person', 'Check their current balance before recording an adjustment.'), ('Enter the direction and amount', 'Add or deduct only the agreed number of days or hours.'), ('Record the reason', 'Use a clear reference so the correction can be understood later.')] %}
 {% include "_setup_walkthrough.html" %}
 <form method="post" class="card card-body admin-form-grid">

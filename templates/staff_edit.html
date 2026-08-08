@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ s.name }}{% endblock %}
 {% block content %}
-{% include "_admin_nav.html" %}
-<section class="compliance-hero">
-  <div><span class="admin-step">Staff administration</span><h2>Edit {{ s.name }}</h2><p>Maintain identity, roster placement, qualifications and account settings.</p></div>
-</section>
+{% set admin_page_title = 'People & access' %}
+{% include "_admin_context_header.html" %}
+<section class="admin-function-heading"><div><span class="admin-step">Staff profile</span><h3>Edit {{ s.name }}</h3></div></section>
 
 <form method="post" class="grid">
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

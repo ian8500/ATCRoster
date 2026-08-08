@@ -2,15 +2,9 @@
 {% block title %}Change Log{% endblock %}
 
 {% block content %}
-{% include "_admin_nav.html" %}
+{% set admin_page_title = 'Audit history' %}
+{% include "_admin_context_header.html" %}
 <div class="stack">
-  <header class="admin-function-heading">
-    <div>
-      <span class="admin-step">Administrative audit</span>
-      <h2>Change log</h2>
-      <p>Audit every roster adjustment, leave update and administrative action in one consistent view.</p>
-    </div>
-  </header>
   {% set setup_steps = [('Start with a period', 'Use the month filter to focus on the roster period you need to review.'), ('Narrow the result', 'Add an entity or user reference when investigating a specific change.'), ('Read the context', 'Compare the previous and new values with the recorded reason before taking action.')] %}
   {% include "_setup_walkthrough.html" %}
 

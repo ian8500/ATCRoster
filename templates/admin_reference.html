@@ -2,15 +2,8 @@
 {% block title %}Reference Data{% endblock %}
 
 {% block content %}
-{% include "_admin_nav.html" %}
-
-<header class="admin-function-heading">
-  <div>
-    <span class="admin-step">Roster configuration</span>
-    <h2>Roster codes and annotations</h2>
-    <p>Create the labels shown on roster cells and maintain the reusable code lists used by airport workflows.</p>
-  </div>
-</header>
+{% set admin_page_title = 'Leave & annotations' %}
+{% include "_admin_context_header.html" %}
 
 <section class="admin-section">
   <header class="section-header">

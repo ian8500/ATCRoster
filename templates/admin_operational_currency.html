@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Operational currency{% endblock %}
 {% block content %}
-{% include "_admin_nav.html" %}
-<section class="admin-function-heading"><div><span class="admin-step">Live position monitoring</span><h2>Operational currency</h2><p>Set the minimum credited operational time each controller must achieve for every current unit endorsement.</p></div></section>
+{% set admin_page_title = 'Operational currency' %}
+{% include "_admin_context_header.html" %}
 {% set setup_steps = [('Choose the currency period', 'Use a rolling number of days or the current and previous calendar months.'), ('Set the target per UE', 'The required total is automatically multiplied by each controller’s current UEs.'), ('Limit OJTI credit', 'OJTI time may count towards the target, up to the percentage you set.')] %}
 {% include "_setup_walkthrough.html" %}
 <form method="post" class="card card-body admin-form-grid">
