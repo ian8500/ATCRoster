@@ -114,8 +114,11 @@
   </div>
 
   <!-- Sickness instances overlapping the selected month -->
-  <div class="card mb-4">
-    <div class="card-header"><strong>Sickness instances — {{ month_title }}</strong></div>
+  <details class="card mb-4 absence-entry-panel">
+    <summary class="card-header">
+      <strong>Sickness instances — {{ month_title }}</strong>
+      <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
+    </summary>
     <div class="card-body sickness-instance-list">
       {% for instance in sickness_instances %}
       <details class="sickness-instance">
@@ -166,12 +169,15 @@
       <p class="text-muted mb-0">No sickness instances overlap this month.</p>
       {% endfor %}
     </div>
-  </div>
+  </details>
 
   <!-- Existing Leave (month) -->
-  <div class="card">
-    <div class="card-header d-flex flex-wrap justify-content-between align-items-end gap-3">
+  <details class="card absence-entry-panel">
+    <summary class="card-header">
       <strong>Existing Leave — {{ month_title }}</strong>
+      <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
+    </summary>
+    <div class="card-body pb-0">
       <form method="get" class="d-flex flex-wrap align-items-end gap-2" aria-label="Filter existing leave by watch">
         <input type="hidden" name="ym" value="{{ ym }}">
         <label class="form-label mb-0" for="leave-watch-filter">Watch
@@ -229,6 +235,6 @@
         </tbody>
       </table>
     </div>
-  </div>
+  </details>
 </div>
 {% endblock %}
