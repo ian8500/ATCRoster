@@ -2,11 +2,11 @@
 {% block title %}Handover{% endblock %}
 {% block content %}
 <section class="compliance-hero"><div><span class="admin-step">Operational continuity</span><h2>Handover</h2><p>Keep this shared handover current for the incoming Watch Manager.</p></div></section>
-{% include "handover/_operational_header.html" %}
-{% include "handover/_next_shift.html" %}
 <form method="post" class="handover-form">
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-  <section class="card handover-form-section"><div class="card-hd">Current operation</div><div class="card-bd handover-fields"><label><span>Runway in use</span><select name="runway_in_use"><option value="">Select runway</option>{% set selected_runway = request.form.get('runway_in_use', operational_state.runway_in_use) %}{% for runway in runway_options %}<option value="{{ runway }}" {% if selected_runway == runway %}selected{% endif %}>{{ runway }}</option>{% endfor %}</select>{% if not runway_options %}<small>Configure runway options in Setup.</small>{% endif %}</label></div></section>
+  {% set handover_editing = true %}
+  {% include "handover/_operational_header.html" %}
+  {% include "handover/_next_shift.html" %}
   {% if equipment %}<section class="card handover-form-section"><div class="card-hd">Equipment serviceability</div><div class="card-bd handover-equipment-editor">{% for item in equipment %}<article><div><strong>{{ item.name }}</strong><small>Last state remains until changed</small></div><label>Status<select name="equipment_status_{{ item.id }}"><option value="green" {% if item.status == 'green' %}selected{% endif %}>Green · serviceable</option><option value="amber" {% if item.status == 'amber' %}selected{% endif %}>Amber · degraded</option><option value="red" {% if item.status == 'red' %}selected{% endif %}>Red · unavailable</option></select></label><label>Serviceability statement<input name="equipment_note_{{ item.id }}" maxlength="240" value="{{ item.note }}" placeholder="Current condition or restriction"></label></article>{% endfor %}</div></section>{% endif %}
   {% set state = namespace(section='') %}
   {% for field in fields %}
