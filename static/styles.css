@@ -3770,6 +3770,14 @@ table:not(.roster) td {
 /* Training & competency */
 .training-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;padding:1.5rem;margin-bottom:1rem;border:1px solid rgba(83,170,255,.2);border-radius:18px;background:linear-gradient(135deg,rgba(37,92,126,.52),rgba(22,31,45,.96))}
 .training-hero h2{margin:.2rem 0}.training-hero p{margin:0;color:var(--muted,#aab7c4)}
+
+/* Page headers use the title alone. Guidance belongs with the controls or
+   content it describes, not in a second line beneath every page heading. */
+.compliance-hero > div:first-child > p,
+.training-hero > div:first-child > p,
+.admin-function-heading > div:first-child > p,
+.page-header > div:first-child > p,
+.module-launcher__intro > p:not(.eyebrow){display:none;}
 .training-total{min-width:150px;padding:.8rem 1rem;border-radius:12px;background:rgba(255,255,255,.06);text-align:right}.training-total span{display:block;color:var(--muted,#aab7c4);font-size:.76rem;text-transform:uppercase;letter-spacing:.08em}.training-total strong{font-size:1.7rem}
 .training-sync{float:right;color:#72d6a3;font-size:.76rem}.training-profile-fields{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:.8rem}.training-profile-fields label{display:grid;gap:.3rem}.training-profile-fields .btn{align-self:end}
 .training-level-tabs{display:flex;gap:.4rem;overflow:auto;margin:1rem 0}.training-level-tabs a{white-space:nowrap;padding:.65rem .9rem;border:1px solid var(--border,#39434f);border-radius:9px;color:var(--text,#eef3f8);text-decoration:none}.training-level-tabs a.active{background:#2f80c7;border-color:#58aef5}
