@@ -11,7 +11,7 @@
   {% set in_training_module = request.endpoint and request.endpoint.startswith('training_') %}
   {% set in_competency_module = request.endpoint and (request.endpoint.startswith('competency_') or (request.endpoint == 'live_position.operational_activity' and has_competency_module)) %}
   {% set in_shared_admin = request.endpoint in (
-    'administration_home', 'unit_accounts', 'kiosk_accounts',
+    'administration_home', 'kiosk_accounts',
     'live_position.position_configuration'
   ) %}
   {% set report_endpoints = (
