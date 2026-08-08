@@ -318,7 +318,7 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
         field_id = field.id
         equipment_id = equipment.id
 
-    landing = client.get("/handover/")
+    landing = client.get("/handover/edit")
     assert landing.status_code == 200
     assert b"Next shift" in landing.data
     assert b"Handover duty" in landing.data
@@ -329,6 +329,17 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
     assert form.status_code == 200
     assert b"Airfield status" in form.data
     assert b"Restricted" in form.data
+
+    configured = client.post(
+        "/handover/settings",
+        data={
+            "_csrf_token": csrf(client), "action": "save_operational",
+            "metar_icao": "EGPF", "runway_options": "23\n05\n05/23",
+        },
+        follow_redirects=True,
+    )
+    assert configured.status_code == 200
+    assert b"Runway options" in configured.data
 
     updated = client.post(
         "/handover/edit",
@@ -356,6 +367,7 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
         assert equipment.note == "Main channel degraded"
 
     retained = client.get("/handover/edit")
+    assert b'<option value="23" selected>' in retained.data
     assert b'<option value="Restricted" selected>' in retained.data
     assert b'value="23"' in retained.data
     assert b'Main channel degraded' in retained.data

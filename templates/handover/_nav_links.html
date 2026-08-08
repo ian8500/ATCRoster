@@ -1,3 +1,2 @@
-<a href="{{ url_for('handover.edit') }}" class="nav-link {% if request.endpoint == 'handover.edit' %}active{% endif %}"><i class="fa-solid fa-right-left" aria-hidden="true"></i> Current handover</a>
-{% if request.endpoint in ('handover.home', 'handover.view') %}<a href="{{ url_for('handover.home') }}" class="nav-link active"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Handover record</a>{% endif %}
-{% if is_admin %}<a href="{{ url_for('handover.settings') }}" class="nav-link {% if request.endpoint == 'handover.settings' %}active{% endif %}"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Setup</a>{% endif %}
+<a href="{{ url_for('handover.edit') }}" class="nav-link {% if request.endpoint in ('handover.home', 'handover.edit') %}active{% endif %}"><i class="fa-solid fa-right-left" aria-hidden="true"></i> Handover</a>
+{% if is_admin %}<a href="{{ url_for('handover.settings') }}" class="nav-link handover-nav__setup {% if request.endpoint == 'handover.settings' %}active{% endif %}"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Setup</a>{% endif %}

@@ -177,6 +177,15 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
             deps.db.session.flush()
         return state
 
+    def runway_options(state: Any) -> list[str]:
+        try:
+            options = json.loads(state.runway_options_json or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            options = []
+        if not isinstance(options, list):
+            return []
+        return [str(option).strip()[:40] for option in options if str(option).strip()]
+
     def equipment_rows(unit_id: int, active_only: bool = True) -> list[Any]:
         query = deps.HandoverEquipment.query.filter_by(unit_id=unit_id)
         if active_only:
@@ -242,6 +251,7 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         state = operational_state(unit_id)
         return {
             "operational_state": state,
+            "runway_options": runway_options(state),
             "metar": current_metar(state.metar_icao),
             "equipment": equipment_rows(unit_id),
             "live_positions": live_positions(unit_id),
@@ -255,6 +265,8 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
 
     @bp.get("/")
     def home():
+        if can_write():
+            return redirect(url_for("handover.edit"))
         unit_id = deps.current_unit_id()
         records = deps.HandoverRecord.query.filter_by(
             unit_id=unit_id, status="published",
@@ -290,6 +302,9 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
             deps.validate_csrf()
             state = context["operational_state"]
             state.runway_in_use = (request.form.get("runway_in_use") or "").strip()[:40]
+            configured_runways = context["runway_options"]
+            if state.runway_in_use and configured_runways and state.runway_in_use not in configured_runways:
+                abort(400, "Select a configured runway option.")
             state.updated_by_id = current_user.id
             state.updated_by_name = current_user.name
             for equipment in context["equipment"]:
@@ -393,6 +408,12 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
                 if icao and not re.fullmatch(r"[A-Z]{4}", icao):
                     abort(400, "Enter a four-letter ICAO code.")
                 state.metar_icao = icao
+                runways = []
+                for line in (request.form.get("runway_options") or "").splitlines():
+                    runway = line.strip()[:40]
+                    if runway and runway not in runways:
+                        runways.append(runway)
+                state.runway_options_json = json.dumps(runways)
                 state.updated_by_id = current_user.id
                 state.updated_by_name = current_user.name
                 flash("Operational header settings saved.", "ok")
@@ -435,7 +456,13 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         state = operational_state(unit_id)
         equipment = equipment_rows(unit_id, active_only=False)
         deps.db.session.commit()
-        return render_template("handover/settings.html", fields=fields, operational_state=state, equipment=equipment)
+        return render_template(
+            "handover/settings.html",
+            fields=fields,
+            operational_state=state,
+            runway_options=runway_options(state),
+            equipment=equipment,
+        )
 
     bp.handover_enabled = enabled
     return bp

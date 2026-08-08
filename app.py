@@ -1359,6 +1359,7 @@ class HandoverOperationalState(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, unique=True, index=True)
     runway_in_use = db.Column(db.String(40), nullable=False, default="")
+    runway_options_json = db.Column(db.Text, nullable=False, default="[]")
     metar_icao = db.Column(db.String(4), nullable=False, default="")
     updated_by_id = db.Column(db.Integer)
     updated_by_name = db.Column(db.String(80), nullable=False, default="")
