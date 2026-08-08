@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 import json
 import re
-import secrets
 from typing import Any, Callable
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
@@ -226,7 +225,7 @@ def create_fatigue_compliance_blueprint(
                         parameter_item["value"] = value
                     dependencies.save_rule_config(config)
                     flash(f"{code} fatigue rule updated.", "ok")
-                elif action in {"add_custom", "update_custom"}:
+                elif action == "update_custom":
                     rule_type = request.form.get("rule_type") or ""
                     if rule_type not in CUSTOM_FATIGUE_RULE_TYPES:
                         raise ValueError("Choose a supported rule check.")
@@ -251,13 +250,8 @@ def create_fatigue_compliance_blueprint(
                         item for item in config["custom"]
                         if item.get("code") == code
                     ), None)
-                    if action == "update_custom" and not existing:
-                        abort(404)
                     if not existing:
-                        existing = {
-                            "code": f"USR-{secrets.token_hex(3).upper()}"
-                        }
-                        config["custom"].append(existing)
+                        abort(404)
                     existing.update({
                         "name": name[:120],
                         "rule_type": rule_type,

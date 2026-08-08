@@ -73,28 +73,6 @@
 </section>
 
 <section class="card mt-3">
-  <div class="card-hd">Add a local rule</div>
-  <div class="card-bd">
-    <p class="muted">Choose what the system should measure and enter the operational limit. The new rule is evaluated for every operational ATCO and appears on roster cells and in Compliance.</p>
-    <form method="post" class="admin-form-grid">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="add_custom">
-      <label>Rule name<input name="name" required maxlength="120" placeholder="e.g. Local maximum duty"></label>
-      <label>What should be checked?
-        <select name="rule_type" required data-fatigue-rule-type>
-          {% for value, meta in rule_types.items() %}<option value="{{ value }}" data-uses-window="{{ 'yes' if meta.uses_window else 'no' }}" data-default="{{ meta.default }}" data-window="{{ meta.default_window or 1 }}">{{ meta.label }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>Limit<input type="number" name="threshold" min="0.25" step="0.25" value="10" required><small>The unit is explained by the selected check.</small></label>
-      <label>Review period (days)<input type="number" name="window_days" min="1" max="365" value="1"><small>Used only for checks measured over a period.</small></label>
-      <label>Warning level<select name="severity"><option value="warning">Warning</option><option value="critical">Critical</option></select></label>
-      <label class="checkbox"><input type="checkbox" name="enabled" checked> Start monitoring immediately</label>
-      <div class="form-actions"><button class="btn btn-primary" type="submit">Add fatigue rule</button></div>
-    </form>
-  </div>
-</section>
-
-<section class="card mt-3">
   <div class="card-hd">Local rules</div>
   <div class="card-bd">
     {% for rule in custom_rules %}
@@ -133,21 +111,4 @@
   </div>
 </section>
 
-<script nonce="{{ csp_nonce() }}">
-(() => {
-  const select = document.querySelector('[data-fatigue-rule-type]');
-  const form = select?.closest('form');
-  const threshold = form?.querySelector('[name="threshold"]');
-  const windowDays = form?.querySelector('[name="window_days"]');
-  const updateDefaults = () => {
-    const option = select?.selectedOptions[0];
-    if (!option) return;
-    threshold.value = option.dataset.default || threshold.value;
-    windowDays.value = option.dataset.window || '1';
-    windowDays.disabled = option.dataset.usesWindow !== 'yes';
-  };
-  select?.addEventListener('change', updateDefaults);
-  updateDefaults();
-})();
-</script>
 {% endblock %}
