@@ -5,7 +5,7 @@
 <section class="compliance-hero">
   <div>
     <span class="admin-step">Airport configuration</span>
-    <h2>Administration</h2>
+    <h2 data-admin-page-title>Roster structure</h2>
     <p>Manage the people, roster rules and operational settings for {{ current_unit.name }}.</p>
   </div>
 </section>
@@ -434,6 +434,7 @@
 (() => {
   const tabs = [...document.querySelectorAll('[data-admin-section]')];
   const panels = [...document.querySelectorAll('[data-admin-panel]')];
+  const pageTitle = document.querySelector('[data-admin-page-title]');
   const valid = new Set(tabs.map(tab => tab.dataset.adminSection));
   const show = (name, updateUrl = true) => {
     if (!valid.has(name)) name = 'roster-setup';
@@ -441,6 +442,7 @@
       const selected = tab.dataset.adminSection === name;
       tab.classList.toggle('active', selected);
       tab.setAttribute('aria-selected', String(selected));
+      if (selected && pageTitle) pageTitle.textContent = tab.querySelector('span')?.textContent || 'Administration';
     });
     panels.forEach(panel => {
       const selected = panel.dataset.adminPanel === name;
