@@ -66,6 +66,7 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
         if can_view_people:
             people = (
                 dependencies.Staff.query.filter_by(unit_id=unit_id, is_operational=True)
+                .filter(dependencies.Staff.role != "position_monitor")
                 .order_by(dependencies.Staff.name)
                 .all()
             )
@@ -215,6 +216,7 @@ def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
         if can_view_people:
             people = (
                 dependencies.Staff.query.filter_by(unit_id=unit_id, is_operational=True)
+                .filter(dependencies.Staff.role != "position_monitor")
                 .order_by(dependencies.Staff.name)
                 .all()
             )

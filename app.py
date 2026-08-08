@@ -5576,6 +5576,7 @@ def admin():
     ).order_by(WorkPattern.name).all()
     staff = (Staff.query
              .outerjoin(Watch, Staff.watch_id == Watch.id)
+             .filter(Staff.role != "position_monitor")
              .order_by(Watch.order_index, Staff.name).all())
     # Keep the staffing screen focused on a useful planning horizon instead of
     # making administrators scan fixed calendar years (and eventually stale
@@ -5921,7 +5922,7 @@ def admin_staff_edit(sid):
 
     s = Staff.query.filter_by(
         id=sid, unit_id=_current_unit_id()
-    ).first_or_404()
+    ).filter(Staff.role != "position_monitor").first_or_404()
     if request.method == "POST":
         old_profile = {
             "watch_id": s.watch_id,
@@ -6256,7 +6257,7 @@ def admin_watch_move(sid):
         abort(403)
     s = Staff.query.filter_by(
         id=sid, unit_id=_current_unit_id()
-    ).first_or_404()
+    ).filter(Staff.role != "position_monitor").first_or_404()
     watch_id_val = request.form.get("watch_id")
     eff = (request.form.get("effective_date") or "").strip()
 
@@ -6477,7 +6478,7 @@ def _training_profile_allowed(person):
 def staff_profile(sid):
     s = Staff.query.filter_by(
         id=sid, unit_id=_current_unit_id()
-    ).first_or_404()
+    ).filter(Staff.role != "position_monitor").first_or_404()
     if s.id != current_user.id and not is_editor_user(current_user):
         abort(403)
     if request.method == "POST":
@@ -7217,7 +7218,7 @@ def unit_messages():
         abort(403)
     people = Staff.query.filter_by(
         membership_status="active"
-    ).order_by(Staff.name).all()
+    ).filter(Staff.role != "position_monitor").order_by(Staff.name).all()
     watches = Watch.query.order_by(Watch.order_index, Watch.name).all()
     selected_scope = request.form.get("scope", "all")
     selected_recipient = request.form.get("recipient_id", "")
@@ -8504,7 +8505,7 @@ def unit_accounts():
     }
     roster_people = Staff.query.filter_by(
         unit_id=unit_id
-    ).order_by(Staff.name).all()
+    ).filter(Staff.role != "position_monitor").order_by(Staff.name).all()
     eligible_people = [
         person for person in roster_people
         if person.id not in unavailable_person_ids
@@ -9404,7 +9405,7 @@ def qualification_compliance():
     ).order_by(QualificationType.code).all()
     people = Staff.query.filter_by(
         unit_id=unit_id, is_operational=True
-    ).order_by(Staff.name).all()
+    ).filter(Staff.role != "position_monitor").order_by(Staff.name).all()
     qualifications = PersonQualification.query.filter_by(
         unit_id=unit_id
     ).all()
@@ -9503,7 +9504,9 @@ def _position_assurance(year: int, month: int) -> list[dict]:
 @admin_required
 def admin_toil_new():
     atcos = Staff.query.filter_by(
-        is_operational=True).order_by(Staff.name.asc()).all()
+        is_operational=True).filter(
+            Staff.role != "position_monitor"
+        ).order_by(Staff.name.asc()).all()
     if request.method == "POST":
         _validate_csrf()
         try:

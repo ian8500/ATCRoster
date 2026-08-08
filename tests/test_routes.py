@@ -1946,6 +1946,19 @@ def test_position_monitor_account_is_hidden_from_roster_and_export(client):
         assert b"Hidden Position Monitor" not in response.data
         assert b"KIOSK-HIDDEN" not in response.data
 
+    people_management_responses = [
+        client.get("/admin"),
+        client.get("/leave"),
+        client.get("/admin/toil/new"),
+        client.get("/compliance"),
+        client.get("/unit/accounts"),
+    ]
+    for response in people_management_responses:
+        assert response.status_code == 200
+        assert b"Hidden Position Monitor" not in response.data, response.request.path
+        assert b"KIOSK-HIDDEN" not in response.data
+    assert client.get(f"/admin/staff/{kiosk_id}").status_code == 404
+
     with app.app.app_context():
         Assignment.query.filter_by(staff_id=kiosk_id).delete()
         Staff.query.filter_by(id=kiosk_id).delete()

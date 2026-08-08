@@ -290,7 +290,7 @@ def create_work_pattern_blueprint(
         unit_id = require_admin()
         staff = dependencies.Staff.query.filter_by(
             id=staff_id, unit_id=unit_id
-        ).first_or_404()
+        ).filter(dependencies.Staff.role != "position_monitor").first_or_404()
         if request.method == "POST":
             dependencies.validate_csrf()
             action = (request.form.get("action") or "").strip()

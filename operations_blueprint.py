@@ -463,6 +463,7 @@ def create_operations_blueprint(dependencies: OperationsDependencies) -> Bluepri
         )
         people = (
             dependencies.Staff.query.filter_by(unit_id=unit_id, is_operational=True)
+            .filter(dependencies.Staff.role != "position_monitor")
             .order_by(dependencies.Staff.name)
             .all()
         )

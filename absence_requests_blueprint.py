@@ -72,7 +72,9 @@ def create_absence_requests_blueprint(
         ):
             abort(403)
 
-        staff = dependencies.Staff.query.order_by(dependencies.Staff.name).all()
+        staff = dependencies.Staff.query.filter(
+            dependencies.Staff.role != "position_monitor"
+        ).order_by(dependencies.Staff.name).all()
 
         # ---------- month selection ----------
         today = date.today()
@@ -428,6 +430,7 @@ def create_absence_requests_blueprint(
             ).filter(
                 dependencies.Leave.end >= start_of_month,
                 dependencies.Leave.start <= end_of_month,
+                dependencies.Staff.role != "position_monitor",
             )
         )
         if selected_watch_id is not None:
@@ -451,7 +454,14 @@ def create_absence_requests_blueprint(
                     dependencies.Assignment.code,
                 )
             )
-            .filter(dependencies.Assignment.code.in_(all_sickness_codes))
+            .join(
+                dependencies.Staff,
+                dependencies.Assignment.staff_id == dependencies.Staff.id,
+            )
+            .filter(
+                dependencies.Assignment.code.in_(all_sickness_codes),
+                dependencies.Staff.role != "position_monitor",
+            )
             .order_by(
                 dependencies.Assignment.staff_id.asc(),
                 dependencies.Assignment.day.asc(),
