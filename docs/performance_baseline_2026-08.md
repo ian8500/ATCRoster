@@ -22,3 +22,13 @@ For a measured runtime comparison, run the authenticated fixture through the
 existing browser telemetry endpoint (`/roster/telemetry`) against `main` and
 this branch. It records browser render, DOM-interactive and transfer values
 without recording user data.
+
+For repeatable HTTP, transfer-size and HTML/DOM-size measurements, use
+`scripts/measure_http_performance.py` against a local or staging URL. Supply
+an authenticated session cookie only through the command line/environment;
+the utility does not persist it. Example:
+
+```bash
+python scripts/measure_http_performance.py --cookie "session=…" \
+  http://127.0.0.1:8000/roster/2026-08
+```
