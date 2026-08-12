@@ -22,8 +22,6 @@ import logging
 import click
 import hashlib
 import pyotp
-import qrcode
-import qrcode.image.svg
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.session import Session as FlaskSqlAlchemySession
@@ -9952,6 +9950,9 @@ def _complete_platform_login(identity, user, recovery_used=False):
 
 def _totp_qr_data_uri(provisioning_uri: str) -> str:
     """Render a TOTP URI locally so MFA secrets never leave the application."""
+    import qrcode
+    import qrcode.image.svg
+
     qr_buffer = io.BytesIO()
     qrcode.make(
         provisioning_uri,
