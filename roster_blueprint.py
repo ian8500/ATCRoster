@@ -612,6 +612,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         }
         special_requirements = (
             dependencies.SpecialRequirement.query.filter(
+                dependencies.SpecialRequirement.unit_id == unit_id,
                 dependencies.SpecialRequirement.day >= start,
                 dependencies.SpecialRequirement.day < month_end,
             )
