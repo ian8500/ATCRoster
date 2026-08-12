@@ -24,6 +24,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
+from atcroster.roster.month_view import MonthDisplayDependencies, RosterMonthViewService
 from reporting import csv_safe_cell
 
 
@@ -597,21 +598,6 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         except Exception:
             watch_order = {}
 
-        def rank_within_watch(person):
-            if getattr(person, "is_wm", False):
-                return 0
-            if getattr(person, "is_dwm", False):
-                return 1
-            return 2
-
-        staff.sort(
-            key=lambda person: (
-                watch_order.get(display_watch_by_staff.get(person.id), 9999),
-                rank_within_watch(person),
-                person.name,
-            )
-        )
-        counters = {duty_day: Counter() for duty_day in days}
         cached_analysis = dependencies.roster_month_cache.get(
             unit_id, year, month
         )
@@ -620,32 +606,6 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             dependencies.operational_capability_matrix(staff, days)
         )
         excluded = dependencies.exclude_from_counters()
-        for person in staff:
-            if not getattr(person, "is_operational", True):
-                continue
-            row = assignment_map.get(person.id, {})
-            for duty_day in days:
-                capability = capability_matrix.get((person.id, duty_day))
-                if capability is not None:
-                    countable = capability.counts_as_operational
-                else:
-                    countable = dependencies.staff_is_countable_on(person, duty_day)
-                if not countable:
-                    continue
-                code = (row.get(duty_day) or "").upper()
-                if (
-                    not code
-                    or code in excluded
-                    or code in training_codes
-                    or code in ("AL", "NOPS")
-                ):
-                    continue
-                group = dependencies.shift_counter_group_for_day(
-                    code, duty_day, unit_id
-                )
-                if group:
-                    counters[duty_day][group] += 1
-
         night_active = {
             duty_day: dependencies.night_active_on(unit_id, duty_day)
             for duty_day in days
@@ -665,21 +625,19 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             )
             for duty_day in days
         }
-        rag = {}
-        for duty_day in days:
-            rag[duty_day] = {}
-            for code in ("M", "D", "A", "N"):
-                available = counters[duty_day][code]
-                needed = (
-                    0
-                    if code == "N" and not night_active[duty_day]
-                    else requirements[duty_day][code]
-                )
-                rag[duty_day][code] = (
-                    "green"
-                    if available >= needed
-                    else ("amber" if available >= max(0, needed - 1) else "red")
-                )
+        display_state = RosterMonthViewService(MonthDisplayDependencies(
+            staff_is_countable_on=dependencies.staff_is_countable_on,
+            shift_counter_group_for_day=dependencies.shift_counter_group_for_day,
+        )).build(
+            staff=staff, days=days, assignment_map=assignment_map,
+            capability_matrix=capability_matrix, excluded=excluded,
+            training_codes=training_codes, requirements=requirements,
+            night_active=night_active, unit_id=unit_id,
+            display_watch_by_staff=display_watch_by_staff, watch_order=watch_order,
+            today=date.today(),
+        )
+        counters = display_state["counters"]
+        rag = display_state["rag"]
         if cached_analysis:
             fatigue = cached_analysis["fatigue"]
             roster_validation = cached_analysis["roster_validation"]
@@ -733,41 +691,8 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             )
         }
         today = date.today()
-
-        def expiry_class(expiry: date | None, under_training=False):
-            if under_training:
-                return "exp-amber"
-            if not expiry:
-                return ""
-            remaining = (expiry - today).days
-            if remaining < 0:
-                return "exp-red"
-            if remaining <= 90:
-                return "exp-amber"
-            return "exp-green"
-
-        expiry_classes = {
-            person.id: {
-                "medical": expiry_class(person.medical_expiry),
-                "tower": expiry_class(person.tower_ue_expiry, person.tower_ut),
-                "radar": expiry_class(person.radar_ue_expiry, person.radar_ut),
-                "met": expiry_class(person.met_ue_expiry, person.met_ut),
-            }
-            for person in staff
-        }
-        watch_break_after_ids = []
-        previous_watch = None
-        previous_id = None
-        for person in staff:
-            current_watch = display_watch_by_staff.get(person.id)
-            if (
-                previous_watch is not None
-                and current_watch != previous_watch
-                and previous_id is not None
-            ):
-                watch_break_after_ids.append(previous_id)
-            previous_watch = current_watch
-            previous_id = person.id
+        expiry_classes = display_state["expiry_classes"]
+        watch_break_after_ids = display_state["watch_break_after_ids"]
         active_publication = dependencies.active_publication(year, month)
         roster_publication = (
             active_publication

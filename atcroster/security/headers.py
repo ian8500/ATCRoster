@@ -70,7 +70,12 @@ def register_security_headers(
             response.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
             )
-        if current_user.is_authenticated:
+        # Static URLs emitted by ``asset_url`` have an mtime version query
+        # parameter. They are safe to cache even for an authenticated user;
+        # dynamic responses remain private below.
+        if request.endpoint == "static" and request.args.get("v"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif current_user.is_authenticated:
             response.headers.setdefault("Cache-Control", "no-store, private")
         started_at = getattr(g, "metrics_started_at", None)
         if started_at is not None:

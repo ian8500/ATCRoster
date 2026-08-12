@@ -117,3 +117,17 @@ def test_roster_request_records_timing_and_slow_request_metric():
     assert response.headers["Server-Timing"] == "roster;dur=2500.00"
     assert "atcroster_roster_page_requests_total 1" in rendered
     assert "atcroster_roster_page_slow_requests_total 1" in rendered
+
+
+def test_versioned_static_assets_are_immutable_but_dynamic_responses_are_not():
+    application = Flask(__name__, static_folder="../static")
+    application.secret_key = "static-cache-test"
+    register_security_headers(application, SecurityHeaderDependencies(
+        deployment_environment="test", metrics=object(),
+        finish_request=lambda *_args, **_kwargs: 0.0,
+    ))
+
+    response = application.test_client().get("/static/styles.css?v=123")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "public, max-age=31536000, immutable"

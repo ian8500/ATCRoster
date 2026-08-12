@@ -188,18 +188,22 @@ _decrypt_field = _field_encryption.decrypt
 app.jinja_env.globals['now'] = lambda: datetime.now()
 
 
+@lru_cache(maxsize=256)
+def _asset_version(filename: str) -> Optional[int]:
+    """Return a process-stable static version without a stat per template use."""
+    static_folder = app.static_folder
+    if not static_folder:
+        return None
+    try:
+        return int(os.path.getmtime(os.path.join(static_folder, filename)))
+    except (OSError, TypeError, ValueError):
+        return None
+
+
 def _asset_url(filename: str, **extra: object) -> str:
     """Return a cache-busting static asset URL using the file mtime."""
 
-    static_folder = app.static_folder
-    version: Optional[int] = None
-
-    if static_folder:
-        try:
-            path = os.path.join(static_folder, filename)
-            version = int(os.path.getmtime(path))
-        except (OSError, TypeError, ValueError):
-            version = None
+    version = _asset_version(filename)
 
     if version is not None:
         return url_for("static", filename=filename, v=version, **extra)
