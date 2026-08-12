@@ -76,7 +76,9 @@ Railway staging is an isolated service with separate staging databases. This
 branch was deployed successfully to `https://pilot.atcroster.com`: control and
 operational databases both migrated to `20260812_57`, Waitress started, and
 liveness, readiness and login-page checks passed. The deployment reports
-`"environment":"staging"`. Production was not changed.
+`"environment":"staging"`. The separately deployed staging worker also
+completed the same migrations and started successfully. Production was not
+changed.
 
 The staging repair configured explicit owner-backed migration URLs, disabled
 runtime `db.create_all()` through `ATCROSTER_SKIP_RUNTIME_SCHEMA=1`, and aligned
