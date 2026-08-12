@@ -61,11 +61,16 @@ PYTHONPATH=. python -m pytest -q tests/test_roster_month_view.py \
   tests/test_roster_blueprint.py
 ```
 
-The missing operational-currency duration helper was restored and stale
+The missing operational-currency duration helper was restored, stale
 multi-database integration assertions were advanced to the actual Alembic head
-(`20260808_56`). The targeted Ruff check now passes. Railway is linked only to
-production, so no deployment was attempted; the branch is instead validated by
-the draft pull request's CI workflow.
+(`20260808_56`), and the handover migration was made compatible with historical
+`unit` schemas on both SQLite and PostgreSQL. The targeted Ruff check now
+passes.
+
+Railway staging is an isolated service with separate staging databases. Its
+read-only liveness, readiness and login-page checks passed at
+`https://pilot.atcroster.com`; this branch has not been deployed there or to
+production. The draft pull request's CI workflow remains the release gate.
 
 ## Next work
 
