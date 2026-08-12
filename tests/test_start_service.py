@@ -1,5 +1,3 @@
-import os
-
 from scripts.start_service import waitress_threads
 
 
