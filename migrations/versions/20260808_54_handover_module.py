@@ -23,7 +23,6 @@ def upgrade():
         bind = op.get_bind()
         existing = set(sa.inspect(bind).get_table_names())
         if {"unit", "feature_flag"} <= existing:
-            unit = sa.table("unit", sa.column("id", sa.Integer()))
             feature = sa.table(
                 "feature_flag", sa.column("unit_id", sa.Integer()),
                 sa.column("key", sa.String()), sa.column("enabled", sa.Boolean()),
@@ -34,13 +33,17 @@ def upgrade():
             unit_columns = {
                 column["name"] for column in sa.inspect(bind).get_columns("unit")
             }
-            statement = sa.select(unit.c.id)
             if "status" in unit_columns:
                 unit = sa.table(
                     "unit", sa.column("id", sa.Integer()),
                     sa.column("status", sa.String()),
                 )
-                statement = statement.where(unit.c.status != "platform_control")
+                statement = sa.select(unit.c.id).where(
+                    unit.c.status != "platform_control"
+                )
+            else:
+                unit = sa.table("unit", sa.column("id", sa.Integer()))
+                statement = sa.select(unit.c.id)
             unit_ids = bind.execute(statement).scalars()
             for unit_id in unit_ids:
                 if unit_id not in enabled_units:
