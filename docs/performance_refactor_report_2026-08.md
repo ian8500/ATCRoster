@@ -77,11 +77,12 @@ read-only liveness, readiness and login-page checks passed at
 `https://pilot.atcroster.com`; this branch has not been deployed there or to
 production. The draft pull request's CI workflow remains the release gate.
 
-The staging service currently reports `"environment":"production"` from its
-liveness payload despite being linked to Railway's staging environment. This is
-an environment-label configuration discrepancy to correct before treating that
-service as a final staging acceptance target; it does not change the separate
-database or service target selected for the blocked pre-deploy attempt.
+The staging service previously reported `"environment":"production"` from its
+liveness payload despite being linked to Railway's staging environment.
+`ATCROSTER_ENVIRONMENT=staging` is now configured on both staging web and worker
+services without triggering a deployment. The running prior release retains its
+old process environment until the ownership-blocked deployment can proceed; the
+next successful deployment will expose the correct staging label.
 
 ## Next work
 
