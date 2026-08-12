@@ -845,12 +845,15 @@ def test_roster_has_persistent_zoom_presets(client):
     assert response.data.count(b'class="annot-select" data-annotation-select') == 1
     assert b">Annotate</button>" not in response.data
     assert b'<span aria-hidden="true">&nbsp;</span></button>' in response.data
-    assert b"Saving\xe2\x80\xa6" in response.data
-    assert b"atcroster:scroll:" in response.data
-    assert b"updateRosterStatusFrameWidth" in response.data
-    assert b"--roster-status-frame-width" in response.data
+    assert b"roster.js?v=" in response.data
+    roster_script = client.get("/static/roster.js")
+    assert roster_script.status_code == 200
+    assert b"Saving\xe2\x80\xa6" in roster_script.data
+    assert b"atcroster:scroll:" in roster_script.data
+    assert b"updateRosterLayout" in roster_script.data
+    assert b"--roster-status-frame-width" in roster_script.data
     assert b".roster-status-frame::before" in stylesheet.data
-    assert b"annotationButton.dataset.version = payload.version" in response.data
+    assert b"button.dataset.version = payload.version" in roster_script.data
 
 
 def test_roster_renders_annual_leave_as_static_al_code(client):
@@ -1905,7 +1908,8 @@ def test_roster_routes_render(client):
     assert export_resp.status_code == 200
     assert export_resp.mimetype == "text/csv"
     assert b'data-roster-sticky-shield' in roster_resp.data
-    assert b'rosterStickyShield.style.height' in roster_resp.data
+    assert b'roster.js?v=' in roster_resp.data
+    assert b'rosterStickyShield.style.height' in client.get('/static/roster.js').data
 
 
 def test_position_monitor_account_is_hidden_from_roster_and_export(client):
@@ -4095,10 +4099,11 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     response = client.get("/roster/2025-09")
 
     assert response.status_code == 200
-    assert b"--roster-sticky-top" in response.data
-    assert b"ResizeObserver(updateRosterStickyTop)" in response.data
-    assert b"Math.ceil(height / scale)" in response.data
-    assert b"MutationObserver(updateRosterStickyTop)" in response.data
+    assert b"roster.js?v=" in response.data
+    assert b"--roster-sticky-top" in client.get('/static/roster.js').data
+    assert b"ResizeObserver(updateRosterLayout)" in client.get('/static/roster.js').data
+    assert b"Math.ceil(headerHeight / scale)" in client.get('/static/roster.js').data
+    assert b"MutationObserver(updateRosterLayout)" in client.get('/static/roster.js').data
     assert response.data.count(b'class="sticky left col-name"') == 1
     assert b'class="sticky left col-date"' not in response.data
     assert b'class="sticky col-date">Medical' in response.data

@@ -360,7 +360,9 @@
         title="Shift applied through an approved request">Requested shift</span>
 </div>
 
-<script nonce="{{ csp_nonce() }}">
+<script nonce="{{ csp_nonce() }}" src="{{ asset_url('roster.js') }}"></script>
+{# Roster interaction code lives in static/roster.js so this rendered page stays cache-friendly. #}
+{% if false %}
   function printRoster(){ window.print(); }
   const rosterTable = document.querySelector('table.roster');
   const siteHeader = document.querySelector('.site-header');
@@ -625,4 +627,5 @@
     });
   });
 </script>
+{% endif %}
 {% endblock %}
