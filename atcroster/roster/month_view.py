@@ -30,10 +30,12 @@ class RosterMonthViewService:
         def rank(person: Any) -> int:
             return 0 if getattr(person, "is_wm", False) else 1 if getattr(person, "is_dwm", False) else 2
 
-        staff.sort(key=lambda person: (
-            watch_order.get(display_watch_by_staff.get(person.id), 9999), rank(person), person.name,
-        ))
-        counters = {day: Counter() for day in days}
+        def watch_rank(person: Any) -> int:
+            watch_id = display_watch_by_staff.get(person.id)
+            return watch_order.get(watch_id, 9999) if watch_id is not None else 9999
+
+        staff.sort(key=lambda person: (watch_rank(person), rank(person), person.name))
+        counters: dict[date, Counter[str]] = {day: Counter() for day in days}
         for person in staff:
             if not getattr(person, "is_operational", True):
                 continue
