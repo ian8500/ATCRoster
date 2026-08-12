@@ -827,6 +827,10 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"data-operational-clock" in response.data
     assert b"Secure session" in response.data
     assert b'<body class="app-body roster-page">' in response.data
+    # Representative fixture guardrail: a regression back to one editor form
+    # per cell should fail CI before it inflates the monthly roster response.
+    assert len(response.data) < 350_000
+    assert response.data.count(b"<form") < 20
 
     stylesheet = client.get("/static/styles.css")
     assert stylesheet.status_code == 200
