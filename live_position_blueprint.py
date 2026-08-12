@@ -373,7 +373,7 @@ def create_live_position_blueprint(
             selected_watch_id = None
         elif report_type == "watch":
             selected_person_id = None
-        else:
+        elif report_type == "unit":
             selected_person_id = None
             selected_watch_id = None
         if selected_person_id and selected_person_id not in people_by_id:

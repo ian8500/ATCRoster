@@ -579,8 +579,10 @@ def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, 
 
 def _sms_sender_options(unit_id: int | None = None) -> list[dict[str, str]]:
     fallback = _normalise_uk_mobile(_messagemedia_credentials()[2])
-    return ([{"number": fallback, "label": "Unit fallback sender"}]
-            if fallback else [])
+    configured = _sms_number_options("sms_sender_numbers", unit_id)
+    if fallback and fallback not in {item["number"] for item in configured}:
+        configured.append({"number": fallback, "label": "Unit fallback sender"})
+    return configured
 
 
 def _sms_operational_options(unit_id: int | None = None) -> list[dict[str, str]]:
