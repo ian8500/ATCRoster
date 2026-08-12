@@ -205,7 +205,9 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         try:
             url = "https://aviationweather.gov/api/data/metar?" + urllib_parse.urlencode({"ids": code, "format": "json"})
             req = urllib_request.Request(url, headers={"User-Agent": "ATCRoster/1.0 operational-handover"})
-            with urllib_request.urlopen(req, timeout=4) as response:
+            # The endpoint is a fixed HTTPS government-weather origin and the
+            # ICAO value is constrained above; this is not user-controlled URL IO.
+            with urllib_request.urlopen(req, timeout=4) as response:  # nosec B310
                 payload = json.loads(response.read().decode("utf-8"))
             if isinstance(payload, list) and payload:
                 item = payload[0]
