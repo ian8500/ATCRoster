@@ -21,6 +21,11 @@ No representative authenticated database fixture or browser runner was available
 locally, so SQL count, HTML byte, gzip byte, DOM-node and render-time percentage
 claims are intentionally not reported.
 
+The production import path was also checked three times against the supported
+SQLite smoke configuration after lazy-loading QR rendering: 0.47s, 0.48s and
+0.47s. This is a repeatable sanity check, not a before/after performance claim,
+because the earlier baseline could not use the same local database configuration.
+
 ## Monthly roster
 
 `RosterMonthViewService` owns staff ordering, operational counters, RAG states,
