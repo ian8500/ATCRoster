@@ -788,7 +788,7 @@ def test_user_can_update_own_profile_contact_details(client):
     assert b'data-profile-section="mfa"' not in response.data
     assert b'action="/password"' in response.data
     assert b"Multi-factor authentication is enabled." not in response.data
-    assert b"Select a profile function" in response.data
+    assert b'aria-label="Profile functions"' in response.data
     with app.app.app_context():
         staff = db.session.get(Staff, staff_id)
         assert staff.email == "admin.profile@example.test"
@@ -821,7 +821,7 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="0.90"' in response.data
     assert b'data-roster-zoom="1"' in response.data
     assert b'data-roster-zoom="fit"' in response.data
-    assert b"code-input code-len-3" in response.data
+    assert b"code-input roster-cell-button code-len-3" in response.data
     assert b"shift on 01 April 2025" in response.data
     assert b"Active unit" not in response.data
     assert b"data-operational-clock" in response.data
@@ -840,8 +840,8 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"transform: scale(var(--ui-scale))" not in stylesheet.data
     assert b"remaining below every sticky heading" in stylesheet.data
     assert b"z-index:12" in stylesheet.data
-    assert response.data.count(b'data-roster-auto-submit="true"') > 1
-    assert b"roster-shift-dialog" not in response.data
+    assert response.data.count(b"data-roster-shift-open") > 1
+    assert b"roster-shift-dialog" in response.data
     assert response.data.count(b'class="annot-select" data-annotation-select') == 1
     assert b">Annotate</button>" not in response.data
     assert b'<span aria-hidden="true">&nbsp;</span></button>' in response.data
@@ -967,7 +967,7 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
             assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
             assert assignment.annotation == "SOAL"
             version = assignment.version
-        assert b"code-input code-len-2 al group-a" in applied.data
+        assert b"code-input roster-cell-button code-len-2 al group-a" in applied.data
         assert b"SOAL" in applied.data
 
         shifted = client.post(

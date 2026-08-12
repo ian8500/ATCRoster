@@ -61,10 +61,11 @@ PYTHONPATH=. python -m pytest -q tests/test_roster_month_view.py \
   tests/test_roster_blueprint.py
 ```
 
-The full configured Ruff invocation is currently blocked by two existing
-undefined `_minutes_between` references in `app.py` (lines 2214 and 2219).
-No Railway or GitHub credentials/configuration were available through this
-workspace, so no deployment, migration, push or pull request was attempted.
+The missing operational-currency duration helper was restored and stale
+multi-database integration assertions were advanced to the actual Alembic head
+(`20260808_56`). The targeted Ruff check now passes. Railway is linked only to
+production, so no deployment was attempted; the branch is instead validated by
+the draft pull request's CI workflow.
 
 ## Next work
 

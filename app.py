@@ -2168,6 +2168,11 @@ def _operational_currency_window(
     return start_day, end_day
 
 
+def _minutes_between(start: datetime, end: datetime) -> int:
+    """Return whole operational minutes for a validated positive interval."""
+    return max(0, round((end - start).total_seconds() / 60))
+
+
 def _operational_currency_shortfalls(unit_id: int) -> dict[str, Any]:
     """Calculate operational-time credit and shortfalls for the report hub."""
     requirement = _operational_currency_requirement(unit_id)

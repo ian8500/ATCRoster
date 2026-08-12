@@ -225,6 +225,33 @@ def create_fatigue_compliance_blueprint(
                         parameter_item["value"] = value
                     dependencies.save_rule_config(config)
                     flash(f"{code} fatigue rule updated.", "ok")
+                elif action == "add_custom":
+                    rule_type = request.form.get("rule_type") or ""
+                    if rule_type not in CUSTOM_FATIGUE_RULE_TYPES:
+                        raise ValueError("Choose a supported rule check.")
+                    name = (request.form.get("name") or "").strip()
+                    if len(name) < 3:
+                        raise ValueError("Give the rule a clear name.")
+                    threshold = float(request.form.get("threshold") or 0)
+                    if threshold <= 0:
+                        raise ValueError("The limit must be greater than zero.")
+                    type_meta = CUSTOM_FATIGUE_RULE_TYPES[rule_type]
+                    window_days = int(request.form.get("window_days") or type_meta.get("default_window", 1))
+                    if not 1 <= window_days <= 365:
+                        raise ValueError("The review period must be 1–365 days.")
+                    existing_codes = {str(item.get("code") or "") for item in config["custom"]}
+                    sequence = 1
+                    while f"CUSTOM_{sequence}" in existing_codes:
+                        sequence += 1
+                    config["custom"].append({
+                        "code": f"CUSTOM_{sequence}", "name": name[:120],
+                        "rule_type": rule_type, "threshold": threshold,
+                        "window_days": window_days,
+                        "severity": request.form.get("severity") if request.form.get("severity") in {"warning", "critical"} else "warning",
+                        "enabled": request.form.get("enabled") == "on",
+                    })
+                    dependencies.save_rule_config(config)
+                    flash("Custom fatigue rule saved.", "ok")
                 elif action == "update_custom":
                     rule_type = request.form.get("rule_type") or ""
                     if rule_type not in CUSTOM_FATIGUE_RULE_TYPES:
