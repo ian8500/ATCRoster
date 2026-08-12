@@ -3914,121 +3914,14 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
         ).counts_as_operational
 
 
-def test_roster_impact_exception_queue_is_actionable_and_unit_scoped(client):
-    login(client)
-    with app.app.app_context():
-        row = app.RosterImpactException.query.filter_by(
-            unit_id=1, status="OPEN"
-        ).order_by(app.RosterImpactException.id).first()
-        assert row is not None
-        exception_id = row.id
-        description = row.description.encode()
-    page = client.get("/roster-impact/exceptions")
-    assert page.status_code == 200
-    assert b"Roster impact queue" in page.data
-    assert description in page.data
-    missing_note = client.post(
-        f"/roster-impact/exceptions/{exception_id}/status",
-        data={"_csrf_token": csrf(client), "status": "RESOLVED"},
-        follow_redirects=True,
-    )
-    assert b"Add a resolution note" in missing_note.data
-    closed = client.post(
-        f"/roster-impact/exceptions/{exception_id}/status",
-        data={
-            "_csrf_token": csrf(client), "status": "NOT_APPLICABLE",
-            "resolution_note": "Reviewed against the protected published roster.",
-        },
-        follow_redirects=True,
-    )
-    assert closed.status_code == 200
-    assert b"Roster-impact exception updated." in closed.data
-    with app.app.app_context():
-        row = db.session.get(app.RosterImpactException, exception_id)
-        assert row.status == "NOT_APPLICABLE"
-        assert row.resolved_by_user_id is not None
-
-
-def test_roster_impact_preview_and_admin_protected_rebuild_preserve_override(client):
-    login(client)
-    with app.app.app_context():
-        person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
-        target = Assignment.query.filter_by(
-            unit_id=1, staff_id=person.id, day=date(2026, 9, 20)
-        ).first()
-        if not target:
-            target = Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 9, 20), code="A",
-                generated_code="M", override_code="A", override_type="MANUAL",
-            )
-            db.session.add(target)
-        else:
-            target.set_editor_override("A", reason="Protected preview test")
-        db.session.commit()
-        person_id = person.id
-        assignment_id = target.id
-    preview = client.get(
-        f"/roster-impact/preview?effective_from=2026-09-20&effective_to=2026-09-20&staff_id={person_id}"
-    )
-    assert preview.status_code == 200
-    assert b"Calculated boundary and counts" in preview.data
-    assert b"Overrides preserved" in preview.data
-    blocked = client.post(
+def test_removed_roster_impact_queue_routes_are_not_registered(client):
+    for path in (
+        "/roster-impact/exceptions",
+        "/roster-impact/preview",
         "/roster-impact/recalculate",
-        data={
-            "_csrf_token": csrf(client), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "staff_id": str(person_id),
-            "reason": "Should be protected",
-        },
-    )
-    assert blocked.status_code == 400
-    rebuilt = client.post(
         "/roster-impact/protected-rebuild",
-        data={
-            "_csrf_token": csrf(client), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "staff_id": str(person_id),
-            "reason": "Admin-approved protected baseline correction",
-            "confirmation": "REBUILD",
-        },
-        follow_redirects=True,
-    )
-    assert rebuilt.status_code == 200
-    assert b"Protected baseline rebuilt" in rebuilt.data
-    with app.app.app_context():
-        target = db.session.get(Assignment, assignment_id)
-        assert target.override_code == "A"
-        event = app.RosterImpactEvent.query.filter_by(
-            unit_id=1, event_type="MANUAL_RECALCULATION"
-        ).order_by(app.RosterImpactEvent.id.desc()).first()
-        assert event is not None and event.status in {
-            "COMPLETED", "COMPLETED_WITH_WARNINGS",
-        }
-        assert event.reason == "Admin-approved protected baseline correction"
-
-
-def test_only_admin_can_rebuild_protected_period_and_reason_is_required():
-    ordinary = app.app.test_client()
-    login_as(ordinary, "staff_test")
-    forbidden = ordinary.post(
-        "/roster-impact/protected-rebuild",
-        data={
-            "_csrf_token": csrf(ordinary), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "reason": "Not authorised",
-            "confirmation": "REBUILD",
-        },
-    )
-    assert forbidden.status_code == 403
-
-    admin = app.app.test_client()
-    login(admin)
-    missing_reason = admin.post(
-        "/roster-impact/protected-rebuild",
-        data={
-            "_csrf_token": csrf(admin), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "confirmation": "REBUILD",
-        },
-    )
-    assert missing_reason.status_code == 400
+    ):
+        assert client.get(path).status_code == 404
 
 
 def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
