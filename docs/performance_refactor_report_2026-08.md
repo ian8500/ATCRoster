@@ -77,6 +77,12 @@ read-only liveness, readiness and login-page checks passed at
 `https://pilot.atcroster.com`; this branch has not been deployed there or to
 production. The draft pull request's CI workflow remains the release gate.
 
+The staging service currently reports `"environment":"production"` from its
+liveness payload despite being linked to Railway's staging environment. This is
+an environment-label configuration discrepancy to correct before treating that
+service as a final staging acceptance target; it does not change the separate
+database or service target selected for the blocked pre-deploy attempt.
+
 ## Next work
 
 1. Run a seeded PostgreSQL/Redis benchmark on `main` and this branch and add
