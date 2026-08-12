@@ -1495,6 +1495,7 @@ class Assignment(db.Model):
         return self.materialise_effective_code()
     __table_args__ = (db.UniqueConstraint(
         "unit_id", "staff_id", "day", name="uniq_unit_staff_day"),
+        db.Index("ix_assignment_unit_day", "unit_id", "day"),
         db.CheckConstraint(
             "lock_status IN ('UNLOCKED','SOFT_LOCKED','HARD_LOCKED')",
             name="ck_assignment_lock_status",
