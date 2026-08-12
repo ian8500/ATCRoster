@@ -72,17 +72,18 @@ multi-database integration assertions were advanced to the actual Alembic head
 `unit` schemas on both SQLite and PostgreSQL. The targeted Ruff check now
 passes.
 
-Railway staging is an isolated service with separate staging databases. Its
-read-only liveness, readiness and login-page checks passed at
-`https://pilot.atcroster.com`; this branch has not been deployed there or to
-production. The draft pull request's CI workflow remains the release gate.
+Railway staging is an isolated service with separate staging databases. This
+branch was deployed successfully to `https://pilot.atcroster.com`: control and
+operational databases both migrated to `20260812_57`, Waitress started, and
+liveness, readiness and login-page checks passed. The deployment reports
+`"environment":"staging"`. Production was not changed.
 
-The staging service previously reported `"environment":"production"` from its
-liveness payload despite being linked to Railway's staging environment.
-`ATCROSTER_ENVIRONMENT=staging` is now configured on both staging web and worker
-services without triggering a deployment. The running prior release retains its
-old process environment until the ownership-blocked deployment can proceed; the
-next successful deployment will expose the correct staging label.
+The staging repair configured explicit owner-backed migration URLs, disabled
+runtime `db.create_all()` through `ATCROSTER_SKIP_RUNTIME_SCHEMA=1`, and aligned
+both web and worker services to `ATCROSTER_ENVIRONMENT=staging`. Legacy schema
+ownership was corrected to the staging migration role; a temporary runtime
+schema-create grant used only to complete the legacy migration was revoked after
+the healthy deployment.
 
 ## Next work
 
