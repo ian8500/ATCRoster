@@ -287,6 +287,13 @@ from atcroster.roster.settings import (
     save_absence_catalogue,
     save_code_setting,
 )
+from atcroster.roster.patterns import (
+    code_for_day as resolve_pattern_code,
+    leave_code_for,
+    night_active_on,
+    pattern_context as resolve_pattern_context,
+    unit_pattern_context,
+)
 from atcroster.roster.impacts import generated_horizon_end, invalidate_impact_months
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
@@ -1460,46 +1467,11 @@ def _effective_watch(staff: Staff, on_date: date) -> Watch | None:
 
 
 def _unit_pattern_context(unit_id: int) -> tuple[list[str], date]:
-    settings = _roster_settings_snapshot(unit_id)
-    pattern = _validated_pattern(
-        settings.get("base_pattern_csv") or DEFAULT_BASE_PATTERN
-    )
-    try:
-        anchor = date.fromisoformat(
-            settings.get("base_pattern_anchor") or "2025-01-01"
-        )
-    except ValueError:
-        anchor = date(2025, 1, 1)
-    return pattern or _validated_pattern(DEFAULT_BASE_PATTERN), anchor
+    return unit_pattern_context(unit_id, settings_snapshot=_roster_settings_snapshot, validate_pattern=_validated_pattern, default_pattern=DEFAULT_BASE_PATTERN)
 
 
 def _pattern_context(staff: Staff, on_date: date) -> tuple[list[str], date]:
-    if staff.pattern_override:
-        personal = _validated_pattern(staff.pattern_csv)
-        if personal:
-            return personal, staff.pattern_anchor or on_date
-    unit_pattern, unit_anchor = _unit_pattern_context(staff.unit_id)
-    watch = _effective_watch(staff, on_date)
-    if watch:
-        move = StaffWatchHistory.query.filter(
-            StaffWatchHistory.unit_id == staff.unit_id,
-            StaffWatchHistory.staff_id == staff.id,
-            StaffWatchHistory.effective_date <= on_date,
-            db.or_(
-                StaffWatchHistory.effective_to.is_(None),
-                StaffWatchHistory.effective_to >= on_date,
-            ),
-        ).order_by(StaffWatchHistory.effective_date.desc()).first()
-        watch_pattern = _validated_pattern(watch.pattern_csv)
-        # A watch anchor phases both a watch-specific pattern and the inherited
-        # unit pattern. This is what makes two watches on the same base cycle
-        # start on different cycle days.
-        return (
-            watch_pattern or unit_pattern,
-            (move.pattern_anchor if move and move.pattern_anchor else None)
-            or watch.pattern_anchor or unit_anchor,
-        )
-    return unit_pattern, unit_anchor
+    return resolve_pattern_context(staff, on_date, db=db, StaffWatchHistory=StaffWatchHistory, effective_watch=_effective_watch, validate_pattern=_validated_pattern, unit_context=_unit_pattern_context)
 
 
 def pattern_for(staff: Staff, on_date: date | None = None):
@@ -1507,33 +1479,15 @@ def pattern_for(staff: Staff, on_date: date | None = None):
 
 
 def _night_active_on(unit_id: int, on_date: date) -> bool:
-    raw = _roster_settings_snapshot(unit_id).get(
-        "night_active_weekdays", "0,1,2,3,4,5,6"
-    )
-    try:
-        active_days = {
-            int(value) for value in raw.split(",")
-            if value.strip() != ""
-        }
-    except ValueError:
-        active_days = set(range(7))
-    return on_date.weekday() in active_days
+    return night_active_on(unit_id, on_date, settings_snapshot=_roster_settings_snapshot)
 
 
 def day_leave_for(staff: Staff, d: date):
-    for lv in staff.leaves:
-        if lv.start <= d <= lv.end:
-            return lv.leave_type
-    return None
+    return leave_code_for(staff, d)
 
 
 def code_from_pattern(staff: Staff, d: date):
-    pat, anchor = _pattern_context(staff, d)
-    if not pat:
-        return "OFF"
-    idx = (d - anchor).days % len(pat)
-    code = pat[idx]
-    return "OFF" if code == "N" and not _night_active_on(staff.unit_id, d) else code
+    return resolve_pattern_code(staff, d, resolve_context=_pattern_context, night_active=_night_active_on)
 
 
 def _effective_watch_id(staff: Staff, duty_day: date) -> int | None:
