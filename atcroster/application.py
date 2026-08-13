@@ -15,8 +15,7 @@ from flask_login import (
     current_user,
 )
 from werkzeug.security import generate_password_hash
-from sqlalchemy import event, inspect as sa_inspect
-from sqlalchemy.orm import Session as OrmSession, with_loader_criteria
+from sqlalchemy.orm import Session as OrmSession
 from saas_models import register_saas_models
 from fatigue_engine import (
     _analyze_segments,
@@ -294,6 +293,7 @@ from atcroster.roster.patterns import (
     pattern_context as resolve_pattern_context,
     unit_pattern_context,
 )
+from atcroster.models.tenant_events import register_tenant_session_events
 from atcroster.roster.impacts import generated_horizon_end, invalidate_impact_months
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
@@ -919,44 +919,17 @@ APPEND_ONLY_AUDIT_MODELS = (
 )
 
 
-@event.listens_for(OrmSession, "do_orm_execute")
-def _scope_operational_selects(execute_state):
-    if not execute_state.is_select or execute_state.execution_options.get("skip_tenant_scope"):
-        return
-    try:
-        unit_id = authenticated_unit_id()
-    except RuntimeError:
-        return
-    statement = execute_state.statement
-    for model in TENANT_OPERATIONAL_MODELS:
-        statement = statement.options(with_loader_criteria(
-            model, lambda cls: cls.unit_id == unit_id,
-            include_aliases=True,
-            track_closure_variables=True,
-        ))
-    execute_state.statement = statement
-
-
-@event.listens_for(OrmSession, "before_flush")
-def _stamp_operational_writes(session_obj, _flush_context, _instances):
-    return enforce_operational_writes(
-        session_obj,
-        operational_models=TENANT_OPERATIONAL_MODELS,
-        append_only_models=APPEND_ONLY_AUDIT_MODELS,
-        SmsAudit=SmsAudit,
-        inspect_record=sa_inspect,
-        authenticated_unit_id=authenticated_unit_id,
-    )
-
-
-@event.listens_for(OrmSession, "after_commit")
-def _invalidate_roster_cache_after_commit(session_obj):
-    return invalidate_touched_units(session_obj, roster_month_cache.invalidate_unit)
-
-
-@event.listens_for(OrmSession, "after_rollback")
-def _discard_roster_cache_invalidation_after_rollback(session_obj):
-    return discard_touched_units(session_obj)
+register_tenant_session_events(
+    OrmSession,
+    operational_models=TENANT_OPERATIONAL_MODELS,
+    append_only_models=APPEND_ONLY_AUDIT_MODELS,
+    SmsAudit=SmsAudit,
+    authenticated_unit_id=authenticated_unit_id,
+    enforce_operational_writes=enforce_operational_writes,
+    invalidate_touched_units=invalidate_touched_units,
+    discard_touched_units=discard_touched_units,
+    invalidate_unit=roster_month_cache.invalidate_unit,
+)
 
 # -------------------- Reference data helpers --------------------
 
