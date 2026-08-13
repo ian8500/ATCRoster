@@ -116,6 +116,10 @@ from access_policy import (
 from atcroster import create_app, get_runtime_settings
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.public import public_blueprint
+from atcroster.notifications import (
+    NotificationDependencies,
+    create_notification_blueprint,
+)
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -6685,59 +6689,6 @@ def calendar_token_create(sid):
     return redirect(url_for("staff_profile", sid=staff.id) + "#calendar")
 
 
-@app.post("/notifications/read")
-@login_required
-def notifications_read():
-    _validate_csrf()
-    Notification.query.filter_by(
-        unit_id=_current_unit_id(),
-        recipient_id=current_user.id, read_at=None
-    ).update({"read_at": utcnow()}, synchronize_session=False)
-    db.session.commit()
-    return redirect(
-        url_for("staff_profile", sid=current_user.id) + "#notifications"
-    )
-
-
-@app.post("/notifications/<int:notification_id>/read")
-@login_required
-def notification_read(notification_id):
-    _validate_csrf()
-    item = Notification.query.filter_by(
-        id=notification_id,
-        unit_id=_current_unit_id(),
-        recipient_id=current_user.id,
-    ).first_or_404()
-    if not item.read_at:
-        item.read_at = utcnow()
-        db.session.commit()
-        flash("Notification marked as read.", "ok")
-    return redirect(
-        url_for("staff_profile", sid=current_user.id) + "#notifications"
-    )
-
-
-@app.post("/notifications/<int:notification_id>/delete")
-@login_required
-def notification_delete(notification_id):
-    _validate_csrf()
-    item = Notification.query.filter_by(
-        id=notification_id,
-        unit_id=_current_unit_id(),
-        recipient_id=current_user.id,
-    ).first_or_404()
-    if not item.read_at:
-        flash("Mark the notification as read before deleting it.", "error")
-        return redirect(
-            url_for("staff_profile", sid=current_user.id) + "#notifications"
-        )
-    db.session.delete(item)
-    db.session.commit()
-    flash("Notification deleted.", "ok")
-    return redirect(
-        url_for("staff_profile", sid=current_user.id) + "#notifications"
-    )
-
 # -------------------- Metrics + CSV (date range; FYTD default) --------------------
 # (… unchanged metrics functions from your file …)
 
@@ -10772,6 +10723,13 @@ app.register_blueprint(create_operations_blueprint(OperationsDependencies(
     shift_counter_group_for_day=shift_counter_group_for_day,
     staff_has_shift_qualification=_staff_has_shift_qualification,
     Scenario=Scenario,
+)))
+app.register_blueprint(create_notification_blueprint(NotificationDependencies(
+    db=db,
+    Notification=Notification,
+    current_unit_id=_current_unit_id,
+    utcnow=utcnow,
+    validate_csrf=_validate_csrf,
 )))
 app.register_blueprint(briefing_blueprint)
 

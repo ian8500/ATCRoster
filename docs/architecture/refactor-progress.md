@@ -21,11 +21,12 @@
 | Field encryption | `atcroster/security/encryption.py` |
 | Session lifecycle | `atcroster/security/sessions.py` |
 | Tenant request hooks | `atcroster/tenancy_hooks.py` |
+| Notification inbox routes | `atcroster/notifications/blueprint.py` |
 
 ## Safe stopping boundary
 
-Framework and cross-cutting security concerns are extracted and independently
-tested. `app.py` is still substantially above the target because the next
+Framework, cross-cutting security concerns and the authenticated notification
+inbox are extracted and independently tested. `app.py` is still substantially above the target because the next
 sections are multi-model business transactions. The first is `/unit/accounts`,
 which coordinates the control database, an airport database, invitations,
 capacity enforcement, audit/session revocation and compensating cleanup.
