@@ -323,3 +323,50 @@ class AssignmentRuntime:
             ensure_month_requirement=self.ensure_month_requirement,
             generate_month=self.generate_month,
         )
+
+
+@dataclass(frozen=True)
+class AllocationRuntimeDependencies:
+    db: Any
+    Assignment: Any
+    is_working_day_code: Callable[[str], bool]
+    has_leave_or_sickness: Callable[[int, date], bool]
+    passes_fatigue: Callable[[Any, date, str], bool]
+    set_code: Callable[..., Any]
+
+
+class AllocationRuntime:
+    """Own the database mutation workflow for filling day-duty shortfalls."""
+
+    def __init__(self, dependencies: AllocationRuntimeDependencies) -> None:
+        self.dependencies = dependencies
+
+    @staticmethod
+    def is_empty_like(value: Any) -> bool:
+        return str(value or "").strip() in {"", "-", "—"}
+
+    def allocate(
+        self,
+        day: date,
+        requirement: Any,
+        staff: list[Any],
+        assignments_by_staff: dict[int, dict[date, Any]],
+        weekday_code: str,
+        sunday_code: str,
+    ) -> int:
+        deps = self.dependencies
+        return allocate_day_shift_shortfall(
+            day,
+            requirement,
+            staff,
+            assignments_by_staff,
+            weekday_code,
+            sunday_code,
+            db=deps.db,
+            Assignment=deps.Assignment,
+            is_working_day_code=deps.is_working_day_code,
+            has_leave_or_sickness=deps.has_leave_or_sickness,
+            is_empty_like=self.is_empty_like,
+            passes_fatigue=deps.passes_fatigue,
+            set_code=deps.set_code,
+        )

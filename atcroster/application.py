@@ -214,7 +214,8 @@ from atcroster.roster.assignments import (
     AssignmentRuntime,
     AssignmentRuntimeDependencies,
     AssignmentRefreshDependencies,
-    allocate_day_shift_shortfall,
+    AllocationRuntime,
+    AllocationRuntimeDependencies,
 )
 from atcroster.roster.annotations import AnnotationCatalogue
 from atcroster.roster.settings import RosterSettingsCatalogue
@@ -1256,39 +1257,6 @@ ensure_shift = _legacy_bootstrap.ensure_shift
 ensure_watch = _legacy_bootstrap.ensure_watch
 seed_once = _legacy_bootstrap.seed_once
 
-# -------------------- Small parse & AI helpers --------------------
-
-
-def _is_empty_like(val) -> bool:
-    """Treat '', '-', and em-dash as empty cells the AI may fill."""
-    return str(val or "").strip() in {"", "-", "—"}
-
-
-def _allocate_days_for_date(
-    d: date,
-    req,
-    staff: list,                     # list[Staff]
-    by_staff_day: dict,              # dict[int, dict[date, Assignment]]
-    day_code_mon_sat: str,
-    day_code_sun: str,
-) -> int:
-    return allocate_day_shift_shortfall(
-        d,
-        req,
-        staff,
-        by_staff_day,
-        day_code_mon_sat,
-        day_code_sun,
-        db=db,
-        Assignment=Assignment,
-        is_working_day_code=_is_working_day_code,
-        has_leave_or_sickness=_has_leave_or_sick,
-        is_empty_like=_is_empty_like,
-        passes_fatigue=_passes_fatigue_for,
-        set_code=_set_code,
-    )
-
-
 def _parse_hhmm(val: str):
     return parse_roster_hhmm(val)
 
@@ -1355,6 +1323,17 @@ _is_working_code_prefix = roster_editing_runtime.working_code_prefix
 _is_working_day_code = roster_editing_runtime.working_day_code
 _is_working_m_code = roster_editing_runtime.working_morning_code
 _is_working_n_code = roster_editing_runtime.working_night_code
+
+allocation_runtime = AllocationRuntime(AllocationRuntimeDependencies(
+    db=db,
+    Assignment=Assignment,
+    is_working_day_code=_is_working_day_code,
+    has_leave_or_sickness=_has_leave_or_sick,
+    passes_fatigue=_passes_fatigue_for,
+    set_code=_set_code,
+))
+_is_empty_like = allocation_runtime.is_empty_like
+_allocate_days_for_date = allocation_runtime.allocate
 
 admin_required = create_admin_required(is_admin_user)
 
