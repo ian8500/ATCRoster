@@ -212,6 +212,11 @@ from atcroster.roster.shift_configuration import (
     ShiftConfigurationDependencies,
     update_shift_definition,
 )
+from atcroster.roster.bootstrap import (
+    ensure_shift as ensure_bootstrap_shift,
+    ensure_watch as ensure_bootstrap_watch,
+    seed_legacy_operational_data,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -2628,114 +2633,32 @@ def migrate_add_toil_half_days_and_convert():
 
 
 def ensure_shift(code, name, start=None, end=None, is_working=False, is_training=False):
-    sh = ShiftType.query.filter_by(code=code).first()
-    if not sh:
-        sh = ShiftType(code=code, name=name, start_time=start, end_time=end,
-                       is_working=is_working, is_training=is_training)
-        db.session.add(sh)
-        db.session.commit()
-    return sh
+    return ensure_bootstrap_shift(
+        code,
+        name,
+        db=db,
+        ShiftType=ShiftType,
+        start=start,
+        end=end,
+        is_working=is_working,
+        is_training=is_training,
+    )
 
 
 def ensure_watch(name: str, order_index: int):
-    w = Watch.query.filter_by(name=name).first()
-    if not w:
-        w = Watch(name=name, order_index=order_index)
-        db.session.add(w)
-        db.session.commit()
-    return w
+    return ensure_bootstrap_watch(
+        name, order_index, db=db, Watch=Watch
+    )
 
 
 def seed_once():
-    # A deliberately bootstrapped platform starts without operational units.
-    # Do not populate the platform-control tenant with legacy desktop demo data;
-    # the Super Admin will create the first airport through the normal workflow.
-    if Unit.query.filter_by(status="platform_control").first():
-        return
-    if Watch.query.count() > 0:
-        # make sure TOU* & OSS exist if DB already seeded
-        ensure_shift("TOUI", "TOIL (UI)", is_working=False)
-        ensure_shift("TOU8", "TOIL (U8)", is_working=False)
-        ensure_shift("OSS",  "Operational Support", is_working=False)
-        return
-
-    watches = []
-    for idx, letter in enumerate(["A", "B", "C", "D", "E"], start=1):
-        watches.append(Watch(name=f"Watch {letter}", order_index=idx))
-    watches.append(Watch(name="Watch NOPS", order_index=6))
-    db.session.add_all(watches)
-
-    db.session.add_all([
-        ShiftType(code="M",   name="Morning",     start_time=time(
-            6, 0),  end_time=time(14, 0), is_working=True, is_requestable=True),
-        ShiftType(code="D",   name="Day",         start_time=time(
-            8, 0),  end_time=time(16, 0), is_working=True, is_requestable=True),
-        ShiftType(code="A",   name="Afternoon",   start_time=time(
-            14, 0), end_time=time(22, 0), is_working=True, is_requestable=True),
-        ShiftType(code="N",   name="Night",       start_time=time(
-            22, 0), end_time=time(6, 0),  is_working=True, is_requestable=True),
-        ShiftType(code="OFF", name="Rest Day",    is_working=False),
-        ShiftType(code="AL",  name="Annual Leave",    is_working=False),
-        ShiftType(code="PL",  name="Parental Leave",  is_working=False),
-        ShiftType(code="SPL", name="Special Leave",   is_working=False),
-        # Sickness as training-type working (excluded from counters but shown)
-        ShiftType(code="SC",  name="Sick Cert",       start_time=time(
-            9, 0), end_time=time(17, 0), is_working=True, is_training=True),
-        ShiftType(code="SSC", name="Sick Self Cert",  start_time=time(
-            9, 0), end_time=time(17, 0), is_working=True, is_training=True),
-        ShiftType(code="SBY", name="Standby",         start_time=time(
-            8, 0), end_time=time(16, 0), is_working=True),
-        ShiftType(code="TOUI", name="TOIL (UI)", is_working=False),
-        ShiftType(code="TOU8", name="TOIL (U8)", is_working=False),
-        ShiftType(code="OSS",  name="Operational Support", is_working=False),
-        ShiftType(code="OFFICE", name="Office", is_working=False),
-        ShiftType(code="WFH",    name="Work from home", is_working=False),
-        ShiftType(code="MTG",    name="Meeting", is_working=False),
-    ])
-
-    watch_cycle_days = {"A": 6, "B": 4, "C": 2, "D": 10, "E": 8}
-    anchor_date = date(2025, 9, 1)
-
-    demo_names = [
-        ["Alex McLean", "Bethany Kerr", "Callum Reid", "Donna Fraser", "Euan Boyd"],
-        ["Fiona Watt", "Gordon Bryce", "Harris Quinn",
-            "Isla Morton", "Jamie Lindsay"],
-        ["Kara Drummond", "Lewis Pratt", "Maya Allan", "Noah Cairns", "Orla McAdam"],
-        ["Poppy Neill", "Quinn Murray", "Robbie Hogg", "Sophie Duff", "Tommy Craig"],
-        ["Una McKay", "Viktor Shaw", "Will Findlay", "Xander Kerr", "Yasmin Doyle"],
-    ]
-
-    staff = []
-    staff_no = 2001
-    for wi, w in enumerate(watches):
-        label = w.name.replace("Watch ", "")
-        if label == "NOPS":
-            continue
-        for nm in demo_names[wi]:
-            username = "admin" if staff_no == 2001 else f"user{staff_no}"
-            s = Staff(
-                username=username,
-                name=nm,
-                staff_no=str(staff_no),
-                watch=w,
-                is_operational=True,
-                has_ojti=((staff_no % 3) == 0),
-                is_trainee=((staff_no % 7) == 0),
-                role=("admin" if staff_no == 2001 else "user"),
-                leave_year_start_month=4,
-                leave_entitlement_days=25,
-                leave_public_holidays=8,
-                leave_carryover_days=0,
-            )
-            s.set_password("password")
-            cycle_day = watch_cycle_days[label]
-            offset = cycle_day - 1
-            s.pattern_anchor = anchor_date - timedelta(days=offset)
-            staff.append(s)
-            staff_no += 1
-
-    db.session.add_all(staff)
-    db.session.commit()
+    return seed_legacy_operational_data(
+        db=db,
+        Unit=Unit,
+        Watch=Watch,
+        ShiftType=ShiftType,
+        Staff=Staff,
+    )
 
 # -------------------- Small parse & AI helpers --------------------
 
