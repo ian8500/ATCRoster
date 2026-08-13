@@ -3,8 +3,75 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any, Callable, Mapping
+
+
+@dataclass(frozen=True)
+class OperationalCurrencyRuntimeDependencies:
+    db: Any
+    Staff: Any
+    PositionEndorsement: Any
+    PositionSession: Any
+    PositionParticipantRole: Any
+    PositionSessionParticipant: Any
+    current_unit_id: Callable[[], int]
+    settings_snapshot: Callable[[int], Mapping[str, str]]
+    save_setting: Callable[[str, str], None]
+    live_position_enabled: Callable[[int], bool]
+    now: Callable[[], datetime]
+    setting_key: str
+    defaults: Mapping[str, Any]
+
+
+class OperationalCurrencyRuntime:
+    """Own persisted operational-currency policy and shortfall reporting."""
+
+    def __init__(self, dependencies: OperationalCurrencyRuntimeDependencies) -> None:
+        self.dependencies = dependencies
+
+    def requirement(self, unit_id: int | None = None) -> dict[str, Any]:
+        deps = self.dependencies
+        return load_currency_requirement(
+            unit_id,
+            current_unit_id=deps.current_unit_id,
+            settings_snapshot=deps.settings_snapshot,
+            setting_key=deps.setting_key,
+            defaults=deps.defaults,
+        )
+
+    def save_requirement(self, data: dict[str, Any]) -> None:
+        requirement = dict(self.dependencies.defaults)
+        requirement.update(data)
+        self.dependencies.save_setting(
+            self.dependencies.setting_key,
+            json.dumps(requirement, sort_keys=True),
+        )
+
+    def window(
+        self, requirement: dict[str, Any], today: date | None = None
+    ) -> tuple[date, date]:
+        return currency_window(requirement, today or self.dependencies.now().date())
+
+    @staticmethod
+    def minutes_between(start: datetime, end: datetime) -> int:
+        return minutes_between(start, end)
+
+    def shortfalls(self, unit_id: int) -> dict[str, Any]:
+        deps = self.dependencies
+        return operational_currency_shortfalls(
+            unit_id,
+            db=deps.db,
+            Staff=deps.Staff,
+            PositionEndorsement=deps.PositionEndorsement,
+            PositionSession=deps.PositionSession,
+            PositionParticipantRole=deps.PositionParticipantRole,
+            PositionSessionParticipant=deps.PositionSessionParticipant,
+            requirement_for=self.requirement,
+            live_position_enabled=deps.live_position_enabled,
+            now=deps.now,
+        )
 
 
 def load_currency_requirement(

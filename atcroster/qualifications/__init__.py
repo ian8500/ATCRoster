@@ -4,6 +4,8 @@ from .blueprint import QualificationDependencies, create_qualification_blueprint
 from .status import staff_has_qualification, staff_is_countable
 from .compliance import monthly_compliance_findings
 from .currency import (
+    OperationalCurrencyRuntime,
+    OperationalCurrencyRuntimeDependencies,
     currency_window,
     load_currency_requirement,
     minutes_between,
@@ -26,6 +28,8 @@ __all__ = (
     "create_qualification_blueprint",
     "monthly_compliance_findings",
     "currency_window",
+    "OperationalCurrencyRuntime",
+    "OperationalCurrencyRuntimeDependencies",
     "load_currency_requirement",
     "minutes_between",
     "operational_currency_shortfalls",

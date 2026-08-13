@@ -1,13 +1,12 @@
 """Application assembly and legacy compatibility implementation."""
 
 from functools import wraps
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 from flask import redirect, url_for, flash, abort, session, g
 import os
 import sys
 from functools import lru_cache
-from datetime import date, datetime, timedelta
-import json
+from datetime import date, timedelta
 
 from flask_login import (
     LoginManager, login_user, logout_user,
@@ -144,15 +143,13 @@ from atcroster.qualifications import (
     QualificationRuntimeDependencies,
     EligibilityDependencies,
     EligibilityService,
+    OperationalCurrencyRuntime,
+    OperationalCurrencyRuntimeDependencies,
     QualificationDependencies,
     create_qualification_blueprint,
-    currency_window,
     classify_qualification_impact,
     has_other_valid_ue,
-    load_currency_requirement,
     monthly_compliance_findings,
-    minutes_between as calculate_minutes_between,
-    operational_currency_shortfalls,
     record_roster_impact_for_qualification,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
@@ -846,48 +843,34 @@ _save_codes_setting = roster_settings_catalogue.save_codes_setting
 _prune_roster_code_settings = roster_settings_catalogue.prune_code_settings
 _save_roster_setting = roster_settings_catalogue.save_setting
 
-
-def _operational_currency_requirement(unit_id: int | None = None) -> dict[str, Any]:
-    return load_currency_requirement(
-        unit_id,
-        current_unit_id=_current_unit_id,
-        settings_snapshot=_roster_settings_snapshot,
-        setting_key=OPERATIONAL_CURRENCY_SETTING_KEY,
-        defaults=DEFAULT_OPERATIONAL_CURRENCY_REQUIREMENT,
-    )
+module_availability = ModuleAvailability(FeatureFlag)
+training_enabled = module_availability.training
+competency_enabled = module_availability.competency
+live_position_enabled = module_availability.live_position
 
 
-def _save_operational_currency_requirement(data: dict[str, Any]) -> None:
-    requirement = dict(DEFAULT_OPERATIONAL_CURRENCY_REQUIREMENT)
-    requirement.update(data)
-    _save_roster_setting(
-        OPERATIONAL_CURRENCY_SETTING_KEY, json.dumps(requirement, sort_keys=True)
-    )
-
-
-def _operational_currency_window(
-    requirement: dict[str, Any], today: date | None = None
-) -> tuple[date, date]:
-    return currency_window(requirement, today or utcnow().date())
-
-
-def _minutes_between(start: datetime, end: datetime) -> int:
-    return calculate_minutes_between(start, end)
-
-
-def _operational_currency_shortfalls(unit_id: int) -> dict[str, Any]:
-    return operational_currency_shortfalls(
-        unit_id,
+operational_currency_runtime = OperationalCurrencyRuntime(
+    OperationalCurrencyRuntimeDependencies(
         db=db,
         Staff=Staff,
         PositionEndorsement=PositionEndorsement,
         PositionSession=PositionSession,
         PositionParticipantRole=PositionParticipantRole,
         PositionSessionParticipant=PositionSessionParticipant,
-        requirement_for=_operational_currency_requirement,
+        current_unit_id=_current_unit_id,
+        settings_snapshot=_roster_settings_snapshot,
+        save_setting=_save_roster_setting,
         live_position_enabled=live_position_enabled,
         now=utcnow,
+        setting_key=OPERATIONAL_CURRENCY_SETTING_KEY,
+        defaults=DEFAULT_OPERATIONAL_CURRENCY_REQUIREMENT,
     )
+)
+_operational_currency_requirement = operational_currency_runtime.requirement
+_save_operational_currency_requirement = operational_currency_runtime.save_requirement
+_operational_currency_window = operational_currency_runtime.window
+_minutes_between = operational_currency_runtime.minutes_between
+_operational_currency_shortfalls = operational_currency_runtime.shortfalls
 
 
 def _parse_sms_number_lines(raw: str) -> tuple[list[dict[str, str]], list[str]]:
@@ -989,10 +972,6 @@ can_edit_roster = may_edit_roster
 can_apply_annotations = may_apply_annotations
 can_send_unit_messages = may_send_unit_messages
 can_override_roster_conflicts = may_override_roster_conflicts
-module_availability = ModuleAvailability(FeatureFlag)
-training_enabled = module_availability.training
-competency_enabled = module_availability.competency
-live_position_enabled = module_availability.live_position
 
 
 def tenant_get(model, record_id: int):
