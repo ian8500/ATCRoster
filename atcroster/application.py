@@ -268,7 +268,7 @@ from atcroster.administration.watch_moves import (
 )
 from atcroster.administration.absence_types import update_absence_types
 from atcroster.administration.staff_edit import (
-    StaffEditDependencies,
+    create_staff_edit_dependencies,
     create_staff_edit_blueprint,
 )
 from atcroster.home import create_home_blueprint, create_home_dependencies
@@ -1778,16 +1778,11 @@ app.register_blueprint(create_admin_dashboard_blueprint(AdminDashboardDependenci
         pattern_codes=PATTERN_CODES,
     ),
 )))
-app.register_blueprint(create_staff_edit_blueprint(StaffEditDependencies(
+app.register_blueprint(create_staff_edit_blueprint(create_staff_edit_dependencies(
     db=db,
-    Staff=Staff,
-    Watch=Watch,
-    QualificationType=QualificationType,
-    PersonQualification=PersonQualification,
-    UnitMembership=UnitMembership,
-    PlatformIdentity=PlatformIdentity,
-    SecureInvitation=SecureInvitation,
-    RosterImpactEventType=RosterImpactEventType,
+    operational_models=_operational_models,
+    saas_models=SaaS,
+    roster_impact_event_type=RosterImpactEventType,
     current_unit_id=_current_unit_id,
     parse_date=_parse_date,
     valid_email=_valid_email,

@@ -36,6 +36,22 @@ class StaffEditDependencies:
     pattern_codes: Any
 
 
+def create_staff_edit_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any,
+    roster_impact_event_type: Any, **services: Any,
+) -> StaffEditDependencies:
+    """Bind staff-edit routes to canonical model registries."""
+    return StaffEditDependencies(
+        db=db, Staff=operational_models.Staff, Watch=operational_models.Watch,
+        QualificationType=saas_models.QualificationType,
+        PersonQualification=saas_models.PersonQualification,
+        UnitMembership=saas_models.UnitMembership,
+        PlatformIdentity=saas_models.PlatformIdentity,
+        SecureInvitation=saas_models.SecureInvitation,
+        RosterImpactEventType=roster_impact_event_type, **services,
+    )
+
+
 def create_staff_edit_blueprint(dependencies: StaffEditDependencies) -> Blueprint:
     blueprint = Blueprint("staff_edit_administration", __name__)
     db = dependencies.db
