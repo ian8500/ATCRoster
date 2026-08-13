@@ -221,6 +221,7 @@ from atcroster.roster.assignments import (
 from atcroster.roster.annotations import AnnotationCatalogue
 from atcroster.roster.settings import RosterSettingsCatalogue
 from atcroster.models.tenant_events import register_tenant_session_events
+from atcroster.models import append_only_audit_models, operational_models
 from atcroster.roster.impacts import (
     RosterImpactRuntime,
     RosterImpactRuntimeDependencies,
@@ -634,44 +635,13 @@ briefing_local_now = _briefing.local_now
 # Enforce the authenticated airport on all legacy operational SELECTs and
 # stamp new rows. This protects older routes while they move to repositories.
 
-TENANT_OPERATIONAL_MODELS = (
-    RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement,
-    SpecialRequirement, SmsAudit, Leave, Sickness,
-    Assignment, ShiftRequest, RequestAudit, Notification, AnnotationAudit,
-    ChangeLog, StaffWatchHistory, QualificationType,
-    PersonQualification, PersonQualificationHistory,
-    RosterPublication, RosterAcknowledgement, Scenario,
-    OperationalPosition, PositionCurrencyCategory, PositionParticipantRole,
-    PositionStatusEvent, PositionSession, PositionSessionParticipant,
-    ControllerKioskCredential, PositionSessionAudit,
-    PositionEndorsement, PositionRequirement, BreakPlan,
-    AchievedDuty, FatigueReport, RosterRuleVersion,
-    RosterPeriod, RosterImpactEvent, RosterImpactException,
-    MfaCredential, BriefingMessageType, BriefingItem, BriefingDelivery,
-    BriefingAudit,
-    BriefingAssuranceRun,
-    HandoverField, HandoverRecord, HandoverOperationalState,
-    HandoverEquipment,
-    TrainingLevel, TrainingObjective, TrainingSession, TrainingScore,
-    ToilTransaction, WorkPattern, WorkPatternDay,
-    WorkPatternDayAllowedShift, StaffPatternAssignment, StaffRule, BankHoliday,
-)
+TENANT_OPERATIONAL_MODELS = operational_models(_operational_models, SaaS, _briefing)
 
 roster_month_cache = RosterMonthCache(
     float(os.environ.get("ATCROSTER_ROSTER_CACHE_SECONDS", "30"))
 )
 
-APPEND_ONLY_AUDIT_MODELS = (
-    SmsAudit,
-    RequestAudit,
-    AnnotationAudit,
-    ChangeLog,
-    SuperAdminAudit,
-    CentralSecurityAudit,
-    PositionSessionAudit,
-    BriefingAudit,
-    ToilTransaction,
-)
+APPEND_ONLY_AUDIT_MODELS = append_only_audit_models(SaaS, _operational_models, _briefing)
 
 
 register_tenant_session_events(
