@@ -18,7 +18,7 @@ from flask_login import (
     current_user, login_required
 )
 from werkzeug.security import generate_password_hash
-from sqlalchemy import event, inspect as sa_inspect, text
+from sqlalchemy import event, inspect as sa_inspect
 from sqlalchemy.orm import Session as OrmSession, with_loader_criteria
 from saas_models import register_saas_models
 from fatigue_engine import (
@@ -288,6 +288,8 @@ from atcroster.platform import (
     add_performance_indexes,
     add_role_and_calendar_token,
     add_unique_assignment_key,
+    add_invitation_target,
+    add_watch_pattern_configuration,
     create_worker_health_blueprint,
     upgrade_tenant_foundation,
 )
@@ -2613,62 +2615,11 @@ def migrate_add_phone_number():
 
 
 def migrate_add_watch_pattern_configuration():
-    """Add inherited roster-pattern fields to legacy SQLite databases."""
-    from sqlalchemy import inspect
-    inspector = inspect(db.engine)
-    watch_columns = {
-        column["name"] for column in inspector.get_columns("watch")
-    }
-    staff_columns = {
-        column["name"] for column in inspector.get_columns("staff")
-    }
-    statements = []
-    if "pattern_csv" not in watch_columns:
-        statements.append(
-            "ALTER TABLE watch ADD COLUMN pattern_csv VARCHAR(500) "
-            "NOT NULL DEFAULT ''"
-        )
-    if "pattern_anchor" not in watch_columns:
-        statements.append(
-            "ALTER TABLE watch ADD COLUMN pattern_anchor DATE"
-        )
-    if "pattern_override" not in staff_columns:
-        statements.append(
-            "ALTER TABLE staff ADD COLUMN pattern_override BOOLEAN "
-            "NOT NULL DEFAULT 0"
-        )
-    for statement in statements:
-        db.session.execute(text(statement))
-    if "pattern_override" not in staff_columns:
-        # Preserve existing explicitly configured staff patterns.
-        db.session.execute(text(
-            "UPDATE staff SET pattern_override=1 "
-            "WHERE COALESCE(pattern_csv, '') <> ''"
-        ))
-    db.session.commit()
+    return add_watch_pattern_configuration(db=db)
 
 
 def migrate_add_invitation_target():
-    """Add targeted roster-person invitations to legacy local databases."""
-    from sqlalchemy import inspect
-    inspector = inspect(db.engine)
-    if "secure_invitation" not in inspector.get_table_names():
-        return
-    columns = {
-        column["name"]
-        for column in inspector.get_columns("secure_invitation")
-    }
-    if "target_person_id" not in columns:
-        db.session.execute(text(
-            "ALTER TABLE secure_invitation "
-            "ADD COLUMN target_person_id INTEGER"
-        ))
-        db.session.execute(text(
-            "CREATE INDEX IF NOT EXISTS "
-            "ix_secure_invitation_target_person_id "
-            "ON secure_invitation(target_person_id)"
-        ))
-        db.session.commit()
+    return add_invitation_target(db=db)
 
 
 def migrate_add_toil_half_days_and_convert():
