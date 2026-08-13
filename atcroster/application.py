@@ -168,13 +168,11 @@ from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
 from atcroster.notifications import (
     NotificationDependencies,
+    NotificationRuntime,
+    NotificationRuntimeDependencies,
     create_notification_blueprint,
-    normalise_sms_number,
-    normalise_uk_mobile,
     parse_sms_number_lines,
     send_via_messagemedia,
-    email_service_configured,
-    send_account_email,
     valid_email,
     SmsConfigurationService,
     SmsAuditService,
@@ -552,121 +550,6 @@ def _invalidate_month_cache_for_day(d: date):
     )
 
 
-def _messagemedia_credentials() -> tuple[str, str, str]:
-    from atcroster.notifications.sms import messagemedia_credentials
-    return messagemedia_credentials()
-
-
-def _normalise_sms_number(value: str | None) -> str:
-    return normalise_sms_number(value)
-
-
-def _normalise_uk_mobile(value: str | None) -> str:
-    return normalise_uk_mobile(value)
-
-
-def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, str]]:
-    return sms_configuration.number_options(key, unit_id)
-
-
-def _sms_sender_options(unit_id: int | None = None) -> list[dict[str, str]]:
-    return sms_configuration.sender_options(unit_id)
-
-
-def _sms_operational_options(unit_id: int | None = None) -> list[dict[str, str]]:
-    return sms_configuration.operational_options(unit_id)
-
-
-def _sms_default_number(
-    setting_key: str, options: list[dict[str, str]], unit_id: int | None = None
-) -> str:
-    return sms_configuration.default_number(setting_key, options, unit_id)
-
-
-def _sms_service_configured() -> bool:
-    return sms_configuration.service_configured()
-
-
-def _email_service_configured() -> bool:
-    return email_service_configured()
-
-
-def _send_account_email(to_address: str, subject: str, body: str) -> bool:
-    return send_account_email(to_address, subject, body, app.logger)
-
-
-def _valid_email(value: str) -> str:
-    return valid_email(value)
-
-
-def _platform_support_emails() -> list[str]:
-    return platform_support_emails(
-        PlatformIdentity,
-        os.getenv("ATCROSTER_SUPPORT_EMAIL", ""),
-        _valid_email,
-    )
-
-
-def _unit_admin_emails(unit_id: int) -> list[str]:
-    return unit_admin_emails(db, PlatformIdentity, UnitMembership, unit_id)
-
-
-def _send_sms_via_messagemedia(
-    to_number: str, body: str, from_number: str | None = None,
-) -> tuple[bool, str]:
-    return send_via_messagemedia(to_number, body, from_number)
-
-
-def _send_sms(to_number: str, body: str, from_number: str | None = None) -> tuple[bool, str]:
-    return _send_sms_via_messagemedia(to_number, body, from_number)
-
-
-def _record_sms_audit(
-    *,
-    sender_number: str,
-    recipient_number: str,
-    recipient_label: str,
-    body: str,
-    message_type: str,
-    provider_message_id: str,
-    delivery_status: str = "submitted",
-) -> None:
-    sms_audit_service.record(
-        sender_number=sender_number,
-        recipient_number=recipient_number,
-        recipient_label=recipient_label,
-        body=body,
-        message_type=message_type,
-        provider_message_id=provider_message_id,
-        delivery_status=delivery_status,
-    )
-
-
-def _send_overtime_sms_notifications(
-    staff_list: list["Staff"], message: str
-) -> tuple[int, list[tuple[Optional["Staff"], str]]]:
-    return overtime_sms_service.notify(staff_list, message)
-
-
-def _default_overtime_sms_body(chosen_date: date | None, shift_code: str | None) -> str:
-    return default_overtime_sms_body(chosen_date, shift_code)
-
-
-def _flash_sms_result(
-    sent: int, failures: list[tuple[Optional["Staff"], str]]
-) -> None:
-    if sent:
-        flash(f"SMS sent to {sent} recipient{'s' if sent != 1 else ''}.", "ok")
-    if failures:
-        details = "; ".join(
-            f"{staff.name if staff else 'System'}: {reason}"
-            for staff, reason in failures[:8]
-        )
-        if len(failures) > 8:
-            details += f"; and {len(failures) - 8} more"
-        flash(f"Some messages were not sent. {details}", "error")
-
-
 def _load_operational_models():
     """Load model declarations after the canonical database extension exists."""
     from atcroster.models import operational
@@ -889,8 +772,41 @@ sms_audit_service = SmsAuditService(
 overtime_sms_service = OvertimeSmsService(
     configuration=sms_configuration,
     audit=sms_audit_service,
-    send=_send_sms,
+    send=send_via_messagemedia,
 )
+notification_runtime = NotificationRuntime(NotificationRuntimeDependencies(
+    db=db,
+    app_logger=app.logger,
+    support_emails=lambda: platform_support_emails(
+        PlatformIdentity, os.getenv("ATCROSTER_SUPPORT_EMAIL", ""), valid_email,
+    ),
+    admin_emails=lambda unit_id: unit_admin_emails(
+        db, PlatformIdentity, UnitMembership, unit_id,
+    ),
+    sms_configuration=sms_configuration,
+    sms_audit=sms_audit_service,
+    overtime_sms=overtime_sms_service,
+    flash=flash,
+))
+_messagemedia_credentials = notification_runtime.credentials
+_normalise_sms_number = notification_runtime.normalise_number
+_normalise_uk_mobile = notification_runtime.normalise_uk_mobile
+_sms_number_options = notification_runtime.number_options
+_sms_sender_options = notification_runtime.sender_options
+_sms_operational_options = notification_runtime.operational_options
+_sms_default_number = notification_runtime.default_number
+_sms_service_configured = notification_runtime.sms_configured
+_email_service_configured = notification_runtime.email_configured
+_send_account_email = notification_runtime.send_email
+_valid_email = notification_runtime.valid_email
+_platform_support_emails = notification_runtime.support_emails
+_unit_admin_emails = notification_runtime.admin_emails
+_send_sms_via_messagemedia = notification_runtime.send_sms
+_send_sms = notification_runtime.send_sms
+_record_sms_audit = notification_runtime.record_sms
+_send_overtime_sms_notifications = notification_runtime.send_overtime
+_default_overtime_sms_body = default_overtime_sms_body
+_flash_sms_result = notification_runtime.flash_result
 
 
 def shift_counter_group(

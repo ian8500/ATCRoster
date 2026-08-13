@@ -9,6 +9,7 @@ from .email import email_service_configured, send_account_email, valid_email
 from .configuration import SmsConfigurationService
 from .audit import SmsAuditService
 from .overtime import OvertimeSmsService, default_overtime_sms_body
+from .runtime import NotificationRuntime, NotificationRuntimeDependencies
 from .admin import SmsAdministrationDependencies, create_sms_administration_blueprint
 from .messaging import MessagingDependencies, create_messaging_blueprint
 
@@ -20,6 +21,7 @@ __all__ = (
     "SmsConfigurationService",
     "SmsAuditService",
     "OvertimeSmsService", "default_overtime_sms_body",
+    "NotificationRuntime", "NotificationRuntimeDependencies",
     "SmsAdministrationDependencies", "create_sms_administration_blueprint",
     "MessagingDependencies", "create_messaging_blueprint",
 )
