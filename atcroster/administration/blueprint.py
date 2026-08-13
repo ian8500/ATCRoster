@@ -18,11 +18,25 @@ class AdministrationDependencies:
     live_position_enabled: Callable[[int], bool]
 
 
+def create_administration_dependencies(
+    **services: Any,
+) -> AdministrationDependencies:
+    """Construct the administration-home dependency contract."""
+    return AdministrationDependencies(**services)
+
+
 @dataclass(frozen=True)
 class AdminDashboardDependencies:
     is_admin_user: Callable[[Any], bool]
     actions: AdminActionDependencies
     context: AdminContextDependencies
+
+
+def create_admin_dashboard_dependencies(
+    **services: Any,
+) -> AdminDashboardDependencies:
+    """Construct the administration-dashboard dependency contract."""
+    return AdminDashboardDependencies(**services)
 
 
 def create_admin_dashboard_blueprint(

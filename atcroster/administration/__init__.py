@@ -4,7 +4,9 @@ from .blueprint import (
     AdminDashboardDependencies,
     AdministrationDependencies,
     create_admin_dashboard_blueprint,
+    create_admin_dashboard_dependencies,
     create_administration_blueprint,
+    create_administration_dependencies,
 )
 from .actions import (
     AdminActionDependencies,
@@ -38,7 +40,9 @@ __all__ = (
     "create_toil_service_dependencies",
     "create_toil_administration_dependencies",
     "create_administration_blueprint",
+    "create_administration_dependencies",
     "create_admin_dashboard_blueprint",
+    "create_admin_dashboard_dependencies",
     "dispatch_admin_action",
     "create_toil_administration_blueprint",
     "seed_toil_balances",

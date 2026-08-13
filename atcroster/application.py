@@ -240,13 +240,13 @@ from atcroster.calendar_feed import (
     create_calendar_feed_dependencies,
 )
 from atcroster.administration import (
-    AdminDashboardDependencies,
-    AdministrationDependencies,
     ToilService,
     create_admin_dashboard_blueprint,
+    create_admin_dashboard_dependencies,
     create_admin_action_dependencies,
     create_admin_context_dependencies,
     create_administration_blueprint,
+    create_administration_dependencies,
     create_toil_administration_blueprint,
     create_toil_administration_dependencies,
     create_toil_service_dependencies,
@@ -1642,11 +1642,11 @@ app.register_blueprint(create_calendar_feed_blueprint(create_calendar_feed_depen
     is_admin_user=is_admin_user,
     validate_csrf=_validate_csrf,
 )))
-app.register_blueprint(create_administration_blueprint(AdministrationDependencies(
+app.register_blueprint(create_administration_blueprint(create_administration_dependencies(
     is_admin_user=is_admin_user,
     live_position_enabled=live_position_enabled,
 )))
-app.register_blueprint(create_admin_dashboard_blueprint(AdminDashboardDependencies(
+app.register_blueprint(create_admin_dashboard_blueprint(create_admin_dashboard_dependencies(
     is_admin_user=is_admin_user,
     actions=_admin_action_dependencies(),
     context=create_admin_context_dependencies(
