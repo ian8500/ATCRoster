@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, time
+from typing import Callable
 
 
 def parse_hhmm(value: str | None) -> time | None:
@@ -31,3 +32,8 @@ def parse_iso_date(value: str | None) -> date | None:
 def is_sunday(value: date) -> bool:
     """Return whether a roster calendar date falls on Sunday."""
     return value.weekday() == 6
+
+
+def parse_year_month(value: str, parser: Callable[[str], tuple[int, int]]) -> tuple[int, int]:
+    """Parse a roster year-month value using the canonical parser."""
+    return parser(value)

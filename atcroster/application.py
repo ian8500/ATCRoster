@@ -124,6 +124,7 @@ from atcroster.roster import (
     expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     is_sunday as roster_date_is_sunday,
+    parse_year_month as parse_roster_year_month,
     cell_is_protected,
     assignment_for_day,
     is_non_working as roster_code_is_non_working,
@@ -1662,7 +1663,7 @@ def _watch_id_for_staff_on(
 
 
 def parse_ym(ym: str):
-    return parse_year_month(ym)
+    return parse_roster_year_month(ym, parse_year_month)
 
 
 def get_shift(code: str, unit_id: int | None = None):
