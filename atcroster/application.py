@@ -1,7 +1,6 @@
 """Application assembly and legacy compatibility implementation."""
 
 from functools import wraps
-from calendar import monthrange
 from collections import defaultdict, OrderedDict
 from typing import Any, Optional, Tuple
 from flask import render_template, request, redirect, url_for, flash, abort, session, g
@@ -238,6 +237,10 @@ from atcroster.roster.reference_data import (
 from atcroster.roster.fairness import (
     FairnessDependencies,
     FairnessReportService,
+)
+from atcroster.roster.month_view import (
+    MonthRosterLoadDependencies,
+    load_month_roster,
 )
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
@@ -1460,65 +1463,20 @@ def load_user(user_id):
 
 
 def _load_month_roster_core(unit_id: int, y: int, m: int):
-    """
-    Returns (days, staff_list, a_map, req) and NEVER returns None.
-    On failure: returns ([], [], {}, ensure_month_requirement(y,m)).
-    """
-    try:
-        start = date(y, m, 1)
-        days_in_m = monthrange(y, m)[1]
-        days = [start + timedelta(days=i) for i in range(days_in_m)]
-        ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
-        end = date(ny, nm, 1)
-
-        # Staff ordering
-        try:
-            staff = (Staff.query
-                     .outerjoin(Watch, Staff.watch_id == Watch.id)
-                     .filter(Staff.role != "position_monitor")
-                     .order_by(Watch.order_index, Staff.name)
-                     .all())
-        except Exception:
-            staff = (
-                Staff.query.filter(Staff.role != "position_monitor")
-                .order_by(Staff.id)
-                .all()
-            )
-
-        # Assignments for the month (narrow columns)
-        rows = (db.session.query(
-            Assignment.staff_id,
-            Assignment.day,
-            Assignment.effective_code.label("effective_code"),
-            Assignment.source,
-            Assignment.annotation,
-            Assignment.annotation_note,
-        )
-            .filter(Assignment.day >= start, Assignment.day < end)
-            .all())
-
-        a_map = {}
-        for sid, d, code, source, ann, ann_note in rows:
-            a_map.setdefault(sid, {})[d] = (
-                code, source, ann, ann_note or ""
-            )
-
-        req = Requirement.query.filter_by(year=y, month=m).first()
-        if not req:
-            req = ensure_month_requirement(y, m)
-
-        return days, staff, a_map, req
-
-    except Exception as e:
-        try:
-            app.logger.exception(
-                "Failed _load_month_roster_core(%s,%s,%s): %s",
-                unit_id, y, m, e,
-            )
-        except Exception:
-            pass
-        # Ensure we still return a valid 4-tuple
-        return ([], [], {}, ensure_month_requirement(y, m))
+    return load_month_roster(
+        unit_id,
+        y,
+        m,
+        MonthRosterLoadDependencies(
+            db=db,
+            Assignment=Assignment,
+            Requirement=Requirement,
+            Staff=Staff,
+            Watch=Watch,
+            ensure_month_requirement=ensure_month_requirement,
+            log_exception=app.logger.exception,
+        ),
+    )
 
 
 # IMPORTANT: overwrite any previously memoized wrapper
