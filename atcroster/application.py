@@ -218,6 +218,7 @@ from atcroster.administration.watch_moves import (
     WatchMoveDependencies,
     create_watch_move_blueprint,
 )
+from atcroster.administration.absence_types import update_absence_types
 from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.accounts import (
     KioskAccountDependencies,
@@ -3302,46 +3303,10 @@ def admin():
 
         if form in {"absence_type_add", "absence_type_delete"}:
             _validate_csrf()
-            types = get_absence_types(active_only=False)
-            if form == "absence_type_add":
-                code = (request.form.get("code") or "").strip().upper()
-                label = (request.form.get("label") or "").strip()
-                category = (request.form.get("category") or "").strip().lower()
-                if (
-                    not re.fullmatch(r"[A-Z0-9]{1,10}", code)
-                    or category not in {"leave", "sickness"}
-                    or not label
-                ):
-                    flash("Enter a name, category and a 1–10 character code.", "error")
-                else:
-                    existing = next(
-                        (item for item in types if item["code"] == code), None
-                    )
-                    if existing:
-                        existing.update(
-                            label=label[:80], category=category, active=True
-                        )
-                    else:
-                        types.append({
-                            "code": code,
-                            "label": label[:80],
-                            "category": category,
-                            "active": True,
-                        })
-                    _save_absence_types(types)
-                    flash(f"{label} is now available for this airport.", "ok")
-            else:
-                code = (request.form.get("code") or "").strip().upper()
-                item = next((item for item in types if item["code"] == code), None)
-                if not item:
-                    abort(404)
-                item["active"] = False
-                _save_absence_types(types)
-                flash(
-                    f"{item['label']} was removed from new records and reports. "
-                    "Historical records were retained.",
-                    "ok",
-                )
+            message, category = update_absence_types(
+                form, request.form, load=get_absence_types, save=_save_absence_types
+            )
+            flash(message, category)
             return redirect(url_for("admin") + "#leave-types")
 
         if form == "sms_settings":
