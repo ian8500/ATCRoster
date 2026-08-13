@@ -246,6 +246,7 @@ class AssignmentRuntimeDependencies:
     daily_requirements: Callable[..., dict[str, int]]
     ensure_month_requirement: Callable[..., Any]
     requirements_for_day: Callable[..., dict[str, int]]
+    iter_year_months: Callable[[date, date], Any]
 
 
 class AssignmentRuntime:
@@ -312,4 +313,13 @@ class AssignmentRuntime:
             Staff=deps.refresh.Staff,
             month_range=deps.month_range,
             refresh_day=self.refresh_day,
+        )
+
+    def generate_range(self, start_day: date, end_day: date) -> None:
+        return generate_assignment_range(
+            start_day,
+            end_day,
+            iter_year_months=self.dependencies.iter_year_months,
+            ensure_month_requirement=self.ensure_month_requirement,
+            generate_month=self.generate_month,
         )

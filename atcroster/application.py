@@ -217,7 +217,6 @@ from atcroster.roster.assignments import (
     AssignmentRuntimeDependencies,
     AssignmentRefreshDependencies,
     allocate_day_shift_shortfall,
-    generate_assignment_range,
 )
 from atcroster.roster.annotations import AnnotationCatalogue
 from atcroster.roster.settings import RosterSettingsCatalogue
@@ -1146,6 +1145,7 @@ assignment_runtime = AssignmentRuntime(AssignmentRuntimeDependencies(
     daily_requirements=daily_requirements,
     ensure_month_requirement=ensure_roster_month_requirement,
     requirements_for_day=resolve_roster_requirements_for_day,
+    iter_year_months=iter_year_months,
 ))
 def _assignment_refresh_dependencies():
     return assignment_runtime.dependencies.refresh
@@ -1158,6 +1158,8 @@ shift_duration_minutes = assignment_runtime.shift_duration_minutes
 ensure_month_requirement = assignment_runtime.ensure_month_requirement
 requirements_for_day = assignment_runtime.requirements_for_day
 generate_month = assignment_runtime.generate_month
+generate_range = assignment_runtime.generate_range
+ensure_assignments_for_range = assignment_runtime.generate_range
 
 
 _fatigue_rule_config_service = FatigueRuleConfigService(
@@ -1229,30 +1231,6 @@ def would_trigger_fatigue_with_plan(
         is_early_start=_is_early_start,
         is_night_duty=_is_night_duty,
         is_morning_duty=_is_morning_duty,
-    )
-
-
-def _year_month_iter(start_date: date, end_date: date):
-    yield from iter_year_months(start_date, end_date)
-
-
-def generate_range(start_day: date, end_day: date):
-    return generate_assignment_range(
-        start_day,
-        end_day,
-        iter_year_months=_year_month_iter,
-        ensure_month_requirement=ensure_month_requirement,
-        generate_month=generate_month,
-    )
-
-
-def ensure_assignments_for_range(start_day: date, end_day: date):
-    return generate_assignment_range(
-        start_day,
-        end_day,
-        iter_year_months=_year_month_iter,
-        ensure_month_requirement=ensure_month_requirement,
-        generate_month=generate_month,
     )
 
 
