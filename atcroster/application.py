@@ -119,6 +119,7 @@ from atcroster.roster import (
     lock_date_for_month as roster_period_lock_date, memoize,
     month_add as roster_period_add, parse_annotation as parse_roster_annotation,
     month_has_data as roster_month_has_data,
+    lock_roster_month as lock_roster_period,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -1618,21 +1619,9 @@ def month_has_data(year: int, month: int) -> bool:
 
 
 def _lock_roster_month(unit_id: int, year: int, month: int) -> Requirement:
-    """Serialise assignment, request and publication changes for one month."""
-    requirement = (
-        Requirement.query.filter_by(unit_id=unit_id, year=year, month=month)
-        .with_for_update()
-        .first()
+    return lock_roster_period(
+        db, Requirement, unit_id, year, month, ensure_month_requirement,
     )
-    if requirement is None:
-        ensure_month_requirement(year, month)
-        db.session.flush()
-        requirement = (
-            Requirement.query.filter_by(unit_id=unit_id, year=year, month=month)
-            .with_for_update()
-            .one()
-        )
-    return requirement
 
 
 def month_range(year: int, month: int):
