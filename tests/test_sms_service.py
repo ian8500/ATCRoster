@@ -19,6 +19,8 @@ def test_normalise_uk_mobile_accepts_supported_input_forms():
 def test_valid_email_normalizes_and_rejects_invalid_addresses():
     assert valid_email("  ADMIN@EXAMPLE.COM ") == "admin@example.com"
     assert valid_email("not-an-email") == ""
+    assert valid_email("admin@-example.com") == ""
+    assert valid_email("admin@example..com") == ""
 
 
 def test_parse_sms_number_lines_deduplicates_and_reports_invalid_lines():

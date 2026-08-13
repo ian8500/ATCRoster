@@ -15,14 +15,19 @@ def email_service_configured() -> bool:
 
 def valid_email(value: str) -> str:
     candidate = (value or "").strip().casefold()
-    if not re.fullmatch(
-        r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@"
-        r"[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?"
-        r"(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+",
-        candidate, re.IGNORECASE,
+    if len(candidate) > 254 or candidate.count("@") != 1:
+        return ""
+    local, domain = candidate.split("@")
+    if not (local and len(local) <= 64 and re.fullmatch(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+", local)):
+        return ""
+    labels = domain.split(".")
+    if len(labels) < 2 or any(
+        not label or len(label) > 63 or not re.fullmatch(r"[a-z0-9-]+", label)
+        or label.startswith("-") or label.endswith("-")
+        for label in labels
     ):
         return ""
-    return candidate[:254]
+    return candidate
 
 
 def send_account_email(to_address: str, subject: str, body: str, logger: Any) -> bool:
