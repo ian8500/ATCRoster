@@ -159,7 +159,7 @@ from atcroster.audit import (
 from atcroster.workforce.joiners import JoinerDependencies, create_joiner
 from atcroster.fatigue import (
     FatigueRuntime,
-    FatigueRuntimeDependencies,
+    create_fatigue_runtime_dependencies,
     FatigueCompatibilityService,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
@@ -967,8 +967,8 @@ _fatigue_rule_config_service = FatigueRuleConfigService(
 _fatigue_rule_config = _fatigue_rule_config_service.load
 _save_fatigue_rule_config = _fatigue_rule_config_service.save
 
-fatigue_runtime = FatigueRuntime(FatigueRuntimeDependencies(
-    Assignment=Assignment,
+fatigue_runtime = FatigueRuntime(create_fatigue_runtime_dependencies(
+    operational_models=_operational_models,
     get_shift=get_shift,
     is_working=_is_working,
     span=_span,

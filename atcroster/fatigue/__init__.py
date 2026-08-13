@@ -11,7 +11,11 @@ from .analysis import (
     segments_for_staff as load_staff_segments,
     segments_from_assignments,
 )
-from .runtime import FatigueRuntime, FatigueRuntimeDependencies
+from .runtime import (
+    FatigueRuntime,
+    FatigueRuntimeDependencies,
+    create_fatigue_runtime_dependencies,
+)
 from .compatibility import FatigueCompatibilityService
 
 __all__ = (
@@ -26,5 +30,6 @@ __all__ = (
     "segments_from_assignments",
     "FatigueRuntime",
     "FatigueRuntimeDependencies",
+    "create_fatigue_runtime_dependencies",
     "FatigueCompatibilityService",
 )

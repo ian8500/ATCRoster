@@ -31,6 +31,16 @@ class FatigueRuntimeDependencies:
     fatigue_rule_config: Callable[[int], dict[str, Any]]
 
 
+def create_fatigue_runtime_dependencies(
+    *, operational_models: Any, **services: Any
+) -> FatigueRuntimeDependencies:
+    """Bind fatigue analysis to operational assignment records."""
+    return FatigueRuntimeDependencies(
+        Assignment=operational_models.Assignment,
+        **services,
+    )
+
+
 class FatigueRuntime:
     """Own segment construction and fatigue finding projections."""
 
