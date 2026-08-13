@@ -93,8 +93,7 @@ from atcroster.roster import (
     month_has_data as roster_month_has_data,
     lock_roster_month as lock_roster_period,
     shift_groups_snapshot,
-    counter_group as resolve_shift_counter_group,
-    counter_group_for_day as resolve_shift_counter_group_for_day,
+    ShiftCounterService,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     parse_year_month as parse_roster_year_month,
     ensure_month_requirement as ensure_roster_month_requirement,
@@ -805,32 +804,6 @@ _default_overtime_sms_body = default_overtime_sms_body
 _flash_sms_result = notification_runtime.flash_result
 
 
-def shift_counter_group(
-    code: str | None, unit_id: int | None = None
-) -> str:
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    return resolve_shift_counter_group(
-        code,
-        resolved_unit_id,
-        counter_map=get_shift_counter_map,
-        get_shift=get_shift,
-    )
-
-
-def shift_counter_group_for_day(
-    code: str | None, on_date: date, unit_id: int | None = None
-) -> str:
-    """Return the staffing group, suppressing nights when the unit is closed."""
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    return resolve_shift_counter_group_for_day(
-        code,
-        on_date,
-        resolved_unit_id,
-        resolve_group=shift_counter_group,
-        night_active_on=_night_active_on,
-    )
-
-
 annotation_catalogue = AnnotationCatalogue(AnnotationType, _current_unit_id)
 _annotation_snapshot = annotation_catalogue.snapshot
 refresh_annotation_cache = annotation_catalogue.refresh
@@ -1051,6 +1024,15 @@ _night_active_on = pattern_runtime.night_active
 day_leave_for = pattern_runtime.leave_for
 code_from_pattern = pattern_runtime.code_for
 _effective_watch_id = pattern_runtime.effective_watch_id
+
+shift_counter_service = ShiftCounterService(
+    current_unit_id=_current_unit_id,
+    counter_map=get_shift_counter_map,
+    get_shift=get_shift,
+    night_active_on=_night_active_on,
+)
+shift_counter_group = shift_counter_service.group
+shift_counter_group_for_day = shift_counter_service.group_for_day
 
 
 def deterministic_roster_population_service():

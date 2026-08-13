@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 
@@ -91,3 +92,35 @@ def counter_group_for_day(
     """Suppress night coverage when the airport is closed that day."""
     group = resolve_group(code, unit_id)
     return "" if group == "N" and not night_active_on(unit_id, on_date) else group
+
+
+@dataclass(frozen=True)
+class ShiftCounterService:
+    """Resolve configured roster shift coverage groups for one application."""
+
+    current_unit_id: Callable[[], int]
+    counter_map: Callable[[int], dict[str, str]]
+    get_shift: Callable[[str, int], Any]
+    night_active_on: Callable[[int, Any], bool]
+
+    def group(self, code: str | None, unit_id: int | None = None) -> str:
+        resolved_unit_id = int(unit_id or self.current_unit_id() or 1)
+        return counter_group(
+            code,
+            resolved_unit_id,
+            counter_map=self.counter_map,
+            get_shift=self.get_shift,
+        )
+
+    def group_for_day(
+        self, code: str | None, on_date: Any, unit_id: int | None = None
+    ) -> str:
+        """Resolve coverage while suppressing nights on closed dates."""
+        resolved_unit_id = int(unit_id or self.current_unit_id() or 1)
+        return counter_group_for_day(
+            code,
+            on_date,
+            resolved_unit_id,
+            resolve_group=self.group,
+            night_active_on=self.night_active_on,
+        )

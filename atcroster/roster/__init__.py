@@ -9,6 +9,7 @@ from .shifts import (
     counter_group,
     counter_group_for_day,
     duration_minutes,
+    ShiftCounterService,
     shift_groups_snapshot,
 )
 from .requirements import ensure_month_requirement, requirements_for_day
@@ -49,5 +50,6 @@ __all__ = (
     "requirements_for_day",
     "set_assignment_code",
     "shift_groups_snapshot",
+    "ShiftCounterService",
     "validate",
 )
