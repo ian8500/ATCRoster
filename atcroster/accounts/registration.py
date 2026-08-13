@@ -61,6 +61,27 @@ class AccountRegistrationDependencies:
     live_position_enabled: Callable[[int], bool]
 
 
+def create_account_registration_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> AccountRegistrationDependencies:
+    """Bind account routes to canonical model registries during composition."""
+    return AccountRegistrationDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        Staff=operational_models.Staff,
+        PlatformIdentity=saas_models.PlatformIdentity,
+        UnitMembership=saas_models.UnitMembership,
+        SecureInvitation=saas_models.SecureInvitation,
+        RecoveryRequest=saas_models.RecoveryRequest,
+        DatabaseRoutingMetadata=saas_models.DatabaseRoutingMetadata,
+        SmsSenderRegistration=operational_models.SmsSenderRegistration,
+        MfaCredential=saas_models.MfaCredential,
+        Assignment=operational_models.Assignment,
+        Notification=operational_models.Notification,
+        **services,
+    )
+
+
 def register_account_blueprints(app: Any, deps: AccountRegistrationDependencies) -> None:
     app.register_blueprint(create_recovery_request_blueprint(
         RecoveryRequestDependencies(

@@ -281,7 +281,7 @@ from atcroster.requests import (
     clamp_request_navigation,
 )
 from atcroster.accounts import (
-    AccountRegistrationDependencies,
+    create_account_registration_dependencies,
     register_account_blueprints,
     active_recovery_from_digest,
     platform_support_emails,
@@ -1884,19 +1884,10 @@ app.register_blueprint(create_home_blueprint(HomeDependencies(
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
 )))
-register_account_blueprints(app, AccountRegistrationDependencies(
+register_account_blueprints(app, create_account_registration_dependencies(
     db=db,
-    Unit=Unit,
-    Staff=Staff,
-    PlatformIdentity=PlatformIdentity,
-    UnitMembership=UnitMembership,
-    SecureInvitation=SecureInvitation,
-    RecoveryRequest=RecoveryRequest,
-    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
-    SmsSenderRegistration=SmsSenderRegistration,
-    MfaCredential=MfaCredential,
-    Assignment=Assignment,
-    Notification=Notification,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     deployment_environment=DEPLOYMENT_ENV,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
