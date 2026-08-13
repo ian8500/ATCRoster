@@ -345,7 +345,7 @@ from absence_requests_blueprint import (
     create_absence_requests_blueprint,
 )
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
-from roster_blueprint import RosterDependencies, create_roster_blueprint
+from roster_blueprint import create_roster_blueprint, create_roster_dependencies
 from training_blueprint import create_training_blueprint, create_training_dependencies
 from roster_period_service import RosterPeriodDependencies, RosterPeriodService
 from atcroster.planning import PlanningDependencies, create_planning_services
@@ -1628,19 +1628,10 @@ publication_service = create_publication_service(PublicationDependencies(
 ))
 _roster_snapshot = publication_service.snapshot
 _active_roster_publication = publication_service.active_publication
-app.register_blueprint(create_roster_blueprint(RosterDependencies(
+app.register_blueprint(create_roster_blueprint(create_roster_dependencies(
     db=db,
-    RosterPublication=RosterPublication,
-    Staff=Staff,
-    Notification=Notification,
-    Assignment=Assignment,
-    Leave=Leave,
-    Watch=Watch,
-    Requirement=Requirement,
-    SpecialRequirement=SpecialRequirement,
-    ShiftRequest=ShiftRequest,
-    AnnotationType=AnnotationType,
-    AnnotationAudit=AnnotationAudit,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     publication_service=publication_service,
     validate_csrf=_validate_csrf,
     parse_year_month=parse_ym,
@@ -1672,8 +1663,6 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     roster_validation=roster_validation_service,
     roster_month_cache=roster_month_cache,
     metrics=_operational_metrics,
-    RosterProposal=RosterProposal,
-    RosterProposalAssignment=RosterProposalAssignment,
     roster_proposal_service=roster_proposal_service,
     get_annotation_groups=get_annotation_groups,
 )))

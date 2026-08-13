@@ -79,6 +79,29 @@ class RosterDependencies:
     roster_proposal_service: Any = None
 
 
+def create_roster_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> RosterDependencies:
+    """Bind roster route records at the roster composition boundary."""
+    return RosterDependencies(
+        db=db,
+        RosterPublication=saas_models.RosterPublication,
+        Staff=operational_models.Staff,
+        Notification=operational_models.Notification,
+        Assignment=operational_models.Assignment,
+        Leave=operational_models.Leave,
+        Watch=operational_models.Watch,
+        Requirement=operational_models.Requirement,
+        SpecialRequirement=operational_models.SpecialRequirement,
+        ShiftRequest=operational_models.ShiftRequest,
+        AnnotationType=operational_models.AnnotationType,
+        AnnotationAudit=operational_models.AnnotationAudit,
+        RosterProposal=saas_models.RosterProposal,
+        RosterProposalAssignment=saas_models.RosterProposalAssignment,
+        **services,
+    )
+
+
 def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
     blueprint = Blueprint("roster", __name__)
 
