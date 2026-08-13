@@ -111,6 +111,8 @@ from atcroster.roster import (
     month_has_data as roster_month_has_data,
     lock_roster_month as lock_roster_period,
     shift_groups_snapshot,
+    counter_group as resolve_shift_counter_group,
+    counter_group_for_day as resolve_shift_counter_group_for_day,
     expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     is_sunday as roster_date_is_sunday,
@@ -1081,29 +1083,13 @@ overtime_sms_service = OvertimeSmsService(
 def shift_counter_group(
     code: str | None, unit_id: int | None = None
 ) -> str:
-    value = (code or "").strip().upper()
-    if not value:
-        return ""
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    mapping = get_shift_counter_map(resolved_unit_id)
-    if value in mapping:
-        return mapping[value]
-    # Legacy default grouping is only valid for a working shift that actually
-    # exists for this airport. Pattern letters are not, by themselves, enough
-    # to claim that somebody is covering that staffing group.
-    shift = get_shift(value, resolved_unit_id)
-    if (
-        not shift
-        or not shift.is_active
-        or not shift.is_working
-        or shift.is_training
-    ):
-        return ""
-    if value == "EM":
-        return "M"
-    if value == "LA":
-        return "A"
-    return value if value in {"M", "D", "A", "N"} else ""
+    return resolve_shift_counter_group(
+        code,
+        resolved_unit_id,
+        counter_map=get_shift_counter_map,
+        get_shift=get_shift,
+    )
 
 
 def shift_counter_group_for_day(
@@ -1111,10 +1097,13 @@ def shift_counter_group_for_day(
 ) -> str:
     """Return the staffing group, suppressing nights when the unit is closed."""
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    group = shift_counter_group(code, resolved_unit_id)
-    if group == "N" and not _night_active_on(resolved_unit_id, on_date):
-        return ""
-    return group
+    return resolve_shift_counter_group_for_day(
+        code,
+        on_date,
+        resolved_unit_id,
+        resolve_group=shift_counter_group,
+        night_active_on=_night_active_on,
+    )
 
 
 @lru_cache(maxsize=128)
