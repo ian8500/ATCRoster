@@ -129,7 +129,7 @@ from atcroster.reports import ReportingRuntime, ReportingRuntimeDependencies
 from atcroster.auth import (
     AuthRuntime,
     AuthRuntimeDependencies,
-    AuthRegistrationDependencies,
+    create_auth_registration_dependencies,
     register_auth_blueprints,
     load_identity,
     canonical_login_redirect,
@@ -1508,15 +1508,10 @@ register_operational_blueprints(app, create_operational_registration_dependencie
     staff_has_shift_qualification=_staff_has_shift_qualification,
 ))
 
-register_auth_blueprints(app, AuthRegistrationDependencies(
+register_auth_blueprints(app, create_auth_registration_dependencies(
     db=db,
-    PlatformIdentity=PlatformIdentity,
-    UnitMembership=UnitMembership,
-    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
-    Staff=Staff,
-    Unit=Unit,
-    PlatformMfaCredential=PlatformMfaCredential,
-    MfaCredential=MfaCredential,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     deployment_environment=DEPLOYMENT_ENV,
     validate_csrf=_validate_csrf,
     normalized_login=_normalized_login,

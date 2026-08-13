@@ -42,6 +42,23 @@ class AuthRegistrationDependencies:
     totp_qr_data_uri: Callable[..., str]
 
 
+def create_auth_registration_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> AuthRegistrationDependencies:
+    """Bind authentication records at the authentication boundary."""
+    return AuthRegistrationDependencies(
+        db=db,
+        PlatformIdentity=saas_models.PlatformIdentity,
+        UnitMembership=saas_models.UnitMembership,
+        DatabaseRoutingMetadata=saas_models.DatabaseRoutingMetadata,
+        Staff=operational_models.Staff,
+        Unit=operational_models.Unit,
+        PlatformMfaCredential=saas_models.PlatformMfaCredential,
+        MfaCredential=saas_models.MfaCredential,
+        **services,
+    )
+
+
 def register_auth_blueprints(app: Any, deps: AuthRegistrationDependencies) -> None:
     app.register_blueprint(create_auth_blueprint(AuthDependencies(
         db=deps.db, PlatformIdentity=deps.PlatformIdentity,
