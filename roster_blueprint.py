@@ -773,7 +773,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 if code and capability is not None and not capability.counts_as_operational:
                     readiness_issues["qualification"].append({**base, "severity": "blocking", "remediation": "Review qualification status", "href": url_for("compliance_centre")})
                 if code == "AL":
-                    readiness_issues["leave"].append({**base, "severity": "advisory", "remediation": "Review leave record", "href": url_for("absence_requests.requests_page")})
+                    readiness_issues["leave"].append({**base, "severity": "advisory", "remediation": "Review leave record", "href": url_for("requests_page")})
         for request_row in requests:
             if (request_row.status or "pending").lower() == "pending":
                 person = next((row for row in staff if row.id == request_row.staff_id), None)
@@ -781,7 +781,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                     "date": request_row.day.isoformat(), "shift": request_row.code,
                     "controller": person.name if person else "Unknown", "severity": "advisory",
                     "staff_id": str(request_row.staff_id),
-                    "remediation": "Resolve request", "href": url_for("absence_requests.requests_page"),
+                    "remediation": "Resolve request", "href": url_for("requests_page"),
                 })
         return render_template(
             "roster_month.html",
