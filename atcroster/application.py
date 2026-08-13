@@ -64,8 +64,7 @@ from fatigue_compliance import (
     compliance_month,
 )
 from roster_population_service import (
-    DeterministicRosterPopulationService,
-    PopulationDependencies,
+    create_deterministic_roster_population_service,
 )
 from roster_impact_service import (
     RosterImpactDependencies,
@@ -880,21 +879,14 @@ shift_counter_group_for_day = shift_counter_service.group_for_day
 
 def deterministic_roster_population_service():
     """Build the shared baseline-population service for application callers."""
-    return DeterministicRosterPopulationService(PopulationDependencies(
+    return create_deterministic_roster_population_service(
         db=db,
-        Unit=Unit,
-        Staff=Staff,
-        Assignment=Assignment,
-        ShiftType=ShiftType,
-        WorkPattern=WorkPattern,
-        WorkPatternDay=WorkPatternDay,
-        WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
-        StaffPatternAssignment=StaffPatternAssignment,
+        operational_models=_operational_models,
+        saas_models=SaaS,
         utcnow=utcnow,
         legacy_code_resolver=code_from_pattern,
         watch_id_resolver=_effective_watch_id,
-        RosterPeriod=RosterPeriod,
-    ))
+    )
 
 roster_impact_runtime = RosterImpactRuntime(create_roster_impact_runtime_dependencies(
     db=db,
