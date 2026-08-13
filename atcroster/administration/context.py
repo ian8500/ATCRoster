@@ -31,6 +31,25 @@ class AdminContextDependencies:
     pattern_codes: Any
 
 
+def create_admin_context_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> AdminContextDependencies:
+    """Bind the administration dashboard to canonical model registries."""
+    return AdminContextDependencies(
+        db=db,
+        Watch=operational_models.Watch,
+        ShiftType=operational_models.ShiftType,
+        QualificationType=saas_models.QualificationType,
+        WorkPattern=saas_models.WorkPattern,
+        Staff=operational_models.Staff,
+        Requirement=operational_models.Requirement,
+        SpecialRequirement=operational_models.SpecialRequirement,
+        Leave=operational_models.Leave,
+        Unit=operational_models.Unit,
+        **services,
+    )
+
+
 def build_admin_context(dependencies: AdminContextDependencies) -> dict[str, Any]:
     """Build the read-only data required by the administration template."""
     unit_id = dependencies.current_unit_id()

@@ -21,11 +21,14 @@ from .toil import (
     apply_annotation_toil_delta,
     accrued_and_used_half_days,
 )
+from .context import AdminContextDependencies, create_admin_context_dependencies
 
 __all__ = (
     "AdministrationDependencies",
     "AdminDashboardDependencies",
     "AdminActionDependencies",
+    "AdminContextDependencies",
+    "create_admin_context_dependencies",
     "create_admin_action_dependencies",
     "ToilAdministrationDependencies",
     "ToilService",

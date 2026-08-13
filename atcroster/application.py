@@ -242,6 +242,7 @@ from atcroster.administration import (
     ToilAdministrationDependencies,
     create_admin_dashboard_blueprint,
     create_admin_action_dependencies,
+    create_admin_context_dependencies,
     create_administration_blueprint,
     create_toil_administration_blueprint,
     seed_toil_balances,
@@ -263,7 +264,6 @@ from atcroster.administration.watch_moves import (
     create_watch_move_blueprint,
 )
 from atcroster.administration.absence_types import update_absence_types
-from atcroster.administration.context import AdminContextDependencies
 from atcroster.administration.staff_edit import (
     StaffEditDependencies,
     create_staff_edit_blueprint,
@@ -1762,17 +1762,10 @@ app.register_blueprint(create_administration_blueprint(AdministrationDependencie
 app.register_blueprint(create_admin_dashboard_blueprint(AdminDashboardDependencies(
     is_admin_user=is_admin_user,
     actions=_admin_action_dependencies(),
-    context=AdminContextDependencies(
+    context=create_admin_context_dependencies(
         db=db,
-        Watch=Watch,
-        ShiftType=ShiftType,
-        QualificationType=QualificationType,
-        WorkPattern=WorkPattern,
-        Staff=Staff,
-        Requirement=Requirement,
-        SpecialRequirement=SpecialRequirement,
-        Leave=Leave,
-        Unit=Unit,
+        operational_models=_operational_models,
+        saas_models=SaaS,
         current_unit_id=_current_unit_id,
         roster_settings_snapshot=_roster_settings_snapshot,
         validate_pattern=_validated_pattern,
