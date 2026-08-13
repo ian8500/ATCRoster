@@ -307,6 +307,11 @@ from atcroster.navigation import (
     NavigationContextDependencies,
     build_navigation_context,
 )
+from atcroster.requests import (
+    add_request_audit,
+    add_requester_notification,
+    load_unit_request_rules,
+)
 from atcroster.accounts import (
     KioskAccountDependencies,
     PasswordDependencies,
@@ -2878,10 +2883,12 @@ def _group_consecutive_days(days_set):
 
 
 def _unit_request_rules(unit_id: int | None = None) -> tuple[int, int]:
-    unit = db.session.get(Unit, unit_id or _current_unit_id())
-    return normalise_request_rules(
-        getattr(unit, "request_months_ahead", 3),
-        getattr(unit, "request_lock_day", 20),
+    return load_unit_request_rules(
+        unit_id,
+        db=db,
+        Unit=Unit,
+        current_unit_id=_current_unit_id,
+        normalise_rules=normalise_request_rules,
     )
 
 
@@ -2906,37 +2913,20 @@ def _request_date_bounds(today: date, unit_id: int) -> tuple[date, date]:
 
 def _request_audit(req: ShiftRequest, actor_id: int, transition: str,
                    old_value: object, new_value: object, reason: str = "") -> None:
-    db.session.add(RequestAudit(
-        unit_id=req.unit_id,
-        request_id=req.id,
-        actor_id=actor_id,
-        transition=transition,
-        old_value=json.dumps(old_value, default=str, sort_keys=True),
-        new_value=json.dumps(new_value, default=str, sort_keys=True),
-        reason=(reason or "")[:500],
-    ))
+    return add_request_audit(
+        req,
+        actor_id,
+        transition,
+        old_value,
+        new_value,
+        reason,
+        db=db,
+        RequestAudit=RequestAudit,
+    )
 
 
 def _notify_requester(req: ShiftRequest) -> None:
-    if req.status not in {"pending", "approved", "rejected", "fulfilled"}:
-        return
-    if req.status == "fulfilled":
-        outcome = "was approved and added to the roster"
-    elif req.status == "rejected":
-        outcome = "was refused"
-    else:
-        outcome = f"is now {req.status}"
-    comment = (req.admin_response or "").strip()
-    comment_text = f" Manager comment: {comment}" if comment else ""
-    db.session.add(Notification(
-        unit_id=req.unit_id,
-        recipient_id=req.staff_id,
-        kind=f"shift_request_{req.status}",
-        message=(
-            f"Your {req.code} shift request for "
-            f"{req.day.strftime('%d %B %Y')} {outcome}.{comment_text}"
-        ),
-    ))
+    return add_requester_notification(req, db=db, Notification=Notification)
 
 
 def _safe_request_admin_month(raw_value: str | None, fallback: date) -> str:
