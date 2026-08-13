@@ -135,6 +135,7 @@ from atcroster.auth import (
     matching_totp_step,
     consume_rate_limit,
     canonical_login_redirect,
+    airport_login_endpoint,
     credential_for_auth_stamp,
     privacy_rate_limit_key,
     record_security_event,
@@ -467,10 +468,7 @@ def _canonical_login_redirect(
 
 
 def _airport_login_endpoint(user) -> str:
-    """Land airport users on their appropriate application launcher."""
-    if getattr(user, "role", "") == "position_monitor":
-        return "live_position.kiosk_hmi"
-    return "module_home"
+    return airport_login_endpoint(user)
 
 
 # ----- Lightweight caching -----

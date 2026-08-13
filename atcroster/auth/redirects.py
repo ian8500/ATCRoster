@@ -35,3 +35,10 @@ def canonical_login_redirect(target: str | None, *, url_for: Callable[..., str],
         if user_id and int(match.group(1)) == user_id:
             return url_for("staff_profile", sid=user_id)
     return url_for(default_endpoint)
+
+
+def airport_login_endpoint(user: object) -> str:
+    """Select the module landing endpoint for an authenticated airport user."""
+    if getattr(user, "role", "") == "position_monitor":
+        return "live_position.kiosk_hmi"
+    return "module_home"
