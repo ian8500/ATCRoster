@@ -217,6 +217,9 @@ from atcroster.roster.bootstrap import (
     ensure_watch as ensure_bootstrap_watch,
     seed_legacy_operational_data,
 )
+from atcroster.roster.reference_data import (
+    bootstrap_reference_data as bootstrap_roster_reference_data,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -1442,66 +1445,17 @@ def _parse_sms_number_lines(raw: str) -> tuple[list[dict[str, str]], list[str]]:
 
 
 def bootstrap_reference_data() -> None:
-    Unit.__table__.create(bind=db.engine, checkfirst=True)
-    AnnotationType.__table__.create(bind=db.engine, checkfirst=True)
-    RosterSetting.__table__.create(bind=db.engine, checkfirst=True)
-    if Unit.query.count() == 0:
-        db.session.add(Unit(
-            id=1, code="FIRST", name="First airport unit",
-            status="active",
-        ))
-        db.session.flush()
-
-    if AnnotationType.query.count() == 0:
-        for idx, cfg in enumerate(DEFAULT_ANNOTATION_TYPES):
-            ann = AnnotationType(
-                code=cfg.get("code", "").upper(),
-                label=cfg.get("label") or cfg.get("code", ""),
-                category=cfg.get("category", "Other"),
-                allow_suffix=bool(cfg.get("allow_suffix", False)),
-                suffixes="".join(sorted({
-                    c for c in (cfg.get("suffixes") or "").upper()
-                })),
-                toil_half_days=int(cfg.get("toil_half_days", 0) or 0),
-                tags=cfg.get("tags", ""),
-                is_active=bool(cfg.get("is_active", True)),
-                sort_order=cfg.get("sort_order", idx * 10),
-            )
-            db.session.add(ann)
-        db.session.commit()
-
-    for unit in Unit.query.filter(Unit.status != "platform_control").all():
-        if not AnnotationType.query.filter_by(
-            unit_id=unit.id, code="INFO"
-        ).first():
-            db.session.add(AnnotationType(
-                unit_id=unit.id,
-                code="INFO",
-                label="Information",
-                category="Information",
-                colour="#6c757d",
-                description=(
-                    "Additional roster information. Excluded from reports."
-                ),
-                allow_suffix=False,
-                suffixes="",
-                toil_half_days=0,
-                tags="info,report_exclude",
-                note_required=False,
-                admin_only=False,
-                is_active=True,
-                sort_order=0,
-            ))
-
-    for key, values in DEFAULT_ROSTER_SETTINGS.items():
-        if not RosterSetting.query.filter_by(unit_id=1, key=key).first():
-            db.session.add(RosterSetting(
-                unit_id=1, key=key,
-                value=json.dumps(_normalise_codes(values)),
-            ))
-    db.session.commit()
-    refresh_annotation_cache()
-    refresh_roster_settings_cache()
+    return bootstrap_roster_reference_data(
+        db=db,
+        Unit=Unit,
+        AnnotationType=AnnotationType,
+        RosterSetting=RosterSetting,
+        annotation_defaults=DEFAULT_ANNOTATION_TYPES,
+        roster_defaults=DEFAULT_ROSTER_SETTINGS,
+        normalise_codes=_normalise_codes,
+        refresh_annotation_cache=refresh_annotation_cache,
+        refresh_roster_settings_cache=refresh_roster_settings_cache,
+    )
 
 
 if (
