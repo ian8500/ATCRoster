@@ -156,7 +156,7 @@ from atcroster.auth import (
     totp_qr_data_uri,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
-from atcroster.workforce import effective_watch as resolve_effective_watch, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
+from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -3071,11 +3071,7 @@ def _set_code(a: "Assignment", code: str, source: str, note: str = "", ctx_month
 
 
 def _has_leave_or_sick(staff_id: int, d: date) -> bool:
-    return bool(
-        Leave.query.filter(Leave.staff_id == staff_id, Leave.start <= d, Leave.end >= d).first() or
-        Sickness.query.filter(Sickness.staff_id == staff_id,
-                              Sickness.start <= d, Sickness.end >= d).first()
-    )
+    return has_leave_or_sickness(Leave, Sickness, staff_id, d)
 
 
 def _fatigue_ok(staff: "Staff", day: date, code: str) -> bool:
