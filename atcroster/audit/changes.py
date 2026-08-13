@@ -6,6 +6,47 @@ from datetime import date
 from typing import Any, Callable
 
 
+class ChangeAuditService:
+    """Bind append-only change audit persistence to the application models."""
+
+    def __init__(
+        self,
+        *,
+        db: Any,
+        ChangeLog: Any,
+        current_user: Callable[[], Any],
+        now: Callable[[], Any],
+    ) -> None:
+        self.db = db
+        self.ChangeLog = ChangeLog
+        self.current_user = current_user
+        self.now = now
+
+    def record(
+        self,
+        entity_type: str,
+        entity_id: int,
+        field: str,
+        old: Any,
+        new: Any,
+        note: str = "",
+        context_day: date | None = None,
+    ) -> None:
+        record_change(
+            db=self.db,
+            ChangeLog=self.ChangeLog,
+            user=self.current_user(),
+            now=self.now,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            field=field,
+            old=old,
+            new=new,
+            note=note,
+            context_day=context_day,
+        )
+
+
 def context_month_for_date(value: date | None) -> str | None:
     return None if value is None else f"{value.year:04d}-{value.month:02d}"
 

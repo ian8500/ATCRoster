@@ -153,7 +153,11 @@ from atcroster.qualifications import (
     has_other_valid_ue,
     record_roster_impact_for_qualification,
 )
-from atcroster.audit import context_month_for_date, record_central_security_event, record_change
+from atcroster.audit import (
+    ChangeAuditService,
+    context_month_for_date,
+    record_central_security_event,
+)
 from atcroster.workforce.joiners import JoinerDependencies, create_joiner
 from atcroster.fatigue import (
     FatigueRuntime,
@@ -1257,32 +1261,18 @@ ensure_shift = _legacy_bootstrap.ensure_shift
 ensure_watch = _legacy_bootstrap.ensure_watch
 seed_once = _legacy_bootstrap.seed_once
 
-def _parse_hhmm(val: str):
-    return parse_roster_hhmm(val)
-
-
-def _parse_date(val: str):
-    return parse_roster_date(val)
-
-
-def _normalise_phone_number(val: str | None) -> str:
-    return normalise_phone_number(val)
-
-
-def parse_annotation(s: str):
-    return annotation_catalogue.parse(s)
-
-
-def _context_month_for_date(d: date | None) -> str | None:
-    return context_month_for_date(d)
-
-
-def log_change(entity_type: str, entity_id: int, field: str, old, new, note: str = "", context_day: date | None = None):
-    record_change(
-        db=db, ChangeLog=ChangeLog, user=current_user, now=utcnow,
-        entity_type=entity_type, entity_id=entity_id, field=field,
-        old=old, new=new, note=note, context_day=context_day,
-    )
+_parse_hhmm = parse_roster_hhmm
+_parse_date = parse_roster_date
+_normalise_phone_number = normalise_phone_number
+parse_annotation = annotation_catalogue.parse
+_context_month_for_date = context_month_for_date
+change_audit_service = ChangeAuditService(
+    db=db,
+    ChangeLog=ChangeLog,
+    current_user=lambda: current_user,
+    now=utcnow,
+)
+log_change = change_audit_service.record
 
 # --- Month math (no dateutil) ---
 
