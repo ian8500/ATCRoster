@@ -1,14 +1,12 @@
 """Application assembly and legacy compatibility implementation."""
 
-import flask as _flask
 from functools import wraps
 from calendar import monthrange
-from collections import defaultdict, Counter, OrderedDict, deque
+from collections import defaultdict, Counter, OrderedDict
 from typing import Any, Optional, Tuple
 import base64
 from urllib import parse as urllib_parse
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g, send_from_directory, jsonify
-from flask import render_template as flask_render_template
+from flask import render_template, request, redirect, url_for, flash, abort, session, g
 import os
 import re
 import io
@@ -19,8 +17,6 @@ from functools import lru_cache
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 import json
-import json as _json
-import logging
 import click
 import hashlib
 import pyotp
@@ -32,10 +28,21 @@ from flask_login import (
     current_user, login_required
 )
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.exceptions import HTTPException, SecurityError
-from sqlalchemy import inspect as sa_inspect, text
+from werkzeug.exceptions import HTTPException
+from sqlalchemy import event, inspect as sa_inspect, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm import Session as OrmSession, with_loader_criteria
+from saas_models import register_saas_models
+from fatigue_engine import (
+    _analyze_segments,
+    _custom_fatigue_flags,
+    _is_early_start,
+    _is_morning_duty,
+    _is_night_duty,
+    _is_working,
+    _span,
+)
 from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
@@ -95,7 +102,6 @@ from roster_impact_service import (
     RosterImpactEventType,
     RosterImpactService,
 )
-from roster_horizon import get_unit_automatic_recalculation_start
 from operational_capability import (
     OperationalCapabilityDependencies,
     OperationalCapabilityService,
@@ -158,11 +164,10 @@ from atcroster.live_position import (
     OperationalCurrencyDependencies,
     create_operational_currency_blueprint,
 )
-from atcroster.security.csrf import csrf_token, register_csrf_protection
+from atcroster.security.csrf import register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
     SecurityHeaderDependencies,
-    csp_nonce,
     register_security_headers,
 )
 from atcroster.security.sessions import (
@@ -170,6 +175,26 @@ from atcroster.security.sessions import (
     SessionLifecycleDependencies,
 )
 from atcroster.tenancy_hooks import TenantHookDependencies, register_tenant_hooks
+from atcroster.briefing_bootstrap import load_briefing_module
+from migrations.fresh_schema import CONTROL_TABLES
+from auth_blueprint import AuthDependencies, create_auth_blueprint
+from absence_requests_blueprint import (
+    AbsenceRequestDependencies,
+    create_absence_requests_blueprint,
+)
+from reports_blueprint import ReportsDependencies, create_reports_blueprint
+from roster_blueprint import RosterDependencies, create_roster_blueprint
+from training_blueprint import TrainingDependencies, create_training_blueprint
+from operations_blueprint import OperationsDependencies, create_operations_blueprint
+from live_position_blueprint import LivePositionDependencies, create_live_position_blueprint
+from handover_blueprint import HandoverDependencies, create_handover_blueprint
+from work_pattern_admin_service import WorkPatternAdminDependencies, WorkPatternAdminService
+from work_pattern_blueprint import WorkPatternBlueprintDependencies, create_work_pattern_blueprint
+from roster_validation_service import RosterValidationDependencies, RosterValidationService
+from roster_proposal_service import RosterProposalDependencies, RosterProposalService
+from work_pattern_migration_service import WorkPatternMigrationDependencies, WorkPatternMigrationService
+from override_classification_service import OverrideClassificationDependencies, OverrideClassificationService
+from roster_period_service import RosterPeriodDependencies, RosterPeriodService
 from tenancy import (
     authenticated_database_route_optional,
     authenticated_unit_id,
@@ -958,7 +983,6 @@ class Staff(UserMixin, db.Model):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
-        from werkzeug.security import check_password_hash
         # be robust if password_hash is None/empty
         return bool(self.password_hash) and check_password_hash(self.password_hash, password)
 
@@ -1488,7 +1512,6 @@ class StaffWatchHistory(db.Model):
 
 # Control-plane and advanced product entities live in a separate module so
 # they can move to the central database without rewriting the legacy UI.
-from saas_models import register_saas_models
 SaaS = register_saas_models(db, utcnow)
 PlatformIdentity = SaaS.PlatformIdentity
 PlatformMfaCredential = SaaS.PlatformMfaCredential
@@ -1540,17 +1563,18 @@ RosterImpactEvent = SaaS.RosterImpactEvent
 RosterImpactException = SaaS.RosterImpactException
 MfaCredential = SaaS.MfaCredential
 
-from briefing_module import (
-    BriefingAssuranceRun, BriefingAudit, BriefingDelivery, BriefingItem,
-    BriefingMessageType, briefing_blueprint, briefing_enabled,
-    briefing_local_now,
-)
+_briefing = load_briefing_module()
+BriefingAssuranceRun = _briefing.BriefingAssuranceRun
+BriefingAudit = _briefing.BriefingAudit
+BriefingDelivery = _briefing.BriefingDelivery
+BriefingItem = _briefing.BriefingItem
+BriefingMessageType = _briefing.BriefingMessageType
+briefing_blueprint = _briefing.blueprint
+briefing_enabled = _briefing.enabled
+briefing_local_now = _briefing.local_now
 
 # Enforce the authenticated airport on all legacy operational SELECTs and
 # stamp new rows. This protects older routes while they move to repositories.
-from sqlalchemy import event
-from sqlalchemy.orm import Session as OrmSession, with_loader_criteria
-from tenancy import authenticated_unit_id
 
 TENANT_OPERATIONAL_MODELS = (
     RosterSetting, AnnotationType, Watch, Staff, ShiftType, Requirement,
@@ -2448,13 +2472,6 @@ def roster_edit_required(f):
     return wrapper
 
 
-@app.context_processor
-def inject_perms():
-    au = current_user if getattr(
-        current_user, "is_authenticated", False) else None
-    return {"is_admin": (bool(au) and is_admin_user(au))}
-
-
 def month_has_data(year: int, month: int) -> bool:
     """Fast check: do we already have any assignments for this month?"""
     start = date(year, month, 1)
@@ -3031,21 +3048,6 @@ def _is_working_day_code(code: str) -> bool:
     return c.startswith("D")
 
 
-# -------------------- Fatigue helpers (SRATCOH D18–D43; On-Call ignored) --------------------
-
-from fatigue_engine import (
-    _analyze_segments,
-    _configured_time,
-    _custom_fatigue_flags,
-    _is_early_start,
-    _is_morning_duty,
-    _is_night_duty,
-    _is_working,
-    _overlap_window,
-    _span,
-)
-
-
 _fatigue_rule_config_service = FatigueRuleConfigService(
     FatigueRuleConfigDependencies(
         db=db,
@@ -3493,23 +3495,6 @@ def migrate_tenant_foundation_compat():
         "updated_at = COALESCE(updated_at, submitted_at)"
     ))
     db.session.commit()
-
-
-def migrate_add_perf_indexes():
-    from sqlalchemy import text
-    try:
-        # Speeds leave/sickness/range scans
-        db.session.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_assignment_day_code ON assignment(day, code)"))
-        # Already have unique (staff_id, day); this helps pure day scans by staff
-        db.session.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_assignment_day ON assignment(day)"))
-        # Shift requests pages group by day a lot
-        db.session.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_shift_request_day ON shift_request(day)"))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
 
 
 def migrate_add_role_and_calendar_token():
@@ -4163,10 +4148,6 @@ def _is_working_m_code(code: str) -> bool:
 
 def _is_working_n_code(code: str) -> bool:
     return _is_working_code_prefix(code, "N")
-
-def is_admin_user(u) -> bool:
-    return bool(getattr(u, "is_admin", False) or getattr(u, "role", "") == "admin")
-
 
 def admin_required(f):
     @wraps(f)
@@ -9536,39 +9517,6 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 # -------------------- Run --------------------
 
-from auth_blueprint import AuthDependencies, create_auth_blueprint
-from absence_requests_blueprint import (
-    AbsenceRequestDependencies,
-    create_absence_requests_blueprint,
-)
-from reports_blueprint import ReportsDependencies, create_reports_blueprint
-from roster_blueprint import RosterDependencies, create_roster_blueprint
-from training_blueprint import TrainingDependencies, create_training_blueprint
-from operations_blueprint import OperationsDependencies, create_operations_blueprint
-from live_position_blueprint import (
-    LivePositionDependencies, create_live_position_blueprint,
-)
-from handover_blueprint import HandoverDependencies, create_handover_blueprint
-from work_pattern_admin_service import (
-    WorkPatternAdminDependencies, WorkPatternAdminService,
-)
-from work_pattern_blueprint import (
-    WorkPatternBlueprintDependencies, create_work_pattern_blueprint,
-)
-from roster_validation_service import (
-    RosterValidationDependencies, RosterValidationService,
-)
-from roster_proposal_service import (
-    RosterProposalDependencies, RosterProposalService,
-)
-from work_pattern_migration_service import (
-    WorkPatternMigrationDependencies, WorkPatternMigrationService,
-)
-from override_classification_service import (
-    OverrideClassificationDependencies, OverrideClassificationService,
-)
-from roster_period_service import RosterPeriodDependencies, RosterPeriodService
-
 work_pattern_service = WorkPatternService(WorkPatternDependencies(
     Staff=Staff,
     ShiftType=ShiftType,
@@ -10026,9 +9974,6 @@ app.register_blueprint(create_worker_health_blueprint(WorkerHealthDependencies(
     worker_health_snapshot=_worker_health_snapshot,
 )))
 app.register_blueprint(briefing_blueprint)
-
-from migrations.fresh_schema import CONTROL_TABLES
-
 
 def _operational_routes_ready() -> bool:
     active_units = Unit.query.filter(
