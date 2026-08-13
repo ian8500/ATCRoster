@@ -114,7 +114,11 @@ from atcroster.roster.defaults import (
     MIN_MONTH,
     OPERATIONAL_CURRENCY_SETTING_KEY,
 )
-from atcroster.roster import invalidate_month_for_day, memoize, parse_annotation as parse_roster_annotation
+from atcroster.roster import (
+    invalidate_month_for_day, is_month_locked as roster_period_is_locked,
+    lock_date_for_month as roster_period_lock_date, memoize,
+    month_add as roster_period_add, parse_annotation as parse_roster_annotation,
+)
 from atcroster.compression import register_response_compression
 from access_policy import (
     has_permission,
@@ -3123,15 +3127,15 @@ def log_change(entity_type: str, entity_id: int, field: str, old, new, note: str
 
 
 def _month_add(y: int, m: int, delta: int) -> Tuple[int, int]:
-    return add_months(y, m, delta)
+    return roster_period_add(y, m, delta, add_months)
 
 
 def lock_date_for_month(y: int, m: int) -> date:
-    return roster_lock_date(y, m)
+    return roster_period_lock_date(y, m, roster_lock_date)
 
 
 def is_month_locked(y: int, m: int, today: Optional[date] = None) -> bool:
-    return roster_month_is_locked(y, m, today)
+    return roster_period_is_locked(y, m, today, roster_month_is_locked)
 
 
 # Source protection: we never overwrite these
