@@ -163,6 +163,7 @@ from atcroster.auth import (
     reset_rate_limit,
     totp_qr_data_uri,
 )
+from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_blueprint
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.fatigue import assignment_is_fatigue_safe
@@ -7773,259 +7774,6 @@ def _totp_qr_data_uri(provisioning_uri: str) -> str:
     return totp_qr_data_uri(provisioning_uri)
 
 
-@app.route("/login/platform-mfa/setup", methods=["GET", "POST"])
-def platform_mfa_setup():
-    identity, user = _pending_platform_login()
-    if not identity or not user:
-        session.clear()
-        return redirect(url_for("login"))
-    existing = PlatformMfaCredential.query.filter_by(
-        identity_id=identity.id, enabled=True, reset_required=False,
-    ).first()
-    if existing:
-        return redirect(url_for("platform_mfa_challenge"))
-    pending = session.get("_pending_platform_mfa_secret")
-    if not pending:
-        pending = pyotp.random_base32()
-        session["_pending_platform_mfa_secret"] = pending
-    provisioning_uri = pyotp.TOTP(pending).provisioning_uri(
-        name=identity.username, issuer_name="ATCRoster Platform"
-    )
-    qr_data_uri = _totp_qr_data_uri(provisioning_uri)
-    if request.method == "POST":
-        _validate_csrf()
-        if not _consume_rate_limit(
-            "platform-mfa-enrolment", identity.id, limit=10,
-            window=timedelta(minutes=15),
-        ):
-            abort(429)
-        code = re.sub(r"\s", "", request.form.get("code") or "")
-        if not pyotp.TOTP(pending).verify(code, valid_window=1):
-            _central_security_event(
-                "platform_mfa_enrolment", "denied", identity.id
-            )
-            db.session.commit()
-            flash("The verification code is not valid.", "error")
-            return redirect(url_for("platform_mfa_setup"))
-        recovery_codes = [secrets.token_hex(5).upper() for _ in range(10)]
-        credential = PlatformMfaCredential.query.filter_by(
-            identity_id=identity.id
-        ).first()
-        if not credential:
-            credential = PlatformMfaCredential(
-                identity_id=identity.id, encrypted_secret=""
-            )
-            db.session.add(credential)
-        credential.encrypted_secret = _encrypt_field(pending)
-        credential.enabled = True
-        credential.reset_required = False
-        credential.enrolled_at = utcnow()
-        credential.recovery_codes_digest = json.dumps([
-            hashlib.sha256(value.encode()).hexdigest()
-            for value in recovery_codes
-        ])
-        _central_security_event(
-            "platform_mfa_enrolment", "success", identity.id
-        )
-        db.session.commit()
-        session.pop("_pending_platform_mfa_secret", None)
-        return render_template(
-            "mfa_setup.html", enabled=True,
-            recovery_codes=recovery_codes, platform_enrolment=True,
-        )
-    return render_template(
-        "mfa_setup.html", enabled=False, secret=pending,
-        provisioning_uri=provisioning_uri, qr_data_uri=qr_data_uri,
-        platform_enrolment=True,
-    )
-
-
-@app.route("/login/platform-mfa", methods=["GET", "POST"])
-def platform_mfa_challenge():
-    identity, user = _pending_platform_login()
-    if not identity or not user:
-        session.clear()
-        return redirect(url_for("login"))
-    credential = PlatformMfaCredential.query.filter_by(
-        identity_id=identity.id, enabled=True, reset_required=False,
-    ).first()
-    if not credential:
-        return redirect(url_for("platform_mfa_setup"))
-    if request.method == "POST":
-        _validate_csrf()
-        if not _consume_rate_limit("platform-mfa", identity.id):
-            _central_security_event(
-                "platform_mfa_rate_limited", "denied", identity.id
-            )
-            db.session.commit()
-            abort(429, "Too many verification attempts. Try again later.")
-        code = re.sub(
-            r"[\s-]", "", request.form.get("code") or ""
-        ).upper()
-        accepted = False
-        recovery_used = False
-        if re.fullmatch(r"\d{6}", code):
-            step = _matching_totp_step(
-                _decrypt_mfa_secret(credential), code
-            )
-            if step is not None and (
-                credential.last_used_step is None
-                or step > credential.last_used_step
-            ):
-                credential.last_used_step = step
-                accepted = True
-        elif re.fullmatch(r"[A-Z0-9]{10}", code):
-            digests = json.loads(
-                credential.recovery_codes_digest or "[]"
-            )
-            digest = hashlib.sha256(code.encode()).hexdigest()
-            if digest in digests:
-                digests.remove(digest)
-                credential.recovery_codes_digest = json.dumps(digests)
-                accepted = True
-                recovery_used = True
-        if accepted:
-            return _complete_platform_login(
-                identity, user, recovery_used=recovery_used
-            )
-        _central_security_event(
-            "platform_mfa_verification", "denied", identity.id
-        )
-        db.session.commit()
-        flash("Invalid, expired or already-used verification code.", "error")
-    return render_template("mfa_challenge.html", platform_challenge=True)
-
-
-@app.route("/login/mfa", methods=["GET", "POST"])
-def mfa_challenge():
-    user_id = int(session.get("_mfa_user_id") or 0)
-    unit_id = int(session.get("_mfa_unit_id") or 0)
-    if not user_id or not unit_id:
-        return redirect(url_for("login"))
-    routing = db.session.get(DatabaseRoutingMetadata, unit_id)
-    if DEPLOYMENT_ENV == "production" and not routing:
-        session.clear()
-        abort(503, "Operational database routing is unavailable.")
-    g.tenant_context_token = bind_authenticated_unit(
-        unit_id, routing.secret_name if routing else None
-    )
-    user = Staff.query.filter_by(
-        id=user_id, unit_id=unit_id
-    ).first()
-    credential = MfaCredential.query.filter_by(
-        person_id=user_id, enabled=True
-    ).first()
-    if not user or not credential:
-        session.clear()
-        return redirect(url_for("login"))
-    if request.method == "POST":
-        _validate_csrf()
-        if not _consume_rate_limit("airport-mfa", f"{unit_id}:{user_id}"):
-            abort(429, "Too many verification attempts. Try again later.")
-        code = re.sub(r"[\s-]", "", request.form.get("code") or "").upper()
-        accepted = False
-        if re.fullmatch(r"\d{6}", code):
-            step = _matching_totp_step(_decrypt_mfa_secret(credential), code)
-            if step is not None and (
-                credential.last_used_step is None
-                or step > credential.last_used_step
-            ):
-                credential.last_used_step = step
-                accepted = True
-        elif re.fullmatch(r"[A-Z0-9]{10}", code):
-            digests = json.loads(credential.recovery_codes_digest or "[]")
-            digest = hashlib.sha256(code.encode()).hexdigest()
-            if digest in digests:
-                digests.remove(digest)
-                credential.recovery_codes_digest = json.dumps(digests)
-                accepted = True
-        if accepted:
-            next_url = session.get("_mfa_next", "")
-            session.clear()
-            login_user(user)
-            _initialize_authenticated_session(user)
-            _security_event(
-                "mfa_login_succeeded",
-                principal=hashlib.sha256(
-                    user.username.lower().encode()
-                ).hexdigest()[:16],
-                unit_id=user.unit_id,
-            )
-            _record_successful_login(user)
-            db.session.commit()
-            return redirect(_canonical_login_redirect(
-                next_url, user_id=user.id,
-            ))
-        flash("Invalid, expired or already-used verification code.", "error")
-    return render_template("mfa_challenge.html")
-
-
-@app.route("/security/mfa", methods=["GET", "POST"])
-@login_required
-def mfa_setup():
-    if getattr(current_user, "role", "") == "superadmin":
-        abort(
-            403,
-            "Platform administrator MFA is managed by the deployment identity "
-            "control and cannot open an airport credential store.",
-        )
-    credential = MfaCredential.query.filter_by(
-        person_id=current_user.id
-    ).first()
-    if credential and credential.enabled:
-        return render_template("mfa_setup.html", enabled=True)
-    pending = session.get("_pending_mfa_secret")
-    if not pending:
-        pending = pyotp.random_base32()
-        session["_pending_mfa_secret"] = pending
-    issuer = "ATCRoster"
-    provisioning_uri = pyotp.TOTP(pending).provisioning_uri(
-        name=current_user.username, issuer_name=issuer
-    )
-    qr_data_uri = _totp_qr_data_uri(provisioning_uri)
-    if request.method == "POST":
-        _validate_csrf()
-        if not _consume_rate_limit(
-            "airport-mfa-enrolment",
-            f"{_current_unit_id()}:{current_user.id}",
-            limit=10, window=timedelta(minutes=15),
-        ):
-            abort(429)
-        code = re.sub(r"\s", "", request.form.get("code") or "")
-        if not pyotp.TOTP(pending).verify(code, valid_window=1):
-            flash("The verification code is not valid.", "error")
-            return redirect(
-                url_for("staff_profile", sid=current_user.id) + "#mfa"
-            )
-        recovery_codes = [
-            secrets.token_hex(5).upper() for _ in range(10)
-        ]
-        if not credential:
-            credential = MfaCredential(
-                unit_id=_current_unit_id(), person_id=current_user.id,
-                encrypted_secret="",
-            )
-            db.session.add(credential)
-        credential.encrypted_secret = _encrypt_field(pending)
-        credential.enabled = True
-        credential.enrolled_at = utcnow()
-        credential.recovery_codes_digest = json.dumps([
-            hashlib.sha256(code.encode()).hexdigest()
-            for code in recovery_codes
-        ])
-        db.session.commit()
-        session.pop("_pending_mfa_secret", None)
-        session["_auth_stamp"] = _current_auth_stamp(current_user)
-        session["_new_mfa_recovery_codes"] = recovery_codes
-        return redirect(
-            url_for("staff_profile", sid=current_user.id) + "#mfa"
-        )
-    return render_template(
-        "mfa_setup.html", enabled=False, secret=pending,
-        provisioning_uri=provisioning_uri, qr_data_uri=qr_data_uri,
-    )
-
-
 @app.cli.command("bootstrap-platform")
 @click.option("--username", prompt=True)
 @click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
@@ -8369,6 +8117,30 @@ app.register_blueprint(create_auth_blueprint(AuthDependencies(
     airport_login_endpoint=_airport_login_endpoint,
     initialize_authenticated_session=_initialize_authenticated_session,
     record_successful_login=_record_successful_login,
+)))
+app.register_blueprint(create_mfa_blueprint(MfaRouteDependencies(
+    db=db,
+    PlatformIdentity=PlatformIdentity,
+    PlatformMfaCredential=PlatformMfaCredential,
+    Staff=Staff,
+    MfaCredential=MfaCredential,
+    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+    deployment_environment=DEPLOYMENT_ENV,
+    validate_csrf=_validate_csrf,
+    consume_rate_limit=_consume_rate_limit,
+    decrypt_secret=_decrypt_mfa_secret,
+    matching_totp_step=_matching_totp_step,
+    encrypt_field=_encrypt_field,
+    now=utcnow,
+    central_security_event=_central_security_event,
+    bind_authenticated_unit=bind_authenticated_unit,
+    initialize_authenticated_session=_initialize_authenticated_session,
+    security_event=_security_event,
+    record_successful_login=_record_successful_login,
+    canonical_login_redirect=_canonical_login_redirect,
+    current_unit_id=_current_unit_id,
+    current_auth_stamp=_current_auth_stamp,
+    totp_qr_data_uri=_totp_qr_data_uri,
 )))
 app.register_blueprint(create_reports_blueprint(ReportsDependencies(
     Assignment=Assignment,
