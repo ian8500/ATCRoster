@@ -45,6 +45,23 @@ class TrainingDependencies:
     TrainingObjective: Any
 
 
+def create_training_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> TrainingDependencies:
+    """Bind training routes to canonical operational and SaaS models."""
+    return TrainingDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        TrainingLevel=operational_models.TrainingLevel,
+        TrainingSession=operational_models.TrainingSession,
+        TrainingScore=operational_models.TrainingScore,
+        QualificationType=saas_models.QualificationType,
+        PersonQualification=saas_models.PersonQualification,
+        TrainingObjective=operational_models.TrainingObjective,
+        **services,
+    )
+
+
 def create_training_blueprint(dependencies: TrainingDependencies) -> Blueprint:
     blueprint = Blueprint("training", __name__)
 

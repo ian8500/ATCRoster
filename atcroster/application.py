@@ -340,7 +340,7 @@ from absence_requests_blueprint import (
 )
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
-from training_blueprint import TrainingDependencies, create_training_blueprint
+from training_blueprint import create_training_blueprint, create_training_dependencies
 from roster_period_service import RosterPeriodDependencies, RosterPeriodService
 from atcroster.planning import PlanningDependencies, create_planning_services
 from atcroster.live_position import (
@@ -1705,12 +1705,10 @@ app.register_blueprint(create_absence_requests_blueprint(
         record_toil_transaction=_record_toil_transaction,
     )
 ))
-app.register_blueprint(create_training_blueprint(TrainingDependencies(
+app.register_blueprint(create_training_blueprint(create_training_dependencies(
     db=db,
-    Staff=Staff,
-    TrainingLevel=TrainingLevel,
-    TrainingSession=TrainingSession,
-    TrainingScore=TrainingScore,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     current_unit_id=_current_unit_id,
     training_enabled=training_enabled,
     is_editor_user=is_editor_user,
@@ -1719,15 +1717,12 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     is_under_training=is_under_training,
     training_profile_allowed=_training_profile_allowed,
     validate_csrf=_validate_csrf,
-    QualificationType=QualificationType,
-    PersonQualification=PersonQualification,
     competency_enabled=competency_enabled,
     is_admin_user=is_admin_user,
     utcnow=utcnow,
     record_qualification_history=_record_qualification_history,
     sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
     record_qualification_roster_impact=record_qualification_roster_impact,
-    TrainingObjective=TrainingObjective,
 )))
 register_notification_blueprints(app, create_notification_registration_dependencies(
     db=db,
