@@ -81,6 +81,11 @@ liveness, readiness and login-page checks passed. The deployment reports
 completed the same migrations and started successfully. Production was not
 changed.
 
+Browser smoke validation against staging confirmed that `/login` rendered its
+expected form without console errors. Authenticated interactive browser flows
+remain covered by the application test suite; no staging account credentials or
+existing authenticated browser session were available for manual entry.
+
 The staging repair configured explicit owner-backed migration URLs, disabled
 runtime `db.create_all()` through `ATCROSTER_SKIP_RUNTIME_SCHEMA=1`, and aligned
 both web and worker services to `ATCROSTER_ENVIRONMENT=staging`. Legacy schema
