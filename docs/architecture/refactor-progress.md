@@ -1,10 +1,10 @@
-# Incremental `app.py` refactor progress
+# Incremental application-composition refactor progress
 
 ## Baseline
 
-- Branch: `agent/modularise-app-incrementally`
+- Active refactor branch: `codex/application-composition-root`
 - Starting commit: `d7428da166e3943f94175e8ed65fc46e4abe1996`
-- Starting `app.py`: 10,029 lines
+- Starting legacy application module: 10,029 lines
 - Baseline tests: 264 passed, 11 skipped
 - Baseline coverage: 71.50%
 - Route snapshot: 107 routes
@@ -43,17 +43,11 @@
 
 ## Safe stopping boundary
 
-Framework, cross-cutting security concerns and the authenticated notification
-inbox are extracted and independently tested. `app.py` is still substantially above the target because the next
-sections are multi-model business transactions. The first is `/unit/accounts`,
-which coordinates the control database, an airport database, invitations,
-capacity enforcement, audit/session revocation and compensating cleanup.
-Moving it as a bulk route would increase production risk, so this branch stops
-before that transaction and remains deployable at every commit.
-
-At this boundary `app.py` is 9,670 lines (359 fewer than baseline). Five
-public route functions have moved, 29 test functions were added, and the final
-local suite reports 296 passed, 11 skipped and 72.02% coverage.
+`app.py` is now a small public compatibility entrypoint. The active
+composition root is `atcroster/application.py`; it is approximately 2,300
+lines and still exceeds the hard 2,000-line target. The remaining work is to
+move feature registration and the few root-owned policies into their existing
+domain packages without changing the legacy import surface.
 
 ## Verification at this boundary
 
@@ -71,22 +65,23 @@ local suite reports 296 passed, 11 skipped and 72.02% coverage.
 
 ## Remaining domains, in recommended order
 
-1. Account service and policies, then account routes and recovery/MFA routes.
-2. Qualification status service and compliance blueprint, retaining the narrow
-   live-position eligibility interface.
-3. Roster publication transaction and immutable snapshot service.
-4. Standardised audit creation helpers with rollback tests.
-5. CLI command registration and CLI runner contract tests.
-6. Application assembly and extension/model compatibility aliases.
-7. Roster, fatigue, notification and remaining reporting business services.
+1. Move roster and absence-request registration into their existing packages,
+   reducing the composition root below the hard target.
+2. Replace oversized registration dependency objects with smaller feature
+   contracts where a shared dependency has a natural owner.
+3. Move the remaining root policy helpers (fatigue adapters, staff-profile
+   authorisation, and admin-action assembly) to their domain packages.
+4. Publish and test the legacy application export contract before removing any
+   remaining aliases.
 
 ## Temporary compatibility and import state
 
 Compatibility aliases are listed in `application-bootstrap.md`. There are no
-wildcard imports, runtime monkey patches or duplicate model/extension objects.
-The dependency callbacks used by extracted hooks are deliberate late-bound
-edges to model-backed services still defined in `app.py`; they avoid circular
-imports while preserving startup order. A clean-process import test detects new
+duplicate model or extension objects. Two legacy callback hooks remain for
+post-startup replacement of email and SMS delivery in integrations; they are
+centralised in `atcroster.compatibility`. Construction cycles use explicit
+single-assignment deferred references from `atcroster.composition`, which fail
+clearly when assembly order is invalid. A clean-process import test detects new
 circular-import failures.
 
 The public `app.py` module is a small compatibility entrypoint. Application

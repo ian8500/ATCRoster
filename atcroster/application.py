@@ -1,7 +1,7 @@
 """Application assembly and legacy compatibility implementation."""
 
 from functools import wraps
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 from flask import redirect, url_for, flash, abort, session, g
 import json as _json
 import os
@@ -125,6 +125,8 @@ from access_policy import (
 )
 from atcroster import create_app, get_runtime_settings
 from atcroster.clock import utcnow
+from atcroster.compatibility import module_callback
+from atcroster.composition import DeferredReference
 from atcroster.web_assets import register_template_helpers
 from atcroster.reports import ReportingRuntime, ReportingRuntimeDependencies
 from atcroster.auth import (
@@ -364,6 +366,16 @@ json = _json
 _runtime_settings = get_runtime_settings(app)
 configure_production_logging(app, _runtime_settings.deployment_environment)
 _operational_metrics = MetricsRegistry()
+_security_event_reference: DeferredReference[Any] = DeferredReference("security event")
+_session_lifecycle_reference: DeferredReference[Any] = DeferredReference(
+    "session lifecycle"
+)
+_work_pattern_service_reference: DeferredReference[Any] = DeferredReference(
+    "work pattern service"
+)
+_override_classifier_reference: DeferredReference[Any] = DeferredReference(
+    "override classifier"
+)
 
 # Legacy database-isolation callers import this registry from the public app
 # module. Ownership remains with the tenant database extension.
@@ -448,9 +460,9 @@ app.register_blueprint(public_blueprint)
 _error_handlers = register_error_handlers(
     app,
     ErrorHandlerDependencies(
-        security_event=lambda event, **safe_fields: globals()["_security_event"](
+        security_event=lambda event, **safe_fields: _security_event_reference.get()(
             event, **safe_fields
-        )
+        ),
     ),
 )
 _bad_request = _error_handlers[400]
@@ -469,9 +481,9 @@ _bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
     TenantHookDependencies(
         deployment_environment=DEPLOYMENT_ENV,
         current_user=lambda: current_user,
-        enforce_session=lambda user: globals()["_session_lifecycle"].enforce_request(user),
+        enforce_session=lambda user: _session_lifecycle_reference.get().enforce_request(user),
         routing_for_unit=lambda unit_id: db.session.get(
-            globals()["DatabaseRoutingMetadata"], unit_id
+            cast(Any, DatabaseRoutingMetadata), unit_id
         ),
         clear_context=clear_request_context,
         bind_authenticated_unit=bind_authenticated_unit,
@@ -576,7 +588,7 @@ UnitMembership = SaaS.UnitMembership
 SecureInvitation = SaaS.SecureInvitation
 SignupWorkflow = SaaS.SignupWorkflow
 RecoveryRequest = SaaS.RecoveryRequest
-DatabaseRoutingMetadata = SaaS.DatabaseRoutingMetadata
+DatabaseRoutingMetadata: Any = SaaS.DatabaseRoutingMetadata
 ProvisioningJob = SaaS.ProvisioningJob
 WorkerHeartbeat = SaaS.WorkerHeartbeat
 FeatureFlag = SaaS.FeatureFlag
@@ -1057,7 +1069,7 @@ def deterministic_roster_population_service():
         utcnow=utcnow,
         legacy_code_resolver=code_from_pattern,
         watch_id_resolver=_effective_watch_id,
-        RosterPeriod=globals().get("RosterPeriod"),
+        RosterPeriod=RosterPeriod,
     ))
 
 
@@ -1076,7 +1088,7 @@ roster_impact_runtime = RosterImpactRuntime(RosterImpactRuntimeDependencies(
     current_unit_id=_current_unit_id,
     current_user=lambda: current_user,
     population_service=deterministic_roster_population_service,
-    override_classifier=lambda: globals().get("override_classification_service"),
+    override_classifier=_override_classifier_reference.get,
     service_factory=RosterImpactService,
     service_dependencies=RosterImpactDependencies,
     classify_qualification_impact=classify_qualification_impact,
@@ -1440,7 +1452,7 @@ reporting_runtime = ReportingRuntime(ReportingRuntimeDependencies(
     current_unit_id=_current_unit_id,
     annotation_snapshot=_annotation_snapshot,
     parse_annotation=parse_annotation,
-    work_pattern_service=lambda: globals()["work_pattern_service"],
+    work_pattern_service=_work_pattern_service_reference.get,
     code_from_pattern=code_from_pattern,
     shift_duration_minutes=shift_duration_minutes,
     calculate_fairness=calculate_fairness,
@@ -1637,6 +1649,7 @@ _consume_rate_limit = _auth_runtime.consume_rate_limit
 _reset_rate_limit = _auth_runtime.reset_rate_limit
 _security_event = _auth_runtime.security_event
 _credential_for_auth_stamp = _auth_runtime.credential_for_auth_stamp
+_security_event_reference.set(_security_event)
 
 
 _session_lifecycle = SessionLifecycle(
@@ -1648,6 +1661,7 @@ _session_lifecycle = SessionLifecycle(
 )
 _current_auth_stamp = _session_lifecycle.auth_stamp
 _initialize_authenticated_session = _session_lifecycle.initialize
+_session_lifecycle_reference.set(_session_lifecycle)
 
 
 def _central_security_event(
@@ -1777,6 +1791,8 @@ work_pattern_admin_service = planning_services.admin
 roster_validation_service = planning_services.validation
 roster_proposal_service = planning_services.proposals
 override_classification_service = planning_services.override_classification
+_work_pattern_service_reference.set(work_pattern_service)
+_override_classifier_reference.set(override_classification_service)
 get_pattern_day_for_staff = work_pattern_service.get_pattern_day_for_staff
 get_effective_staff_rules = work_pattern_service.get_effective_staff_rules
 is_staff_eligible_for_shift = work_pattern_service.is_staff_eligible_for_shift
@@ -1922,7 +1938,7 @@ publication_service = create_publication_service(PublicationDependencies(
     compliance_findings=_compliance_findings,
     position_assurance=_position_assurance,
     valid_email=_valid_email,
-    send_account_email=lambda *args: globals()["_send_account_email"](*args),
+    send_account_email=module_callback(__name__, "_send_account_email"),
 ))
 _roster_snapshot = publication_service.snapshot
 _active_roster_publication = publication_service.active_publication
@@ -2057,9 +2073,7 @@ register_notification_blueprints(app, NotificationRegistrationDependencies(
     can_send_unit_messages=can_send_unit_messages,
     sms_configuration=sms_configuration,
     normalise_sms_number=_normalise_sms_number,
-    send_sms=lambda *args, **kwargs: globals()["_send_sms_via_messagemedia"](
-        *args, **kwargs
-    ),
+    send_sms=module_callback(__name__, "_send_sms_via_messagemedia"),
     record_sms_audit=_record_sms_audit,
     flash_sms_result=_flash_sms_result,
 ))
