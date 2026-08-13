@@ -42,20 +42,31 @@ class AbsenceRequestDependencies:
     group_sickness_instances: Callable
     ShiftType: Any
     ShiftRequest: Any
-    unit_request_rules: Callable
-    request_date_bounds: Callable
-    is_month_locked: Callable
-    request_audit: Callable
+    workflow: Any
     utcnow: Callable
-    safe_request_admin_month: Callable
     request_statuses: frozenset
     request_transitions: dict
     would_create_new_fatigue_issues: Callable
     staff_has_shift_qualification: Callable
     can_override_roster_conflicts: Callable
-    notify_requester: Callable
     lock_roster_month: Callable[[int, int, int], Any]
     record_toil_transaction: Callable[..., Any]
+
+
+def create_absence_request_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> AbsenceRequestDependencies:
+    """Bind absence-route operational records at the route boundary."""
+    return AbsenceRequestDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        Leave=operational_models.Leave,
+        Assignment=operational_models.Assignment,
+        ShiftType=operational_models.ShiftType,
+        ShiftRequest=operational_models.ShiftRequest,
+        **services,
+    )
 
 
 def create_absence_requests_blueprint(
@@ -495,8 +506,8 @@ def create_absence_requests_blueprint(
         unit_id = dependencies.current_unit_id()
         if not unit_id:
             abort(403)
-        months_ahead, _ = dependencies.unit_request_rules(unit_id)
-        first_allowed, last_allowed = dependencies.request_date_bounds(today, unit_id)
+        months_ahead, _ = dependencies.workflow.unit_rules(unit_id)
+        first_allowed, last_allowed = dependencies.workflow.request_date_bounds(today, unit_id)
 
         # ---- user/editor: show configured future months they can request into ----
         months = []
@@ -538,7 +549,7 @@ def create_absence_requests_blueprint(
                         "error",
                     )
                     return redirect(url_for("requests_page"))
-                if dependencies.is_month_locked(day.year, day.month, today, unit_id):
+                if dependencies.workflow.is_month_locked(day.year, day.month, today, unit_id):
                     flash("Requests for that month are locked.", "error")
                     return redirect(url_for("requests_page"))
                 ex = dependencies.ShiftRequest.query.filter_by(
@@ -554,7 +565,7 @@ def create_absence_requests_blueprint(
                     )
                     dependencies.db.session.add(ex)
                     dependencies.db.session.flush()
-                    dependencies.request_audit(
+                    dependencies.workflow.add_audit(
                         ex,
                         current_user.id,
                         "created",
@@ -582,7 +593,7 @@ def create_absence_requests_blueprint(
                     ex.admin_response = ""
                     ex.responded_by_id = None
                     ex.responded_at = None
-                    dependencies.request_audit(
+                    dependencies.workflow.add_audit(
                         ex,
                         current_user.id,
                         "updated",
@@ -609,7 +620,7 @@ def create_absence_requests_blueprint(
                     abort(403)
                 if req.status != "pending":
                     abort(409, "Only pending requests can be cancelled.")
-                if dependencies.is_month_locked(
+                if dependencies.workflow.is_month_locked(
                     req.day.year, req.day.month, today, unit_id
                 ):
                     flash("Requests for that month are locked.", "error")
@@ -618,7 +629,7 @@ def create_absence_requests_blueprint(
                 req.status = "cancelled"
                 req.cancelled_at = dependencies.utcnow()
                 req.updated_at = dependencies.utcnow()
-                dependencies.request_audit(
+                dependencies.workflow.add_audit(
                     req,
                     current_user.id,
                     "cancelled",
@@ -642,7 +653,7 @@ def create_absence_requests_blueprint(
                 if req.dismissed_by_requester_at is None:
                     req.dismissed_by_requester_at = dependencies.utcnow()
                     req.updated_at = dependencies.utcnow()
-                    dependencies.request_audit(
+                    dependencies.workflow.add_audit(
                         req,
                         current_user.id,
                         "dismissed_by_requester",
@@ -685,7 +696,7 @@ def create_absence_requests_blueprint(
 
         if admin_view:
             # default to current month unless ?ym=YYYY-MM provided
-            admin_ym = dependencies.safe_request_admin_month(
+            admin_ym = dependencies.workflow.safe_admin_month(
                 request.args.get("ym"), today
             )
             ay, am = dependencies.parse_year_month(admin_ym)
@@ -722,7 +733,7 @@ def create_absence_requests_blueprint(
         return render_template(
             "requests.html",
             months=months,
-            is_locked=dependencies.is_month_locked,
+            is_locked=dependencies.workflow.is_month_locked,
             req_map=req_map,
             codes=codes,
             # admin block
@@ -733,7 +744,7 @@ def create_absence_requests_blueprint(
             admin_month_title=admin_month_title,
             admin_prev_ym=admin_prev_ym,
             admin_next_ym=admin_next_ym,
-            request_lock_day=dependencies.unit_request_rules(unit_id)[1],
+            request_lock_day=dependencies.workflow.unit_rules(unit_id)[1],
             first_allowed=first_allowed,
             last_allowed=last_allowed,
         )
@@ -759,7 +770,7 @@ def create_absence_requests_blueprint(
             "approve_apply",
         }:
             abort(400, "Invalid request action.")
-        return_month = dependencies.safe_request_admin_month(
+        return_month = dependencies.workflow.safe_admin_month(
             request.form.get("ym"), date.today()
         )
         response = (request.form.get("admin_response") or "").strip()
@@ -811,7 +822,7 @@ def create_absence_requests_blueprint(
             ).first()
             if not shift:
                 abort(409, "The requested shift is no longer valid.")
-            if dependencies.is_month_locked(r.day.year, r.day.month, unit_id=unit_id):
+            if dependencies.workflow.is_month_locked(r.day.year, r.day.month, unit_id=unit_id):
                 abort(409, "The roster month is locked.")
             # The primary manager workflow is intentionally one step: approve and
             # place on the roster. Existing roster fatigue warnings remain visible
@@ -895,7 +906,7 @@ def create_absence_requests_blueprint(
         r.updated_at = dependencies.utcnow()
         if requested_status == "cancelled" and r.cancelled_at is None:
             r.cancelled_at = dependencies.utcnow()
-        dependencies.request_audit(
+        dependencies.workflow.add_audit(
             r,
             current_user.id,
             action,
@@ -908,7 +919,7 @@ def create_absence_requests_blueprint(
             response,
         )
         if old["status"] != r.status:
-            dependencies.notify_requester(r)
+            dependencies.workflow.notify_requester(r)
         dependencies.db.session.commit()
         if requested_status == "fulfilled":
             flash("Request approved and added to the roster.", "ok")

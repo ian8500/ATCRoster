@@ -21,6 +21,17 @@ class RosterPeriodDependencies:
     utcnow: Any
 
 
+def create_roster_period_dependencies(
+    *, db: Any, saas_models: Any, **services: Any
+) -> RosterPeriodDependencies:
+    """Bind roster-period records at the roster lifecycle boundary."""
+    return RosterPeriodDependencies(
+        db=db,
+        RosterPeriod=saas_models.RosterPeriod,
+        **services,
+    )
+
+
 class RosterPeriodService:
     def __init__(self, dependencies: RosterPeriodDependencies) -> None:
         self.dependencies = dependencies

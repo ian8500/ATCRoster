@@ -788,7 +788,7 @@ def test_user_can_update_own_profile_contact_details(client):
     assert b'data-profile-section="mfa"' not in response.data
     assert b'action="/password"' in response.data
     assert b"Multi-factor authentication is enabled." not in response.data
-    assert b"Select a profile function" in response.data
+    assert b'aria-label="Profile functions"' in response.data
     with app.app.app_context():
         staff = db.session.get(Staff, staff_id)
         assert staff.email == "admin.profile@example.test"
@@ -821,12 +821,16 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="0.90"' in response.data
     assert b'data-roster-zoom="1"' in response.data
     assert b'data-roster-zoom="fit"' in response.data
-    assert b"code-input code-len-3" in response.data
+    assert b"code-input roster-cell-button code-len-3" in response.data
     assert b"shift on 01 April 2025" in response.data
     assert b"Active unit" not in response.data
     assert b"data-operational-clock" in response.data
     assert b"Secure session" in response.data
     assert b'<body class="app-body roster-page">' in response.data
+    # Representative fixture guardrail: a regression back to one editor form
+    # per cell should fail CI before it inflates the monthly roster response.
+    assert len(response.data) < 350_000
+    assert response.data.count(b"<form") < 20
 
     stylesheet = client.get("/static/styles.css")
     assert stylesheet.status_code == 200
@@ -840,17 +844,20 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"transform: scale(var(--ui-scale))" not in stylesheet.data
     assert b"remaining below every sticky heading" in stylesheet.data
     assert b"z-index:12" in stylesheet.data
-    assert response.data.count(b'data-roster-auto-submit="true"') > 1
-    assert b"roster-shift-dialog" not in response.data
+    assert response.data.count(b"data-roster-shift-open") > 1
+    assert b"roster-shift-dialog" in response.data
     assert response.data.count(b'class="annot-select" data-annotation-select') == 1
     assert b">Annotate</button>" not in response.data
     assert b'<span aria-hidden="true">&nbsp;</span></button>' in response.data
-    assert b"Saving\xe2\x80\xa6" in response.data
-    assert b"atcroster:scroll:" in response.data
-    assert b"updateRosterStatusFrameWidth" in response.data
-    assert b"--roster-status-frame-width" in response.data
+    assert b"roster.js?v=" in response.data
+    roster_script = client.get("/static/roster.js")
+    assert roster_script.status_code == 200
+    assert b"Saving\xe2\x80\xa6" in roster_script.data
+    assert b"atcroster:scroll:" in roster_script.data
+    assert b"updateRosterLayout" in roster_script.data
+    assert b"--roster-status-frame-width" in roster_script.data
     assert b".roster-status-frame::before" in stylesheet.data
-    assert b"annotationButton.dataset.version = payload.version" in response.data
+    assert b"button.dataset.version = payload.version" in roster_script.data
 
 
 def test_roster_renders_annual_leave_as_static_al_code(client):
@@ -967,7 +974,7 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
             assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
             assert assignment.annotation == "SOAL"
             version = assignment.version
-        assert b"code-input code-len-2 al group-a" in applied.data
+        assert b"code-input roster-cell-button code-len-2 al group-a" in applied.data
         assert b"SOAL" in applied.data
 
         shifted = client.post(
@@ -1905,7 +1912,8 @@ def test_roster_routes_render(client):
     assert export_resp.status_code == 200
     assert export_resp.mimetype == "text/csv"
     assert b'data-roster-sticky-shield' in roster_resp.data
-    assert b'rosterStickyShield.style.height' in roster_resp.data
+    assert b'roster.js?v=' in roster_resp.data
+    assert b'rosterStickyShield.style.height' in client.get('/static/roster.js').data
 
 
 def test_position_monitor_account_is_hidden_from_roster_and_export(client):
@@ -3176,6 +3184,24 @@ def test_audit_evidence_cannot_be_modified_or_deleted_through_the_orm(client):
         assert db.session.get(ChangeLog, audit_id) is not None
 
 
+def test_sms_audit_only_allows_provider_delivery_status_updates(client):
+    login(client)
+    with app.app.app_context():
+        audit = app.SmsAudit(
+            unit_id=1, sent_by_staff_id=1, sent_by_name="Admin Test",
+            sender_number="+447700900123", recipient_number="+447700900124",
+            recipient_label="Duty desk", message_content="Original",
+        )
+        db.session.add(audit)
+        db.session.commit()
+        audit.delivery_status = "delivered"
+        db.session.commit()
+        audit.message_content = "Tampered"
+        with pytest.raises(PermissionError, match="append-only"):
+            db.session.commit()
+        db.session.rollback()
+
+
 def test_business_change_and_audit_evidence_roll_back_atomically(client):
     login(client)
     with app.app.app_context():
@@ -3301,6 +3327,7 @@ def test_unit_messages_permission_boundary(client):
     wm_client = app.app.test_client()
     login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
+    assert wm_client.get("/admin/sms-audit").status_code == 403
 
 
 def test_unit_messages_recipient_order_and_default(client):
@@ -3420,7 +3447,31 @@ def test_sms_audit_is_unit_admin_only(client):
     wm_client = app.app.test_client()
     login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
-    assert wm_client.get("/admin/sms-audit").status_code == 403
+
+
+def test_messagemedia_delivery_webhook_requires_token_and_updates_audit(client, monkeypatch):
+    with app.app.app_context():
+        audit = app.SmsAudit(
+            unit_id=1, sent_by_staff_id=1, sent_by_name="Admin Test",
+            sender_number="+447700900123", recipient_number="+447700900124",
+            recipient_label="Duty desk", message_type="operational",
+            message_content="Update", provider_message_id="delivery-test",
+        )
+        db.session.add(audit)
+        db.session.commit()
+        audit_id = audit.id
+
+    monkeypatch.setenv("MESSAGEMEDIA_WEBHOOK_TOKEN", "webhook-test-token")
+    forbidden = client.post("/webhooks/messagemedia/delivery", json={"id": "delivery-test"})
+    assert forbidden.status_code == 403
+    accepted = client.post(
+        "/webhooks/messagemedia/delivery",
+        json={"id": "delivery-test", "status": "delivered"},
+        headers={"X-ATCRoster-Webhook-Token": "webhook-test-token"},
+    )
+    assert accepted.status_code == 204
+    with app.app.app_context():
+        assert db.session.get(app.SmsAudit, audit_id).delivery_status == "delivered"
 
 
 def test_users_can_delete_only_their_own_read_notifications(client):
@@ -3914,121 +3965,14 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
         ).counts_as_operational
 
 
-def test_roster_impact_exception_queue_is_actionable_and_unit_scoped(client):
-    login(client)
-    with app.app.app_context():
-        row = app.RosterImpactException.query.filter_by(
-            unit_id=1, status="OPEN"
-        ).order_by(app.RosterImpactException.id).first()
-        assert row is not None
-        exception_id = row.id
-        description = row.description.encode()
-    page = client.get("/roster-impact/exceptions")
-    assert page.status_code == 200
-    assert b"Roster impact queue" in page.data
-    assert description in page.data
-    missing_note = client.post(
-        f"/roster-impact/exceptions/{exception_id}/status",
-        data={"_csrf_token": csrf(client), "status": "RESOLVED"},
-        follow_redirects=True,
-    )
-    assert b"Add a resolution note" in missing_note.data
-    closed = client.post(
-        f"/roster-impact/exceptions/{exception_id}/status",
-        data={
-            "_csrf_token": csrf(client), "status": "NOT_APPLICABLE",
-            "resolution_note": "Reviewed against the protected published roster.",
-        },
-        follow_redirects=True,
-    )
-    assert closed.status_code == 200
-    assert b"Roster-impact exception updated." in closed.data
-    with app.app.app_context():
-        row = db.session.get(app.RosterImpactException, exception_id)
-        assert row.status == "NOT_APPLICABLE"
-        assert row.resolved_by_user_id is not None
-
-
-def test_roster_impact_preview_and_admin_protected_rebuild_preserve_override(client):
-    login(client)
-    with app.app.app_context():
-        person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
-        target = Assignment.query.filter_by(
-            unit_id=1, staff_id=person.id, day=date(2026, 9, 20)
-        ).first()
-        if not target:
-            target = Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 9, 20), code="A",
-                generated_code="M", override_code="A", override_type="MANUAL",
-            )
-            db.session.add(target)
-        else:
-            target.set_editor_override("A", reason="Protected preview test")
-        db.session.commit()
-        person_id = person.id
-        assignment_id = target.id
-    preview = client.get(
-        f"/roster-impact/preview?effective_from=2026-09-20&effective_to=2026-09-20&staff_id={person_id}"
-    )
-    assert preview.status_code == 200
-    assert b"Calculated boundary and counts" in preview.data
-    assert b"Overrides preserved" in preview.data
-    blocked = client.post(
+def test_removed_roster_impact_queue_routes_are_not_registered(client):
+    for path in (
+        "/roster-impact/exceptions",
+        "/roster-impact/preview",
         "/roster-impact/recalculate",
-        data={
-            "_csrf_token": csrf(client), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "staff_id": str(person_id),
-            "reason": "Should be protected",
-        },
-    )
-    assert blocked.status_code == 400
-    rebuilt = client.post(
         "/roster-impact/protected-rebuild",
-        data={
-            "_csrf_token": csrf(client), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "staff_id": str(person_id),
-            "reason": "Admin-approved protected baseline correction",
-            "confirmation": "REBUILD",
-        },
-        follow_redirects=True,
-    )
-    assert rebuilt.status_code == 200
-    assert b"Protected baseline rebuilt" in rebuilt.data
-    with app.app.app_context():
-        target = db.session.get(Assignment, assignment_id)
-        assert target.override_code == "A"
-        event = app.RosterImpactEvent.query.filter_by(
-            unit_id=1, event_type="MANUAL_RECALCULATION"
-        ).order_by(app.RosterImpactEvent.id.desc()).first()
-        assert event is not None and event.status in {
-            "COMPLETED", "COMPLETED_WITH_WARNINGS",
-        }
-        assert event.reason == "Admin-approved protected baseline correction"
-
-
-def test_only_admin_can_rebuild_protected_period_and_reason_is_required():
-    ordinary = app.app.test_client()
-    login_as(ordinary, "staff_test")
-    forbidden = ordinary.post(
-        "/roster-impact/protected-rebuild",
-        data={
-            "_csrf_token": csrf(ordinary), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "reason": "Not authorised",
-            "confirmation": "REBUILD",
-        },
-    )
-    assert forbidden.status_code == 403
-
-    admin = app.app.test_client()
-    login(admin)
-    missing_reason = admin.post(
-        "/roster-impact/protected-rebuild",
-        data={
-            "_csrf_token": csrf(admin), "effective_from": "2026-09-20",
-            "effective_to": "2026-09-20", "confirmation": "REBUILD",
-        },
-    )
-    assert missing_reason.status_code == 400
+    ):
+        assert client.get(path).status_code == 404
 
 
 def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
@@ -4202,10 +4146,11 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     response = client.get("/roster/2025-09")
 
     assert response.status_code == 200
-    assert b"--roster-sticky-top" in response.data
-    assert b"ResizeObserver(updateRosterStickyTop)" in response.data
-    assert b"Math.ceil(height / scale)" in response.data
-    assert b"MutationObserver(updateRosterStickyTop)" in response.data
+    assert b"roster.js?v=" in response.data
+    assert b"--roster-sticky-top" in client.get('/static/roster.js').data
+    assert b"ResizeObserver(updateRosterLayout)" in client.get('/static/roster.js').data
+    assert b"Math.ceil(headerHeight / scale)" in client.get('/static/roster.js').data
+    assert b"MutationObserver(updateRosterLayout)" in client.get('/static/roster.js').data
     assert response.data.count(b'class="sticky left col-name"') == 1
     assert b'class="sticky left col-date"' not in response.data
     assert b'class="sticky col-date">Medical' in response.data

@@ -32,6 +32,9 @@ def create_app(
         template_folder=str(repository / "templates"),
         static_folder=str(repository / "static"),
     )
+    # The instance directory is application-owned runtime state.  Create it
+    # during factory construction so every entrypoint has the same guarantee.
+    Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     environ = environment_snapshot()
     app.config.from_mapping(load_flask_config(environ, app.instance_path))
     explicit_keys: set[str] = set()

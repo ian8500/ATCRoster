@@ -37,6 +37,14 @@
     "rule": "/admin/fatigue-rules"
   },
   {
+    "endpoint": "admin_operational_currency",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/admin/operational-currency"
+  },
+  {
     "endpoint": "admin_reference",
     "methods": [
       "GET",
@@ -57,6 +65,13 @@
       "GET"
     ],
     "rule": "/admin/sms-audit"
+  },
+  {
+    "endpoint": "confirm_sms_sender",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/admin/sms-senders/<int:registration_id>/confirm"
   },
   {
     "endpoint": "admin_staff_edit",
@@ -349,6 +364,44 @@
       "GET"
     ],
     "rule": "/favicon.ico"
+  },
+  {
+    "endpoint": "handover.home",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/handover/"
+  },
+  {
+    "endpoint": "handover.view",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/handover/<int:record_id>"
+  },
+  {
+    "endpoint": "handover.edit",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/handover/edit"
+  },
+  {
+    "endpoint": "handover.edit",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/handover/new"
+  },
+  {
+    "endpoint": "handover.settings",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "rule": "/handover/settings"
   },
   {
     "endpoint": "health_live",
@@ -719,41 +772,6 @@
     "rule": "/requests"
   },
   {
-    "endpoint": "roster_impact.exceptions",
-    "methods": [
-      "GET"
-    ],
-    "rule": "/roster-impact/exceptions"
-  },
-  {
-    "endpoint": "roster_impact.update_exception",
-    "methods": [
-      "POST"
-    ],
-    "rule": "/roster-impact/exceptions/<int:exception_id>/status"
-  },
-  {
-    "endpoint": "roster_impact.preview",
-    "methods": [
-      "GET"
-    ],
-    "rule": "/roster-impact/preview"
-  },
-  {
-    "endpoint": "roster_impact.protected_rebuild",
-    "methods": [
-      "POST"
-    ],
-    "rule": "/roster-impact/protected-rebuild"
-  },
-  {
-    "endpoint": "roster_impact.recalculate",
-    "methods": [
-      "POST"
-    ],
-    "rule": "/roster-impact/recalculate"
-  },
-  {
     "endpoint": "roster_month",
     "methods": [
       "GET"
@@ -920,5 +938,12 @@
       "POST"
     ],
     "rule": "/unit/onboarding"
+  },
+  {
+    "endpoint": "messagemedia_delivery_webhook",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/webhooks/messagemedia/delivery"
   }
 ]

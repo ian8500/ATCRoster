@@ -36,20 +36,26 @@ class ReportsDependencies:
     current_unit_id: Callable[[], int]
     validate_csrf: Callable[[], None]
     consume_rate_limit: Callable[..., bool]
-    compute_metrics_range: Callable[[date, date, int | None], tuple]
-    financial_year_start: Callable[[date], date]
+    reporting_runtime: Any
     parse_year_month: Callable[[str], tuple[int, int]]
-    ensure_month_requirement: Callable[[int, int], Any]
-    generate_month: Callable[[int, int], None]
-    leave_summary_for_month: Callable[..., tuple]
-    current_leave_year_window: Callable[[Any, date | None], tuple[date, date]]
-    toil_accrued_used: Callable[[int, date, date], tuple[int, int]]
-    group_consecutive_days: Callable[[set[date]], int]
+    assignment_runtime: Any
+    toil_service: Any
     get_absence_types: Callable[..., list]
-    compute_fairness_range: Callable[[date, date], tuple[list, dict]]
     live_position_enabled: Callable[[int], bool]
     competency_enabled: Callable[[int], bool]
-    operational_currency_shortfalls: Callable[[int], dict]
+    operational_currency_runtime: Any
+
+
+def create_reports_dependencies(
+    *, operational_models: Any, **services: Any
+) -> ReportsDependencies:
+    """Bind report queries to their operational records."""
+    return ReportsDependencies(
+        Assignment=operational_models.Assignment,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        **services,
+    )
 
 
 def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
@@ -95,13 +101,13 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if acknowledgement := require_acknowledgement():
             return acknowledgement
         today = date.today()
-        default_start = dependencies.financial_year_start(today)
+        default_start = dependencies.reporting_runtime.financial_year_start(today)
         start_day = date.fromisoformat(
             request.args.get("start", default_start.isoformat())
         )
         end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
         watches, selected_watch = watch_selection()
-        staff_metrics, totals, annotation_columns = dependencies.compute_metrics_range(
+        staff_metrics, totals, annotation_columns = dependencies.reporting_runtime.compute_metrics(
             start_day, end_day, selected_watch.id if selected_watch else None
         )
         return render_template(
@@ -129,13 +135,13 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if acknowledgement := require_acknowledgement():
             return acknowledgement
         today = date.today()
-        default_start = dependencies.financial_year_start(today)
+        default_start = dependencies.reporting_runtime.financial_year_start(today)
         start_day = date.fromisoformat(
             request.args.get("start", default_start.isoformat())
         )
         end_day = date.fromisoformat(request.args.get("end", today.isoformat()))
         watches, selected_watch = watch_selection()
-        staff_metrics, totals, annotation_columns = dependencies.compute_metrics_range(
+        staff_metrics, totals, annotation_columns = dependencies.reporting_runtime.compute_metrics(
             start_day, end_day, selected_watch.id if selected_watch else None
         )
         output = io.StringIO()
@@ -180,10 +186,10 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if acknowledgement := require_acknowledgement():
             return acknowledgement
         year, month = dependencies.parse_year_month(ym)
-        dependencies.ensure_month_requirement(year, month)
-        dependencies.generate_month(year, month)
+        dependencies.assignment_runtime.ensure_month_requirement(year, month)
+        dependencies.assignment_runtime.generate_month(year, month)
         watches, selected_watch = watch_selection()
-        rows, codes, totals, grand_total, _days = dependencies.leave_summary_for_month(
+        rows, codes, totals, grand_total, _days = dependencies.reporting_runtime.leave_summary(
             year, month, selected_watch.id if selected_watch else None
         )
         month_title = datetime(year, month, 1).strftime("%B %Y")
@@ -211,10 +217,10 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if not ym:
             abort(400)
         year, month = dependencies.parse_year_month(ym)
-        dependencies.ensure_month_requirement(year, month)
-        dependencies.generate_month(year, month)
+        dependencies.assignment_runtime.ensure_month_requirement(year, month)
+        dependencies.assignment_runtime.generate_month(year, month)
         watches, selected_watch = watch_selection()
-        rows, codes, totals, grand_total, _days = dependencies.leave_summary_for_month(
+        rows, codes, totals, grand_total, _days = dependencies.reporting_runtime.leave_summary(
             year, month, selected_watch.id if selected_watch else None
         )
         output = io.StringIO()
@@ -278,7 +284,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         ).all()
         rows = []
         for person in people:
-            start, leave_year_end = dependencies.current_leave_year_window(
+            start, leave_year_end = dependencies.reporting_runtime.current_leave_year_window(
                 person, report_end
             )
             assignments = dependencies.Assignment.query.filter(
@@ -293,7 +299,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             entitlement = person.leave_entitlement_days or 0
             public_holidays = person.leave_public_holidays or 0
             carryover = person.leave_carryover_days or 0
-            accrued, used = dependencies.toil_accrued_used(
+            accrued, used = dependencies.toil_service.accrued_and_used(
                 person.id, start, report_end
             )
             rows.append(
@@ -372,7 +378,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
                     if person.watch
                     else "-",
                     "total": len(sick_days),
-                    "groups": dependencies.group_consecutive_days(set(sick_days)),
+                    "groups": dependencies.reporting_runtime.group_consecutive_days(set(sick_days)),
                     "counts": counts,
                 }
             )
@@ -418,7 +424,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         today = date.today()
         unit_id = dependencies.current_unit_id()
         operational_currency = (
-            dependencies.operational_currency_shortfalls(unit_id)
+            dependencies.operational_currency_runtime.shortfalls(unit_id)
             if dependencies.live_position_enabled(unit_id)
             else {"enabled": False, "rows": []}
         )
@@ -462,7 +468,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             abort(400, "Dates must use YYYY-MM-DD format.")
         if end_day < start_day or (end_day - start_day).days > 731:
             abort(400, "Choose a valid date range of no more than two years.")
-        metrics, totals = dependencies.compute_fairness_range(start_day, end_day)
+        metrics, totals = dependencies.reporting_runtime.compute_fairness(start_day, end_day)
         return render_template("report_fairness.html", metrics=metrics, totals=totals, start=start_day, end=end_day)
 
     @blueprint.record_once

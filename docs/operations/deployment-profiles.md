@@ -23,9 +23,11 @@ central JSON logs, per-instance metrics scraping, encrypted off-site backups and
 provider alerts. Migration and runtime database roles must be separate. Do not run
 migrations concurrently with ordinary runtime traffic without the release runbook.
 
-Waitress remains the supported WSGI server for the pilot. The service uses eight
-threads, a 60-second idle channel timeout, periodic cleanup and a bounded connection
-limit. Flask rejects request bodies above 2 MiB by default. The reverse proxy should
+Waitress remains the supported WSGI server for the pilot. A web replica defaults to
+four threads (`ATCROSTER_WAITRESS_THREADS`, bounded to 1–16), a 60-second idle
+channel timeout, periodic cleanup and a bounded connection limit. This keeps
+per-replica concurrent database pressure modest while allowing an explicit,
+capacity-tested increase. Flask rejects request bodies above 2 MiB by default. The reverse proxy should
 use a request timeout below its own upstream timeout and permit at least the web
 graceful-shutdown window. `ProxyFix` is enabled only by the explicit trusted-hop
 count. Application correctness uses PostgreSQL/Redis/object storage, not process
@@ -44,3 +46,14 @@ the new application secret is live. Never commit or print secret values.
 
 Railway services must set `ATCROSTER_PROCESS_TYPE=web` or `worker` explicitly and
 must set `ATCROSTER_COMMIT_SHA` to the promoted commit for log correlation.
+
+## Migration ownership
+
+Every existing operational and control relation must be owned by the PostgreSQL
+role supplied through the corresponding `*_MIGRATION_DATABASE_URL`. Runtime
+roles intentionally receive only data privileges and cannot run Alembic DDL.
+Before first deployment to a restored or legacy database, verify relation
+ownership with the migration role and correct ownership in a controlled database
+maintenance window. A failed Railway pre-deploy migration must be treated as a
+safe release block: do not bypass it by granting DDL to the runtime role or by
+disabling migrations.

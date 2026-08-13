@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Live positions · {{ unit.name }}</title>
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('styles.css') }}">
 </head>
 <body class="live-position-kiosk">
   <section id="live-position-kiosk-launch" class="live-position-kiosk-launch" role="dialog" aria-modal="true" aria-labelledby="live-position-kiosk-launch-title">
@@ -26,12 +26,12 @@
       <strong id="live-position-clock">--:--:--</strong>
       <span>UTC</span>
     </div>
-    <div class="live-position-kiosk__connection" id="live-position-connection">
+    <div class="live-position-kiosk__connection" id="live-position-connection" role="status" aria-live="polite">
       <span aria-hidden="true">●</span> Connecting
     </div>
   </header>
   <main>
-    <div id="live-position-warning" class="live-position-kiosk__warning" hidden></div>
+    <div id="live-position-warning" class="live-position-kiosk__warning" role="alert" aria-live="assertive" hidden></div>
     <div id="live-position-board-viewport" class="live-position-board-viewport">
       <section id="live-position-grid" class="live-position-groups" aria-live="polite"></section>
     </div>
@@ -156,6 +156,7 @@
     const escapeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const render = (payload) => {
       warning.hidden = true;
+      boardViewport.classList.remove('is-stale');
       livePositions = new Map(payload.positions.map((position) => [position.id, position]));
       const serverTime = Date.parse(payload.server_time);
       if (Number.isFinite(serverTime)) serverOffset = serverTime - Date.now();
@@ -391,6 +392,9 @@
       } catch (_) {
         connection.innerHTML = '<span aria-hidden="true">●</span> Reconnecting';
         connection.classList.remove('is-connected');
+        warning.textContent = 'Live data is unavailable. The displayed position state may be stale; do not rely on it until the connection is restored.';
+        warning.hidden = false;
+        boardViewport.classList.add('is-stale');
       }
     };
     const updateClocks = () => {

@@ -5,6 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 instance/roster.db
+instance/
 instance/backups/
 instance/*.manifest.json
 instance/*.db-shm

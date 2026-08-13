@@ -69,6 +69,39 @@ class PopulationDependencies:
     RosterPeriod: Any = None
 
 
+def create_population_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> PopulationDependencies:
+    """Bind baseline-population records at the roster service boundary."""
+    return PopulationDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        Staff=operational_models.Staff,
+        Assignment=operational_models.Assignment,
+        ShiftType=operational_models.ShiftType,
+        WorkPattern=saas_models.WorkPattern,
+        WorkPatternDay=saas_models.WorkPatternDay,
+        WorkPatternDayAllowedShift=saas_models.WorkPatternDayAllowedShift,
+        StaffPatternAssignment=saas_models.StaffPatternAssignment,
+        RosterPeriod=saas_models.RosterPeriod,
+        **services,
+    )
+
+
+def create_deterministic_roster_population_service(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> "DeterministicRosterPopulationService":
+    """Build the shared baseline population service from domain-owned bindings."""
+    return DeterministicRosterPopulationService(
+        create_population_dependencies(
+            db=db,
+            operational_models=operational_models,
+            saas_models=saas_models,
+            **services,
+        )
+    )
+
+
 class DeterministicRosterPopulationService:
     """Populate future generated codes from dated pattern assignments."""
 

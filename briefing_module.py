@@ -20,7 +20,9 @@ from flask import (
 from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
 
-from app import db, utcnow
+from access_policy import is_admin
+from atcroster.clock import utcnow
+from atcroster.extensions import db
 from briefing_storage import (
     BriefingStorageError, configured_briefing_storage,
 )
@@ -133,18 +135,32 @@ class BriefingAssuranceRun(db.Model):
     result_json = db.Column(db.Text, nullable=False)
 
 
-def _app_models():
-    # Imported lazily to avoid a circular import while app.py registers models.
-    import app as roster_app
-    return roster_app
+_dependencies = None
+
+
+def configure_briefing_dependencies(dependencies) -> None:
+    """Provide the small set of cross-domain collaborators briefing uses.
+
+    The briefing blueprint used to import the application composition module at
+    request time.  Keeping this explicit prevents a reverse dependency while
+    preserving the optional module's standalone model declarations.
+    """
+    global _dependencies
+    _dependencies = dependencies
+
+
+def _deps():
+    if _dependencies is None:
+        raise RuntimeError("Briefing dependencies have not been configured.")
+    return _dependencies
 
 
 def briefing_enabled(unit_id: int | None = None) -> bool:
-    roster_app = _app_models()
+    dependencies = _deps()
     resolved = int(unit_id or getattr(current_user, "unit_id", 0) or 0)
     if not resolved:
         return False
-    row = roster_app.FeatureFlag.query.filter_by(
+    row = dependencies.FeatureFlag.query.filter_by(
         unit_id=resolved, key="briefing_module", enabled=True
     ).first()
     return bool(row)
@@ -157,7 +173,7 @@ def _require_module() -> None:
 
 def _require_admin() -> None:
     _require_module()
-    if not _app_models().is_admin_user(current_user):
+    if not is_admin(current_user):
         abort(403)
 
 
@@ -225,9 +241,9 @@ def _parse_local_datetime(value: str, label: str) -> datetime:
 
 def briefing_local_now(unit_id: int | None = None) -> datetime:
     """Return naive wall-clock time for the airport's configured timezone."""
-    roster_app = _app_models()
+    dependencies = _deps()
     resolved = int(unit_id or getattr(current_user, "unit_id", 0) or 0)
-    unit = roster_app.db.session.get(roster_app.Unit, resolved) if resolved else None
+    unit = db.session.get(dependencies.Unit, resolved) if resolved else None
     timezone_name = (getattr(unit, "timezone", "") or "Europe/London").strip()
     try:
         local_zone = ZoneInfo(timezone_name)
@@ -286,10 +302,10 @@ def _store_document(upload, unit_id: int) -> tuple[str, str, str, str]:
 
 
 def _publish(item: BriefingItem) -> int:
-    roster_app = _app_models()
-    people = roster_app.Staff.query.filter_by(
+    dependencies = _deps()
+    people = dependencies.Staff.query.filter_by(
         unit_id=current_user.unit_id, membership_status="active"
-    ).order_by(roster_app.Staff.name).all()
+    ).order_by(dependencies.Staff.name).all()
     target = _target(item)
     recipients = [person for person in people if _matches_target(person, target)]
     if not recipients:
@@ -503,7 +519,7 @@ def document(item_id: int):
     item = BriefingItem.query.filter_by(
         id=item_id, unit_id=current_user.unit_id
     ).first_or_404()
-    if not _app_models().is_admin_user(current_user):
+    if not is_admin(current_user):
         BriefingDelivery.query.filter_by(
             unit_id=current_user.unit_id,
             briefing_id=item.id,
@@ -548,7 +564,7 @@ def document(item_id: int):
 @login_required
 def admin():
     _require_admin()
-    roster_app = _app_models()
+    dependencies = _deps()
     if request.method == "POST":
         kind = (request.form.get("kind") or "instruction").strip()
         if kind not in {"instruction", "daily"}:
@@ -650,12 +666,12 @@ def admin():
             historic_groups.items(), reverse=True
         )
     ]
-    watches = roster_app.Watch.query.order_by(
-        roster_app.Watch.order_index, roster_app.Watch.name
+    watches = dependencies.Watch.query.order_by(
+        dependencies.Watch.order_index, dependencies.Watch.name
     ).all()
-    people = roster_app.Staff.query.filter_by(
+    people = dependencies.Staff.query.filter_by(
         membership_status="active"
-    ).order_by(roster_app.Staff.name).all()
+    ).order_by(dependencies.Staff.name).all()
     message_types = BriefingMessageType.query.order_by(
         BriefingMessageType.active.desc(),
         BriefingMessageType.display_order,
@@ -767,7 +783,7 @@ def _duty_start(assignment, shift) -> datetime:
 @login_required
 def assurance():
     _require_admin()
-    roster_app = _app_models()
+    dependencies = _deps()
     selected_date = briefing_local_now().date()
     results = None
     run = None
@@ -776,7 +792,7 @@ def assurance():
             selected_date = date.fromisoformat(request.form.get("date") or "")
         except ValueError:
             abort(400, "Choose a valid operational date.")
-        publication = roster_app._active_roster_publication(
+        publication = dependencies.active_roster_publication(
             selected_date.year, selected_date.month
         )
         if not publication:
@@ -785,26 +801,26 @@ def assurance():
                 "Briefing reports require an active published roster.",
             )
         shift_map = {
-            row.code: row for row in roster_app.ShiftType.query.all()
+            row.code: row for row in dependencies.ShiftType.query.all()
         }
         working_codes = {
             code for code, shift in shift_map.items() if shift.is_working
         }
-        people = roster_app.Staff.query.filter_by(
+        people = dependencies.Staff.query.filter_by(
             membership_status="active"
-        ).order_by(roster_app.Staff.name).all()
+        ).order_by(dependencies.Staff.name).all()
         people_by_id = {person.id: person for person in people}
 
-        identities = roster_app.PlatformIdentity.query.filter(
-            roster_app.db.func.lower(
-                roster_app.PlatformIdentity.username
+        identities = dependencies.PlatformIdentity.query.filter(
+            db.func.lower(
+                dependencies.PlatformIdentity.username
             ).in_([person.username.lower() for person in people])
         ).all()
         identities_by_username = {
             identity.username.lower(): identity for identity in identities
         }
-        unit = roster_app.db.session.get(
-            roster_app.Unit, current_user.unit_id
+        unit = db.session.get(
+            dependencies.Unit, current_user.unit_id
         )
         try:
             airport_zone = ZoneInfo(
@@ -815,14 +831,14 @@ def assurance():
 
         last_rostered = {}
         working_assignments = (
-            roster_app.Assignment.query
+            dependencies.Assignment.query
             .filter(
-                roster_app.Assignment.day <= selected_date,
-                roster_app.Assignment.code.in_(working_codes),
+                dependencies.Assignment.day <= selected_date,
+                dependencies.Assignment.code.in_(working_codes),
             )
             .order_by(
-                roster_app.Assignment.staff_id,
-                roster_app.Assignment.day.desc(),
+                dependencies.Assignment.staff_id,
+                dependencies.Assignment.day.desc(),
             )
             .all()
         )
@@ -854,9 +870,9 @@ def assurance():
                 "different": last_login_date != rostered_date,
             })
 
-        assignments = roster_app.Assignment.query.filter_by(
+        assignments = dependencies.Assignment.query.filter_by(
             day=selected_date
-        ).order_by(roster_app.Assignment.staff_id).all()
+        ).order_by(dependencies.Assignment.staff_id).all()
         on_duty_mandatory = []
         for assignment in assignments:
             shift = shift_map.get(assignment.code)

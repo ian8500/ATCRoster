@@ -5,6 +5,15 @@ from __future__ import annotations
 import os
 
 
+def waitress_threads() -> int:
+    """Return a bounded worker count suitable for a small Railway web replica."""
+    raw_value = os.environ.get("ATCROSTER_WAITRESS_THREADS", "4")
+    try:
+        return min(16, max(1, int(raw_value)))
+    except ValueError:
+        return 4
+
+
 def main() -> None:
     process_type = os.environ.get("ATCROSTER_PROCESS_TYPE", "web").strip().lower()
     if process_type == "web":
@@ -14,7 +23,7 @@ def main() -> None:
                 "waitress-serve",
                 "--host=0.0.0.0",
                 "--port=8080",
-                "--threads=8",
+                f"--threads={waitress_threads()}",
                 "--channel-timeout=60",
                 "--cleanup-interval=30",
                 "--connection-limit=200",

@@ -1,0 +1,23 @@
+:root { --today-col: rgba(255,255,0,.85); }
+.site-header { box-shadow: 0 2px 0 var(--head); }
+.roster-sticky-shield { position:fixed; inset:0 0 auto 0; width:100vw; height:0; margin:0; background:#11161d; pointer-events:none; z-index:9; }
+.roster th.dayhead { position:sticky; }
+.roster td.cell, .roster td.totcell { position:relative; }
+.roster td.col-name { background-color:#181e26 !important; background-image:none !important; }
+.roster th.dayhead.is-today { background:#363d2e !important; }
+.roster td.cell.is-today { z-index:1; background:rgba(255,255,0,.07) !important; }
+.roster th.dayhead.is-today::before, .roster td.cell.is-today::before, .roster td.totcell.is-today::before { content:""; position:absolute; inset:-1px; pointer-events:none; z-index:5; border-left:3px solid var(--today-col); border-right:3px solid var(--today-col); }
+.roster th.dayhead.is-today::before { border-top:3px solid var(--today-col); }
+.roster td.totcell.is-today::before { border-bottom:3px solid var(--today-col); }
+.req-badge { display:inline-block; font-size:10px; font-weight:700; padding:2px 4px; border-radius:4px; border:1px solid currentColor; }
+.req-badge--pending { color:#664d03; background:#fff3cd; }
+.req-badge--approved { color:#0f5132; background:#d1e7dd; }
+.roster-grid { margin-bottom:0; }
+.roster-footer { margin-top:.5rem; }
+.roster-save-status { position:fixed; right:1rem; bottom:1rem; z-index:1200; padding:.55rem .8rem; border-radius:.55rem; background:#183153; color:#fff; box-shadow:0 8px 24px rgba(0,0,0,.2); opacity:0; transform:translateY(.5rem); pointer-events:none; transition:opacity .15s ease, transform .15s ease; }
+.roster-save-status.is-visible { opacity:1; transform:translateY(0); }
+.roster-save-status.is-error { background:#a61b29; }
+.shift-picker.is-saving .code-input { opacity:.65; cursor:progress; }
+.roster-annotation-button { cursor:pointer; line-height:1; }
+#roster-annotation-code { width:100%; min-height:44px; padding:.55rem .7rem; border:1px solid var(--control-border); border-radius:8px; }
+@media print { .roster th.dayhead.is-today::before, .roster td.cell.is-today::before, .roster td.totcell.is-today::before { display:none !important; } }
