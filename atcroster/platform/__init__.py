@@ -1,10 +1,20 @@
 """Platform-level administration routes."""
 
 from .worker_health import WorkerHealthDependencies, create_worker_health_blueprint
-from .legacy_migrations import add_role_and_calendar_token
+from .legacy_migrations import (
+    add_assignment_annotation,
+    add_columns_if_missing,
+    add_performance_indexes,
+    add_role_and_calendar_token,
+    add_unique_assignment_key,
+)
 
 __all__ = (
     "WorkerHealthDependencies",
+    "add_assignment_annotation",
+    "add_columns_if_missing",
+    "add_performance_indexes",
     "add_role_and_calendar_token",
+    "add_unique_assignment_key",
     "create_worker_health_blueprint",
 )

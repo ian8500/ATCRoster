@@ -283,7 +283,11 @@ from atcroster.accounts.signup import (
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import (
     WorkerHealthDependencies,
+    add_assignment_annotation,
+    add_columns_if_missing,
+    add_performance_indexes,
     add_role_and_calendar_token,
+    add_unique_assignment_key,
     create_worker_health_blueprint,
 )
 from atcroster.platform.admin import (
@@ -2613,128 +2617,62 @@ def migrate_add_role_and_calendar_token():
 
 
 def migrate_add_assignment_annotation():
-    from sqlalchemy import text
-    try:
-        db.session.execute(
-            text("ALTER TABLE assignment ADD COLUMN annotation VARCHAR(20)"))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    return add_assignment_annotation(db=db)
 
 
 def migrate_add_unique_assignment_key():
-    from sqlalchemy import text
-    try:
-        db.session.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_staff_day ON assignment(staff_id, day)"))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    return add_unique_assignment_key(db=db)
 
 
 def migrate_add_perf_indexes():
-    """Create helpful indexes if missing (SQLite: IF NOT EXISTS is supported)."""
-    from sqlalchemy import text
-    with app.app_context():
-        stmts = [
-            "CREATE INDEX IF NOT EXISTS ix_assignment_day ON assignment(day)",
-            "CREATE INDEX IF NOT EXISTS ix_assignment_staff_day ON assignment(staff_id, day)",
-            "CREATE INDEX IF NOT EXISTS ix_requirement_ym ON requirement(year, month)"
-        ]
-        for s in stmts:
-            db.session.execute(text(s))
-        db.session.commit()
+    return add_performance_indexes(db=db, app=app)
 
 
 def migrate_add_requirement_req_d():
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        cols = [row[1] for row in conn.execute(
-            text("PRAGMA table_info(requirement)"))]
-        if "req_d" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE requirement ADD COLUMN req_d INTEGER DEFAULT 0"))
-            except Exception:
-                pass
-    db.session.commit()
+    return add_columns_if_missing(
+        db=db,
+        table="requirement",
+        columns={"req_d": "req_d INTEGER DEFAULT 0"},
+    )
 
 
 def migrate_add_ut_flags():
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        cols = [row[1]
-                for row in conn.execute(text("PRAGMA table_info(staff)"))]
-        if "tower_ut" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE staff ADD COLUMN tower_ut BOOLEAN DEFAULT 0"))
-            except Exception:
-                pass
-        if "radar_ut" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE staff ADD COLUMN radar_ut BOOLEAN DEFAULT 0"))
-            except Exception:
-                pass
-    db.session.commit()
+    return add_columns_if_missing(
+        db=db,
+        table="staff",
+        columns={
+            "tower_ut": "tower_ut BOOLEAN DEFAULT 0",
+            "radar_ut": "radar_ut BOOLEAN DEFAULT 0",
+        },
+    )
 
 
 def migrate_add_is_training():
-    """Add is_training to shift_type if missing."""
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        cols = [row[1]
-                for row in conn.execute(text("PRAGMA table_info(shift_type)"))]
-        if "is_training" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE shift_type ADD COLUMN is_training BOOLEAN DEFAULT 0"))
-            except Exception:
-                pass
-    db.session.commit()
+    return add_columns_if_missing(
+        db=db,
+        table="shift_type",
+        columns={"is_training": "is_training BOOLEAN DEFAULT 0"},
+    )
 
 
 def migrate_add_wm_dwm_exclude():
-    """Add is_wm, is_dwm, exclude_from_ot to staff if missing."""
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        cols = [row[1]
-                for row in conn.execute(text("PRAGMA table_info(staff)"))]
-        if "is_wm" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE staff ADD COLUMN is_wm BOOLEAN DEFAULT 0"))
-            except Exception:
-                pass
-        if "is_dwm" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE staff ADD COLUMN is_dwm BOOLEAN DEFAULT 0"))
-            except Exception:
-                pass
-        if "exclude_from_ot" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE staff ADD COLUMN exclude_from_ot BOOLEAN DEFAULT 0"))
-            except Exception:
-                pass
-    db.session.commit()
+    return add_columns_if_missing(
+        db=db,
+        table="staff",
+        columns={
+            "is_wm": "is_wm BOOLEAN DEFAULT 0",
+            "is_dwm": "is_dwm BOOLEAN DEFAULT 0",
+            "exclude_from_ot": "exclude_from_ot BOOLEAN DEFAULT 0",
+        },
+    )
 
 
 def migrate_add_phone_number():
-    """Add phone_number column for SMS notifications if missing."""
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        cols = [row[1]
-                for row in conn.execute(text("PRAGMA table_info(staff)"))]
-        if "phone_number" not in cols:
-            try:
-                conn.execute(text(
-                    "ALTER TABLE staff ADD COLUMN phone_number VARCHAR(30) DEFAULT ''"))
-            except Exception:
-                pass
-    db.session.commit()
+    return add_columns_if_missing(
+        db=db,
+        table="staff",
+        columns={"phone_number": "phone_number VARCHAR(30) DEFAULT ''"},
+    )
 
 
 def migrate_add_watch_pattern_configuration():
