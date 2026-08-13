@@ -288,3 +288,26 @@ def proposed_plan_findings(
     return configured_findings(
         segments, config, datetime.combine(start_day, time.min)
     ).get(day, [])
+
+
+def segments_for_staff(
+    staff,
+    start_day,
+    end_day,
+    *,
+    Assignment,
+    fatigue_rule_config,
+    build_segments,
+):
+    """Load one staff member's dated assignments and construct duty segments."""
+    assignments = (
+        Assignment.query.filter(
+            Assignment.staff_id == staff.id,
+            Assignment.day >= start_day,
+            Assignment.day <= end_day,
+        )
+        .order_by(Assignment.day.asc())
+        .all()
+    )
+    definitions = fatigue_rule_config(staff.unit_id)["definitions"]
+    return build_segments(staff, assignments, definitions)

@@ -7,7 +7,7 @@ from flask import render_template, request, redirect, url_for, flash, abort, ses
 import os
 import sys
 from functools import lru_cache
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 import json
 
 from flask_login import (
@@ -194,6 +194,7 @@ from atcroster.fatigue import (
     findings_for_range,
     visible_working_findings,
     proposed_plan_findings,
+    load_staff_segments,
     segments_from_assignments,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
@@ -1834,13 +1835,14 @@ def _configured_fatigue_findings(segments, config, observation_start):
 
 
 def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
-    definitions = _fatigue_rule_config(staff.unit_id)["definitions"]
-    assignments = (Assignment.query
-                   .filter(Assignment.staff_id == staff.id,
-                           Assignment.day >= start_day,
-                           Assignment.day <= end_day)
-                   .order_by(Assignment.day.asc()).all())
-    return _segments_from_assignments(staff, assignments, definitions)
+    return load_staff_segments(
+        staff,
+        start_day,
+        end_day,
+        Assignment=Assignment,
+        fatigue_rule_config=_fatigue_rule_config,
+        build_segments=_segments_from_assignments,
+    )
 
 
 
@@ -1877,32 +1879,21 @@ def roster_fatigue_flags_matrix(
 
 
 def would_trigger_fatigue(staff: Staff, day: date, code: str):
-    sh = get_shift(code, staff.unit_id)
-    if not _is_working(sh):
-        return []
-    start_lb = day - timedelta(days=30)
-    end_day = day
-    segs = [
-        segment for segment in _segments_for_staff(staff, start_lb, end_day)
-        if segment["day"] != day
-    ]
-    config = _fatigue_rule_config(staff.unit_id)
-    definitions = config["definitions"]
-    sdt, edt = _span(day, sh)
-    if sdt:
-        is_early, is_pre0600 = _is_early_start(sdt, definitions)
-        segs.append({
-            "day": day, "start": sdt, "end": edt,
-            "mins": int((edt - sdt).total_seconds() // 60),
-            "night": _is_night_duty(sdt, edt, definitions),
-            "early": is_early,
-            "early_pre0600": is_pre0600,
-            "morning": _is_morning_duty(sdt),
-        })
-    flags = _configured_fatigue_findings(
-        segs, config, datetime.combine(start_lb, time.min)
+    return proposed_plan_findings(
+        staff,
+        day,
+        code,
+        {},
+        get_shift=get_shift,
+        is_working=_is_working,
+        segments_for_staff=_segments_for_staff,
+        fatigue_rule_config=_fatigue_rule_config,
+        configured_findings=_configured_fatigue_findings,
+        span=_span,
+        is_early_start=_is_early_start,
+        is_night_duty=_is_night_duty,
+        is_morning_duty=_is_morning_duty,
     )
-    return flags.get(day, [])
 
 
 def would_trigger_fatigue_with_plan(

@@ -8,6 +8,7 @@ from .analysis import (
     findings_for_range,
     visible_working_findings,
     proposed_plan_findings,
+    segments_for_staff as load_staff_segments,
     segments_from_assignments,
 )
 
@@ -19,5 +20,6 @@ __all__ = (
     "findings_for_range",
     "visible_working_findings",
     "proposed_plan_findings",
+    "load_staff_segments",
     "segments_from_assignments",
 )
