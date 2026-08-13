@@ -7730,115 +7730,6 @@ def _active_recovery_from_digest(
         RecoveryRequest, field_name, raw_token, expected_state, utcnow
     )
 
-
-
-@app.route("/recover/approve/<token>", methods=["GET", "POST"])
-@login_required
-def approve_account_recovery(token):
-    row = _active_recovery_from_digest(
-        "approval_token_digest", token, "pending_approval"
-    )
-    permitted = (
-        getattr(current_user, "role", "") == "superadmin"
-        or (
-            is_admin_user(current_user)
-            and int(getattr(current_user, "unit_id", 0) or 0)
-            == int(row.unit_id or 0)
-        )
-    )
-    if not permitted:
-        abort(403)
-    identity = db.session.get(PlatformIdentity, row.identity_id)
-    if not identity:
-        abort(410, "The account is no longer available.")
-    if request.method == "POST":
-        _validate_csrf()
-        if not identity.email:
-            flash(
-                "This account has no registered email. Add and verify an "
-                "email address before approving the reset.",
-                "error",
-            )
-            return redirect(request.url)
-        raw_reset = secrets.token_urlsafe(32)
-        row.reset_token_digest = hashlib.sha256(
-            raw_reset.encode()
-        ).hexdigest()
-        row.state = "reset_sent"
-        row.approved_at = utcnow()
-        row.expires_at = utcnow() + timedelta(hours=1)
-        reset_url = url_for(
-            "complete_account_recovery",
-            token=raw_reset,
-            _external=True,
-        )
-        delivered = _send_account_email(
-            identity.email,
-            "Reset your ATCRoster password",
-            "Your password reset was approved.\n\n"
-            f"Choose a new password here:\n{reset_url}\n\n"
-            "The link expires in one hour and can only be used once.",
-        )
-        if not delivered:
-            db.session.rollback()
-            flash(
-                "The reset email could not be delivered. Check the SMTP "
-                "configuration and the registered email address.",
-                "error",
-            )
-            return redirect(request.url)
-        db.session.commit()
-        flash("Reset approved and emailed to the account holder.", "ok")
-        return redirect(url_for("index"))
-    return render_template(
-        "recovery_approve.html", recovery=row, identity=identity
-    )
-
-
-@app.route("/recover/reset/<token>", methods=["GET", "POST"])
-def complete_account_recovery(token):
-    row = _active_recovery_from_digest(
-        "reset_token_digest", token, "reset_sent"
-    )
-    identity = db.session.get(PlatformIdentity, row.identity_id)
-    if not identity:
-        abort(410, "The account is no longer available.")
-    if request.method == "POST":
-        _validate_csrf()
-        password = request.form.get("password") or ""
-        confirmation = request.form.get("password_confirmation") or ""
-        if len(password) < 12:
-            flash("Use a password of at least 12 characters.", "error")
-        elif password != confirmation:
-            flash("The password confirmation does not match.", "error")
-        else:
-            password_hash = generate_password_hash(password)
-            identity.password_hash = password_hash
-            membership = UnitMembership.query.filter_by(
-                identity_id=identity.id, status="active"
-            ).first()
-            if membership and membership.person_id:
-                routing = db.session.get(
-                    DatabaseRoutingMetadata, membership.unit_id
-                )
-                g.tenant_context_token = bind_authenticated_unit(
-                    membership.unit_id,
-                    routing.secret_name if routing else None,
-                )
-                person = db.session.get(Staff, membership.person_id)
-                if person:
-                    person.password_hash = password_hash
-            row.state = "completed"
-            row.completed_at = utcnow()
-            row.reset_token_digest = None
-            db.session.commit()
-            flash(
-                "Password updated. Sign in with your new password.", "ok"
-            )
-            return redirect(url_for("login"))
-    return render_template("recovery_reset.html")
-
-
 def _decrypt_mfa_secret(credential) -> str:
     return decrypt_secret(credential, _decrypt_field)
 
@@ -8722,6 +8613,8 @@ app.register_blueprint(create_recovery_request_blueprint(RecoveryRequestDependen
     UnitMembership=UnitMembership,
     RecoveryRequest=RecoveryRequest,
     Unit=Unit,
+    Staff=Staff,
+    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
     validate_csrf=_validate_csrf,
     consume_rate_limit=_consume_rate_limit,
     valid_email=_valid_email,
@@ -8730,6 +8623,10 @@ app.register_blueprint(create_recovery_request_blueprint(RecoveryRequestDependen
     unit_admin_emails=_unit_admin_emails,
     send_email=_send_account_email,
     now=utcnow,
+    active_recovery=_active_recovery_from_digest,
+    is_admin_user=is_admin_user,
+    bind_authenticated_unit=bind_authenticated_unit,
+    generate_password_hash=generate_password_hash,
 )))
 app.register_blueprint(create_password_blueprint(PasswordDependencies(
     db=db,
