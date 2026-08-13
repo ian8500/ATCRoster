@@ -194,6 +194,7 @@ from atcroster.roster.publication import (
     PublicationDependencies,
     create_publication_service,
 )
+from atcroster.roster.overtime import OvertimeDependencies, create_overtime_blueprint
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
@@ -4695,161 +4696,6 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
     return results, excluded, None
 
 
-@app.route("/overtime", methods=["GET", "POST"])
-@login_required
-def overtime():
-    if request.method == "POST" and not _consume_rate_limit(
-        "overtime-search", current_user.id, limit=60,
-        window=timedelta(hours=1),
-    ):
-        abort(429)
-    if not (
-        is_editor_user(current_user)
-        or getattr(current_user, "is_wm", False)
-        or getattr(current_user, "is_dwm", False)
-    ):
-        abort(403)
-
-    unit_id = _current_unit_id()
-    shifts = ShiftType.query.filter_by(
-        unit_id=unit_id, is_working=True
-    ).order_by(ShiftType.code).all()
-    overtime_staff = (
-        Staff.query
-        .filter_by(unit_id=unit_id, is_operational=True)
-        .order_by(Staff.name)
-        .all()
-    )
-    results = []
-    excluded = []
-    what_if_result = None
-    chosen_date = None
-    chosen_shift = None
-    what_if_staff_id = None
-    selected_staff_ids: set[str] = set()
-    sms_body = ""
-    searched = request.method == "POST"
-
-    if request.method == "POST":
-        _validate_csrf()
-        action = request.form.get("action", "find")
-        chosen_date = _parse_date(request.form.get("date"))
-        chosen_shift = (request.form.get("shift_code") or "").upper().strip()
-        raw_what_if_staff_id = request.form.get("what_if_staff_id", "")
-        what_if_staff_id = (
-            int(raw_what_if_staff_id)
-            if raw_what_if_staff_id.isdigit()
-            else None
-        )
-        selected_staff_ids = {sid for sid in request.form.getlist("staff_ids")}
-        sms_body = (request.form.get("message") or "").strip()
-
-        results, excluded, error_msg = _compute_overtime_candidates(
-            chosen_date, chosen_shift
-        )
-
-        if action == "what_if":
-            searched = False
-            selected_staff = next(
-                (
-                    person for person in overtime_staff
-                    if person.id == what_if_staff_id
-                ),
-                None,
-            )
-            if error_msg:
-                flash(error_msg, "error")
-            elif selected_staff is None:
-                flash("Select an ATCO to check.", "error")
-            else:
-                eligible_result = next(
-                    (
-                        row for row in results
-                        if row["staff"].id == selected_staff.id
-                    ),
-                    None,
-                )
-                excluded_result = next(
-                    (
-                        row for row in excluded
-                        if row["staff"].id == selected_staff.id
-                    ),
-                    None,
-                )
-                if eligible_result:
-                    what_if_result = {
-                        "eligible": True,
-                        "staff": selected_staff,
-                        "flags": eligible_result["flags"],
-                    }
-                else:
-                    what_if_result = {
-                        "eligible": False,
-                        "staff": selected_staff,
-                        "reasons": (
-                            excluded_result["reasons"]
-                            if excluded_result
-                            else ["Eligibility could not be determined"]
-                        ),
-                    }
-        elif action == "send_sms":
-            if not can_send_unit_messages(current_user):
-                abort(403)
-            if error_msg:
-                flash(error_msg, "error")
-                results = []
-            else:
-                if not sms_body:
-                    flash("Enter a message to send.", "error")
-                elif len(sms_body) > 480:
-                    flash("Message is too long (limit 480 characters).", "error")
-                else:
-                    eligible_map = {r["staff"].id: r["staff"] for r in results}
-                    selected_staff = [eligible_map[int(sid)]
-                                      for sid in selected_staff_ids
-                                      if sid.isdigit() and int(sid) in eligible_map]
-                    missing_ids = [sid for sid in selected_staff_ids
-                                    if sid.isdigit() and int(sid) not in eligible_map]
-                    if not selected_staff:
-                        flash("Select at least one eligible staff member.", "error")
-                    else:
-                        if missing_ids:
-                            flash("Some selected staff are no longer eligible; please refresh the list.", "error")
-                        sent, failures = _send_overtime_sms_notifications(selected_staff, sms_body)
-                        if sent:
-                            plural = "s" if sent != 1 else ""
-                            flash(f"SMS sent to {sent} staff member{plural}.", "ok")
-                        if failures:
-                            parts = []
-                            for staff, msg in failures:
-                                name = staff.name if staff else "System"
-                                parts.append(f"{name}: {msg}")
-                            flash("SMS failed for " + "; ".join(parts), "error")
-
-        else:  # action == find or unknown
-            if error_msg:
-                flash(error_msg, "error")
-                results = []
-
-        if not sms_body:
-            sms_body = _default_overtime_sms_body(chosen_date, chosen_shift)
-
-    sms_ready = _sms_service_configured()
-
-    return render_template("overtime.html",
-                           shifts=shifts, results=results,
-                           overtime_staff=overtime_staff,
-                           what_if_result=what_if_result,
-                           what_if_staff_id=what_if_staff_id,
-                           chosen_date=chosen_date, chosen_shift=chosen_shift,
-                           sms_body=sms_body, sms_ready=sms_ready,
-                           selected_staff_ids=selected_staff_ids,
-                           searched=searched, excluded=excluded)
-
-
-# ===== Leave Report (HTML + CSV) =====
-# (unchanged core; monthly AL-only kept to endpoints)
-
 
 def _leave_summary_for_month(year: int, month: int, watch_id: int | None = None):
     return leave_summary_for_month(
@@ -6050,6 +5896,20 @@ app.register_blueprint(create_reference_data_blueprint(ReferenceDataDependencies
     banned_codes=get_banned_roster_codes,
     excluded_codes=get_exclude_from_counters,
     non_working_codes=get_non_working_codes,
+)))
+app.register_blueprint(create_overtime_blueprint(OvertimeDependencies(
+    ShiftType=ShiftType,
+    Staff=Staff,
+    current_unit_id=_current_unit_id,
+    consume_rate_limit=_consume_rate_limit,
+    is_editor_user=is_editor_user,
+    validate_csrf=_validate_csrf,
+    parse_date=_parse_date,
+    compute_candidates=_compute_overtime_candidates,
+    can_send_messages=can_send_unit_messages,
+    send_sms=_send_overtime_sms_notifications,
+    default_sms_body=_default_overtime_sms_body,
+    sms_configured=_sms_service_configured,
 )))
 app.register_blueprint(create_staff_lifecycle_blueprint(StaffLifecycleDependencies(
     db=db,
