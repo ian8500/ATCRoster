@@ -1,7 +1,7 @@
 """Qualification and compliance domain."""
 
 from .blueprint import QualificationDependencies, create_qualification_blueprint
-from .status import staff_has_qualification
+from .status import staff_has_qualification, staff_is_countable
 from .compliance import monthly_compliance_findings
 from .currency import (
     currency_window,
@@ -36,4 +36,5 @@ __all__ = (
     "has_valid_endorsement",
     "monthly_position_assurance",
     "staff_has_qualification",
+    "staff_is_countable",
 )

@@ -43,3 +43,20 @@ def staff_has_qualification(
     if qualification_type.expiry_required:
         return bool(record.expires_on and record.expires_on >= duty_date)
     return not record.expires_on or record.expires_on >= duty_date
+
+
+def staff_is_countable(
+    staff: Any,
+    duty_date: date,
+    *,
+    capability_for: Callable[[int, date], Any],
+) -> bool:
+    """Apply dated capability, retaining unsaved-profile preview compatibility."""
+    if staff.id is None:
+        medical_valid = bool(staff.medical_expiry and staff.medical_expiry >= duty_date)
+        independent_endorsement = any(
+            expiry and expiry >= duty_date
+            for expiry in (staff.tower_ue_expiry, staff.radar_ue_expiry)
+        )
+        return bool(medical_valid and independent_endorsement)
+    return capability_for(staff.id, duty_date).counts_as_operational
