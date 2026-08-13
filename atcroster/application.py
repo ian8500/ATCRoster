@@ -369,7 +369,9 @@ _operational_metrics = MetricsRegistry()
 OPERATIONAL_TABLE_NAMES = _OPERATIONAL_TABLE_NAMES
 
 # Writable local instance folder for development and tests.
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Preserve the legacy public repository root for scripts and compatibility
+# callers; Flask itself owns the package-local application module.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTANCE_DIR = app.instance_path
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 
