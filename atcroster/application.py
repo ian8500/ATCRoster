@@ -168,6 +168,7 @@ from atcroster.accounts import (
     PasswordDependencies,
     create_kiosk_account_blueprint,
     create_password_blueprint,
+    active_recovery_from_digest,
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
@@ -7977,19 +7978,9 @@ def _record_successful_login(user: Staff) -> None:
 def _active_recovery_from_digest(
     field_name: str, raw_token: str, expected_state: str
 ):
-    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", raw_token or ""):
-        abort(404)
-    digest = hashlib.sha256(raw_token.encode()).hexdigest()
-    field = getattr(RecoveryRequest, field_name)
-    row = RecoveryRequest.query.filter(
-        field == digest, RecoveryRequest.state == expected_state
-    ).first_or_404()
-    comparison_now = utcnow()
-    if row.expires_at.tzinfo is None:
-        comparison_now = comparison_now.replace(tzinfo=None)
-    if row.expires_at <= comparison_now:
-        abort(410, "This recovery link has expired.")
-    return row
+    return active_recovery_from_digest(
+        RecoveryRequest, field_name, raw_token, expected_state, utcnow
+    )
 
 
 @app.route("/recover", methods=["GET", "POST"])
