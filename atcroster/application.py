@@ -2,7 +2,7 @@
 
 from functools import wraps
 from calendar import monthrange
-from collections import defaultdict, Counter, OrderedDict
+from collections import defaultdict, OrderedDict
 from typing import Any, Optional, Tuple
 from flask import render_template, request, redirect, url_for, flash, abort, session, g
 import os
@@ -165,6 +165,7 @@ from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_bluepr
 from atcroster.qualifications import (
     QualificationDependencies,
     create_qualification_blueprint,
+    monthly_compliance_findings,
     staff_has_qualification as qualification_status_for_staff,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
@@ -2455,66 +2456,16 @@ _compliance_month = compliance_month
 
 
 def _compliance_findings(year: int, month: int) -> dict:
-    _, days = month_range(year, month)
-    people = (
-        Staff.query.filter_by(is_operational=True)
-        .outerjoin(Watch, Staff.watch_id == Watch.id)
-        .order_by(Watch.order_index, Staff.name)
-        .all()
+    return monthly_compliance_findings(
+        year,
+        month,
+        Assignment=Assignment,
+        Staff=Staff,
+        Watch=Watch,
+        month_range=month_range,
+        fatigue_rule_config=_fatigue_rule_config,
+        fatigue_flags_for_range=fatigue_flags_for_range,
     )
-    rows = []
-    rule_counts: Counter[str] = Counter()
-    rule_config = _fatigue_rule_config()
-    rule_metadata = {
-        code: item for code, item in rule_config["system"].items()
-    }
-    rule_metadata.update({
-        str(item.get("code")): item
-        for item in rule_config["custom"]
-    })
-    for person in people:
-        flags = fatigue_flags_for_range(person, days)
-        issues = []
-        for finding_day, messages in sorted(flags.items()):
-            assignment = Assignment.query.filter_by(
-                staff_id=person.id, day=finding_day
-            ).first()
-            for message in messages:
-                code_match = re.search(r"\b(D\d{2}|USR-[A-F0-9]+)\b", message)
-                code = code_match.group(1) if code_match else ""
-                metadata = rule_metadata.get(code, {})
-                rule = str(
-                    metadata.get("name")
-                    or message.split(":", 1)[0].split("(", 1)[0].strip()
-                )
-                severity = metadata.get("severity")
-                if severity not in {"warning", "critical"}:
-                    severity = "critical" if any(
-                        token in message
-                        for token in ("<11h", "3rd consecutive", ">200h", "> 10h")
-                    ) else "warning"
-                rule_counts[f"{code} · {rule}" if code else rule] += 1
-                issues.append({
-                    "day": finding_day,
-                    "message": message,
-                    "rule": rule,
-                    "rule_code": code,
-                    "severity": severity,
-                    "assignment": assignment,
-                })
-        rows.append({"staff": person, "issues": issues, "total": len(issues)})
-    total = sum(row["total"] for row in rows)
-    return {
-        "days": days,
-        "rows": rows,
-        "total": total,
-        "affected": sum(1 for row in rows if row["total"]),
-        "critical": sum(
-            1 for row in rows for issue in row["issues"]
-            if issue["severity"] == "critical"
-        ),
-        "rule_counts": rule_counts.most_common(),
-    }
 
 
 # -------------------- Migrations / seeding --------------------
