@@ -244,7 +244,9 @@ from atcroster.roster.month_view import (
 )
 from atcroster.roster.assignments import (
     AssignmentRefreshDependencies,
+    allocate_day_shift_shortfall,
     generate_assignment_range,
+    generate_month_assignments,
     refresh_pattern_day,
     set_absence_override,
     set_generated_assignment,
@@ -1974,12 +1976,14 @@ def requirements_for_day(
 
 
 def generate_month(year: int, month: int, *args, **kwargs):
-    """Ensure rows exist/are correct for the month without touching manual edits."""
-    _, days = month_range(year, month)
-    for s in Staff.query.filter(Staff.role != "position_monitor").order_by(Staff.id):
-        for d in days:
-            refresh_day_from_pattern_and_leave(s, d)
-    db.session.commit()
+    return generate_month_assignments(
+        year,
+        month,
+        db=db,
+        Staff=Staff,
+        month_range=month_range,
+        refresh_day=refresh_day_from_pattern_and_leave,
+    )
 
 
 def _is_working_day_code(code: str) -> bool:
@@ -2408,53 +2412,21 @@ def _allocate_days_for_date(
     day_code_mon_sat: str,
     day_code_sun: str,
 ) -> int:
-    """
-    Fill Day shifts (D*) for a single date d to meet req.req_d.
-    Respects leave/sick, OFF/manual-protected cells, and fatigue.
-    Returns number of assignments created/changed.
-    """
-    rows_today = Assignment.query.filter_by(day=d).all()
-    haveD = sum(1 for a in rows_today if _is_working_day_code((a.code or "")))
-    needD = getattr(req, "req_d", 0) if req else 0
-    short = max(0, needD - haveD)
-    if short <= 0:
-        return 0
-
-    changes = 0
-    dow = d.weekday()  # 0=Mon .. 6=Sun
-    day_code = day_code_mon_sat if dow < 6 else day_code_sun
-
-    for s in staff:
-        if short <= 0:
-            break
-
-        # leave/sick guard
-        if _has_leave_or_sick(s.id, d):
-            continue
-
-        a = by_staff_day[s.id].get(d)
-        current_code = (a.code if a else "")
-
-        # only fill if truly empty-like or explicitly OFF
-        # only fill if truly empty-like (do NOT replace OFF)
-        if not _is_empty_like(current_code):
-            continue
-
-        # fatigue gate
-        if not _passes_fatigue_for(s, d, day_code):
-            continue
-
-        # ensure an Assignment row exists
-        if a is None:
-            a = Assignment(staff_id=s.id, day=d)
-            db.session.add(a)
-            by_staff_day[s.id][d] = a
-
-        _set_code(a, day_code, source="ai", note="AI fill D")
-        changes += 1
-        short -= 1
-
-    return changes
+    return allocate_day_shift_shortfall(
+        d,
+        req,
+        staff,
+        by_staff_day,
+        day_code_mon_sat,
+        day_code_sun,
+        db=db,
+        Assignment=Assignment,
+        is_working_day_code=_is_working_day_code,
+        has_leave_or_sickness=_has_leave_or_sick,
+        is_empty_like=_is_empty_like,
+        passes_fatigue=_passes_fatigue_for,
+        set_code=_set_code,
+    )
 
 
 def _parse_hhmm(val: str):

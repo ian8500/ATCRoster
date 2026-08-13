@@ -161,6 +161,72 @@ def generate_assignment_range(
         generate_month(year, month)
 
 
+def generate_month_assignments(
+    year: int,
+    month: int,
+    *,
+    db: Any,
+    Staff: Any,
+    month_range: Callable[[int, int], tuple[Any, list[date]]],
+    refresh_day: Callable[[Any, date], Any],
+) -> None:
+    """Refresh every non-monitor assignment in a roster month."""
+    _, days = month_range(year, month)
+    for staff in Staff.query.filter(Staff.role != "position_monitor").order_by(
+        Staff.id
+    ):
+        for day in days:
+            refresh_day(staff, day)
+    db.session.commit()
+
+
+def allocate_day_shift_shortfall(
+    day: date,
+    requirement: Any,
+    staff: list[Any],
+    assignments_by_staff: dict[int, dict[date, Any]],
+    weekday_code: str,
+    sunday_code: str,
+    *,
+    db: Any,
+    Assignment: Any,
+    is_working_day_code: Callable[[str], bool],
+    has_leave_or_sickness: Callable[[int, date], bool],
+    is_empty_like: Callable[[Any], bool],
+    passes_fatigue: Callable[[Any, date, str], bool],
+    set_code: Callable[..., Any],
+) -> int:
+    """Fill an unmet day-duty requirement without replacing protected cells."""
+    existing = Assignment.query.filter_by(day=day).all()
+    assigned = sum(
+        1 for assignment in existing if is_working_day_code(assignment.code or "")
+    )
+    required = getattr(requirement, "req_d", 0) if requirement else 0
+    shortfall = max(0, required - assigned)
+    if not shortfall:
+        return 0
+    changes = 0
+    code = weekday_code if day.weekday() < 6 else sunday_code
+    for person in staff:
+        if not shortfall:
+            break
+        if has_leave_or_sickness(person.id, day):
+            continue
+        assignment = assignments_by_staff[person.id].get(day)
+        if not is_empty_like(assignment.code if assignment else ""):
+            continue
+        if not passes_fatigue(person, day, code):
+            continue
+        if assignment is None:
+            assignment = Assignment(staff_id=person.id, day=day)
+            db.session.add(assignment)
+            assignments_by_staff[person.id][day] = assignment
+        set_code(assignment, code, source="ai", note="AI fill D")
+        changes += 1
+        shortfall -= 1
+    return changes
+
+
 def assignment_for_day(db: Any, Assignment: Any, staff_id: int, day: date) -> Any:
     """Load or create the one assignment row for a staff member and date."""
     assignment = Assignment.query.filter_by(staff_id=staff_id, day=day).first()
