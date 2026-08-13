@@ -237,6 +237,10 @@ from atcroster.administration.watch_moves import (
     create_watch_move_blueprint,
 )
 from atcroster.administration.absence_types import update_absence_types
+from atcroster.administration.context import (
+    AdminContextDependencies,
+    build_admin_context,
+)
 from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.accounts import (
     KioskAccountDependencies,
@@ -3481,83 +3485,31 @@ def admin():
                 f"TOIL balances updated: {updated} staff; {errors} error(s).", "ok" if errors == 0 else "error")
             return redirect(url_for("admin"))
 
-    # GET render
-    watches = Watch.query.order_by(Watch.order_index).all()
-    shifts = ShiftType.query.order_by(ShiftType.code).all()
-    qualification_types = QualificationType.query.filter_by(
-        unit_id=_current_unit_id(), is_active=True
-    ).order_by(QualificationType.code).all()
-    work_patterns = WorkPattern.query.filter_by(
-        unit_id=_current_unit_id(), is_active=True
-    ).order_by(WorkPattern.name).all()
-    staff = (Staff.query
-             .outerjoin(Watch, Staff.watch_id == Watch.id)
-             .filter(Staff.role != "position_monitor")
-             .order_by(Watch.order_index, Staff.name).all())
-    # Keep the staffing screen focused on a useful planning horizon instead of
-    # making administrators scan fixed calendar years (and eventually stale
-    # historic months). Show the current month plus the next 23 months.
-    planning_start = date.today().replace(day=1)
-    months = []
-    cursor = planning_start
-    for _ in range(24):
-        months.append((cursor.year, cursor.month))
-        cursor = (
-            cursor.replace(year=cursor.year + 1, month=1)
-            if cursor.month == 12 else cursor.replace(month=cursor.month + 1)
-        )
-    requirements_by_month = {
-        (r.year, r.month): r for r in Requirement.query.all()}
-    special_requirements = SpecialRequirement.query.order_by(
-        SpecialRequirement.day
-    ).all()
-    leaves = Leave.query.order_by(Leave.start.desc()).all()
-    roster_settings = _roster_settings_snapshot(_current_unit_id())
-    base_pattern = ",".join(_validated_pattern(
-        roster_settings.get("base_pattern_csv") or DEFAULT_BASE_PATTERN
-    ))
-    base_anchor = (
-        roster_settings.get("base_pattern_anchor") or "2025-01-01"
+    return render_template(
+        "admin.html",
+        **build_admin_context(AdminContextDependencies(
+            db=db,
+            Watch=Watch,
+            ShiftType=ShiftType,
+            QualificationType=QualificationType,
+            WorkPattern=WorkPattern,
+            Staff=Staff,
+            Requirement=Requirement,
+            SpecialRequirement=SpecialRequirement,
+            Leave=Leave,
+            Unit=Unit,
+            current_unit_id=_current_unit_id,
+            roster_settings_snapshot=_roster_settings_snapshot,
+            validate_pattern=_validated_pattern,
+            shift_counter_group=shift_counter_group,
+            sms_number_options=_sms_number_options,
+            sms_operational_options=_sms_operational_options,
+            sms_default_number=_sms_default_number,
+            absence_types=get_absence_types,
+            default_base_pattern=DEFAULT_BASE_PATTERN,
+            pattern_codes=PATTERN_CODES,
+        )),
     )
-    night_active_days = {
-        int(value)
-        for value in roster_settings.get(
-            "night_active_weekdays", "0,1,2,3,4,5,6"
-        ).split(",")
-        if value.strip().isdigit()
-    }
-    shift_counter_mapping = {
-        shift.code: shift_counter_group(shift.code, _current_unit_id())
-        for shift in shifts
-    }
-    sms_senders = _sms_number_options("sms_sender_numbers")
-    sms_operational_numbers = _sms_operational_options()
-    sms_default_sender = _sms_default_number(
-        "sms_default_sender", sms_senders
-    )
-    sms_default_operational_number = _sms_default_number(
-        "sms_default_operational_number", sms_operational_numbers
-    )
-    current_unit = db.session.get(Unit, _current_unit_id())
-    return render_template("admin.html",
-                           shifts=shifts, staff=staff, watches=watches,
-                           months=months, requirements_by_month=requirements_by_month,
-                           special_requirements=special_requirements,
-                           leaves=leaves,
-                           qualification_types=qualification_types,
-                           work_patterns=work_patterns,
-                           today=date.today(),
-                           base_pattern=base_pattern,
-                           base_anchor=base_anchor,
-                           night_active_days=night_active_days,
-                           pattern_codes=PATTERN_CODES,
-                           shift_counter_mapping=shift_counter_mapping,
-                           sms_senders=sms_senders,
-                           sms_operational_numbers=sms_operational_numbers,
-                           sms_default_sender=sms_default_sender,
-                           sms_default_operational_number=sms_default_operational_number,
-                           absence_types=get_absence_types(active_only=False),
-                           current_unit=current_unit)
 
 
 
