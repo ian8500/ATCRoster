@@ -42,18 +42,14 @@ class RosterDependencies:
     ShiftRequest: Any
     AnnotationType: Any
     AnnotationAudit: Any
-    can_publish_roster: Callable[[Any], bool]
+    publication_service: Any
     validate_csrf: Callable[[], None]
     parse_year_month: Callable[[str], tuple[int, int]]
     current_unit_id: Callable[[], int]
     month_has_data: Callable[[int, int], bool]
     ensure_month_requirement: Callable[[int, int], Any]
     generate_month: Callable[[int, int], None]
-    active_publication: Callable[[int, int], Any]
-    publication_matches_live: Callable[[Any, int, int], bool]
-    roster_snapshot: Callable[[int, int], dict]
     utcnow: Callable[[], Any]
-    send_publication_emails: Callable[[int, int, int, Any], tuple[int, int, int]]
     log_change: Callable[..., None]
     consume_rate_limit: Callable[..., bool]
     month_range: Callable[[int, int], tuple[date, list[date]]]
@@ -212,7 +208,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
 
     @login_required
     def roster_month_publish(ym):
-        if not dependencies.can_publish_roster(current_user):
+        if not dependencies.publication_service.can_publish(current_user):
             abort(403)
         dependencies.validate_csrf()
         year, month = dependencies.parse_year_month(ym)
@@ -235,8 +231,8 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 "error",
             )
             return redirect(url_for("roster_month", ym=ym))
-        active = dependencies.active_publication(year, month)
-        if active and dependencies.publication_matches_live(active, year, month):
+        active = dependencies.publication_service.active_publication(year, month)
+        if active and dependencies.publication_service.matches_live(active, year, month):
             flash(
                 f"The {date(year, month, 1).strftime('%B %Y')} roster is already published.",
                 "info",
@@ -259,7 +255,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         if active:
             active.state = "superseded"
             active.superseded_at = published_at
-        snapshot = dependencies.roster_snapshot(year, month)
+        snapshot = dependencies.publication_service.snapshot(year, month)
         snapshot["published_by"] = {
             "id": current_user.id,
             "name": current_user.name,
@@ -294,7 +290,9 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 )
         dependencies.db.session.commit()
         email_sent, email_failed, email_recipients = (
-            dependencies.send_publication_emails(unit_id, year, month, published_at)
+            dependencies.publication_service.send_emails(
+                unit_id, year, month, published_at
+            )
         )
         if email_failed:
             current_app.logger.warning(
@@ -335,13 +333,13 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
 
     @login_required
     def roster_month_unpublish(ym):
-        if not dependencies.can_publish_roster(current_user):
+        if not dependencies.publication_service.can_publish(current_user):
             abort(403)
         dependencies.validate_csrf()
         year, month = dependencies.parse_year_month(ym)
         unit_id = dependencies.current_unit_id()
         dependencies.lock_roster_month(unit_id, year, month)
-        publication = dependencies.active_publication(year, month)
+        publication = dependencies.publication_service.active_publication(year, month)
         if not publication:
             flash("This roster is already in Draft.", "info")
             return redirect(url_for("roster_month", ym=ym))
@@ -694,10 +692,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         today = date.today()
         expiry_classes = display_state["expiry_classes"]
         watch_break_after_ids = display_state["watch_break_after_ids"]
-        active_publication = dependencies.active_publication(year, month)
+        active_publication = dependencies.publication_service.active_publication(year, month)
         roster_publication = (
             active_publication
-            if dependencies.publication_matches_live(active_publication, year, month)
+            if dependencies.publication_service.matches_live(
+                active_publication, year, month
+            )
             else None
         )
         staffing_shortfall_count = sum(
@@ -754,7 +754,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             annotation_groups=dependencies.get_annotation_groups(),
             night_active=night_active,
             roster_publication=roster_publication,
-            can_publish_roster=dependencies.can_publish_roster(current_user),
+            can_publish_roster=dependencies.publication_service.can_publish(current_user),
             staffing_shortfall_count=staffing_shortfall_count,
             qualification_warning_count=qualification_warning_count,
         )
