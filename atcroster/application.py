@@ -131,7 +131,12 @@ from access_policy import (
 )
 from atcroster import create_app, get_runtime_settings
 from atcroster.clock import utcnow
-from atcroster.auth import decrypt_secret, matching_totp_step, totp_qr_data_uri
+from atcroster.auth import (
+    decrypt_secret,
+    matching_totp_step,
+    record_security_event,
+    totp_qr_data_uri,
+)
 from atcroster.audit import record_central_security_event
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
@@ -7915,16 +7920,12 @@ def _reset_rate_limit(scope: str, subject: object) -> None:
 
 
 def _security_event(event: str, **safe_fields) -> None:
-    if "login_failed" in event or event == "mfa_login_failed":
-        _operational_metrics.add("login_failures_total", event=event)
-    if "rate_limit" in event:
-        _operational_metrics.add("rate_limit_events_total", event=event)
-    if event == "rate_limiter_unavailable":
-        _operational_metrics.add("redis_failures_total", operation="rate_limit")
-    structured_event(
-        app.logger,
-        event,
+    record_security_event(
+        metrics=_operational_metrics,
+        logger=app.logger,
         request_id=getattr(g, "request_id", ""),
+        structured_event=structured_event,
+        event=event,
         **safe_fields,
     )
 
