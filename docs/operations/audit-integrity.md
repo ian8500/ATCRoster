@@ -2,6 +2,10 @@
 
 ATCRoster treats SMS, request, annotation, change, platform-security,
 SuperAdmin, briefing and live-position audit rows as append-only evidence.
+
+`SmsAudit` content is also append-only. Its `delivery_status` alone is mutable,
+because a signed MessageMedia delivery-report webhook supplies that provider
+lifecycle metadata after the original audit event is committed.
 The ORM rejects normal application attempts to modify or delete a persisted
 audit row. Business changes and their audit records must be committed in the
 same database transaction; a failed audit insert rolls the business change
