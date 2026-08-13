@@ -269,6 +269,14 @@ from atcroster.roster.annotations import (
     codes_for_tag as find_codes_for_tag,
     tags_for as annotation_config_tags,
 )
+from atcroster.roster.settings import (
+    decode_counter_map,
+    load_absence_types,
+    load_code_setting,
+    normalise_codes as normalise_roster_codes,
+    prune_code_settings,
+    save_setting as persist_roster_setting,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -940,12 +948,7 @@ def _discard_roster_cache_invalidation_after_rollback(session_obj):
 
 
 def _normalise_codes(values: list[str] | tuple[str, ...]) -> list[str]:
-    seen = []
-    for val in values:
-        code = (val or "").strip().upper()
-        if code and code not in seen:
-            seen.append(code)
-    return seen
+    return normalise_roster_codes(values)
 
 
 @lru_cache(maxsize=128)
@@ -966,22 +969,14 @@ def _load_codes_setting(
     key: str, default: list[str], unit_id: int | None = None
 ) -> set[str]:
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    raw = _roster_settings_snapshot(resolved_unit_id).get(key)
-    if not raw:
-        parsed = default
-    else:
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            parsed = default
-    configured = set(_normalise_codes(parsed))
-    existing = {
-        str(code or "").strip().upper()
-        for (code,) in db.session.query(ShiftType.code).filter_by(
-            unit_id=resolved_unit_id
-        ).all()
-    }
-    return configured & existing
+    return load_code_setting(
+        key,
+        default,
+        resolved_unit_id,
+        settings_snapshot=_roster_settings_snapshot,
+        db=db,
+        ShiftType=ShiftType,
+    )
 
 
 def get_working_codes() -> set[str]:
@@ -994,39 +989,12 @@ def get_absence_types(
     unit_id: int | None = None,
 ) -> list[dict[str, object]]:
     resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    raw = _roster_settings_snapshot(resolved_unit_id).get("absence_types")
-    try:
-        parsed = json.loads(raw) if raw else DEFAULT_ABSENCE_TYPES
-    except (TypeError, ValueError, json.JSONDecodeError):
-        parsed = DEFAULT_ABSENCE_TYPES
-    if not isinstance(parsed, list):
-        parsed = DEFAULT_ABSENCE_TYPES
-    result = []
-    seen = set()
-    for item in parsed:
-        if not isinstance(item, dict):
-            continue
-        code = str(item.get("code") or "").strip().upper()
-        item_category = str(item.get("category") or "").strip().lower()
-        if (
-            not re.fullmatch(r"[A-Z0-9]{1,10}", code)
-            or item_category not in {"leave", "sickness"}
-            or code in seen
-        ):
-            continue
-        seen.add(code)
-        normalised = {
-            "code": code,
-            "label": str(item.get("label") or code).strip()[:80] or code,
-            "category": item_category,
-            "active": bool(item.get("active", True)),
-        }
-        if category and item_category != category:
-            continue
-        if active_only and not normalised["active"]:
-            continue
-        result.append(normalised)
-    return result
+    return load_absence_types(
+        _roster_settings_snapshot(resolved_unit_id).get("absence_types"),
+        DEFAULT_ABSENCE_TYPES,
+        category=category,
+        active_only=active_only,
+    )
 
 
 def _save_absence_types(items: list[dict[str, object]]) -> None:
@@ -1090,17 +1058,7 @@ def get_shift_counter_map(unit_id: int | None = None) -> dict[str, str]:
     raw = _roster_settings_snapshot(resolved_unit_id).get(
         "shift_counter_map", "{}"
     )
-    try:
-        values = json.loads(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        values = {}
-    if not isinstance(values, dict):
-        return {}
-    return {
-        str(code).upper(): str(group).upper()
-        for code, group in values.items()
-        if str(group).upper() in {"", "M", "D", "A", "N"}
-    }
+    return decode_counter_map(raw)
 
 
 sms_configuration = SmsConfigurationService(
@@ -1216,44 +1174,26 @@ def _save_codes_setting(key: str, values: list[str]) -> None:
 
 
 def _prune_roster_code_settings(unit_id: int) -> int:
-    """Remove list entries that have no ShiftType in this airport."""
-    valid_codes = {
-        str(code or "").strip().upper()
-        for (code,) in db.session.query(ShiftType.code).filter_by(
-            unit_id=unit_id
-        ).all()
-    }
-    changed = 0
-    rows = RosterSetting.query.filter(
-        RosterSetting.unit_id == unit_id,
-        RosterSetting.key.in_(DEFAULT_ROSTER_SETTINGS),
-    ).all()
-    for row in rows:
-        try:
-            values = json.loads(row.value or "[]")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            values = []
-        if not isinstance(values, list):
-            values = []
-        normalised = _normalise_codes(values)
-        cleaned = [code for code in normalised if code in valid_codes]
-        if cleaned != normalised:
-            row.value = json.dumps(cleaned)
-            changed += 1
-    if changed:
-        refresh_roster_settings_cache()
-    return changed
+    return prune_code_settings(
+        unit_id,
+        db=db,
+        ShiftType=ShiftType,
+        RosterSetting=RosterSetting,
+        setting_keys=DEFAULT_ROSTER_SETTINGS,
+        refresh_cache=refresh_roster_settings_cache,
+    )
 
 
 def _save_roster_setting(key: str, value: str) -> None:
     unit_id = int(_current_unit_id() or 1)
-    row = RosterSetting.query.filter_by(unit_id=unit_id, key=key).first()
-    if not row:
-        row = RosterSetting(unit_id=unit_id, key=key, value=value)
-        db.session.add(row)
-    else:
-        row.value = value
-    refresh_roster_settings_cache()
+    return persist_roster_setting(
+        key,
+        value,
+        unit_id=unit_id,
+        db=db,
+        RosterSetting=RosterSetting,
+        refresh_cache=refresh_roster_settings_cache,
+    )
 
 
 def _operational_currency_requirement(unit_id: int | None = None) -> dict[str, Any]:
