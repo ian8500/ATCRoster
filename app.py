@@ -132,6 +132,8 @@ from atcroster.notifications import (
     default_overtime_sms_body,
     SmsAdministrationDependencies,
     create_sms_administration_blueprint,
+    MessagingDependencies,
+    create_messaging_blueprint,
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
@@ -6989,187 +6991,6 @@ def overtime():
                            searched=searched, excluded=excluded)
 
 
-@app.route("/messages", methods=["GET", "POST"])
-@login_required
-def unit_messages():
-    if not can_send_unit_messages(current_user):
-        abort(403)
-    people = Staff.query.filter_by(
-        membership_status="active"
-    ).filter(Staff.role != "position_monitor").order_by(Staff.name).all()
-    watches = Watch.query.order_by(Watch.order_index, Watch.name).all()
-    selected_scope = request.form.get("scope", "all")
-    selected_recipient = request.form.get("recipient_id", "")
-    selected_watch = request.form.get("watch_id", "")
-    sender_options = _sms_sender_options()
-    if current_user.is_wm:
-        now = utcnow()
-        try:
-            verified = SmsSenderRegistration.query.filter(
-                SmsSenderRegistration.unit_id == _current_unit_id(),
-                SmsSenderRegistration.staff_id == current_user.id,
-                SmsSenderRegistration.provider == "messagemedia",
-                SmsSenderRegistration.status == "verified",
-                db.or_(SmsSenderRegistration.expires_at.is_(None), SmsSenderRegistration.expires_at > now),
-            ).order_by(SmsSenderRegistration.verified_at.desc()).all()
-        except ProgrammingError:
-            # Existing units can be served safely during a delayed schema rollout.
-            db.session.rollback()
-            app.logger.warning("sms_sender_registration_schema_unavailable")
-            verified = []
-        sender_options = ([{"number": item.number, "label": "My verified mobile"} for item in verified]
-                          or sender_options)
-    operational_options = _sms_operational_options()
-    default_sender = _sms_default_number(
-        "sms_default_sender", sender_options
-    )
-    default_operational = _sms_default_number(
-        "sms_default_operational_number", operational_options
-    )
-    selected_sender = _normalise_sms_number(
-        request.form.get("sender_number") or default_sender
-    )
-    selected_operational = _normalise_sms_number(
-        request.form.get("operational_number") or default_operational
-    )
-    template = request.form.get("template", "custom")
-    message = (request.form.get("message") or "").strip()
-    preview = []
-
-    if request.method == "POST":
-        _validate_csrf()
-        recipients = []
-        direct_recipient = None
-        allowed_senders = {item["number"] for item in sender_options}
-        allowed_operational = {
-            item["number"] for item in operational_options
-        }
-        if selected_sender not in allowed_senders:
-            abort(400, "Choose your verified mobile sender, or the configured unit fallback.")
-        if selected_scope == "all":
-            recipients = people
-        elif selected_scope == "watch" and selected_watch.isdigit():
-            recipients = [
-                person for person in people
-                if person.watch_id == int(selected_watch)
-            ]
-        elif selected_scope == "individual" and selected_recipient.isdigit():
-            recipients = [
-                person for person in people
-                if person.id == int(selected_recipient)
-            ]
-        elif (
-            selected_scope == "operational"
-            and selected_operational in allowed_operational
-        ):
-            direct_recipient = selected_operational
-        if not recipients and not direct_recipient:
-            flash("Choose at least one recipient.", "error")
-        elif direct_recipient and template == "today_shift":
-            flash(
-                "Shift reminders can only be sent to rostered people.",
-                "error",
-            )
-        elif template == "today_shift":
-            today = date.today()
-            assignment_map = {
-                row.staff_id: row for row in Assignment.query.filter(
-                    Assignment.day == today,
-                    Assignment.staff_id.in_([person.id for person in recipients]),
-                ).all()
-            }
-            failures = []
-            sent = 0
-            for person in recipients:
-                assignment = assignment_map.get(person.id)
-                body = (
-                    f"Hello {person.name}, you are rostered for "
-                    f"{assignment.code if assignment else 'no assigned'} shift today "
-                    f"({today.strftime('%d %b %Y')})."
-                )
-                ok, detail = _send_sms(
-                    person.phone_number, body, from_number=selected_sender
-                )
-                preview.append((person.name, body))
-                if ok:
-                    _record_sms_audit(
-                        sender_number=selected_sender,
-                        recipient_number=person.phone_number,
-                        recipient_label=person.name,
-                        body=body,
-                        message_type="shift_reminder",
-                        provider_message_id=detail,
-                    )
-                    sent += 1
-                else:
-                    failures.append((person, detail))
-            _flash_sms_result(sent, failures)
-        elif not message:
-            flash("Enter a custom message.", "error")
-        elif len(message) > 480:
-            flash("Message is too long (limit 480 characters).", "error")
-        elif direct_recipient:
-            ok, detail = _send_sms(
-                direct_recipient, message, from_number=selected_sender
-            )
-            label = next(
-                (
-                    item["label"] for item in operational_options
-                    if item["number"] == direct_recipient
-                ),
-                direct_recipient,
-            )
-            preview = [(label, message)]
-            if ok:
-                _record_sms_audit(
-                    sender_number=selected_sender,
-                    recipient_number=direct_recipient,
-                    recipient_label=label,
-                    body=message,
-                    message_type="operational",
-                    provider_message_id=detail,
-                )
-            _flash_sms_result(
-                1 if ok else 0,
-                [] if ok else [(None, detail)],
-            )
-        else:
-            sent = 0
-            failures = []
-            for person in recipients:
-                ok, detail = _send_sms(
-                    person.phone_number,
-                    message,
-                    from_number=selected_sender,
-                )
-                if ok:
-                    _record_sms_audit(
-                        sender_number=selected_sender,
-                        recipient_number=person.phone_number,
-                        recipient_label=person.name,
-                        body=message,
-                        message_type="unit",
-                        provider_message_id=detail,
-                    )
-                    sent += 1
-                else:
-                    failures.append((person, detail))
-            preview = [(person.name, message) for person in recipients]
-            _flash_sms_result(sent, failures)
-
-    return render_template(
-        "messages.html", people=people, watches=watches,
-        sms_ready=_sms_service_configured(), template=template,
-        message=message, selected_scope=selected_scope,
-        selected_recipient=selected_recipient, selected_watch=selected_watch,
-        sender_options=sender_options,
-        operational_options=operational_options,
-        selected_sender=selected_sender,
-        selected_operational=selected_operational,
-        preview=preview,
-    )
-
-
 # ===== Leave Report (HTML + CSV) =====
 # (unchanged core; monthly AL-only kept to endpoints)
 
@@ -10431,6 +10252,22 @@ app.register_blueprint(create_sms_administration_blueprint(
         utcnow=utcnow,
     )
 ))
+app.register_blueprint(create_messaging_blueprint(MessagingDependencies(
+    db=db,
+    Staff=Staff,
+    Watch=Watch,
+    Assignment=Assignment,
+    SmsSenderRegistration=SmsSenderRegistration,
+    current_unit_id=_current_unit_id,
+    utcnow=utcnow,
+    can_send_unit_messages=can_send_unit_messages,
+    validate_csrf=_validate_csrf,
+    sms_configuration=sms_configuration,
+    normalise_sms_number=_normalise_sms_number,
+    send_sms=_send_sms,
+    record_sms_audit=_record_sms_audit,
+    flash_sms_result=_flash_sms_result,
+)))
 app.register_blueprint(create_module_blueprint(ModuleDependencies(
     FeatureFlag=FeatureFlag,
     briefing_enabled=briefing_enabled,

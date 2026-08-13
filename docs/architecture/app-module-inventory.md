@@ -105,7 +105,7 @@ CSRF is enforced globally for every explicit unsafe method. Authentication and r
 | /login/platform-mfa | `platform_mfa_challenge` | GET, POST | Platform identity + MFA | Endpoint/domain permission | Control DB/platform | Global default-deny | mfa_challenge.html | `app` + registered dependencies |
 | /login/platform-mfa/setup | `platform_mfa_setup` | GET, POST | Platform identity + MFA | Endpoint/domain permission | Control DB/platform | Global default-deny | mfa_setup.html | `app` + registered dependencies |
 | /logout | `logout` | POST | Authenticated account | Endpoint/domain permission | Verified active unit | Global default-deny | JSON/redirect/response | `auth_blueprint` + registered dependencies |
-| /messages | `unit_messages` | GET, POST | Authenticated account | Endpoint/domain permission | Verified active unit | Global default-deny | messages.html | `app` + registered dependencies |
+| /messages | `unit_messages` | GET, POST | Authenticated account | Endpoint/domain permission | Verified active unit | Global default-deny | messages.html | `atcroster.notifications.messaging` + injected dependencies |
 | /metrics | `metrics` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | metrics.html | `reports_blueprint` + registered dependencies |
 | /metrics/export | `metrics_export` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `reports_blueprint` + registered dependencies |
 | /modules | `module_home` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | module_home.html | `app` + registered dependencies |
