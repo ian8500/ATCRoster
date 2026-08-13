@@ -1931,6 +1931,7 @@ publication_service = create_publication_service(PublicationDependencies(
     send_account_email=lambda *args: globals()["_send_account_email"](*args),
 ))
 _roster_snapshot = publication_service.snapshot
+_active_roster_publication = publication_service.active_publication
 app.register_blueprint(create_roster_blueprint(RosterDependencies(
     db=db,
     RosterPublication=RosterPublication,
