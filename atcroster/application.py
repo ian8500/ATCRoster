@@ -165,7 +165,11 @@ from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_bluepr
 from atcroster.qualifications import (
     QualificationDependencies,
     create_qualification_blueprint,
+    currency_window,
+    load_currency_requirement,
     monthly_compliance_findings,
+    minutes_between as calculate_minutes_between,
+    operational_currency_shortfalls,
     staff_has_qualification as qualification_status_for_staff,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
@@ -1318,33 +1322,13 @@ def _save_roster_setting(key: str, value: str) -> None:
 
 
 def _operational_currency_requirement(unit_id: int | None = None) -> dict[str, Any]:
-    """Return the unit's operational-time currency requirement safely."""
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    result = dict(DEFAULT_OPERATIONAL_CURRENCY_REQUIREMENT)
-    raw = _roster_settings_snapshot(resolved_unit_id).get(
-        OPERATIONAL_CURRENCY_SETTING_KEY, ""
+    return load_currency_requirement(
+        unit_id,
+        current_unit_id=_current_unit_id,
+        settings_snapshot=_roster_settings_snapshot,
+        setting_key=OPERATIONAL_CURRENCY_SETTING_KEY,
+        defaults=DEFAULT_OPERATIONAL_CURRENCY_REQUIREMENT,
     )
-    try:
-        saved = json.loads(raw) if raw else {}
-    except (TypeError, ValueError, json.JSONDecodeError):
-        saved = {}
-    if isinstance(saved, dict):
-        result.update({key: saved[key] for key in result if key in saved})
-    result["enabled"] = bool(result["enabled"])
-    result["period_type"] = (
-        "calendar_months"
-        if result["period_type"] == "calendar_months"
-        else "rolling_days"
-    )
-    for key, minimum, maximum in (
-        ("period_days", 1, 731), ("period_months", 1, 24),
-        ("hours_per_ue", 0.25, 1000), ("ojti_credit_percent", 0, 100),
-    ):
-        try:
-            result[key] = max(minimum, min(maximum, float(result[key])))
-        except (TypeError, ValueError):
-            result[key] = DEFAULT_OPERATIONAL_CURRENCY_REQUIREMENT[key]
-    return result
 
 
 def _save_operational_currency_requirement(data: dict[str, Any]) -> None:
@@ -1358,100 +1342,26 @@ def _save_operational_currency_requirement(data: dict[str, Any]) -> None:
 def _operational_currency_window(
     requirement: dict[str, Any], today: date | None = None
 ) -> tuple[date, date]:
-    end_day = today or utcnow().date()
-    if requirement["period_type"] == "calendar_months":
-        months_back = int(requirement["period_months"]) - 1
-        start_day = end_day.replace(day=1)
-        for _ in range(months_back):
-            start_day = (
-                start_day.replace(year=start_day.year - 1, month=12)
-                if start_day.month == 1
-                else start_day.replace(month=start_day.month - 1)
-            )
-    else:
-        start_day = end_day - timedelta(days=int(requirement["period_days"]) - 1)
-    try:
-        configured_start = date.fromisoformat(str(requirement.get("start_date") or ""))
-        start_day = max(start_day, configured_start)
-    except ValueError:
-        pass
-    return start_day, end_day
+    return currency_window(requirement, today or utcnow().date())
 
 
 def _minutes_between(start: datetime, end: datetime) -> int:
-    """Return whole operational minutes for a validated positive interval."""
-    return max(0, round((end - start).total_seconds() / 60))
+    return calculate_minutes_between(start, end)
 
 
 def _operational_currency_shortfalls(unit_id: int) -> dict[str, Any]:
-    """Calculate operational-time credit and shortfalls for the report hub."""
-    requirement = _operational_currency_requirement(unit_id)
-    start_day, end_day = _operational_currency_window(requirement)
-    if not requirement["enabled"] or not live_position_enabled(unit_id):
-        return {"enabled": False, "start_day": start_day, "end_day": end_day, "rows": []}
-    people = Staff.query.filter_by(
-        unit_id=unit_id, membership_status="active", is_operational=True
-    ).filter(Staff.role != "position_monitor").order_by(Staff.name).all()
-    today = utcnow().date()
-    endorsement_counts = {
-        person_id: count for person_id, count in db.session.query(
-            PositionEndorsement.person_id, db.func.count(PositionEndorsement.id)
-        ).filter(
-            PositionEndorsement.unit_id == unit_id,
-            PositionEndorsement.status == "valid",
-            PositionEndorsement.valid_from <= today,
-            db.or_(PositionEndorsement.valid_until.is_(None), PositionEndorsement.valid_until >= today),
-        ).group_by(PositionEndorsement.person_id).all()
-    }
-    range_start = datetime.combine(start_day, time.min)
-    range_end = datetime.combine(end_day + timedelta(days=1), time.min)
-    now = utcnow()
-    sessions = PositionSession.query.filter(
-        PositionSession.unit_id == unit_id, PositionSession.is_void.is_(False),
-        PositionSession.started_at < range_end,
-        db.or_(PositionSession.ended_at.is_(None), PositionSession.ended_at > range_start),
-    ).all()
-    session_ids = [session.id for session in sessions]
-    ojti_role_ids = {
-        row.id for row in PositionParticipantRole.query.filter_by(unit_id=unit_id)
-        .filter(PositionParticipantRole.code == "ojti").all()
-    }
-    participant_rows = PositionSessionParticipant.query.filter(
-        PositionSessionParticipant.unit_id == unit_id,
-        PositionSessionParticipant.session_id.in_(session_ids),
-        PositionSessionParticipant.role_id.in_(ojti_role_ids),
-    ).all() if session_ids and ojti_role_ids else []
-    minutes: dict[int, dict[str, int]] = {}
-    for session_row in sessions:
-        start = max(session_row.started_at, range_start)
-        end = min(session_row.ended_at or now, range_end)
-        if end > start:
-            minutes.setdefault(session_row.primary_person_id, {"operational": 0, "ojti": 0})["operational"] += _minutes_between(start, end)
-    for participant in participant_rows:
-        start = max(participant.started_at, range_start)
-        end = min(participant.ended_at or now, range_end)
-        if end > start:
-            minutes.setdefault(participant.person_id, {"operational": 0, "ojti": 0})["ojti"] += _minutes_between(start, end)
-    rows = []
-    for person in people:
-        legacy_ues = sum(bool(expiry and expiry >= today) for expiry in (
-            person.tower_ue_expiry, person.radar_ue_expiry, person.met_ue_expiry,
-        ))
-        ue_count = endorsement_counts.get(person.id, legacy_ues)
-        if not ue_count:
-            continue
-        target_minutes = round(float(requirement["hours_per_ue"]) * 60 * ue_count)
-        own = minutes.get(person.id, {"operational": 0, "ojti": 0})
-        ojti_cap = round(target_minutes * float(requirement["ojti_credit_percent"]) / 100)
-        credited_ojti = min(own["ojti"], ojti_cap)
-        credited = own["operational"] + credited_ojti
-        if credited < target_minutes:
-            rows.append({"person": person, "ue_count": ue_count, "target_minutes": target_minutes,
-                         "operational_minutes": own["operational"], "ojti_minutes": own["ojti"],
-                         "credited_ojti_minutes": credited_ojti, "credited_minutes": credited,
-                         "shortfall_minutes": target_minutes - credited})
-    return {"enabled": True, "start_day": start_day, "end_day": end_day, "rows": rows,
-            "requirement": requirement}
+    return operational_currency_shortfalls(
+        unit_id,
+        db=db,
+        Staff=Staff,
+        PositionEndorsement=PositionEndorsement,
+        PositionSession=PositionSession,
+        PositionParticipantRole=PositionParticipantRole,
+        PositionSessionParticipant=PositionSessionParticipant,
+        requirement_for=_operational_currency_requirement,
+        live_position_enabled=live_position_enabled,
+        now=utcnow,
+    )
 
 
 def _parse_sms_number_lines(raw: str) -> tuple[list[dict[str, str]], list[str]]:
