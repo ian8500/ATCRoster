@@ -3,6 +3,7 @@
 from .workflow import (
     RequestWorkflowDependencies,
     RequestWorkflowService,
+    create_request_workflow_dependencies,
     add_request_audit,
     add_requester_notification,
     clamp_request_navigation,
@@ -17,6 +18,7 @@ __all__ = (
     "load_unit_request_rules",
     "RequestWorkflowDependencies",
     "RequestWorkflowService",
+    "create_request_workflow_dependencies",
     "REQUEST_STATUSES",
     "REQUEST_TRANSITIONS",
 )

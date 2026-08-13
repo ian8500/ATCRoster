@@ -279,8 +279,8 @@ from atcroster.navigation import (
 from atcroster.requests import (
     REQUEST_STATUSES,
     REQUEST_TRANSITIONS,
-    RequestWorkflowDependencies,
     RequestWorkflowService,
+    create_request_workflow_dependencies,
     clamp_request_navigation,
 )
 from atcroster.accounts import (
@@ -1268,11 +1268,9 @@ _group_consecutive_days = reporting_runtime.group_consecutive_days
 
 # -------------------- Request Sheets (shift requests) --------------------
 
-request_workflow_service = RequestWorkflowService(RequestWorkflowDependencies(
+request_workflow_service = RequestWorkflowService(create_request_workflow_dependencies(
     db=db,
-    Unit=Unit,
-    RequestAudit=RequestAudit,
-    Notification=Notification,
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     normalise_rules=normalise_request_rules,
     lock_date=request_lock_date,

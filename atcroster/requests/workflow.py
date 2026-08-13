@@ -110,6 +110,19 @@ class RequestWorkflowDependencies:
     safe_admin_month: Callable[[str | None, Any], str]
 
 
+def create_request_workflow_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> RequestWorkflowDependencies:
+    """Bind request workflow records at the requests boundary."""
+    return RequestWorkflowDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        RequestAudit=operational_models.RequestAudit,
+        Notification=operational_models.Notification,
+        **services,
+    )
+
+
 class RequestWorkflowService:
     """Own request-window policy, audit, and requester notifications."""
 
