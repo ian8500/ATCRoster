@@ -3,6 +3,7 @@ from atcroster.notifications.sms import (
 )
 from atcroster.notifications.email import valid_email
 from atcroster.notifications.configuration import SmsConfigurationService
+from atcroster.notifications.audit import SmsAuditService
 
 
 def test_normalise_sms_number_accepts_e164_display_punctuation():
@@ -45,3 +46,30 @@ def test_sms_configuration_uses_only_configured_unit_numbers(monkeypatch):
         {"number": "+447700900124", "label": "Unit fallback sender"},
     ]
     assert service.default_number("sms_default_sender", options) == "+447700900123"
+
+
+def test_sms_audit_service_stamps_current_unit_and_actor():
+    added = []
+
+    class Session:
+        def add(self, record):
+            added.append(record)
+
+        def commit(self):
+            pass
+
+    class Audit:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    service = SmsAuditService(
+        db=type("Database", (), {"session": Session()})(), SmsAudit=Audit,
+        current_unit_id=lambda: 4,
+        current_user=lambda: type("User", (), {"id": 9, "name": "Manager"})(),
+    )
+    service.record(sender_number="+44 7700 900123", recipient_number="+447700900124",
+                   recipient_label="Duty desk", body="Operational update",
+                   message_type="operational", provider_message_id="provider-1")
+    assert added[0].unit_id == 4
+    assert added[0].sent_by_staff_id == 9
+    assert added[0].sender_number == "+447700900123"

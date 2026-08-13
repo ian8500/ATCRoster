@@ -7,6 +7,7 @@ from .sms import (
 )
 from .email import email_service_configured, send_account_email, valid_email
 from .configuration import SmsConfigurationService
+from .audit import SmsAuditService
 
 __all__ = (
     "NotificationDependencies", "create_notification_blueprint",
@@ -14,4 +15,5 @@ __all__ = (
     "parse_sms_number_lines",
     "email_service_configured", "send_account_email", "valid_email",
     "SmsConfigurationService",
+    "SmsAuditService",
 )

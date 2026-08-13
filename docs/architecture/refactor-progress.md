@@ -29,6 +29,7 @@
 | SMS normalization and provider delivery | `atcroster/notifications/sms.py` |
 | Account email delivery and address validation | `atcroster/notifications/email.py` |
 | Unit-scoped SMS configuration selection | `atcroster/notifications/configuration.py` |
+| Successful SMS delivery audit persistence | `atcroster/notifications/audit.py` |
 
 ## Safe stopping boundary
 

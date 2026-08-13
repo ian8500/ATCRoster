@@ -127,6 +127,7 @@ from atcroster.notifications import (
     send_account_email,
     valid_email,
     SmsConfigurationService,
+    SmsAuditService,
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
@@ -642,21 +643,15 @@ def _record_sms_audit(
     provider_message_id: str,
     delivery_status: str = "submitted",
 ) -> None:
-    """Persist one successful provider delivery in the airport database."""
-    db.session.add(SmsAudit(
-        unit_id=_current_unit_id(),
-        sent_by_staff_id=current_user.id,
-        sent_by_name=current_user.name,
-        sender_number=_normalise_sms_number(sender_number),
-        recipient_number=_normalise_sms_number(recipient_number),
-        recipient_label=(recipient_label or recipient_number)[:120],
-        message_type=(message_type or "unit")[:30],
-        message_content=body,
-        provider_message_id=(provider_message_id or "")[:64],
-        provider="messagemedia",
-        delivery_status=delivery_status[:30],
-    ))
-    db.session.commit()
+    sms_audit_service.record(
+        sender_number=sender_number,
+        recipient_number=recipient_number,
+        recipient_label=recipient_label,
+        body=body,
+        message_type=message_type,
+        provider_message_id=provider_message_id,
+        delivery_status=delivery_status,
+    )
 
 
 def _send_overtime_sms_notifications(
@@ -1832,6 +1827,12 @@ def get_shift_counter_map(unit_id: int | None = None) -> dict[str, str]:
 sms_configuration = SmsConfigurationService(
     settings_snapshot=_roster_settings_snapshot,
     current_unit_id=_current_unit_id,
+)
+sms_audit_service = SmsAuditService(
+    db=db,
+    SmsAudit=SmsAudit,
+    current_unit_id=_current_unit_id,
+    current_user=lambda: current_user,
 )
 
 
