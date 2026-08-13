@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
-from flask import Blueprint, Response, abort
+import secrets
+
+from flask import Blueprint, Response, abort, flash, redirect, url_for
+from flask_login import current_user, login_required
 
 
 @dataclass(frozen=True)
@@ -14,6 +17,10 @@ class CalendarFeedDependencies:
     Staff: Any
     Assignment: Any
     get_shift: Callable[[str, int], Any]
+    db: Any
+    current_unit_id: Callable[[], int]
+    is_admin_user: Callable[[Any], bool]
+    validate_csrf: Callable[[], None]
 
 
 def _calendar_window_today() -> tuple[date, date]:
@@ -62,8 +69,22 @@ def create_calendar_feed_blueprint(dependencies: CalendarFeedDependencies) -> Bl
         lines.append("END:VCALENDAR")
         return Response("\r\n".join(lines).encode("utf-8"), mimetype="text/calendar; charset=utf-8")
 
+    @login_required
+    def calendar_token_create(sid: int):
+        dependencies.validate_csrf()
+        staff = dependencies.Staff.query.filter_by(
+            id=sid, unit_id=dependencies.current_unit_id(),
+        ).first_or_404()
+        if staff.id != current_user.id and not dependencies.is_admin_user(current_user):
+            abort(403)
+        staff.calendar_token = secrets.token_hex(24)
+        dependencies.db.session.commit()
+        flash("A new private calendar subscription link was generated.", "ok")
+        return redirect(url_for("staff_profile", sid=staff.id) + "#calendar")
+
     @blueprint.record_once
     def register_legacy_endpoint(state) -> None:
         state.app.add_url_rule("/calendar/<int:sid>/<token>.ics", "calendar_feed", calendar_feed, methods=("GET",))
+        state.app.add_url_rule("/staff/<int:sid>/calendar-token", "calendar_token_create", calendar_token_create, methods=("POST",))
 
     return blueprint

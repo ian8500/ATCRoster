@@ -6658,21 +6658,6 @@ def staff_profile(sid):
     )
 
 
-@app.route("/staff/<int:sid>/calendar-token", methods=["POST"])
-@login_required
-def calendar_token_create(sid):
-    _validate_csrf()
-    staff = Staff.query.filter_by(
-        id=sid, unit_id=_current_unit_id()
-    ).first_or_404()
-    if staff.id != current_user.id and not is_admin_user(current_user):
-        abort(403)
-    staff.calendar_token = secrets.token_hex(24)
-    db.session.commit()
-    flash("A new private calendar subscription link was generated.", "ok")
-    return redirect(url_for("staff_profile", sid=staff.id) + "#calendar")
-
-
 # -------------------- Metrics + CSV (date range; FYTD default) --------------------
 # (… unchanged metrics functions from your file …)
 
@@ -10656,6 +10641,10 @@ app.register_blueprint(create_calendar_feed_blueprint(CalendarFeedDependencies(
     Staff=Staff,
     Assignment=Assignment,
     get_shift=get_shift,
+    db=db,
+    current_unit_id=_current_unit_id,
+    is_admin_user=is_admin_user,
+    validate_csrf=_validate_csrf,
 )))
 app.register_blueprint(briefing_blueprint)
 
