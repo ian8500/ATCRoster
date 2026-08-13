@@ -269,6 +269,9 @@ from atcroster.administration import (
     create_administration_blueprint,
     create_toil_administration_blueprint,
     seed_toil_balances,
+    annotation_accrual_half_days,
+    apply_annotation_toil_delta,
+    accrued_and_used_half_days,
 )
 from atcroster.administration.actions import (
     AdminActionDependencies,
@@ -2801,15 +2804,9 @@ def _current_leave_year_window(s: Staff, today: date | None = None):
 
 
 def _toil_accrual_half_days_from_annotation(parsed):
-    if not parsed:
-        return 0
-    info = get_annotation_config(parsed.get("type"))
-    if not info:
-        return 0
-    try:
-        return int(info.get("toil_half_days", 0) or 0)
-    except Exception:
-        return 0
+    return annotation_accrual_half_days(
+        parsed, annotation_config=get_annotation_config
+    )
 
 
 def _record_toil_transaction(
@@ -2846,37 +2843,28 @@ def _apply_toil_annotation_delta(
     transaction_key: str | None = None,
     source_id: int | None = None,
 ):
-    old_half = _toil_accrual_half_days_from_annotation(
-        parse_annotation(old_annot))
-    new_half = _toil_accrual_half_days_from_annotation(
-        parse_annotation(new_annot))
-    delta = new_half - old_half
-    if delta:
-        _record_toil_transaction(
-            staff.id,
-            delta,
-            "Roster annotation TOIL adjustment",
-            actor_id,
-            transaction_key=transaction_key,
-            source_type="assignment_annotation",
-            source_id=source_id,
-        )
+    return apply_annotation_toil_delta(
+        staff,
+        old_annot,
+        new_annot,
+        actor_id=actor_id,
+        parse_annotation=parse_annotation,
+        accrual_half_days=_toil_accrual_half_days_from_annotation,
+        record_transaction=_record_toil_transaction,
+        transaction_key=transaction_key,
+        source_id=source_id,
+    )
 
 
 def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_day: date):
-    acc = use = 0
-    q = (Assignment.query
-         .filter(Assignment.staff_id == staff_id,
-                 Assignment.day >= start_day,
-                 Assignment.day <= end_day))
-    for a in q.all():
-        pa = parse_annotation(a.annotation)
-        acc += _toil_accrual_half_days_from_annotation(pa)
-        if a.effective_code == "TOU8":
-            use += 2
-        elif a.effective_code == "TOUI":
-            use += 1
-    return acc, use
+    return accrued_and_used_half_days(
+        staff_id,
+        start_day,
+        end_day,
+        Assignment=Assignment,
+        parse_annotation=parse_annotation,
+        accrual_half_days=_toil_accrual_half_days_from_annotation,
+    )
 
 
 # ===== Sickness Report (unchanged) =====

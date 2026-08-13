@@ -6,6 +6,9 @@ from .toil import (
     ToilAdministrationDependencies,
     create_toil_administration_blueprint,
     seed_toil_balances,
+    annotation_accrual_half_days,
+    apply_annotation_toil_delta,
+    accrued_and_used_half_days,
 )
 
 __all__ = (
@@ -16,4 +19,7 @@ __all__ = (
     "dispatch_admin_action",
     "create_toil_administration_blueprint",
     "seed_toil_balances",
+    "annotation_accrual_half_days",
+    "apply_annotation_toil_delta",
+    "accrued_and_used_half_days",
 )

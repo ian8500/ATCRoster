@@ -45,6 +45,73 @@ def seed_toil_balances(raw_lines: str, *, db: Any, Staff: Any) -> tuple[int, int
     return updated, errors
 
 
+def annotation_accrual_half_days(
+    parsed: dict[str, Any] | None,
+    *,
+    annotation_config: Callable[[str], dict[str, Any] | None],
+) -> int:
+    if not parsed:
+        return 0
+    config = annotation_config(parsed.get("type"))
+    if not config:
+        return 0
+    try:
+        return int(config.get("toil_half_days", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def apply_annotation_toil_delta(
+    staff: Any,
+    old_annotation: str,
+    new_annotation: str,
+    *,
+    actor_id: int,
+    parse_annotation: Callable[[str], dict[str, Any] | None],
+    accrual_half_days: Callable[[dict[str, Any] | None], int],
+    record_transaction: Callable[..., Any],
+    transaction_key: str | None = None,
+    source_id: int | None = None,
+) -> None:
+    old_half_days = accrual_half_days(parse_annotation(old_annotation))
+    new_half_days = accrual_half_days(parse_annotation(new_annotation))
+    delta = new_half_days - old_half_days
+    if delta:
+        record_transaction(
+            staff.id,
+            delta,
+            "Roster annotation TOIL adjustment",
+            actor_id,
+            transaction_key=transaction_key,
+            source_type="assignment_annotation",
+            source_id=source_id,
+        )
+
+
+def accrued_and_used_half_days(
+    staff_id: int,
+    start_day: Any,
+    end_day: Any,
+    *,
+    Assignment: Any,
+    parse_annotation: Callable[[str], dict[str, Any] | None],
+    accrual_half_days: Callable[[dict[str, Any] | None], int],
+) -> tuple[int, int]:
+    accrued = used = 0
+    assignments = Assignment.query.filter(
+        Assignment.staff_id == staff_id,
+        Assignment.day >= start_day,
+        Assignment.day <= end_day,
+    ).all()
+    for assignment in assignments:
+        accrued += accrual_half_days(parse_annotation(assignment.annotation))
+        if assignment.effective_code == "TOU8":
+            used += 2
+        elif assignment.effective_code == "TOUI":
+            used += 1
+    return accrued, used
+
+
 @dataclass(frozen=True)
 class ToilAdministrationDependencies:
     db: Any
