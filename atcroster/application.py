@@ -358,12 +358,10 @@ from tenancy import (
     reset_authenticated_unit,
     reset_platform_control,
 )
-
 try:
     from flask_caching import Cache
 except Exception:
     Cache = None
-
 # -------------------- App setup --------------------
 app = create_app()
 # Legacy callers imported the JSON module from the former monolith.
@@ -381,11 +379,9 @@ _work_pattern_service_reference: DeferredReference[Any] = DeferredReference(
 _override_classifier_reference: DeferredReference[Any] = DeferredReference(
     "override classifier"
 )
-
 # Legacy database-isolation callers import this registry from the public app
 # module. Ownership remains with the tenant database extension.
 OPERATIONAL_TABLE_NAMES = _OPERATIONAL_TABLE_NAMES
-
 # Preserve the legacy public repository root for scripts and compatibility
 # callers; Flask itself owns the package-local application module.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -408,7 +404,6 @@ if DEPLOYMENT_ENV == "production":
 else:
     _rate_limiter = MemoryRateLimiter()
 
-
 # Constructing the service validates configured material during startup rather
 # than at first MFA use. Aliases preserve callers during incremental extraction.
 _field_encryption = FieldEncryptionService(FIELD_ENCRYPTION_KEYS)
@@ -418,21 +413,16 @@ _decrypt_field = _field_encryption.decrypt
 
 _asset_version, _asset_url = register_template_helpers(app)
 
-
 _current_unit_id = partial(resolve_current_unit_id, current_user)
-
 
 @app.before_request
 def _start_request_tenant_boundary():
     clear_request_context()
     g.metrics_started_at = begin_request(_operational_metrics)
 
-
 _validate_csrf, _enforce_csrf = register_csrf_protection(app)
 
-
 app.register_blueprint(public_blueprint)
-
 
 _error_handlers = register_error_handlers(
     app,
@@ -452,7 +442,6 @@ db = create_tenant_database(app, DEPLOYMENT_ENV)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
-
 _bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
     app,
     TenantHookDependencies(
@@ -470,7 +459,6 @@ _bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
     ),
 )
 
-
 _security_headers = register_security_headers(
     app,
     SecurityHeaderDependencies(
@@ -484,10 +472,8 @@ _security_headers = register_security_headers(
 )
 register_response_compression(app)
 
-
 _canonical_login_redirect = partial(canonical_login_redirect, url_for=url_for)
 _airport_login_endpoint = airport_login_endpoint
-
 
 # ----- Lightweight caching -----
 _cache = None
@@ -501,15 +487,12 @@ if Cache is not None:
     except Exception:
         _cache = None
 
-
 _memoize = partial(memoize, _cache)
-
 
 def _invalidate_month_cache_for_day(d: date):
     invalidate_month_for_day(
         _cache, _load_month_roster_fast, _current_unit_id(), d,
     )
-
 
 def _load_operational_models():
     """Load model declarations after the canonical database extension exists."""
@@ -517,97 +500,77 @@ def _load_operational_models():
 
     return operational
 
-
 _operational_models = _load_operational_models()
-AnnotationAudit = _operational_models.AnnotationAudit
-AnnotationType = _operational_models.AnnotationType
-Assignment = _operational_models.Assignment
-ChangeLog = _operational_models.ChangeLog
-Leave = _operational_models.Leave
-Notification = _operational_models.Notification
-RequestAudit = _operational_models.RequestAudit
-Requirement = _operational_models.Requirement
-RosterSetting = _operational_models.RosterSetting
-ShiftRequest = _operational_models.ShiftRequest
-ShiftType = _operational_models.ShiftType
-Sickness = _operational_models.Sickness
-SmsAudit = _operational_models.SmsAudit
-SmsSenderRegistration = _operational_models.SmsSenderRegistration
-SpecialRequirement = _operational_models.SpecialRequirement
-Staff = _operational_models.Staff
-StaffWatchHistory = _operational_models.StaffWatchHistory
-TrainingLevel = _operational_models.TrainingLevel
-TrainingObjective = _operational_models.TrainingObjective
-TrainingScore = _operational_models.TrainingScore
-TrainingSession = _operational_models.TrainingSession
-Unit = _operational_models.Unit
-Watch = _operational_models.Watch
-HandoverEquipment = _operational_models.HandoverEquipment
-HandoverField = _operational_models.HandoverField
-HandoverOperationalState = _operational_models.HandoverOperationalState
-HandoverRecord = _operational_models.HandoverRecord
+(
+    AnnotationAudit, AnnotationType, Assignment, ChangeLog, Leave, Notification,
+    RequestAudit, Requirement, RosterSetting, ShiftRequest, ShiftType, Sickness,
+    SmsAudit, SmsSenderRegistration, SpecialRequirement, Staff, StaffWatchHistory,
+    TrainingLevel, TrainingObjective, TrainingScore, TrainingSession, Unit, Watch,
+    HandoverEquipment, HandoverField, HandoverOperationalState, HandoverRecord,
+) = (
+    _operational_models.AnnotationAudit, _operational_models.AnnotationType,
+    _operational_models.Assignment, _operational_models.ChangeLog,
+    _operational_models.Leave, _operational_models.Notification,
+    _operational_models.RequestAudit, _operational_models.Requirement,
+    _operational_models.RosterSetting, _operational_models.ShiftRequest,
+    _operational_models.ShiftType, _operational_models.Sickness,
+    _operational_models.SmsAudit, _operational_models.SmsSenderRegistration,
+    _operational_models.SpecialRequirement, _operational_models.Staff,
+    _operational_models.StaffWatchHistory, _operational_models.TrainingLevel,
+    _operational_models.TrainingObjective, _operational_models.TrainingScore,
+    _operational_models.TrainingSession, _operational_models.Unit,
+    _operational_models.Watch, _operational_models.HandoverEquipment,
+    _operational_models.HandoverField, _operational_models.HandoverOperationalState,
+    _operational_models.HandoverRecord,
+)
 # Control-plane and advanced product entities live in a separate module so
 # they can move to the central database without rewriting the legacy UI.
 SaaS = register_saas_models(db, utcnow)
-PlatformIdentity = SaaS.PlatformIdentity
-PlatformMfaCredential = SaaS.PlatformMfaCredential
-UnitMembership = SaaS.UnitMembership
-SecureInvitation = SaaS.SecureInvitation
-SignupWorkflow = SaaS.SignupWorkflow
-RecoveryRequest = SaaS.RecoveryRequest
 DatabaseRoutingMetadata: Any = SaaS.DatabaseRoutingMetadata
-ProvisioningJob = SaaS.ProvisioningJob
-WorkerHeartbeat = SaaS.WorkerHeartbeat
-FeatureFlag = SaaS.FeatureFlag
-PlanHistory = SaaS.PlanHistory
-AggregateUsageEvent = SaaS.AggregateUsageEvent
-SuperAdminAudit = SaaS.SuperAdminAudit
-CentralSecurityAudit = SaaS.CentralSecurityAudit
-QualificationType = SaaS.QualificationType
-PersonQualification = SaaS.PersonQualification
-PersonQualificationHistory = SaaS.PersonQualificationHistory
-RosterPublication = SaaS.RosterPublication
-RosterAcknowledgement = SaaS.RosterAcknowledgement
-Scenario = SaaS.Scenario
-OperationalPosition = SaaS.OperationalPosition
-OperationalPositionTimeAllowance = SaaS.OperationalPositionTimeAllowance
-OperationalPositionGroup = SaaS.OperationalPositionGroup
-PositionCurrencyCategory = SaaS.PositionCurrencyCategory
-PositionParticipantRole = SaaS.PositionParticipantRole
-PositionStatusEvent = SaaS.PositionStatusEvent
-PositionSession = SaaS.PositionSession
-PositionSessionParticipant = SaaS.PositionSessionParticipant
-ControllerKioskCredential = SaaS.ControllerKioskCredential
-PositionSessionAudit = SaaS.PositionSessionAudit
-PositionEndorsement = SaaS.PositionEndorsement
-PositionRequirement = SaaS.PositionRequirement
-BreakPlan = SaaS.BreakPlan
-AchievedDuty = SaaS.AchievedDuty
-FatigueReport = SaaS.FatigueReport
-ToilTransaction = SaaS.ToilTransaction
-WorkPattern = SaaS.WorkPattern
-WorkPatternDay = SaaS.WorkPatternDay
-WorkPatternDayAllowedShift = SaaS.WorkPatternDayAllowedShift
-StaffPatternAssignment = SaaS.StaffPatternAssignment
-StaffRule = SaaS.StaffRule
-BankHoliday = SaaS.BankHoliday
-RosterProposal = SaaS.RosterProposal
-RosterProposalAssignment = SaaS.RosterProposalAssignment
-RosterRuleVersion = SaaS.RosterRuleVersion
-RosterPeriod = SaaS.RosterPeriod
-RosterImpactEvent = SaaS.RosterImpactEvent
-RosterImpactException = SaaS.RosterImpactException
-MfaCredential = SaaS.MfaCredential
+(
+    PlatformIdentity, PlatformMfaCredential, UnitMembership, SecureInvitation,
+    SignupWorkflow, RecoveryRequest, ProvisioningJob, WorkerHeartbeat, FeatureFlag,
+    PlanHistory, AggregateUsageEvent, SuperAdminAudit, CentralSecurityAudit,
+    QualificationType, PersonQualification, PersonQualificationHistory,
+    RosterPublication, RosterAcknowledgement, Scenario, OperationalPosition,
+    OperationalPositionTimeAllowance, OperationalPositionGroup,
+    PositionCurrencyCategory, PositionParticipantRole, PositionStatusEvent,
+    PositionSession, PositionSessionParticipant, ControllerKioskCredential,
+    PositionSessionAudit, PositionEndorsement, PositionRequirement, BreakPlan,
+    AchievedDuty, FatigueReport, ToilTransaction, WorkPattern, WorkPatternDay,
+    WorkPatternDayAllowedShift, StaffPatternAssignment, StaffRule, BankHoliday,
+    RosterProposal, RosterProposalAssignment, RosterRuleVersion, RosterPeriod,
+    RosterImpactEvent, RosterImpactException, MfaCredential,
+) = (
+    SaaS.PlatformIdentity, SaaS.PlatformMfaCredential, SaaS.UnitMembership,
+    SaaS.SecureInvitation, SaaS.SignupWorkflow, SaaS.RecoveryRequest,
+    SaaS.ProvisioningJob, SaaS.WorkerHeartbeat, SaaS.FeatureFlag, SaaS.PlanHistory,
+    SaaS.AggregateUsageEvent, SaaS.SuperAdminAudit, SaaS.CentralSecurityAudit,
+    SaaS.QualificationType, SaaS.PersonQualification, SaaS.PersonQualificationHistory,
+    SaaS.RosterPublication, SaaS.RosterAcknowledgement, SaaS.Scenario,
+    SaaS.OperationalPosition, SaaS.OperationalPositionTimeAllowance,
+    SaaS.OperationalPositionGroup, SaaS.PositionCurrencyCategory,
+    SaaS.PositionParticipantRole, SaaS.PositionStatusEvent, SaaS.PositionSession,
+    SaaS.PositionSessionParticipant, SaaS.ControllerKioskCredential,
+    SaaS.PositionSessionAudit, SaaS.PositionEndorsement, SaaS.PositionRequirement,
+    SaaS.BreakPlan, SaaS.AchievedDuty, SaaS.FatigueReport, SaaS.ToilTransaction,
+    SaaS.WorkPattern, SaaS.WorkPatternDay, SaaS.WorkPatternDayAllowedShift,
+    SaaS.StaffPatternAssignment, SaaS.StaffRule, SaaS.BankHoliday,
+    SaaS.RosterProposal, SaaS.RosterProposalAssignment, SaaS.RosterRuleVersion,
+    SaaS.RosterPeriod, SaaS.RosterImpactEvent, SaaS.RosterImpactException,
+    SaaS.MfaCredential,
+)
 
 _briefing = load_briefing_module()
-BriefingAssuranceRun = _briefing.BriefingAssuranceRun
-BriefingAudit = _briefing.BriefingAudit
-BriefingDelivery = _briefing.BriefingDelivery
-BriefingItem = _briefing.BriefingItem
-BriefingMessageType = _briefing.BriefingMessageType
-briefing_blueprint = _briefing.blueprint
-briefing_enabled = _briefing.enabled
-briefing_local_now = _briefing.local_now
+(
+    BriefingAssuranceRun, BriefingAudit, BriefingDelivery, BriefingItem,
+    BriefingMessageType, briefing_blueprint, briefing_enabled, briefing_local_now,
+) = (
+    _briefing.BriefingAssuranceRun, _briefing.BriefingAudit,
+    _briefing.BriefingDelivery, _briefing.BriefingItem,
+    _briefing.BriefingMessageType, _briefing.blueprint, _briefing.enabled,
+    _briefing.local_now,
+)
 
 # Enforce the authenticated airport on all legacy operational SELECTs and
 # stamp new rows. This protects older routes while they move to repositories.
@@ -619,7 +582,6 @@ roster_month_cache = RosterMonthCache(
 )
 
 APPEND_ONLY_AUDIT_MODELS = append_only_audit_models(SaaS, _operational_models, _briefing)
-
 
 register_tenant_session_events(
     OrmSession,
@@ -648,7 +610,6 @@ _enforce_principal_boundaries = register_principal_boundaries(
 
 # -------------------- Reference data helpers --------------------
 
-
 roster_settings_catalogue = RosterSettingsCatalogue(
     db=db,
     RosterSetting=RosterSetting,
@@ -672,7 +633,6 @@ get_banned_roster_codes = roster_settings_catalogue.get_banned_codes
 get_exclude_from_counters = roster_settings_catalogue.get_excluded_counter_codes
 get_non_working_codes = roster_settings_catalogue.get_non_working_codes
 
-
 eligibility_service = EligibilityService(EligibilityDependencies(
     db=db,
     Staff=Staff,
@@ -685,9 +645,7 @@ operational_capability_service = eligibility_service.capability_service
 get_staff_operational_capability = eligibility_service.operational_capability
 get_operational_capability_matrix = eligibility_service.capability_matrix
 
-
 get_shift_counter_map = roster_settings_catalogue.get_shift_counter_map
-
 
 sms_configuration = SmsConfigurationService(
     settings_snapshot=_roster_settings_snapshot,
@@ -739,7 +697,6 @@ _send_overtime_sms_notifications = notification_runtime.send_overtime
 _default_overtime_sms_body = default_overtime_sms_body
 _flash_sms_result = notification_runtime.flash_result
 
-
 annotation_catalogue = AnnotationCatalogue(AnnotationType, _current_unit_id)
 _annotation_snapshot = annotation_catalogue.snapshot
 refresh_annotation_cache = annotation_catalogue.refresh
@@ -748,7 +705,6 @@ get_annotation_config = annotation_catalogue.config
 get_annotation_groups = annotation_catalogue.groups
 annotation_tags_for = annotation_catalogue.tags_for
 annotation_codes_for_tag = annotation_catalogue.codes_for_tag
-
 
 _parse_codes_input = roster_settings_catalogue.parse_codes_input
 _save_codes_setting = roster_settings_catalogue.save_codes_setting
@@ -759,7 +715,6 @@ module_availability = ModuleAvailability(FeatureFlag)
 training_enabled = module_availability.training
 competency_enabled = module_availability.competency
 live_position_enabled = module_availability.live_position
-
 
 operational_currency_runtime = OperationalCurrencyRuntime(
     OperationalCurrencyRuntimeDependencies(
@@ -784,7 +739,6 @@ _operational_currency_window = operational_currency_runtime.window
 _minutes_between = operational_currency_runtime.minutes_between
 _operational_currency_shortfalls = operational_currency_runtime.shortfalls
 
-
 _parse_sms_number_lines = parse_sms_number_lines
 bootstrap_reference_data = partial(
     bootstrap_roster_reference_data,
@@ -799,7 +753,6 @@ bootstrap_reference_data = partial(
     refresh_roster_settings_cache=refresh_roster_settings_cache,
 )
 
-
 if (
     DEPLOYMENT_ENV != "production"
     and os.environ.get("ATCROSTER_SKIP_BOOTSTRAP", "").lower()
@@ -813,7 +766,6 @@ if (
             db.session.rollback()
 
 # -------------------- Login --------------------
-
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -833,7 +785,6 @@ def load_user(user_id):
 
 # --------- Fast month loader & cache (uses functions defined later but safe) ----------
 
-
 def _load_month_roster_core(unit_id: int, y: int, m: int):
     return load_month_roster(
         unit_id,
@@ -850,14 +801,11 @@ def _load_month_roster_core(unit_id: int, y: int, m: int):
         ),
     )
 
-
 # IMPORTANT: overwrite any previously memoized wrapper
 _load_month_roster_fast = _memoize(seconds=300)(_load_month_roster_core)
 
-
 # -------------------- Helpers --------------------
 # === Unified permissions (admins, editors, WM, DWM) ===
-
 
 is_admin_user = is_admin
 is_editor_user = is_editor
@@ -871,10 +819,8 @@ can_apply_annotations = may_apply_annotations
 can_send_unit_messages = may_send_unit_messages
 can_override_roster_conflicts = may_override_roster_conflicts
 
-
 tenant_get = partial(tenant_scoped_get, current_unit_id=_current_unit_id)
 roster_edit_required = create_roster_edit_required(current_user, can_edit_roster)
-
 
 shift_lookup_service = ShiftLookupService(
     ShiftType=ShiftType,
@@ -886,11 +832,9 @@ refresh_shift_cache = shift_lookup_service.refresh
 get_shift = shift_lookup_service.get
 _shift_groups_snapshot = shift_lookup_service.groups
 
-
 roster_settings_catalogue.set_secondary_cache_clear(
     _shift_groups_snapshot.cache_clear
 )
-
 
 PATTERN_CODES = ("M", "A", "D", "N", "OPS", "OFF")
 DEFAULT_BASE_PATTERN = "M,M,A,A,N,N,OFF,OFF,OFF,OFF"
@@ -928,7 +872,6 @@ shift_counter_service = ShiftCounterService(
 shift_counter_group = shift_counter_service.group
 shift_counter_group_for_day = shift_counter_service.group_for_day
 
-
 def deterministic_roster_population_service():
     """Build the shared baseline-population service for application callers."""
     return DeterministicRosterPopulationService(PopulationDependencies(
@@ -946,7 +889,6 @@ def deterministic_roster_population_service():
         watch_id_resolver=_effective_watch_id,
         RosterPeriod=RosterPeriod,
     ))
-
 
 roster_impact_runtime = RosterImpactRuntime(RosterImpactRuntimeDependencies(
     db=db,
@@ -979,9 +921,7 @@ _qualification_impact_type = roster_impact_runtime.qualification_impact_type
 _person_has_other_valid_ue = roster_impact_runtime.person_has_other_valid_ue
 record_qualification_roster_impact = roster_impact_runtime.record_qualification
 
-
 _cycle_day_for = pattern_runtime.cycle_day
-
 
 assignment_runtime = AssignmentRuntime(AssignmentRuntimeDependencies(
     refresh=AssignmentRefreshDependencies(
@@ -1026,7 +966,6 @@ _lock_roster_month = roster_month_service.lock
 month_range = roster_month_service.range
 parse_ym = roster_month_service.parse
 
-
 _fatigue_rule_config_service = FatigueRuleConfigService(
     FatigueRuleConfigDependencies(
         db=db,
@@ -1036,9 +975,6 @@ _fatigue_rule_config_service = FatigueRuleConfigService(
 )
 _fatigue_rule_config = _fatigue_rule_config_service.load
 _save_fatigue_rule_config = _fatigue_rule_config_service.save
-
-
-
 
 fatigue_runtime = FatigueRuntime(FatigueRuntimeDependencies(
     Assignment=Assignment,
@@ -1058,7 +994,6 @@ _segments_for_staff = fatigue_runtime.segments_for_staff
 fatigue_flags_for_range = fatigue_runtime.findings_for_range
 roster_fatigue_flags_matrix = fatigue_runtime.findings_matrix
 
-
 fatigue_compatibility_service = FatigueCompatibilityService(
     range_findings=module_callback(__name__, "fatigue_flags_for_range"),
     get_shift=module_callback(__name__, "get_shift"),
@@ -1075,9 +1010,7 @@ roster_fatigue_flags_for_range = fatigue_compatibility_service.roster_findings
 would_trigger_fatigue_with_plan = fatigue_compatibility_service.proposed_findings
 would_trigger_fatigue = fatigue_compatibility_service.would_trigger
 
-
 would_create_new_fatigue_issues = fatigue_runtime.new_findings
-
 
 _compliance_month = compliance_month
 compliance_runtime = ComplianceRuntime(ComplianceRuntimeDependencies(
@@ -1089,7 +1022,6 @@ compliance_runtime = ComplianceRuntime(ComplianceRuntimeDependencies(
         fatigue_flags_for_range=fatigue_flags_for_range,
 ))
 _compliance_findings = compliance_runtime.findings
-
 
 # -------------------- Migrations / seeding --------------------
 
@@ -1135,13 +1067,11 @@ log_change = change_audit_service.record
 
 # --- Month math (no dateutil) ---
 
-
 _month_add = partial(roster_period_add, add_months=add_months)
 lock_date_for_month = partial(roster_period_lock_date, roster_lock_date=roster_lock_date)
 is_month_locked = partial(
     roster_period_is_locked, roster_month_is_locked=roster_month_is_locked
 )
-
 
 roster_editing_runtime = RosterEditingRuntime(RosterEditingDependencies(
     db=db,
@@ -1181,10 +1111,7 @@ _allocate_days_for_date = allocation_runtime.allocate
 
 admin_required = create_admin_required(is_admin_user)
 
-
-
 _clamp_prev_next = partial(clamp_request_navigation, minimum_month=MIN_MONTH)
-
 
 inject_perms = register_navigation_context(
     app,
@@ -1207,9 +1134,7 @@ inject_perms = register_navigation_context(
     ),
 )
 
-
 # -------------------- Admin --------------------
-
 
 def _admin_action_dependencies():
     return create_admin_action_dependencies(
@@ -1250,21 +1175,11 @@ def _admin_action_dependencies():
         seed_toil_balances=seed_toil_balances,
 )
 
-
-
-
-
-
-
-
 # -------------------- Leave / Sickness / TOIL --------------------
-
 
 _group_sickness_instances = group_sickness_instances
 
-
 # -------------------- Staff profile --------------------
-
 
 _training_profile_allowed = partial(
     may_view_training_profile,
@@ -1274,13 +1189,8 @@ _training_profile_allowed = partial(
     can_record_training=can_record_training,
 )
 
-
-
-
-
 # -------------------- Metrics + CSV (date range; FYTD default) --------------------
 # (… unchanged metrics functions from your file …)
-
 
 reporting_runtime = ReportingRuntime(ReportingRuntimeDependencies(
     Assignment=Assignment,
@@ -1305,7 +1215,6 @@ _compute_metrics_range = reporting_runtime.compute_metrics
 _compute_fairness_range = reporting_runtime.compute_fairness
 _fy_start_for = reporting_runtime.financial_year_start
 
-
 overtime_support = OvertimeSupport(OvertimeSupportDependencies(
     Assignment=Assignment,
     parse_annotation=parse_annotation,
@@ -1319,24 +1228,19 @@ _worked_like_consecutive_days = overtime_support.worked_like_consecutive_days
 _had_sc_within_48h = overtime_support.had_sickness_within_48_hours
 _has_in_date_ue = overtime_support.has_in_date_endorsement
 
-
 # -------------------- Overtime finder (admin/editor) --------------------
 # (… unchanged from your file …)
-
 
 _count_ot_since_prev_april = overtime_support.count_overtime
 
 # … keep the rest of your overtime helpers exactly as pasted …
 
-
 _leave_summary_for_month = reporting_runtime.leave_summary
-
 
 # ===== Leave-Year report (per-person config; AL only; includes TOIL days) =====
 # (unchanged from your post)
 
 _current_leave_year_window = reporting_runtime.current_leave_year_window
-
 
 toil_service = ToilService(ToilServiceDependencies(
     db=db,
@@ -1353,15 +1257,11 @@ _record_toil_transaction = toil_service.record_transaction
 _apply_toil_annotation_delta = toil_service.apply_annotation_delta
 _toil_accrued_used_in_range_half_days = toil_service.accrued_and_used
 
-
 # ===== Sickness Report (unchanged) =====
-
 
 _group_consecutive_days = reporting_runtime.group_consecutive_days
 
-
 # -------------------- Request Sheets (shift requests) --------------------
-
 
 request_workflow_service = RequestWorkflowService(RequestWorkflowDependencies(
     db=db,
@@ -1379,10 +1279,8 @@ request_workflow_service = RequestWorkflowService(RequestWorkflowDependencies(
 _lock_date_for_target_month = request_workflow_service.lock_date_for_month
 _request_date_bounds = request_workflow_service.request_date_bounds
 
-
 staff_has_qualification = eligibility_service.has_qualification
 _staff_has_shift_qualification = eligibility_service.has_shift_qualification
-
 
 _overtime_candidate_service = OvertimeCandidateService(
     OvertimeCandidateDependencies(
@@ -1404,17 +1302,7 @@ _overtime_candidate_service = OvertimeCandidateService(
 )
 _compute_overtime_candidates = _overtime_candidate_service.compute
 
-
-
-
 # >>> Admin can respond to a specific request
-
-
-
-
-
-
-
 
 signup_saga = SignupSaga(SignupSagaDependencies(
     db=db,
@@ -1433,11 +1321,6 @@ signup_saga = SignupSaga(SignupSagaDependencies(
 _normalized_login = signup_saga.normalized_login
 _run_invitation_signup = signup_saga.run
 
-
-
-
-
-
 qualification_runtime = QualificationRuntime(QualificationRuntimeDependencies(
     db=db,
     PersonQualificationHistory=PersonQualificationHistory,
@@ -1453,9 +1336,6 @@ _record_qualification_history = qualification_runtime.record_history
 _sync_qualification_to_roster_profile = qualification_runtime.sync_roster_profile
 _valid_endorsement = qualification_runtime.valid_endorsement
 _position_assurance = qualification_runtime.position_assurance
-
-
-
 
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
@@ -1483,7 +1363,6 @@ _security_event = _auth_runtime.security_event
 _credential_for_auth_stamp = _auth_runtime.credential_for_auth_stamp
 _security_event_reference.set(_security_event)
 
-
 _session_lifecycle = SessionLifecycle(
     SessionLifecycleDependencies(
         now=utcnow,
@@ -1494,7 +1373,6 @@ _session_lifecycle = SessionLifecycle(
 _current_auth_stamp = _session_lifecycle.auth_stamp
 _initialize_authenticated_session = _session_lifecycle.initialize
 _session_lifecycle_reference.set(_session_lifecycle)
-
 
 _central_security_event = partial(record_central_security_event, db, CentralSecurityAudit)
 def _record_successful_login(user: Any) -> None:
@@ -1508,12 +1386,10 @@ def _record_successful_login(user: Any) -> None:
         now=utcnow,
     )
 
-
 _active_recovery_from_digest = _auth_runtime.active_recovery
 _decrypt_mfa_secret = _auth_runtime.decrypt_mfa_secret
 _matching_totp_step = _auth_runtime.matching_totp_step
 _pending_platform_login = _auth_runtime.pending_platform_login
-
 
 _complete_platform_login = partial(
     complete_platform_login,
@@ -1527,9 +1403,7 @@ _complete_platform_login = partial(
     redirect=redirect,
 )
 
-
 _totp_qr_data_uri = _auth_runtime.totp_qr_data_uri
-
 
 for cli_command in create_cli_commands(CliDependencies(
     db=db,
@@ -1550,7 +1424,6 @@ for cli_command in create_cli_commands(CliDependencies(
     operational_unit_context=operational_unit_context,
 )):
     app.cli.add_command(cli_command)
-
 
 # -------------------- DB init (single, safe block) --------------------
 
@@ -2105,7 +1978,6 @@ register_operations_routes(
         DatabaseRoutingMetadata=DatabaseRoutingMetadata,
     ),
 )
-
 
 app.cli.add_command(create_roster_cli(RosterCliDependencies(
     db=db,
