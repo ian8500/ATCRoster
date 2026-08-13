@@ -308,7 +308,7 @@ from atcroster.tenancy_writes import (
 from atcroster.briefing_bootstrap import load_briefing_module
 from migrations.fresh_schema import CONTROL_TABLES
 from reports_blueprint import create_reports_blueprint, create_reports_dependencies
-from training_blueprint import create_training_blueprint, create_training_dependencies
+from atcroster.training import register_training_blueprint
 from roster_period_service import (
     RosterPeriodService,
     create_roster_period_dependencies,
@@ -1551,25 +1551,22 @@ register_request_blueprints(
         record_toil_transaction=_record_toil_transaction,
     ),
 )
-app.register_blueprint(create_training_blueprint(create_training_dependencies(
+register_training_blueprint(
+    app,
     db=db,
     operational_models=_operational_models,
     saas_models=SaaS,
-    current_unit_id=_current_unit_id,
-    training_enabled=training_enabled,
-    is_editor_user=is_editor_user,
-    can_manage_training=can_manage_training,
-    can_record_training=can_record_training,
-    is_under_training=is_under_training,
-    training_profile_allowed=_training_profile_allowed,
-    validate_csrf=_validate_csrf,
-    competency_enabled=competency_enabled,
-    is_admin_user=is_admin_user,
-    utcnow=utcnow,
-    record_qualification_history=_record_qualification_history,
-    sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
-    record_qualification_roster_impact=record_qualification_roster_impact,
-)))
+    services=SimpleNamespace(
+        current_unit_id=_current_unit_id, training_enabled=training_enabled,
+        is_editor_user=is_editor_user, can_manage_training=can_manage_training,
+        can_record_training=can_record_training, is_under_training=is_under_training,
+        training_profile_allowed=_training_profile_allowed, validate_csrf=_validate_csrf,
+        competency_enabled=competency_enabled, is_admin_user=is_admin_user,
+        now=utcnow, record_qualification_history=_record_qualification_history,
+        sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
+        record_qualification_roster_impact=record_qualification_roster_impact,
+    ),
+)
 register_notification_runtime_blueprints(
     app,
     db=db,
