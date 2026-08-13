@@ -235,7 +235,10 @@ from atcroster.roster.patterns import (
     unit_pattern_context,
 )
 from atcroster.models.tenant_events import register_tenant_session_events
-from atcroster.roster.impacts import generated_horizon_end, invalidate_impact_months
+from atcroster.roster.impacts import (
+    RosterImpactRuntime,
+    RosterImpactRuntimeDependencies,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -1278,129 +1281,36 @@ def deterministic_roster_population_service():
     ))
 
 
-def _generated_roster_horizon_end(unit_id: int, effective_from: date) -> date | None:
-    return generated_horizon_end(
-        unit_id, effective_from, db=db, Assignment=Assignment
-    )
-
-
-def _invalidate_roster_impact_coverage(
-    unit_id: int,
-    effective_from: date,
-    effective_to: date,
-    _staff_ids: tuple[int, ...],
-    _watch_ids: tuple[int, ...],
-):
-    return invalidate_impact_months(
-        unit_id,
-        effective_from,
-        effective_to,
-        cache=_cache,
-        cached_loader=_load_month_roster_fast,
-        add_months=add_months,
-    )
-
-
-def roster_impact_service():
-    return RosterImpactService(RosterImpactDependencies(
-        db=db,
-        Unit=Unit,
-        RosterImpactEvent=RosterImpactEvent,
-        RosterImpactException=RosterImpactException,
-        population_service=deterministic_roster_population_service(),
-        generated_horizon_end=_generated_roster_horizon_end,
-        recalculate_coverage=_invalidate_roster_impact_coverage,
-        override_classifier=globals().get("override_classification_service"),
-        utcnow=utcnow,
-    ))
-
-
-def record_roster_impact(
-    event_type: RosterImpactEventType | str,
-    effective_from: date,
-    *,
-    effective_to: date | None = None,
-    staff_ids=(),
-    watch_ids=(),
-    rebuild_baseline=False,
-    recalculate_coverage=True,
-    reason="",
-):
-    """Record and apply a unit-scoped roster trigger in the caller's transaction."""
-    actor_id = getattr(current_user, "person_id", None)
-    if actor_id is None and getattr(current_user, "is_authenticated", False):
-        actor_id = getattr(current_user, "id", None)
-    return roster_impact_service().handle_roster_impact_event(
-        _current_unit_id(), event_type, effective_from, effective_to,
-        staff_ids=staff_ids, watch_ids=watch_ids,
-        rebuild_baseline=rebuild_baseline,
-        recalculate_coverage=recalculate_coverage,
-        reason=reason, triggered_by_user_id=actor_id,
-    )
-
-
-def _qualification_impact_type(
-    code: str,
-    old_status: str | None,
-    old_valid_from: date | None,
-    old_expires_on: date | None,
-    new_status: str | None,
-    new_valid_from: date | None,
-    new_expires_on: date | None,
-) -> tuple[RosterImpactEventType | None, date]:
-    return classify_qualification_impact(
-        code,
-        old_status,
-        old_valid_from,
-        old_expires_on,
-        new_status,
-        new_valid_from,
-        new_expires_on,
-        impact_types=RosterImpactEventType,
-        today=date.today(),
-    )
-
-
-def _person_has_other_valid_ue(
-    unit_id: int,
-    person_id: int,
-    excluded_type_id: int,
-    on_date: date,
-) -> bool:
-    return has_other_valid_ue(
-        unit_id,
-        person_id,
-        excluded_type_id,
-        on_date,
-        db=db,
-        PersonQualification=PersonQualification,
-        QualificationType=QualificationType,
-    )
-
-
-def record_qualification_roster_impact(
-    person,
-    qtype,
-    old_status,
-    old_valid_from,
-    old_expires_on,
-    record,
-    *,
-    reason="Qualification changed.",
-):
-    return record_roster_impact_for_qualification(
-        person,
-        qtype,
-        old_status,
-        old_valid_from,
-        old_expires_on,
-        record,
-        impact_types=RosterImpactEventType,
-        today=date.today(),
-        has_other_ue=_person_has_other_valid_ue,
-        record_roster_impact=record_roster_impact,
-        reason=reason,
-    )
+roster_impact_runtime = RosterImpactRuntime(RosterImpactRuntimeDependencies(
+    db=db,
+    Unit=Unit,
+    Assignment=Assignment,
+    RosterImpactEvent=RosterImpactEvent,
+    RosterImpactException=RosterImpactException,
+    RosterImpactEventType=RosterImpactEventType,
+    PersonQualification=PersonQualification,
+    QualificationType=QualificationType,
+    cache=_cache,
+    cached_loader=_load_month_roster_fast,
+    add_months=add_months,
+    current_unit_id=_current_unit_id,
+    current_user=lambda: current_user,
+    population_service=deterministic_roster_population_service,
+    override_classifier=lambda: globals().get("override_classification_service"),
+    service_factory=RosterImpactService,
+    service_dependencies=RosterImpactDependencies,
+    classify_qualification_impact=classify_qualification_impact,
+    has_other_valid_ue=has_other_valid_ue,
+    record_qualification_impact=record_roster_impact_for_qualification,
+    now=utcnow,
+))
+_generated_roster_horizon_end = roster_impact_runtime.generated_horizon_end
+_invalidate_roster_impact_coverage = roster_impact_runtime.invalidate_coverage
+roster_impact_service = roster_impact_runtime.service
+record_roster_impact = roster_impact_runtime.record
+_qualification_impact_type = roster_impact_runtime.qualification_impact_type
+_person_has_other_valid_ue = roster_impact_runtime.person_has_other_valid_ue
+record_qualification_roster_impact = roster_impact_runtime.record_qualification
 
 
 def _cycle_day_for(staff: Staff, d: date) -> int | None:
