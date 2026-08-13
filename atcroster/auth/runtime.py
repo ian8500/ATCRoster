@@ -33,6 +33,21 @@ class AuthRuntimeDependencies:
     active_recovery_from_digest: Callable[..., Any]
 
 
+def create_auth_runtime_dependencies(
+    *, app: Any, db: Any, saas_models: Any, **services: Any
+) -> AuthRuntimeDependencies:
+    """Bind authentication runtime to control-plane persistence records."""
+    return AuthRuntimeDependencies(
+        app=app,
+        db=db,
+        PlatformIdentity=saas_models.PlatformIdentity,
+        PlatformMfaCredential=saas_models.PlatformMfaCredential,
+        MfaCredential=saas_models.MfaCredential,
+        RecoveryRequest=saas_models.RecoveryRequest,
+        **services,
+    )
+
+
 class AuthRuntime:
     """Own rate limiting, security telemetry, and MFA request helpers."""
 

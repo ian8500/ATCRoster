@@ -7,7 +7,7 @@ from .sessions import credential_for_auth_stamp
 from .redirects import airport_login_endpoint, canonical_login_redirect
 from .platform_login import complete_platform_login, pending_platform_login
 from .identity_loader import load_identity
-from .runtime import AuthRuntime, AuthRuntimeDependencies
+from .runtime import AuthRuntime, AuthRuntimeDependencies, create_auth_runtime_dependencies
 from .registration import (
     AuthRegistrationDependencies,
     create_auth_registration_dependencies,
@@ -30,6 +30,7 @@ __all__ = (
     "load_identity",
     "AuthRuntime",
     "AuthRuntimeDependencies",
+    "create_auth_runtime_dependencies",
     "AuthRegistrationDependencies",
     "create_auth_registration_dependencies",
     "register_auth_blueprints",

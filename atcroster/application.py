@@ -130,7 +130,7 @@ from atcroster.web_assets import register_template_helpers
 from atcroster.reports import ReportingRuntime, create_reporting_runtime_dependencies
 from atcroster.auth import (
     AuthRuntime,
-    AuthRuntimeDependencies,
+    create_auth_runtime_dependencies,
     create_auth_registration_dependencies,
     register_auth_blueprints,
     load_identity,
@@ -1315,18 +1315,15 @@ _position_assurance = qualification_runtime.position_assurance
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
 
-_auth_runtime = AuthRuntime(AuthRuntimeDependencies(
+_auth_runtime = AuthRuntime(create_auth_runtime_dependencies(
     app=app,
     db=db,
+    saas_models=SaaS,
     limiter=_rate_limiter,
     metrics=_operational_metrics,
     privacy_key=privacy_key,
     limiter_unavailable=LimiterUnavailable,
     structured_event=structured_event,
-    PlatformIdentity=PlatformIdentity,
-    PlatformMfaCredential=PlatformMfaCredential,
-    MfaCredential=MfaCredential,
-    RecoveryRequest=RecoveryRequest,
     decrypt_field=_decrypt_field,
     now=utcnow,
     active_recovery_from_digest=active_recovery_from_digest,
