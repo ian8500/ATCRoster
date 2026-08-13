@@ -28,6 +28,7 @@
 | Authenticated home redirect | `atcroster/home.py` |
 | Password change | `atcroster/accounts/password.py` |
 | Live Position kiosk accounts | `atcroster/accounts/kiosk.py` |
+| Operational currency configuration | `atcroster/live_position/currency.py` |
 | Permission summary and change-log routes | `atcroster/admin_utilities.py` |
 | SMS normalization and provider delivery | `atcroster/notifications/sms.py` |
 | Account email delivery and address validation | `atcroster/notifications/email.py` |

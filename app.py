@@ -150,6 +150,10 @@ from atcroster.accounts import (
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
+from atcroster.live_position import (
+    OperationalCurrencyDependencies,
+    create_operational_currency_blueprint,
+)
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -5296,47 +5300,6 @@ def admin():
                            current_unit=current_unit)
 
 
-@app.route("/admin/operational-currency", methods=["GET", "POST"])
-@login_required
-@admin_required
-def admin_operational_currency():
-    unit_id = _current_unit_id()
-    if not live_position_enabled(unit_id):
-        abort(404)
-    requirement = _operational_currency_requirement(unit_id)
-    if request.method == "POST":
-        _validate_csrf()
-        try:
-            requirement = {
-                "enabled": request.form.get("enabled") == "on",
-                "period_type": request.form.get("period_type"),
-                "period_days": int(request.form.get("period_days") or requirement["period_days"]),
-                "period_months": int(request.form.get("period_months") or requirement["period_months"]),
-                "start_date": request.form.get("start_date") or "",
-                "hours_per_ue": float(request.form.get("hours_per_ue") or 0),
-                "ojti_credit_percent": float(request.form.get("ojti_credit_percent") or 0),
-            }
-            if requirement["period_type"] not in {"rolling_days", "calendar_months"}:
-                raise ValueError
-            if not (1 <= requirement["period_days"] <= 731 and 1 <= requirement["period_months"] <= 24):
-                raise ValueError
-            if not (0.25 <= requirement["hours_per_ue"] <= 1000 and 0 <= requirement["ojti_credit_percent"] <= 100):
-                raise ValueError
-            if requirement["start_date"]:
-                date.fromisoformat(requirement["start_date"])
-        except ValueError:
-            flash("Enter valid currency-period and operational-time values.", "error")
-        else:
-            _save_operational_currency_requirement(requirement)
-            db.session.commit()
-            flash("Operational currency requirement saved.", "ok")
-            return redirect(url_for("admin_operational_currency"))
-    return render_template(
-        "admin_operational_currency.html", requirement=requirement,
-        currency_preview=_operational_currency_shortfalls(unit_id),
-    )
-
-
 @app.route("/admin/reference", methods=["GET", "POST"])
 @login_required
 @admin_required
@@ -10074,6 +10037,18 @@ app.register_blueprint(create_kiosk_account_blueprint(KioskAccountDependencies(
     validate_csrf=_validate_csrf,
     is_admin_user=is_admin_user,
 )))
+app.register_blueprint(create_operational_currency_blueprint(
+    OperationalCurrencyDependencies(
+        db=db,
+        current_unit_id=_current_unit_id,
+        is_admin_user=is_admin_user,
+        live_position_enabled=live_position_enabled,
+        currency_requirement=_operational_currency_requirement,
+        save_currency_requirement=_save_operational_currency_requirement,
+        currency_shortfalls=_operational_currency_shortfalls,
+        validate_csrf=_validate_csrf,
+    )
+))
 app.register_blueprint(create_admin_utility_blueprint(AdminUtilityDependencies(
     ChangeLog=ChangeLog,
     is_admin_user=is_admin_user,
