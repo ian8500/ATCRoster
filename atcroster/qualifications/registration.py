@@ -42,6 +42,23 @@ class QualificationRegistrationDependencies:
     currency_shortfalls: Callable[[int], dict[str, Any]]
 
 
+def create_qualification_registration_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any,
+    roster_impact_event_type: Any, **services: Any
+) -> QualificationRegistrationDependencies:
+    """Bind qualification and compliance records in their owning domain."""
+    return QualificationRegistrationDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        Staff=operational_models.Staff,
+        QualificationType=saas_models.QualificationType,
+        PersonQualification=saas_models.PersonQualification,
+        PersonQualificationHistory=saas_models.PersonQualificationHistory,
+        RosterImpactEventType=roster_impact_event_type,
+        **services,
+    )
+
+
 def register_qualification_blueprints(
     app: Any, deps: QualificationRegistrationDependencies
 ) -> None:

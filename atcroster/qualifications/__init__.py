@@ -29,6 +29,7 @@ from .eligibility import EligibilityDependencies, EligibilityService
 from .access import may_view_training_profile
 from .registration import (
     QualificationRegistrationDependencies,
+    create_qualification_registration_dependencies,
     register_qualification_blueprints,
 )
 
@@ -60,5 +61,6 @@ __all__ = (
     "EligibilityService",
     "may_view_training_profile",
     "QualificationRegistrationDependencies",
+    "create_qualification_registration_dependencies",
     "register_qualification_blueprints",
 )

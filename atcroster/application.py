@@ -145,7 +145,7 @@ from atcroster.qualifications import (
     ComplianceRuntimeDependencies,
     OperationalCurrencyRuntime,
     OperationalCurrencyRuntimeDependencies,
-    QualificationRegistrationDependencies,
+    create_qualification_registration_dependencies,
     register_qualification_blueprints,
     classify_qualification_impact,
     has_other_valid_ue,
@@ -1533,14 +1533,11 @@ register_auth_blueprints(app, create_auth_registration_dependencies(
     current_auth_stamp=_current_auth_stamp,
     totp_qr_data_uri=_totp_qr_data_uri,
 ))
-register_qualification_blueprints(app, QualificationRegistrationDependencies(
+register_qualification_blueprints(app, create_qualification_registration_dependencies(
     db=db,
-    Unit=Unit,
-    Staff=Staff,
-    QualificationType=QualificationType,
-    PersonQualification=PersonQualification,
-    PersonQualificationHistory=PersonQualificationHistory,
-    RosterImpactEventType=RosterImpactEventType,
+    operational_models=_operational_models,
+    saas_models=SaaS,
+    roster_impact_event_type=RosterImpactEventType,
     current_unit_id=_current_unit_id,
     is_editor_user=is_editor_user,
     is_admin_user=is_admin_user,
