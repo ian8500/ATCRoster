@@ -98,6 +98,7 @@ from atcroster.roster import (
     create_pattern_runtime_dependencies,
     create_roster_month_service,
     create_shift_lookup_service,
+    register_roster_blueprints,
 )
 from atcroster.roster.editing import (
     RosterEditingRuntime,
@@ -194,8 +195,6 @@ from atcroster.roster.overtime import (
     OvertimeSupport,
     OvertimeCandidateService,
     create_overtime_candidate_dependencies,
-    create_overtime_dependencies,
-    create_overtime_blueprint,
     create_overtime_support_dependencies,
 )
 from atcroster.roster.setup import update_unit_roster_setup
@@ -322,7 +321,6 @@ from absence_requests_blueprint import (
     create_absence_requests_blueprint,
 )
 from reports_blueprint import create_reports_blueprint, create_reports_dependencies
-from roster_blueprint import create_roster_blueprint, create_roster_dependencies
 from training_blueprint import create_training_blueprint, create_training_dependencies
 from roster_period_service import (
     RosterPeriodService,
@@ -1509,44 +1507,44 @@ publication_service = create_publication_service(create_publication_dependencies
 ))
 _roster_snapshot = publication_service.snapshot
 _active_roster_publication = publication_service.active_publication
-app.register_blueprint(create_roster_blueprint(create_roster_dependencies(
+register_roster_blueprints(
+    app,
     db=db,
     operational_models=_operational_models,
     saas_models=SaaS,
     publication_service=publication_service,
-    validate_csrf=_validate_csrf,
-    parse_year_month=parse_ym,
-    current_unit_id=_current_unit_id,
-    roster_month_service=roster_month_service,
-    assignment_runtime=assignment_runtime,
-    utcnow=utcnow,
-    log_change=log_change,
-    consume_rate_limit=_consume_rate_limit,
-    requirements_for_day=requirements_for_day,
-    staff_is_countable_on=staff_is_countable_on,
-    operational_capability_matrix=get_operational_capability_matrix,
-    exclude_from_counters=get_exclude_from_counters,
-    get_shift=get_shift,
-    shift_counter_group_for_day=shift_counter_group_for_day,
-    night_active_on=_night_active_on,
-    can_edit_roster=can_edit_roster,
-    banned_roster_codes=get_banned_roster_codes,
-    can_apply_annotations=can_apply_annotations,
-    parse_annotation=parse_annotation,
-    is_admin_user=is_admin_user,
-    apply_toil_annotation_delta=_apply_toil_annotation_delta,
-    load_month_roster=_load_month_roster_fast,
-    add_months=_month_add,
-    shift_groups=_shift_groups_snapshot,
-    watch_ids_for_staff_on=watch_ids_for_staff_on,
-    roster_fatigue_flags=roster_fatigue_flags_for_range,
-    roster_fatigue_matrix=roster_fatigue_flags_matrix,
-    roster_validation=roster_validation_service,
-    roster_month_cache=roster_month_cache,
-    metrics=_operational_metrics,
-    roster_proposal_service=roster_proposal_service,
-    get_annotation_groups=get_annotation_groups,
-)))
+    services=SimpleNamespace(
+        validate_csrf=_validate_csrf, parse_year_month=parse_ym,
+        current_unit_id=_current_unit_id, roster_month_service=roster_month_service,
+        assignment_runtime=assignment_runtime, now=utcnow, log_change=log_change,
+        consume_rate_limit=_consume_rate_limit,
+        requirements_for_day=requirements_for_day,
+        staff_is_countable_on=staff_is_countable_on,
+        operational_capability_matrix=get_operational_capability_matrix,
+        exclude_from_counters=get_exclude_from_counters, get_shift=get_shift,
+        shift_counter_group_for_day=shift_counter_group_for_day,
+        night_active_on=_night_active_on, can_edit_roster=can_edit_roster,
+        banned_roster_codes=get_banned_roster_codes,
+        can_apply_annotations=can_apply_annotations, parse_annotation=parse_annotation,
+        is_admin_user=is_admin_user,
+        apply_toil_annotation_delta=_apply_toil_annotation_delta,
+        load_month_roster=_load_month_roster_fast, add_months=_month_add,
+        shift_groups=_shift_groups_snapshot,
+        watch_ids_for_staff_on=watch_ids_for_staff_on,
+        roster_fatigue_flags=roster_fatigue_flags_for_range,
+        roster_fatigue_matrix=roster_fatigue_flags_matrix,
+        roster_validation=roster_validation_service,
+        roster_month_cache=roster_month_cache, metrics=_operational_metrics,
+        roster_proposal_service=roster_proposal_service,
+        get_annotation_groups=get_annotation_groups,
+        is_editor_user=is_editor_user, parse_date=_parse_date,
+        compute_overtime_candidates=_compute_overtime_candidates,
+        can_send_messages=can_send_unit_messages,
+        send_sms=_send_overtime_sms_notifications,
+        default_sms_body=_default_overtime_sms_body,
+        sms_configured=_sms_service_configured,
+    ),
+)
 app.register_blueprint(create_absence_requests_blueprint(
     create_absence_request_dependencies(
         db=db,
@@ -1658,19 +1656,6 @@ register_administration_blueprints(
         record_toil_transaction=_record_toil_transaction,
     ),
 )
-app.register_blueprint(create_overtime_blueprint(create_overtime_dependencies(
-    operational_models=_operational_models,
-    current_unit_id=_current_unit_id,
-    consume_rate_limit=_consume_rate_limit,
-    is_editor_user=is_editor_user,
-    validate_csrf=_validate_csrf,
-    parse_date=_parse_date,
-    compute_candidates=_compute_overtime_candidates,
-    can_send_messages=can_send_unit_messages,
-    send_sms=_send_overtime_sms_notifications,
-    default_sms_body=_default_overtime_sms_body,
-    sms_configured=_sms_service_configured,
-)))
 app.register_blueprint(create_home_blueprint(create_home_dependencies(
     db=db,
     operational_models=_operational_models,

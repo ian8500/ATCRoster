@@ -26,6 +26,7 @@ from .pattern_runtime import (
 )
 from .months import RosterMonthService, create_roster_month_service
 from .lookups import ShiftLookupService, create_shift_lookup_service
+from .registration import register_roster_blueprints
 
 __all__ = (
     "LOCKED_SOURCES",
@@ -58,6 +59,7 @@ __all__ = (
     "create_roster_month_service",
     "ShiftLookupService",
     "create_shift_lookup_service",
+    "register_roster_blueprints",
     "requirements_for_day",
     "set_assignment_code",
     "shift_groups_snapshot",
