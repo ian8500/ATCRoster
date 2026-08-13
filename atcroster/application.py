@@ -349,7 +349,10 @@ from absence_requests_blueprint import (
 from reports_blueprint import create_reports_blueprint, create_reports_dependencies
 from roster_blueprint import create_roster_blueprint, create_roster_dependencies
 from training_blueprint import create_training_blueprint, create_training_dependencies
-from roster_period_service import RosterPeriodDependencies, RosterPeriodService
+from roster_period_service import (
+    RosterPeriodService,
+    create_roster_period_dependencies,
+)
 from atcroster.planning import create_planning_dependencies, create_planning_services
 from atcroster.live_position import (
     create_operational_registration_dependencies,
@@ -1441,8 +1444,8 @@ get_pattern_day_for_staff = work_pattern_service.get_pattern_day_for_staff
 get_effective_staff_rules = work_pattern_service.get_effective_staff_rules
 is_staff_eligible_for_shift = work_pattern_service.is_staff_eligible_for_shift
 calculate_soft_rule_penalty = work_pattern_service.calculate_soft_rule_penalty
-roster_period_service = RosterPeriodService(RosterPeriodDependencies(
-    db=db, RosterPeriod=RosterPeriod, utcnow=utcnow,
+roster_period_service = RosterPeriodService(create_roster_period_dependencies(
+    db=db, saas_models=SaaS, utcnow=utcnow,
 ))
 
 register_operational_blueprints(app, create_operational_registration_dependencies(
