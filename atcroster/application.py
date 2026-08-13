@@ -212,6 +212,10 @@ from atcroster.administration.reference import (
     ReferenceDataDependencies,
     create_reference_data_blueprint,
 )
+from atcroster.administration.lifecycle import (
+    StaffLifecycleDependencies,
+    create_staff_lifecycle_blueprint,
+)
 from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.accounts import (
     KioskAccountDependencies,
@@ -4326,63 +4330,6 @@ def admin_staff_edit(sid):
     )
 
 
-@app.route("/admin/staff/<int:sid>/leaving", methods=["POST"])
-@login_required
-@admin_required
-def admin_staff_leaving(sid):
-    person = Staff.query.filter_by(
-        id=sid, unit_id=_current_unit_id()
-    ).first_or_404()
-    action = (request.form.get("action") or "schedule").strip()
-    if action == "cancel":
-        restore_from = (
-            person.final_operational_duty_date
-            or person.final_unit_date
-            or date.today()
-        ) + timedelta(days=1)
-        person.final_unit_date = None
-        person.final_operational_duty_date = None
-        person.employment_end_date = None
-        person.leaving_reason_category = ""
-        person.leaving_notes = ""
-        record_roster_impact(
-            RosterImpactEventType.RETURN_TO_UNIT, restore_from,
-            staff_ids=[person.id], rebuild_baseline=True,
-            reason=(request.form.get("reason") or "Leaving event cancelled.")[:500],
-        )
-        db.session.commit()
-        flash("Leaving event cancelled and future baseline restored.", "ok")
-        return redirect(url_for("admin_staff_edit", sid=person.id))
-    try:
-        final_unit = date.fromisoformat(request.form["final_unit_date"])
-        final_operational = date.fromisoformat(
-            request.form.get("final_operational_duty_date")
-            or final_unit.isoformat()
-        )
-        employment_end = _parse_date(request.form.get("employment_end_date"))
-    except (KeyError, ValueError):
-        abort(400, "Enter valid leaving dates.")
-    if final_operational > final_unit or (
-        employment_end and employment_end < final_unit
-    ):
-        abort(400, "Final operational duty must not follow the final unit date.")
-    category = (request.form.get("reason_category") or "OTHER").strip().upper()
-    if category not in {"TRANSFER", "RETIREMENT", "RESIGNATION", "END_OF_CONTRACT", "OTHER"}:
-        abort(400, "Invalid leaving reason category.")
-    person.final_unit_date = final_unit
-    person.final_operational_duty_date = final_operational
-    person.employment_end_date = employment_end
-    person.leaving_reason_category = category
-    person.leaving_notes = (request.form.get("notes") or "").strip()[:2000]
-    impact_from = final_operational + timedelta(days=1)
-    record_roster_impact(
-        RosterImpactEventType.UNIT_LEAVER, impact_from,
-        staff_ids=[person.id], rebuild_baseline=True,
-        reason=f"Unit leaver: {category}. {person.leaving_notes}"[:500],
-    )
-    db.session.commit()
-    flash("Leaving date saved and future roster baseline updated.", "ok")
-    return redirect(url_for("admin_staff_edit", sid=person.id))
 
 
 @app.route("/admin/staff/<int:sid>/watch-move", methods=["POST"])
@@ -6459,6 +6406,15 @@ app.register_blueprint(create_reference_data_blueprint(ReferenceDataDependencies
     banned_codes=get_banned_roster_codes,
     excluded_codes=get_exclude_from_counters,
     non_working_codes=get_non_working_codes,
+)))
+app.register_blueprint(create_staff_lifecycle_blueprint(StaffLifecycleDependencies(
+    db=db,
+    Staff=Staff,
+    RosterImpactEventType=RosterImpactEventType,
+    current_unit_id=_current_unit_id,
+    parse_date=_parse_date,
+    record_roster_impact=record_roster_impact,
+    admin_required=admin_required,
 )))
 app.register_blueprint(create_home_blueprint(HomeDependencies(
     db=db,
