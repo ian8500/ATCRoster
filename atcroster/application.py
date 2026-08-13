@@ -194,6 +194,10 @@ from atcroster.roster.publication import (
 )
 from atcroster.roster.overtime import OvertimeDependencies, create_overtime_blueprint
 from atcroster.roster.setup import update_unit_roster_setup
+from atcroster.roster.watch_configuration import (
+    WatchConfigurationDependencies,
+    update_watch_configuration,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -3387,103 +3391,23 @@ def admin():
             flash(message, category)
             return redirect(url_for("admin") + "#roster-setup")
 
-        if form == "watch_new":
-            name = (request.form.get("name") or "").strip()
-            pattern = _validated_pattern(request.form.get("pattern_csv"))
-            anchor = _parse_date(request.form.get("pattern_anchor"))
-            if not name:
-                flash("Enter a watch name.", "error")
-            elif Watch.query.filter_by(
-                unit_id=_current_unit_id(), name=name
-            ).first():
-                flash("That watch name already exists.", "error")
-            else:
-                max_order = db.session.query(
-                    db.func.max(Watch.order_index)
-                ).filter(Watch.unit_id == _current_unit_id()).scalar() or 0
-                watch = Watch(
-                    unit_id=_current_unit_id(),
-                    name=name[:32],
-                    order_index=max_order + 1,
-                    pattern_csv=",".join(pattern),
-                    pattern_anchor=anchor,
-                )
-                db.session.add(watch)
-                db.session.flush()
-                record_roster_impact(
-                    RosterImpactEventType.WATCH_CREATION,
-                    anchor or date.today(), watch_ids=[watch.id],
-                    rebuild_baseline=False,
-                    reason=f"Watch {name[:32]} created.",
-                )
-                db.session.commit()
-                flash(f"{name} created.", "ok")
-            return redirect(url_for("admin") + "#roster-setup")
-
-        if form == "watch_edit":
-            watch = Watch.query.filter_by(
-                id=int(request.form.get("watch_id") or 0),
-                unit_id=_current_unit_id(),
-            ).first_or_404()
-            name = (request.form.get("name") or "").strip()
-            pattern = _validated_pattern(request.form.get("pattern_csv"))
-            anchor = _parse_date(request.form.get("pattern_anchor"))
-            duplicate = Watch.query.filter(
-                Watch.unit_id == _current_unit_id(),
-                Watch.name == name,
-                Watch.id != watch.id,
-            ).first()
-            if not name:
-                flash("Enter a watch name.", "error")
-            elif duplicate:
-                flash("That watch name already exists.", "error")
-            else:
-                old_pattern = watch.pattern_csv
-                old_anchor = watch.pattern_anchor
-                watch.name = name[:32]
-                watch.pattern_csv = ",".join(pattern)
-                watch.pattern_anchor = anchor
-                if (watch.pattern_csv, watch.pattern_anchor) != (
-                    old_pattern, old_anchor
-                ):
-                    record_roster_impact(
-                        RosterImpactEventType.WATCH_PATTERN_CHANGE,
-                        anchor or date.today(), watch_ids=[watch.id],
-                        rebuild_baseline=True,
-                        reason=f"Watch {watch.name} pattern changed.",
-                    )
-                db.session.commit()
-                flash(f"{watch.name} updated.", "ok")
-            return redirect(url_for("admin") + "#roster-setup")
-
-        if form == "watch_delete":
-            watch = Watch.query.filter_by(
-                id=int(request.form.get("watch_id") or 0),
-                unit_id=_current_unit_id(),
-            ).first_or_404()
-            in_use = (
-                Staff.query.filter_by(
-                    unit_id=_current_unit_id(), watch_id=watch.id
-                ).first()
-                or StaffWatchHistory.query.filter_by(
-                    unit_id=_current_unit_id(), watch_id=watch.id
-                ).first()
+        if form in {"watch_new", "watch_edit", "watch_delete"}:
+            message, category = update_watch_configuration(
+                form,
+                request.form,
+                WatchConfigurationDependencies(
+                    db=db,
+                    Watch=Watch,
+                    Staff=Staff,
+                    StaffWatchHistory=StaffWatchHistory,
+                    RosterImpactEventType=RosterImpactEventType,
+                    current_unit_id=_current_unit_id,
+                    validate_pattern=_validated_pattern,
+                    parse_date=_parse_date,
+                    record_roster_impact=record_roster_impact,
+                ),
             )
-            if in_use:
-                flash(
-                    "Move staff and remove scheduled moves before deleting this watch.",
-                    "error",
-                )
-            else:
-                name = watch.name
-                record_roster_impact(
-                    RosterImpactEventType.WATCH_DEACTIVATION,
-                    date.today(), rebuild_baseline=False,
-                    reason=f"Unused watch {name} removed.",
-                )
-                db.session.delete(watch)
-                db.session.commit()
-                flash(f"{name} deleted.", "ok")
+            flash(message, category)
             return redirect(url_for("admin") + "#roster-setup")
 
         if form == "counter_mapping":
