@@ -121,6 +121,7 @@ from atcroster.roster import (
     month_has_data as roster_month_has_data,
     lock_roster_month as lock_roster_period,
     shift_groups_snapshot,
+    expand as expand_roster_pattern, validate as validate_roster_pattern,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -1672,11 +1673,11 @@ DEFAULT_BASE_PATTERN = "M,M,A,A,N,N,OFF,OFF,OFF,OFF"
 
 
 def _expand_pattern(raw_value: str | None) -> list[str]:
-    return expand_pattern(raw_value)
+    return expand_roster_pattern(raw_value, expand_pattern)
 
 
 def _validated_pattern(raw_value: str | None) -> list[str]:
-    return validated_pattern(raw_value)
+    return validate_roster_pattern(raw_value, validated_pattern)
 
 
 def _effective_watch(staff: Staff, on_date: date) -> Watch | None:
