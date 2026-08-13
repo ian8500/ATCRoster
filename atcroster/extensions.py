@@ -31,7 +31,10 @@ OPERATIONAL_TABLE_NAMES = frozenset({
     "roster_period", "roster_impact_event", "roster_impact_exception",
 })
 
-db: SQLAlchemy | None = None
+# The extension is initialized by ``create_tenant_database`` before any model
+# module is imported.  Declaring its eventual type keeps model declarations
+# honest without forcing every model attribute through an optional guard.
+db: SQLAlchemy
 
 
 def create_tenant_database(app, deployment_environment: str) -> SQLAlchemy:

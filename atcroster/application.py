@@ -164,7 +164,10 @@ from atcroster.fatigue import (
     visible_working_findings,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
-from atcroster.extensions import create_tenant_database
+from atcroster.extensions import (
+    OPERATIONAL_TABLE_NAMES as _OPERATIONAL_TABLE_NAMES,
+    create_tenant_database,
+)
 from atcroster.public import public_blueprint
 from atcroster.notifications import (
     NotificationRegistrationDependencies,
@@ -357,6 +360,10 @@ app = create_app()
 _runtime_settings = get_runtime_settings(app)
 configure_production_logging(app, _runtime_settings.deployment_environment)
 _operational_metrics = MetricsRegistry()
+
+# Legacy database-isolation callers import this registry from the public app
+# module. Ownership remains with the tenant database extension.
+OPERATIONAL_TABLE_NAMES = _OPERATIONAL_TABLE_NAMES
 
 # Writable local instance folder for development and tests.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
