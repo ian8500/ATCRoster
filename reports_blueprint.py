@@ -38,9 +38,8 @@ class ReportsDependencies:
     consume_rate_limit: Callable[..., bool]
     reporting_runtime: Any
     parse_year_month: Callable[[str], tuple[int, int]]
-    ensure_month_requirement: Callable[[int, int], Any]
-    generate_month: Callable[[int, int], None]
-    toil_accrued_used: Callable[[int, date, date], tuple[int, int]]
+    assignment_runtime: Any
+    toil_service: Any
     get_absence_types: Callable[..., list]
     live_position_enabled: Callable[[int], bool]
     competency_enabled: Callable[[int], bool]
@@ -175,8 +174,8 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if acknowledgement := require_acknowledgement():
             return acknowledgement
         year, month = dependencies.parse_year_month(ym)
-        dependencies.ensure_month_requirement(year, month)
-        dependencies.generate_month(year, month)
+        dependencies.assignment_runtime.ensure_month_requirement(year, month)
+        dependencies.assignment_runtime.generate_month(year, month)
         watches, selected_watch = watch_selection()
         rows, codes, totals, grand_total, _days = dependencies.reporting_runtime.leave_summary(
             year, month, selected_watch.id if selected_watch else None
@@ -206,8 +205,8 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
         if not ym:
             abort(400)
         year, month = dependencies.parse_year_month(ym)
-        dependencies.ensure_month_requirement(year, month)
-        dependencies.generate_month(year, month)
+        dependencies.assignment_runtime.ensure_month_requirement(year, month)
+        dependencies.assignment_runtime.generate_month(year, month)
         watches, selected_watch = watch_selection()
         rows, codes, totals, grand_total, _days = dependencies.reporting_runtime.leave_summary(
             year, month, selected_watch.id if selected_watch else None
@@ -288,7 +287,7 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             entitlement = person.leave_entitlement_days or 0
             public_holidays = person.leave_public_holidays or 0
             carryover = person.leave_carryover_days or 0
-            accrued, used = dependencies.toil_accrued_used(
+            accrued, used = dependencies.toil_service.accrued_and_used(
                 person.id, start, report_end
             )
             rows.append(
