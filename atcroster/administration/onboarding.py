@@ -39,6 +39,24 @@ class OnboardingDependencies:
     validate_csrf: Callable[[], None]
 
 
+def create_onboarding_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> OnboardingDependencies:
+    """Bind onboarding's persisted models at its composition boundary."""
+    return OnboardingDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        QualificationType=saas_models.QualificationType,
+        Watch=operational_models.Watch,
+        Staff=operational_models.Staff,
+        ShiftType=operational_models.ShiftType,
+        UnitMembership=saas_models.UnitMembership,
+        SecureInvitation=saas_models.SecureInvitation,
+        Requirement=operational_models.Requirement,
+        **services,
+    )
+
+
 def create_onboarding_blueprint(dependencies: OnboardingDependencies) -> Blueprint:
     blueprint = Blueprint("unit_onboarding", __name__)
     db = dependencies.db

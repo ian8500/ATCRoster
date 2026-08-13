@@ -251,11 +251,11 @@ from atcroster.administration import (
     seed_toil_balances,
 )
 from atcroster.administration.onboarding import (
-    OnboardingDependencies,
+    create_onboarding_dependencies,
     create_onboarding_blueprint,
 )
 from atcroster.administration.reference import (
-    ReferenceDataDependencies,
+    create_reference_data_dependencies,
     create_reference_data_blueprint,
 )
 from atcroster.administration.lifecycle import (
@@ -1795,26 +1795,17 @@ app.register_blueprint(create_staff_edit_blueprint(create_staff_edit_dependencie
     admin_required=admin_required,
     pattern_codes=PATTERN_CODES,
 )))
-app.register_blueprint(create_onboarding_blueprint(OnboardingDependencies(
+app.register_blueprint(create_onboarding_blueprint(create_onboarding_dependencies(
     db=db,
-    Unit=Unit,
-    QualificationType=QualificationType,
-    Watch=Watch,
-    Staff=Staff,
-    ShiftType=ShiftType,
-    UnitMembership=UnitMembership,
-    SecureInvitation=SecureInvitation,
-    Requirement=Requirement,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
     validate_csrf=_validate_csrf,
 )))
-app.register_blueprint(create_reference_data_blueprint(ReferenceDataDependencies(
+app.register_blueprint(create_reference_data_blueprint(create_reference_data_dependencies(
     db=db,
-    AnnotationType=AnnotationType,
-    AnnotationAudit=AnnotationAudit,
-    Assignment=Assignment,
-    ShiftType=ShiftType,
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     validate_csrf=_validate_csrf,
     refresh_annotation_cache=refresh_annotation_cache,

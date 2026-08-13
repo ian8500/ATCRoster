@@ -32,6 +32,20 @@ class ReferenceDataDependencies:
     admin_required: Callable[[Callable[..., Any]], Callable[..., Any]]
 
 
+def create_reference_data_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> ReferenceDataDependencies:
+    """Bind reference-data models without leaking them into the app root."""
+    return ReferenceDataDependencies(
+        db=db,
+        AnnotationType=operational_models.AnnotationType,
+        AnnotationAudit=operational_models.AnnotationAudit,
+        Assignment=operational_models.Assignment,
+        ShiftType=operational_models.ShiftType,
+        **services,
+    )
+
+
 def create_reference_data_blueprint(
     dependencies: ReferenceDataDependencies,
 ) -> Blueprint:
