@@ -73,6 +73,24 @@ class RosterImpactRuntimeDependencies:
     now: Callable[[], Any]
 
 
+def create_roster_impact_runtime_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any,
+    roster_impact_event_type: Any, **services: Any
+) -> RosterImpactRuntimeDependencies:
+    """Bind roster-impact records at the roster-domain boundary."""
+    return RosterImpactRuntimeDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        Assignment=operational_models.Assignment,
+        RosterImpactEvent=saas_models.RosterImpactEvent,
+        RosterImpactException=saas_models.RosterImpactException,
+        RosterImpactEventType=roster_impact_event_type,
+        PersonQualification=saas_models.PersonQualification,
+        QualificationType=saas_models.QualificationType,
+        **services,
+    )
+
+
 class RosterImpactRuntime:
     """Own roster-impact service construction, recording, and qualification mapping."""
 

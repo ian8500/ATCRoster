@@ -224,7 +224,7 @@ from atcroster.models.tenant_events import register_tenant_session_events
 from atcroster.models import append_only_audit_models, operational_models
 from atcroster.roster.impacts import (
     RosterImpactRuntime,
-    RosterImpactRuntimeDependencies,
+    create_roster_impact_runtime_dependencies,
 )
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import create_roster_cli, create_roster_cli_dependencies
@@ -896,15 +896,11 @@ def deterministic_roster_population_service():
         RosterPeriod=RosterPeriod,
     ))
 
-roster_impact_runtime = RosterImpactRuntime(RosterImpactRuntimeDependencies(
+roster_impact_runtime = RosterImpactRuntime(create_roster_impact_runtime_dependencies(
     db=db,
-    Unit=Unit,
-    Assignment=Assignment,
-    RosterImpactEvent=RosterImpactEvent,
-    RosterImpactException=RosterImpactException,
-    RosterImpactEventType=RosterImpactEventType,
-    PersonQualification=PersonQualification,
-    QualificationType=QualificationType,
+    operational_models=_operational_models,
+    saas_models=SaaS,
+    roster_impact_event_type=RosterImpactEventType,
     cache=_cache,
     cached_loader=_load_month_roster_fast,
     add_months=add_months,
