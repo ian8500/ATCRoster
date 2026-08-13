@@ -217,6 +217,7 @@ from atcroster.administration import (
     ToilAdministrationDependencies,
     create_administration_blueprint,
     create_toil_administration_blueprint,
+    seed_toil_balances,
 )
 from atcroster.administration.onboarding import (
     OnboardingDependencies,
@@ -3684,38 +3685,9 @@ def admin():
 
         # (Legacy) Bulk TOIL seed still accepted server-side, but you won't use it in UI.
         if form == "toil_seed":
-            lines = (request.form.get("toil_seed_lines")
-                     or "").strip().splitlines()
-            updated = 0
-            errors = 0
-            for ln in lines:
-                if not ln.strip():
-                    continue
-                try:
-                    staff_no, val = [x.strip() for x in ln.split(",", 1)]
-                    s = Staff.query.filter_by(staff_no=staff_no).first()
-                    if not s:
-                        errors += 1
-                        continue
-                    txt = val.lower().replace("days", "d").replace("day", "d").replace(
-                        "hrs", "h").replace("hr", "h").replace("hours", "h").replace("hour", "h")
-                    half = 0
-                    if txt.endswith("d"):
-                        days = float(txt[:-1])
-                        half = int(round(days * 2))
-                    elif txt.endswith("h"):
-                        hours = float(txt[:-1])
-                        # 8h = 1 day = 2 half-days
-                        half = int(round((hours / 8.0) * 2))
-                    else:
-                        # bare number => days
-                        days = float(txt)
-                        half = int(round(days * 2))
-                    s.toil_half_days = half
-                    updated += 1
-                except Exception:
-                    errors += 1
-            db.session.commit()
+            updated, errors = seed_toil_balances(
+                request.form.get("toil_seed_lines") or "", db=db, Staff=Staff
+            )
             flash(
                 f"TOIL balances updated: {updated} staff; {errors} error(s).", "ok" if errors == 0 else "error")
             return redirect(url_for("admin"))
