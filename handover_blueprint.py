@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import http.client
 import json
 import re
 import time
 from typing import Any, Callable
-from urllib import parse as urllib_parse, request as urllib_request
+from urllib import parse as urllib_parse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
@@ -203,10 +204,20 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
             return cached[1]
         result = {"available": "false", "raw": "", "observed": ""}
         try:
-            url = "https://aviationweather.gov/api/data/metar?" + urllib_parse.urlencode({"ids": code, "format": "json"})
-            req = urllib_request.Request(url, headers={"User-Agent": "ATCRoster/1.0 operational-handover"})
-            with urllib_request.urlopen(req, timeout=4) as response:
+            query = urllib_parse.urlencode({"ids": code, "format": "json"})
+            connection = http.client.HTTPSConnection(
+                "aviationweather.gov", timeout=4
+            )
+            connection.request(
+                "GET",
+                f"/api/data/metar?{query}",
+                headers={"User-Agent": "ATCRoster/1.0 operational-handover"},
+            )
+            response = connection.getresponse()
+            try:
                 payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                connection.close()
             if isinstance(payload, list) and payload:
                 item = payload[0]
                 result = {

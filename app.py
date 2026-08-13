@@ -40,6 +40,7 @@ from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
 from fairness_service import FairnessAssignment, FairnessStaff, calculate_fairness
+from live_position_timing import minutes_between
 from reporting import (
     compute_annotation_metrics,
     current_leave_year_window,
@@ -2207,12 +2208,12 @@ def _operational_currency_shortfalls(unit_id: int) -> dict[str, Any]:
         start = max(session_row.started_at, range_start)
         end = min(session_row.ended_at or now, range_end)
         if end > start:
-            minutes.setdefault(session_row.primary_person_id, {"operational": 0, "ojti": 0})["operational"] += _minutes_between(start, end)
+            minutes.setdefault(session_row.primary_person_id, {"operational": 0, "ojti": 0})["operational"] += minutes_between(start, end)
     for participant in participant_rows:
         start = max(participant.started_at, range_start)
         end = min(participant.ended_at or now, range_end)
         if end > start:
-            minutes.setdefault(participant.person_id, {"operational": 0, "ojti": 0})["ojti"] += _minutes_between(start, end)
+            minutes.setdefault(participant.person_id, {"operational": 0, "ojti": 0})["ojti"] += minutes_between(start, end)
     rows = []
     for person in people:
         legacy_ues = sum(bool(expiry and expiry >= today) for expiry in (

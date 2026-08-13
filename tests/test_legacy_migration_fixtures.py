@@ -5,11 +5,19 @@ import sys
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 from scripts.report_assignment_migration import classification_summary
 
 REPOSITORY = Path(__file__).resolve().parents[1]
+
+
+def _alembic_head_revision() -> str:
+    config = Config(str(REPOSITORY / "alembic.ini"))
+    config.set_main_option("script_location", str(REPOSITORY / "migrations"))
+    return ScriptDirectory.from_config(config).get_current_head()
 
 
 FIXTURES = {
@@ -134,7 +142,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
             connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-                == "20260803_52"
+                == _alembic_head_revision()
         )
         if "unit" in inspector.get_table_names():
             unit_columns = {

@@ -23,6 +23,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 
+from live_position_timing import minutes_between
 from live_position_service import (
     LivePositionConflict,
     LivePositionModels,
@@ -55,10 +56,6 @@ class LivePositionDependencies:
     authenticated_unit_context: Callable[[int, str | None], Any]
 
 
-def _minutes_between(start: datetime, end: datetime) -> int:
-    return max(0, round((end - start).total_seconds() / 60))
-
-
 def _overlap_minutes(
     start: datetime, end: datetime, intervals: list[tuple[datetime, datetime]]
 ) -> int:
@@ -76,7 +73,7 @@ def _overlap_minutes(
         else:
             merged[-1][1] = max(merged[-1][1], item_end)
     return sum(
-        _minutes_between(item_start, item_end) for item_start, item_end in merged
+        minutes_between(item_start, item_end) for item_start, item_end in merged
     )
 
 
@@ -374,7 +371,6 @@ def create_live_position_blueprint(
         elif report_type == "watch":
             selected_person_id = None
         else:
-            selected_person_id = None
             selected_watch_id = None
         if selected_person_id and selected_person_id not in people_by_id:
             abort(404)
@@ -496,7 +492,7 @@ def create_live_position_blueprint(
                                 _overlap_minutes(day_start, day_end, [interval]),
                                 session_row.id,
                             )
-                    total_minutes = _minutes_between(day_start, day_end)
+                    total_minutes = minutes_between(day_start, day_end)
                     supported_minutes = _overlap_minutes(
                         day_start, day_end, all_intervals
                     )

@@ -616,7 +616,9 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     assert b"Breakdown by position" in individual.data
     assert b"operational-position-detail" in individual.data
     assert b"01:30" in individual.data
-    assert b"Sam Instructor" not in individual.data
+    assert b"00:30" in individual.data
+    assert b"02:00" in individual.data
+    assert b"<th>Sam Instructor</th>" not in individual.data
     assert b"Position screen" not in individual.data
     assert b"75.0%" in individual.data
 

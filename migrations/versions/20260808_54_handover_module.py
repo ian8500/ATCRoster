@@ -23,9 +23,11 @@ def upgrade():
         bind = op.get_bind()
         existing = set(sa.inspect(bind).get_table_names())
         if {"unit", "feature_flag"} <= existing:
+            unit_columns = {
+                column["name"] for column in sa.inspect(bind).get_columns("unit")
+            }
             unit = sa.table(
                 "unit", sa.column("id", sa.Integer()),
-                sa.column("status", sa.String()),
             )
             feature = sa.table(
                 "feature_flag", sa.column("unit_id", sa.Integer()),
@@ -34,9 +36,17 @@ def upgrade():
             enabled_units = set(bind.execute(sa.select(feature.c.unit_id).where(
                 feature.c.key == "handover_module"
             )).scalars())
-            unit_ids = bind.execute(sa.select(unit.c.id).where(
-                unit.c.status != "platform_control"
-            )).scalars()
+            unit_ids_query = sa.select(unit.c.id)
+            if "status" in unit_columns:
+                unit = sa.table(
+                    "unit",
+                    sa.column("id", sa.Integer()),
+                    sa.column("status", sa.String()),
+                )
+                unit_ids_query = unit_ids_query.where(
+                    unit.c.status != "platform_control"
+                )
+            unit_ids = bind.execute(unit_ids_query).scalars()
             for unit_id in unit_ids:
                 if unit_id not in enabled_units:
                     bind.execute(feature.insert().values(
@@ -89,9 +99,12 @@ def upgrade():
         unit_table = sa.Table("unit", metadata, autoload_with=bind)
         field_table = sa.Table("handover_field", metadata, autoload_with=bind)
         configured = set(bind.execute(sa.select(field_table.c.unit_id)).scalars())
-        unit_ids = bind.execute(sa.select(unit_table.c.id).where(
-            unit_table.c.status != "platform_control"
-        )).scalars()
+        unit_ids_query = sa.select(unit_table.c.id)
+        if "status" in unit_table.c:
+            unit_ids_query = unit_ids_query.where(
+                unit_table.c.status != "platform_control"
+            )
+        unit_ids = bind.execute(unit_ids_query).scalars()
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         defaults = (
             ("Operational overview", "Operational status", "select", ["Normal", "Degraded", "Contingency"], "Select the overall operational state.", True),
