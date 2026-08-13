@@ -242,11 +242,6 @@ from atcroster.roster.shift_configuration import (
     ShiftConfigurationDependencies,
     update_shift_definition,
 )
-from atcroster.roster.bootstrap import (
-    ensure_shift as ensure_bootstrap_shift,
-    ensure_watch as ensure_bootstrap_watch,
-    seed_legacy_operational_data,
-)
 from atcroster.roster.reference_data import (
     bootstrap_reference_data as bootstrap_roster_reference_data,
 )
@@ -377,19 +372,11 @@ from atcroster.accounts.signup import (
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import (
+    LegacyBootstrapService,
     WorkerHealthDependencies,
-    add_assignment_annotation,
-    add_columns_if_missing,
-    add_performance_indexes,
-    add_role_and_calendar_token,
-    add_unique_assignment_key,
-    add_invitation_target,
-    add_toil_and_leave_fields,
-    add_watch_pattern_configuration,
     create_worker_health_blueprint,
     load_worker_health_snapshot,
     operational_routes_ready,
-    upgrade_tenant_foundation,
 )
 from atcroster.platform.admin import (
     PlatformAdminDependencies,
@@ -1855,113 +1842,32 @@ def _compliance_findings(year: int, month: int) -> dict:
 
 # -------------------- Migrations / seeding --------------------
 
-
-def migrate_tenant_foundation_compat():
-    return upgrade_tenant_foundation(db=db, Unit=Unit)
-
-
-def migrate_add_role_and_calendar_token():
-    return add_role_and_calendar_token(db=db, Staff=Staff)
-
-
-def migrate_add_assignment_annotation():
-    return add_assignment_annotation(db=db)
-
-
-def migrate_add_unique_assignment_key():
-    return add_unique_assignment_key(db=db)
-
-
-def migrate_add_perf_indexes():
-    return add_performance_indexes(db=db, app=app)
-
-
-def migrate_add_requirement_req_d():
-    return add_columns_if_missing(
-        db=db,
-        table="requirement",
-        columns={"req_d": "req_d INTEGER DEFAULT 0"},
-    )
-
-
-def migrate_add_ut_flags():
-    return add_columns_if_missing(
-        db=db,
-        table="staff",
-        columns={
-            "tower_ut": "tower_ut BOOLEAN DEFAULT 0",
-            "radar_ut": "radar_ut BOOLEAN DEFAULT 0",
-        },
-    )
-
-
-def migrate_add_is_training():
-    return add_columns_if_missing(
-        db=db,
-        table="shift_type",
-        columns={"is_training": "is_training BOOLEAN DEFAULT 0"},
-    )
-
-
-def migrate_add_wm_dwm_exclude():
-    return add_columns_if_missing(
-        db=db,
-        table="staff",
-        columns={
-            "is_wm": "is_wm BOOLEAN DEFAULT 0",
-            "is_dwm": "is_dwm BOOLEAN DEFAULT 0",
-            "exclude_from_ot": "exclude_from_ot BOOLEAN DEFAULT 0",
-        },
-    )
-
-
-def migrate_add_phone_number():
-    return add_columns_if_missing(
-        db=db,
-        table="staff",
-        columns={"phone_number": "phone_number VARCHAR(30) DEFAULT ''"},
-    )
-
-
-def migrate_add_watch_pattern_configuration():
-    return add_watch_pattern_configuration(db=db)
-
-
-def migrate_add_invitation_target():
-    return add_invitation_target(db=db)
-
-
-def migrate_add_toil_half_days_and_convert():
-    return add_toil_and_leave_fields(db=db)
-
-
-def ensure_shift(code, name, start=None, end=None, is_working=False, is_training=False):
-    return ensure_bootstrap_shift(
-        code,
-        name,
-        db=db,
-        ShiftType=ShiftType,
-        start=start,
-        end=end,
-        is_working=is_working,
-        is_training=is_training,
-    )
-
-
-def ensure_watch(name: str, order_index: int):
-    return ensure_bootstrap_watch(
-        name, order_index, db=db, Watch=Watch
-    )
-
-
-def seed_once():
-    return seed_legacy_operational_data(
-        db=db,
-        Unit=Unit,
-        Watch=Watch,
-        ShiftType=ShiftType,
-        Staff=Staff,
-    )
+_legacy_bootstrap = LegacyBootstrapService(
+    db=db,
+    app=app,
+    Unit=Unit,
+    Staff=Staff,
+    Watch=Watch,
+    ShiftType=ShiftType,
+)
+migrate_tenant_foundation_compat = _legacy_bootstrap.migrate_tenant_foundation
+migrate_add_role_and_calendar_token = _legacy_bootstrap.add_role_and_calendar_token
+migrate_add_assignment_annotation = _legacy_bootstrap.add_assignment_annotation
+migrate_add_unique_assignment_key = _legacy_bootstrap.add_unique_assignment_key
+migrate_add_perf_indexes = _legacy_bootstrap.add_performance_indexes
+migrate_add_requirement_req_d = _legacy_bootstrap.add_requirement_day_column
+migrate_add_ut_flags = _legacy_bootstrap.add_undertraining_flags
+migrate_add_is_training = _legacy_bootstrap.add_training_shift_flag
+migrate_add_wm_dwm_exclude = _legacy_bootstrap.add_workforce_flags
+migrate_add_phone_number = _legacy_bootstrap.add_phone_number
+migrate_add_watch_pattern_configuration = (
+    _legacy_bootstrap.add_watch_pattern_configuration
+)
+migrate_add_invitation_target = _legacy_bootstrap.add_invitation_target
+migrate_add_toil_half_days_and_convert = _legacy_bootstrap.add_toil_and_leave_fields
+ensure_shift = _legacy_bootstrap.ensure_shift
+ensure_watch = _legacy_bootstrap.ensure_watch
+seed_once = _legacy_bootstrap.seed_once
 
 # -------------------- Small parse & AI helpers --------------------
 
