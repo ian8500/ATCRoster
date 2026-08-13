@@ -10,7 +10,6 @@ import sys
 from functools import lru_cache
 from datetime import date, datetime, time, timedelta
 import json
-import hashlib
 
 from flask_login import (
     LoginManager, login_user, logout_user,
@@ -155,7 +154,9 @@ from atcroster.auth import (
     canonical_login_redirect,
     airport_login_endpoint,
     credential_for_auth_stamp,
+    complete_platform_login,
     privacy_rate_limit_key,
+    pending_platform_login,
     record_security_event,
     reset_rate_limit,
     totp_qr_data_uri,
@@ -3172,34 +3173,25 @@ def _matching_totp_step(secret: str, code: str) -> int | None:
 
 
 def _pending_platform_login():
-    identity_id = int(session.get("_platform_mfa_identity_id") or 0)
-    user_id = int(session.get("_platform_mfa_user_id") or 0)
-    if not identity_id or user_id != identity_id:
-        return None, None
-    identity = db.session.get(PlatformIdentity, identity_id)
-    if not identity or identity.role != "superadmin":
-        return None, None
-    return identity, identity
+    return pending_platform_login(
+        session, db=db, PlatformIdentity=PlatformIdentity
+    )
 
 
 def _complete_platform_login(identity, user, recovery_used=False):
-    next_url = session.get("_platform_mfa_next", "")
-    session.clear()
-    login_user(user)
-    _initialize_authenticated_session(user, platform_mfa=True)
-    identity.last_active_at = utcnow()
-    _central_security_event(
-        "platform_recovery_code_used" if recovery_used
-        else "platform_mfa_verified",
-        "success", identity.id,
-        hashlib.sha256(identity.username.lower().encode()).hexdigest()[:16],
+    return complete_platform_login(
+        identity,
+        user,
+        recovery_used=recovery_used,
+        session=session,
+        db=db,
+        login_user=login_user,
+        initialize_session=_initialize_authenticated_session,
+        now=utcnow,
+        security_event=_central_security_event,
+        login_redirect=_canonical_login_redirect,
+        redirect=redirect,
     )
-    db.session.commit()
-    return redirect(_canonical_login_redirect(
-        next_url,
-        default_endpoint="platform_admin",
-        user_id=user.id,
-    ))
 
 
 def _totp_qr_data_uri(provisioning_uri: str) -> str:
