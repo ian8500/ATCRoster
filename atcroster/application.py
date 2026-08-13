@@ -1,6 +1,6 @@
 """Application assembly and legacy compatibility implementation."""
 
-from typing import Any, Optional, Tuple, cast
+from typing import Any, cast
 from flask import redirect, url_for, flash, abort, session, g
 import json as _json
 import os
@@ -508,17 +508,8 @@ _security_headers = register_security_headers(
 register_response_compression(app)
 
 
-def _canonical_login_redirect(
-    target: str | None,
-    *,
-    default_endpoint: str = "index",
-    user_id: int | None = None,
-) -> str:
-    return canonical_login_redirect(target, url_for=url_for, default_endpoint=default_endpoint, user_id=user_id)
-
-
-def _airport_login_endpoint(user) -> str:
-    return airport_login_endpoint(user)
+_canonical_login_redirect = partial(canonical_login_redirect, url_for=url_for)
+_airport_login_endpoint = airport_login_endpoint
 
 
 # ----- Lightweight caching -----
@@ -534,8 +525,7 @@ if Cache is not None:
         _cache = None
 
 
-def _memoize(seconds=60):
-    return memoize(_cache, seconds)
+_memoize = partial(memoize, _cache)
 
 
 def _invalidate_month_cache_for_day(d: date):
@@ -1242,16 +1232,11 @@ log_change = change_audit_service.record
 # --- Month math (no dateutil) ---
 
 
-def _month_add(y: int, m: int, delta: int) -> Tuple[int, int]:
-    return roster_period_add(y, m, delta, add_months)
-
-
-def lock_date_for_month(y: int, m: int) -> date:
-    return roster_period_lock_date(y, m, roster_lock_date)
-
-
-def is_month_locked(y: int, m: int, today: Optional[date] = None) -> bool:
-    return roster_period_is_locked(y, m, today, roster_month_is_locked)
+_month_add = partial(roster_period_add, add_months=add_months)
+lock_date_for_month = partial(roster_period_lock_date, roster_lock_date=roster_lock_date)
+is_month_locked = partial(
+    roster_period_is_locked, roster_month_is_locked=roster_month_is_locked
+)
 
 
 roster_editing_runtime = RosterEditingRuntime(RosterEditingDependencies(
@@ -1628,22 +1613,9 @@ _initialize_authenticated_session = _session_lifecycle.initialize
 _session_lifecycle_reference.set(_session_lifecycle)
 
 
-def _central_security_event(
-    event_type: str, outcome: str, identity_id: int | None = None,
-    principal: str = "", detail: str = "",
-) -> None:
-    record_central_security_event(
-        db,
-        CentralSecurityAudit,
-        event_type,
-        outcome,
-        identity_id,
-        principal,
-        detail,
-    )
-
-
+_central_security_event = partial(record_central_security_event, db, CentralSecurityAudit)
 def _record_successful_login(user: Any) -> None:
+    """Adapt the auth route callback to the account-domain keyword API."""
     record_successful_login(
         db=db,
         PlatformIdentity=PlatformIdentity,
@@ -1660,20 +1632,17 @@ _matching_totp_step = _auth_runtime.matching_totp_step
 _pending_platform_login = _auth_runtime.pending_platform_login
 
 
-def _complete_platform_login(identity, user, recovery_used=False):
-    return complete_platform_login(
-        identity,
-        user,
-        recovery_used=recovery_used,
-        session=session,
-        db=db,
-        login_user=login_user,
-        initialize_session=_initialize_authenticated_session,
-        now=utcnow,
-        security_event=_central_security_event,
-        login_redirect=_canonical_login_redirect,
-        redirect=redirect,
-    )
+_complete_platform_login = partial(
+    complete_platform_login,
+    session=session,
+    db=db,
+    login_user=login_user,
+    initialize_session=_initialize_authenticated_session,
+    now=utcnow,
+    security_event=_central_security_event,
+    login_redirect=_canonical_login_redirect,
+    redirect=redirect,
+)
 
 
 _totp_qr_data_uri = _auth_runtime.totp_qr_data_uri
