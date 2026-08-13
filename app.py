@@ -142,7 +142,12 @@ from atcroster.administration import (
     create_administration_blueprint,
 )
 from atcroster.home import HomeDependencies, create_home_blueprint
-from atcroster.accounts import PasswordDependencies, create_password_blueprint
+from atcroster.accounts import (
+    KioskAccountDependencies,
+    PasswordDependencies,
+    create_kiosk_account_blueprint,
+    create_password_blueprint,
+)
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
@@ -4518,124 +4523,6 @@ def inject_perms():
             )[:120],
         },
     }
-
-
-@app.route("/administration/kiosk-accounts", methods=["GET", "POST"])
-@login_required
-@admin_required
-def kiosk_accounts():
-    """Provision dedicated, module-scoped Live Position kiosk identities."""
-    unit_id = _current_unit_id()
-    if not live_position_enabled(unit_id):
-        abort(404)
-    unit = db.session.get(Unit, unit_id)
-    if not unit:
-        abort(404)
-    if request.method == "POST":
-        _validate_csrf()
-        action = (request.form.get("action") or "").strip()
-        if action == "create_invitation":
-            from account_limits import lock_unit_capacity
-
-            try:
-                lock_unit_capacity(db, Unit, UnitMembership, unit_id)
-                raw_token = secrets.token_urlsafe(32)
-                invitation = SecureInvitation(
-                    unit_id=unit_id,
-                    token_digest=hashlib.sha256(raw_token.encode()).hexdigest(),
-                    role="PositionMonitor",
-                    expires_at=utcnow() + timedelta(days=7),
-                )
-                db.session.add(invitation)
-                db.session.commit()
-            except ValueError as exc:
-                db.session.rollback()
-                flash(str(exc), "error")
-                return redirect(url_for("kiosk_accounts"))
-            invite_url = url_for(
-                "accept_invitation", token=raw_token, _external=True
-            )
-            flash(
-                "Kiosk setup link created. Copy it now; it is shown only "
-                f"once: {invite_url}",
-                "ok",
-            )
-            return redirect(url_for("kiosk_accounts"))
-        if action == "disable_invitation":
-            invitation_id = int(request.form.get("invitation_id") or 0)
-            invitation = SecureInvitation.query.filter_by(
-                id=invitation_id,
-                unit_id=unit_id,
-                role="PositionMonitor",
-                accepted_at=None,
-                disabled_at=None,
-            ).first_or_404()
-            invitation.disabled_at = utcnow()
-            db.session.commit()
-            flash("Kiosk setup link disabled.", "ok")
-            return redirect(url_for("kiosk_accounts"))
-        if action in {"deactivate", "restore"}:
-            membership_id = int(request.form.get("membership_id") or 0)
-            expected_status = "active" if action == "deactivate" else "suspended"
-            membership = UnitMembership.query.filter_by(
-                id=membership_id,
-                unit_id=unit_id,
-                role="PositionMonitor",
-                status=expected_status,
-            ).first_or_404()
-            linked = (
-                tenant_get(Staff, membership.person_id)
-                if membership.person_id
-                else None
-            )
-            if action == "deactivate":
-                membership.status = "suspended"
-                membership.suspended_at = utcnow()
-                if linked:
-                    linked.membership_status = "suspended"
-                message = "Kiosk account deactivated."
-            else:
-                from account_limits import activate_membership
-
-                try:
-                    activate_membership(db, Unit, UnitMembership, membership.id)
-                except ValueError as exc:
-                    db.session.rollback()
-                    flash(str(exc), "error")
-                    return redirect(url_for("kiosk_accounts"))
-                membership.suspended_at = None
-                membership.activated_at = membership.activated_at or utcnow()
-                if linked:
-                    linked.membership_status = "active"
-                message = "Kiosk account restored."
-            db.session.commit()
-            flash(message, "ok")
-            return redirect(url_for("kiosk_accounts"))
-        abort(400)
-    invitations = SecureInvitation.query.filter(
-        SecureInvitation.unit_id == unit_id,
-        SecureInvitation.role == "PositionMonitor",
-        SecureInvitation.accepted_at.is_(None),
-        SecureInvitation.disabled_at.is_(None),
-        SecureInvitation.expires_at > utcnow(),
-    ).order_by(SecureInvitation.expires_at).all()
-    memberships = UnitMembership.query.filter_by(
-        unit_id=unit_id, role="PositionMonitor"
-    ).order_by(UnitMembership.id).all()
-    people = {
-        row.id: row
-        for row in Staff.query.filter(
-            Staff.unit_id == unit_id,
-            Staff.id.in_([row.person_id for row in memberships if row.person_id]),
-        ).all()
-    }
-    return render_template(
-        "kiosk_accounts.html",
-        invitations=invitations,
-        memberships=memberships,
-        people=people,
-    )
-
 
 
 # -------------------- Admin --------------------
@@ -10173,6 +10060,19 @@ app.register_blueprint(create_password_blueprint(PasswordDependencies(
     tenant_get=tenant_get,
     validate_csrf=_validate_csrf,
     generate_password_hash=generate_password_hash,
+)))
+app.register_blueprint(create_kiosk_account_blueprint(KioskAccountDependencies(
+    db=db,
+    Unit=Unit,
+    Staff=Staff,
+    UnitMembership=UnitMembership,
+    SecureInvitation=SecureInvitation,
+    current_unit_id=_current_unit_id,
+    live_position_enabled=live_position_enabled,
+    tenant_get=tenant_get,
+    utcnow=utcnow,
+    validate_csrf=_validate_csrf,
+    is_admin_user=is_admin_user,
 )))
 app.register_blueprint(create_admin_utility_blueprint(AdminUtilityDependencies(
     ChangeLog=ChangeLog,
