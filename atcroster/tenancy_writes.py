@@ -5,6 +5,15 @@ from __future__ import annotations
 from typing import Any, Callable
 
 
+def tenant_get(
+    model: Any, record_id: int, *, current_unit_id: Callable[[], int]
+) -> Any:
+    """Fetch one operational record through an explicit tenant boundary."""
+    return model.query.filter_by(
+        id=int(record_id), unit_id=current_unit_id()
+    ).first()
+
+
 def enforce_operational_writes(
     session: Any,
     *,

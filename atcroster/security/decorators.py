@@ -24,3 +24,19 @@ def create_admin_required(
         return wrapper
 
     return admin_required
+
+
+def create_roster_edit_required(
+    current_user: Any, can_edit_roster: Callable[[Any], bool]
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Create the established roster-edit guard for legacy route consumers."""
+    def decorator(function: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(function)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not current_user.is_authenticated or not can_edit_roster(current_user):
+                return ("Forbidden", 403)
+            return function(*args, **kwargs)
+
+        return wrapper
+
+    return decorator

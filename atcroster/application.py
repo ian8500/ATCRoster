@@ -1,6 +1,5 @@
 """Application assembly and legacy compatibility implementation."""
 
-from functools import wraps
 from typing import Any, Optional, Tuple, cast
 from flask import redirect, url_for, flash, abort, session, g
 import json as _json
@@ -314,6 +313,7 @@ from atcroster.security.headers import (
 from atcroster.security import (
     PrincipalBoundaryDependencies,
     create_admin_required,
+    create_roster_edit_required,
     register_principal_boundaries,
 )
 from atcroster.security.sessions import (
@@ -325,6 +325,7 @@ from atcroster.tenancy_writes import (
     discard_touched_units,
     enforce_operational_writes,
     invalidate_touched_units,
+    tenant_get as tenant_scoped_get,
 )
 from atcroster.briefing_bootstrap import load_briefing_module
 from migrations.fresh_schema import CONTROL_TABLES
@@ -946,20 +947,8 @@ can_send_unit_messages = may_send_unit_messages
 can_override_roster_conflicts = may_override_roster_conflicts
 
 
-def tenant_get(model, record_id: int):
-    """Fetch one operational record with an explicit mutation-safe boundary."""
-    return model.query.filter_by(
-        id=int(record_id), unit_id=_current_unit_id()
-    ).first()
-
-
-def roster_edit_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if not current_user.is_authenticated or not can_edit_roster(current_user):
-            return ("Forbidden", 403)
-        return f(*args, **kwargs)
-    return wrapper
+tenant_get = partial(tenant_scoped_get, current_unit_id=_current_unit_id)
+roster_edit_required = create_roster_edit_required(current_user, can_edit_roster)
 
 
 def get_shift(code: str, unit_id: int | None = None):
