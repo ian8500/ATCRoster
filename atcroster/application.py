@@ -379,6 +379,11 @@ from atcroster.security.sessions import (
     SessionLifecycleDependencies,
 )
 from atcroster.tenancy_hooks import TenantHookDependencies, register_tenant_hooks
+from atcroster.tenancy_writes import (
+    discard_touched_units,
+    enforce_operational_writes,
+    invalidate_touched_units,
+)
 from atcroster.briefing_bootstrap import load_briefing_module
 from migrations.fresh_schema import CONTROL_TABLES
 from auth_blueprint import AuthDependencies, create_auth_blueprint
@@ -904,53 +909,24 @@ def _scope_operational_selects(execute_state):
 
 @event.listens_for(OrmSession, "before_flush")
 def _stamp_operational_writes(session_obj, _flush_context, _instances):
-    touched_units = session_obj.info.setdefault(
-        "roster_cache_touched_units", set()
+    return enforce_operational_writes(
+        session_obj,
+        operational_models=TENANT_OPERATIONAL_MODELS,
+        append_only_models=APPEND_ONLY_AUDIT_MODELS,
+        SmsAudit=SmsAudit,
+        inspect_record=sa_inspect,
+        authenticated_unit_id=authenticated_unit_id,
     )
-    for record in session_obj.new | session_obj.dirty | session_obj.deleted:
-        if isinstance(record, TENANT_OPERATIONAL_MODELS):
-            unit_id = getattr(record, "unit_id", None)
-            if unit_id:
-                touched_units.add(int(unit_id))
-    for record in session_obj.dirty:
-        if isinstance(record, APPEND_ONLY_AUDIT_MODELS) and session_obj.is_modified(
-            record, include_collections=False
-        ):
-            # Provider delivery is external lifecycle metadata, not historical
-            # evidence. SmsAudit content remains immutable; only this one field
-            # may be updated when MessageMedia posts a signed delivery report.
-            if isinstance(record, SmsAudit):
-                changed = {
-                    attribute.key for attribute in sa_inspect(record).attrs
-                    if attribute.history.has_changes()
-                }
-                if changed == {"delivery_status"}:
-                    continue
-            raise PermissionError("Audit evidence is append-only")
-    for record in session_obj.deleted:
-        if isinstance(record, APPEND_ONLY_AUDIT_MODELS):
-            raise PermissionError("Audit evidence is append-only")
-    try:
-        unit_id = authenticated_unit_id()
-    except RuntimeError:
-        return
-    for record in session_obj.new:
-        if isinstance(record, TENANT_OPERATIONAL_MODELS):
-            supplied = getattr(record, "unit_id", None)
-            if supplied not in (None, unit_id):
-                raise PermissionError("Cross-unit writes are forbidden")
-            record.unit_id = unit_id
 
 
 @event.listens_for(OrmSession, "after_commit")
 def _invalidate_roster_cache_after_commit(session_obj):
-    for unit_id in session_obj.info.pop("roster_cache_touched_units", set()):
-        roster_month_cache.invalidate_unit(unit_id)
+    return invalidate_touched_units(session_obj, roster_month_cache.invalidate_unit)
 
 
 @event.listens_for(OrmSession, "after_rollback")
 def _discard_roster_cache_invalidation_after_rollback(session_obj):
-    session_obj.info.pop("roster_cache_touched_units", None)
+    return discard_touched_units(session_obj)
 
 # -------------------- Reference data helpers --------------------
 
