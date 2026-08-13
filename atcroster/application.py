@@ -1006,10 +1006,6 @@ assignment_runtime = AssignmentRuntime(AssignmentRuntimeDependencies(
     requirements_for_day=resolve_roster_requirements_for_day,
     iter_year_months=iter_year_months,
 ))
-def _assignment_refresh_dependencies():
-    return assignment_runtime.dependencies.refresh
-
-
 set_assignment = assignment_runtime.set_assignment
 overwrite_assignment = assignment_runtime.overwrite_assignment
 refresh_day_from_pattern_and_leave = assignment_runtime.refresh_day
@@ -1348,11 +1344,6 @@ _count_ot_since_prev_april = overtime_support.count_overtime
 # … keep the rest of your overtime helpers exactly as pasted …
 
 
-def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: str):
-    return _overtime_candidate_service.compute(chosen_date, chosen_shift_code)
-
-
-
 _leave_summary_for_month = reporting_runtime.leave_summary
 
 
@@ -1400,14 +1391,8 @@ request_workflow_service = RequestWorkflowService(RequestWorkflowDependencies(
     date_bounds=request_date_bounds,
     safe_admin_month=safe_admin_month,
 ))
-_unit_request_rules = request_workflow_service.unit_rules
 _lock_date_for_target_month = request_workflow_service.lock_date_for_month
-_is_month_locked = request_workflow_service.is_month_locked
-_add_months = request_workflow_service.add_months
 _request_date_bounds = request_workflow_service.request_date_bounds
-_request_audit = request_workflow_service.add_audit
-_notify_requester = request_workflow_service.notify_requester
-_safe_request_admin_month = request_workflow_service.safe_admin_month
 
 
 staff_has_qualification = eligibility_service.has_qualification
@@ -1432,6 +1417,7 @@ _overtime_candidate_service = OvertimeCandidateService(
         had_sc_within_48h=_had_sc_within_48h,
     )
 )
+_compute_overtime_candidates = _overtime_candidate_service.compute
 
 
 
