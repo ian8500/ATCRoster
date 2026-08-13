@@ -125,6 +125,8 @@ from atcroster.roster import (
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     cell_is_protected,
     assignment_for_day,
+    is_non_working as roster_code_is_non_working,
+    normalize_code as normalize_roster_code,
     set_assignment_code,
 )
 from atcroster.compression import register_response_compression
@@ -3092,11 +3094,11 @@ def _weekday_is_sun(d: date) -> bool:
 
 
 def _normalize_code(code) -> str:
-    return str(code or "").strip().upper()
+    return normalize_roster_code(code)
 
 
 def _is_non_working(code: str) -> bool:
-    return _normalize_code(code) in get_non_working_codes()
+    return roster_code_is_non_working(code, get_non_working_codes)
 
 
 def _is_working_code_prefix(code: str, prefix: str) -> bool:
