@@ -1,0 +1,3 @@
+.live-position-kiosk{background:var(--state-on-dark);color:var(--state-text-on-dark)}
+.live-position-kiosk__connection.is-connected,.live-position-tile--operational{color:var(--color-published)}
+.live-position-kiosk__warning{border-color:var(--color-blocking)}

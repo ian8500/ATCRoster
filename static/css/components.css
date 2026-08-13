@@ -1,0 +1,4 @@
+.btn:focus-visible,.nav-link:focus-visible{outline:3px solid var(--focus-ring);outline-offset:3px}
+.card{border-color:var(--color-border)}
+.status--normal{color:var(--color-normal)}.status--warning{color:var(--color-warning)}
+.status--blocking{color:var(--color-blocking)}.status--advisory{color:var(--color-advisory)}

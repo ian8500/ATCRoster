@@ -1,0 +1,5 @@
+.roster-validation-blocking{box-shadow:inset 0 0 0 2px var(--color-blocking)}
+.roster-validation-advisory{box-shadow:inset 0 0 0 2px var(--color-advisory)}
+.roster-status-banner--published,.roster-overview__state.is-published{border-color:var(--color-published)}
+.cell.is-selected{box-shadow:inset 0 0 0 3px var(--color-selected)}
+@media print{.roster-readiness,.roster-inspector,.roster-command-palette{display:none!important}}
