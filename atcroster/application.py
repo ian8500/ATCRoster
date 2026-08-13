@@ -127,6 +127,7 @@ from atcroster.roster import (
     assignment_for_day,
     is_non_working as roster_code_is_non_working,
     normalize_code as normalize_roster_code,
+    is_working_with_prefix as roster_code_is_working_with_prefix,
     set_assignment_code,
 )
 from atcroster.compression import register_response_compression
@@ -3102,32 +3103,9 @@ def _is_non_working(code: str) -> bool:
 
 
 def _is_working_code_prefix(code: str, prefix: str) -> bool:
-    """
-    True if:
-      - code is not in the non-working list
-      - ShiftType says it's working (when known)
-      - AND the normalized code startswith the given prefix
-    Falls back to just the prefix check if ShiftType is unknown.
-    """
-    cu = _normalize_code(code)
-    if not cu or cu in get_non_working_codes():
-        return False
-
-    # Prefer cached lookup if present in your app
-    try:
-        sh = get_shift(cu)
-    except NameError:
-        sh = None
-    if sh is None:
-        try:
-            sh = ShiftType.query.filter_by(code=cu).first()
-        except Exception:
-            sh = None
-
-    if sh is not None:
-        return bool(getattr(sh, "is_working", False)) and cu.startswith(prefix)
-
-    return cu.startswith(prefix)
+    return roster_code_is_working_with_prefix(
+        code, prefix, get_non_working_codes, get_shift,
+    )
 
 
 def _is_working_day_code(code: str) -> bool:
