@@ -16,7 +16,7 @@ from flask_login import current_user, login_required
 class CalendarFeedDependencies:
     Staff: Any
     Assignment: Any
-    get_shift: Callable[[str, int], Any]
+    get_shift: Callable[..., Any]
     db: Any
     current_unit_id: Callable[[], int]
     is_admin_user: Callable[[Any], bool]
