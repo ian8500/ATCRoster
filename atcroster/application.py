@@ -193,6 +193,7 @@ from atcroster.roster.publication import (
     create_publication_service,
 )
 from atcroster.roster.overtime import OvertimeDependencies, create_overtime_blueprint
+from atcroster.roster.setup import update_unit_roster_setup
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -3374,33 +3375,16 @@ def admin():
             return redirect(url_for("admin") + "#sms")
 
         if form == "unit_roster_setup":
-            pattern = _validated_pattern(request.form.get("base_pattern_csv"))
-            anchor = _parse_date(request.form.get("base_pattern_anchor"))
-            if not pattern or not anchor:
-                flash(
-                    "Choose at least one valid base-pattern duty and a start date.",
-                    "error",
-                )
-            else:
-                active_nights = [
-                    str(day) for day in range(7)
-                    if request.form.get(f"night_day_{day}")
-                ]
-                _save_roster_setting("base_pattern_csv", ",".join(pattern))
-                _save_roster_setting(
-                    "base_pattern_anchor", anchor.isoformat()
-                )
-                _save_roster_setting(
-                    "night_active_weekdays", ",".join(active_nights)
-                )
-                record_roster_impact(
-                    RosterImpactEventType.WATCH_PATTERN_CHANGE,
-                    anchor,
-                    rebuild_baseline=True,
-                    reason="Unit base roster pattern changed.",
-                )
-                db.session.commit()
-                flash("Unit roster setup saved.", "ok")
+            message, category = update_unit_roster_setup(
+                request.form,
+                db=db,
+                validate_pattern=_validated_pattern,
+                parse_date=_parse_date,
+                save_setting=_save_roster_setting,
+                record_roster_impact=record_roster_impact,
+                impact_type=RosterImpactEventType.WATCH_PATTERN_CHANGE,
+            )
+            flash(message, category)
             return redirect(url_for("admin") + "#roster-setup")
 
         if form == "watch_new":
