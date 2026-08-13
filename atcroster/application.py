@@ -329,11 +329,12 @@ from absence_requests_blueprint import (
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
 from roster_blueprint import RosterDependencies, create_roster_blueprint
 from training_blueprint import TrainingDependencies, create_training_blueprint
-from operations_blueprint import OperationsDependencies, create_operations_blueprint
-from live_position_blueprint import LivePositionDependencies, create_live_position_blueprint
-from handover_blueprint import HandoverDependencies, create_handover_blueprint
 from roster_period_service import RosterPeriodDependencies, RosterPeriodService
 from atcroster.planning import PlanningDependencies, create_planning_services
+from atcroster.live_position import (
+    OperationalRegistrationDependencies,
+    register_operational_blueprints,
+)
 from tenancy import (
     authenticated_database_route_optional,
     authenticated_unit_id,
@@ -1771,8 +1772,11 @@ roster_period_service = RosterPeriodService(RosterPeriodDependencies(
     db=db, RosterPeriod=RosterPeriod, utcnow=utcnow,
 ))
 
-app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
-    db=db, Unit=Unit, OperationalPosition=OperationalPosition,
+register_operational_blueprints(app, OperationalRegistrationDependencies(
+    db=db, Unit=Unit, Staff=Staff, Watch=Watch, ShiftType=ShiftType,
+    Assignment=Assignment, Requirement=Requirement,
+    SpecialRequirement=SpecialRequirement, FeatureFlag=FeatureFlag,
+    OperationalPosition=OperationalPosition,
     OperationalPositionTimeAllowance=OperationalPositionTimeAllowance,
     OperationalPositionGroup=OperationalPositionGroup,
     PositionCurrencyCategory=PositionCurrencyCategory,
@@ -1780,29 +1784,27 @@ app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
     PositionSessionParticipant=PositionSessionParticipant,
     PositionParticipantRole=PositionParticipantRole,
     PositionSessionAudit=PositionSessionAudit,
-    PositionEndorsement=PositionEndorsement, Staff=Staff,
-    Watch=Watch,
-    utcnow=utcnow, is_admin_user=is_admin_user,
+    PositionEndorsement=PositionEndorsement,
+    PositionRequirement=PositionRequirement,
+    HandoverField=HandoverField, HandoverRecord=HandoverRecord,
+    HandoverOperationalState=HandoverOperationalState,
+    HandoverEquipment=HandoverEquipment, BreakPlan=BreakPlan,
+    AchievedDuty=AchievedDuty, FatigueReport=FatigueReport,
+    RosterRuleVersion=RosterRuleVersion, Scenario=Scenario,
+    now=utcnow, is_admin_user=is_admin_user, is_editor_user=is_editor_user,
+    can_edit_roster=can_edit_roster,
     live_position_enabled=live_position_enabled,
     competency_enabled=competency_enabled,
     authenticated_database_route_optional=authenticated_database_route_optional,
     authenticated_unit_context=authenticated_unit_context,
-)))
-
-app.register_blueprint(create_handover_blueprint(HandoverDependencies(
-    db=db, Unit=Unit, Staff=Staff, ShiftType=ShiftType, Assignment=Assignment,
-    Requirement=Requirement, SpecialRequirement=SpecialRequirement,
-    FeatureFlag=FeatureFlag, HandoverField=HandoverField,
-    HandoverRecord=HandoverRecord,
-    HandoverOperationalState=HandoverOperationalState,
-    HandoverEquipment=HandoverEquipment,
-    OperationalPosition=OperationalPosition, PositionSession=PositionSession,
     current_unit_id=_current_unit_id,
-    validate_csrf=_validate_csrf, is_admin_user=is_admin_user,
-    is_editor_user=is_editor_user, requirements_for_day=requirements_for_day,
-    shift_group_for_day=shift_counter_group_for_day, utcnow=utcnow,
-    live_position_enabled=live_position_enabled,
-)))
+    validate_csrf=_validate_csrf, requirements_for_day=requirements_for_day,
+    shift_group_for_day=shift_counter_group_for_day,
+    compliance_month=_compliance_month, log_change=log_change,
+    month_add=_month_add, position_assurance=_position_assurance,
+    parse_year_month=parse_ym, month_range=month_range,
+    staff_has_shift_qualification=_staff_has_shift_qualification,
+))
 
 register_auth_blueprints(app, AuthRegistrationDependencies(
     db=db,
@@ -2024,33 +2026,6 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
     record_qualification_roster_impact=record_qualification_roster_impact,
     TrainingObjective=TrainingObjective,
-)))
-app.register_blueprint(create_operations_blueprint(OperationsDependencies(
-    db=db,
-    OperationalPosition=OperationalPosition,
-    PositionEndorsement=PositionEndorsement,
-    PositionRequirement=PositionRequirement,
-    Staff=Staff,
-    ShiftType=ShiftType,
-    BreakPlan=BreakPlan,
-    Assignment=Assignment,
-    AchievedDuty=AchievedDuty,
-    FatigueReport=FatigueReport,
-    RosterRuleVersion=RosterRuleVersion,
-    is_admin_user=is_admin_user,
-    compliance_month=_compliance_month,
-    validate_csrf=_validate_csrf,
-    current_unit_id=_current_unit_id,
-    utcnow=utcnow,
-    log_change=log_change,
-    month_add=_month_add,
-    position_assurance=_position_assurance,
-    can_edit_roster=can_edit_roster,
-    parse_year_month=parse_ym,
-    month_range=month_range,
-    shift_counter_group_for_day=shift_counter_group_for_day,
-    staff_has_shift_qualification=_staff_has_shift_qualification,
-    Scenario=Scenario,
 )))
 register_notification_blueprints(app, NotificationRegistrationDependencies(
     db=db,
