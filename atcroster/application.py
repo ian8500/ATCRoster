@@ -280,6 +280,10 @@ from atcroster.administration.staff_edit import (
     create_staff_edit_blueprint,
 )
 from atcroster.home import HomeDependencies, create_home_blueprint
+from atcroster.navigation import (
+    NavigationContextDependencies,
+    build_navigation_context,
+)
 from atcroster.accounts import (
     KioskAccountDependencies,
     PasswordDependencies,
@@ -2658,116 +2662,27 @@ def _clamp_prev_next(year, month):
 
 @app.context_processor
 def inject_perms():
-    au = current_user if getattr(
-        current_user, "is_authenticated", False) else None
-    current_unit = (
-        db.session.get(Unit, int(getattr(au, "unit_id", 0) or 0))
-        if au and getattr(au, "role", "") != "superadmin" else None
+    return build_navigation_context(
+        current_user,
+        request.endpoint,
+        NavigationContextDependencies(
+            db=db,
+            Unit=Unit,
+            Staff=Staff,
+            ShiftRequest=ShiftRequest,
+            FeatureFlag=FeatureFlag,
+            Notification=Notification,
+            BriefingDelivery=BriefingDelivery,
+            BriefingItem=BriefingItem,
+            is_admin_user=is_admin_user,
+            is_editor_user=is_editor_user,
+            briefing_enabled=briefing_enabled,
+            training_enabled=training_enabled,
+            competency_enabled=competency_enabled,
+            live_position_enabled=live_position_enabled,
+            briefing_local_now=briefing_local_now,
+        ),
     )
-    branding = {}
-    if current_unit:
-        try:
-            candidate = json.loads(current_unit.branding_json or "{}")
-            if isinstance(candidate, dict):
-                branding = candidate
-        except (TypeError, ValueError, json.JSONDecodeError):
-            branding = {}
-    primary_colour = branding.get("primary_colour", "")
-    accent_colour = branding.get("accent_colour", "")
-    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", primary_colour):
-        primary_colour = ""
-    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", accent_colour):
-        accent_colour = ""
-    pending_request_count = 0
-    unread_notification_count = 0
-    unread_briefing_count = 0
-    has_briefing_module = False
-    has_training_module = False
-    has_competency_module = False
-    has_live_position_module = False
-    has_handover_module = False
-    enabled_feature_keys = set()
-    active_admin_count = 0
-    if current_unit and au and is_admin_user(au):
-        active_admin_count = Staff.query.filter(
-            Staff.unit_id == current_unit.id,
-            Staff.membership_status == "active",
-            db.or_(Staff.role == "admin", Staff.is_admin.is_(True)),
-        ).count()
-        pending_request_count = ShiftRequest.query.filter(
-            ShiftRequest.unit_id == current_unit.id,
-            ShiftRequest.status.in_(("pending", "approved")),
-        ).count()
-    if current_unit and au:
-        enabled_feature_keys = {
-            row.key for row in FeatureFlag.query.filter_by(
-                unit_id=current_unit.id, enabled=True
-            ).all()
-        }
-        unread_notification_count = Notification.query.filter_by(
-            unit_id=current_unit.id,
-            recipient_id=au.id,
-            read_at=None,
-        ).count()
-        has_briefing_module = briefing_enabled(current_unit.id)
-        has_training_module = training_enabled(current_unit.id)
-        has_competency_module = competency_enabled(current_unit.id)
-        has_live_position_module = live_position_enabled(current_unit.id)
-        has_handover_module = "handover_module" in enabled_feature_keys
-        if (
-            has_briefing_module
-            and (
-                request.endpoint in {"index", "module_home"}
-                or (
-                    request.endpoint
-                    and request.endpoint.startswith("briefing.")
-                )
-            )
-        ):
-            briefing_now = briefing_local_now(current_unit.id)
-            unread_briefing_count = (
-                db.session.query(BriefingDelivery.id)
-                .join(
-                    BriefingItem,
-                    BriefingItem.id == BriefingDelivery.briefing_id,
-                )
-                .filter(
-                    BriefingDelivery.unit_id == current_unit.id,
-                    BriefingDelivery.recipient_id == au.id,
-                    BriefingDelivery.acknowledged_at.is_(None),
-                    BriefingDelivery.archived_at.is_(None),
-                    BriefingDelivery.deleted_at.is_(None),
-                    BriefingItem.status == "published",
-                    BriefingItem.kind != "daily",
-                    BriefingItem.effective_at <= briefing_now,
-                    BriefingItem.expires_at >= briefing_now,
-                )
-                .count()
-            )
-    return {
-        "is_admin":  bool(au) and is_admin_user(au),
-        "is_editor": bool(au) and is_editor_user(au),
-        "pending_request_count": pending_request_count,
-        "unread_notification_count": unread_notification_count,
-        "unread_briefing_count": unread_briefing_count,
-        "has_briefing_module": has_briefing_module,
-        "has_training_module": has_training_module,
-        "has_competency_module": has_competency_module,
-        "has_live_position_module": has_live_position_module,
-        "has_handover_module": has_handover_module,
-        "enabled_feature_keys": enabled_feature_keys,
-        "active_admin_count": active_admin_count,
-        "current_unit": current_unit,
-        "unit_branding": {
-            "primary_colour": primary_colour,
-            "accent_colour": accent_colour,
-            "display_name": (
-                branding.get("display_name") or (
-                    current_unit.name if current_unit else ""
-                )
-            )[:120],
-        },
-    }
 
 
 # -------------------- Admin --------------------
