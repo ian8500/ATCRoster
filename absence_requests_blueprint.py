@@ -53,6 +53,22 @@ class AbsenceRequestDependencies:
     record_toil_transaction: Callable[..., Any]
 
 
+def create_absence_request_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> AbsenceRequestDependencies:
+    """Bind absence-route operational records at the route boundary."""
+    return AbsenceRequestDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        Leave=operational_models.Leave,
+        Assignment=operational_models.Assignment,
+        ShiftType=operational_models.ShiftType,
+        ShiftRequest=operational_models.ShiftRequest,
+        **services,
+    )
+
+
 def create_absence_requests_blueprint(
     dependencies: AbsenceRequestDependencies,
 ) -> Blueprint:

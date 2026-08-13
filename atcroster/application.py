@@ -341,7 +341,7 @@ from atcroster.tenancy_writes import (
 from atcroster.briefing_bootstrap import load_briefing_module
 from migrations.fresh_schema import CONTROL_TABLES
 from absence_requests_blueprint import (
-    AbsenceRequestDependencies,
+    create_absence_request_dependencies,
     create_absence_requests_blueprint,
 )
 from reports_blueprint import ReportsDependencies, create_reports_blueprint
@@ -1678,12 +1678,9 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     get_annotation_groups=get_annotation_groups,
 )))
 app.register_blueprint(create_absence_requests_blueprint(
-    AbsenceRequestDependencies(
+    create_absence_request_dependencies(
         db=db,
-        Staff=Staff,
-        Watch=Watch,
-        Leave=Leave,
-        Assignment=Assignment,
+        operational_models=_operational_models,
         is_admin_user=is_admin_user,
         parse_year_month=parse_ym,
         month_range=month_range,
@@ -1695,8 +1692,6 @@ app.register_blueprint(create_absence_requests_blueprint(
         current_unit_id=_current_unit_id,
         refresh_day_from_pattern_and_leave=refresh_day_from_pattern_and_leave,
         group_sickness_instances=_group_sickness_instances,
-        ShiftType=ShiftType,
-        ShiftRequest=ShiftRequest,
         workflow=request_workflow_service,
         utcnow=utcnow,
         request_statuses=REQUEST_STATUSES,
