@@ -124,6 +124,7 @@ from atcroster.roster import (
     expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     cell_is_protected,
+    assignment_for_day,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -3057,11 +3058,7 @@ def is_month_locked(y: int, m: int, today: Optional[date] = None) -> bool:
 
 
 def _assignment(staff_id: int, d: date) -> "Assignment":
-    a = Assignment.query.filter_by(staff_id=staff_id, day=d).first()
-    if not a:
-        a = Assignment(staff_id=staff_id, day=d)
-        db.session.add(a)
-    return a
+    return assignment_for_day(db, Assignment, staff_id, d)
 
 
 def _cell_is_protected(a: "Assignment") -> bool:

@@ -8,5 +8,6 @@ from .shifts import shift_groups_snapshot
 from .patterns import expand, validate
 from .dates import parse_hhmm, parse_iso_date
 from .editing import LOCKED_SOURCES, cell_is_protected
+from .assignments import assignment_for_day
 
-__all__ = ("LOCKED_SOURCES", "cell_is_protected", "expand", "invalidate_month_for_day", "is_month_locked", "lock_date_for_month", "lock_roster_month", "memoize", "month_add", "month_has_data", "parse_annotation", "parse_hhmm", "parse_iso_date", "shift_groups_snapshot", "validate")
+__all__ = ("LOCKED_SOURCES", "assignment_for_day", "cell_is_protected", "expand", "invalidate_month_for_day", "is_month_locked", "lock_date_for_month", "lock_roster_month", "memoize", "month_add", "month_has_data", "parse_annotation", "parse_hhmm", "parse_iso_date", "shift_groups_snapshot", "validate")
