@@ -287,6 +287,7 @@ from atcroster.roster.settings import (
     save_absence_catalogue,
     save_code_setting,
 )
+from atcroster.roster.impacts import generated_horizon_end, invalidate_impact_months
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -1560,11 +1561,9 @@ def deterministic_roster_population_service():
 
 
 def _generated_roster_horizon_end(unit_id: int, effective_from: date) -> date | None:
-    """Return the last generated date; future events wait for future generation."""
-    return db.session.query(db.func.max(Assignment.day)).filter(
-        Assignment.unit_id == unit_id,
-        Assignment.day >= effective_from,
-    ).scalar()
+    return generated_horizon_end(
+        unit_id, effective_from, db=db, Assignment=Assignment
+    )
 
 
 def _invalidate_roster_impact_coverage(
@@ -1574,19 +1573,14 @@ def _invalidate_roster_impact_coverage(
     _staff_ids: tuple[int, ...],
     _watch_ids: tuple[int, ...],
 ):
-    """Invalidate each affected monthly coverage/roster cache entry."""
-    cursor = effective_from.replace(day=1)
-    final = effective_to.replace(day=1)
-    while cursor <= final:
-        if _cache:
-            try:
-                _cache.delete_memoized(
-                    _load_month_roster_fast, int(unit_id), cursor.year, cursor.month
-                )
-            except Exception:
-                pass
-        next_year, next_month = add_months(cursor.year, cursor.month, 1)
-        cursor = date(next_year, next_month, 1)
+    return invalidate_impact_months(
+        unit_id,
+        effective_from,
+        effective_to,
+        cache=_cache,
+        cached_loader=_load_month_roster_fast,
+        add_months=add_months,
+    )
 
 
 def roster_impact_service():
