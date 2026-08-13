@@ -4,7 +4,7 @@ from calendar import monthrange
 from collections import defaultdict, Counter, OrderedDict, deque
 from typing import Any, Optional, Tuple
 import base64
-from urllib import parse as urllib_parse, request as urllib_request, error as urllib_error
+from urllib import parse as urllib_parse
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort, session, g, send_from_directory, jsonify
 from flask import render_template as flask_render_template
 import os
