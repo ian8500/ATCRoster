@@ -3,7 +3,7 @@
 from functools import wraps
 from collections import OrderedDict
 from typing import Any, Optional, Tuple
-from flask import render_template, request, redirect, url_for, flash, abort, session, g
+from flask import request, redirect, url_for, flash, abort, session, g
 import os
 import sys
 from functools import lru_cache
@@ -12,7 +12,7 @@ import json
 
 from flask_login import (
     LoginManager, login_user, logout_user,
-    current_user, login_required
+    current_user,
 )
 from werkzeug.security import generate_password_hash
 from sqlalchemy import event, inspect as sa_inspect
@@ -300,8 +300,10 @@ from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
 from atcroster.administration import (
+    AdminDashboardDependencies,
     AdministrationDependencies,
     ToilAdministrationDependencies,
+    create_admin_dashboard_blueprint,
     create_administration_blueprint,
     create_toil_administration_blueprint,
     seed_toil_balances,
@@ -309,10 +311,7 @@ from atcroster.administration import (
     apply_annotation_toil_delta,
     accrued_and_used_half_days,
 )
-from atcroster.administration.actions import (
-    AdminActionDependencies,
-    dispatch_admin_action,
-)
+from atcroster.administration.actions import AdminActionDependencies
 from atcroster.administration.onboarding import (
     OnboardingDependencies,
     create_onboarding_blueprint,
@@ -330,10 +329,7 @@ from atcroster.administration.watch_moves import (
     create_watch_move_blueprint,
 )
 from atcroster.administration.absence_types import update_absence_types
-from atcroster.administration.context import (
-    AdminContextDependencies,
-    build_admin_context,
-)
+from atcroster.administration.context import AdminContextDependencies
 from atcroster.administration.staff_edit import (
     StaffEditDependencies,
     create_staff_edit_blueprint,
@@ -1715,36 +1711,6 @@ def generate_month(year: int, month: int, *args, **kwargs):
     )
 
 
-def _is_working_day_code(code: str) -> bool:
-    """
-    True for working 'Day' shifts (codes that start with 'D'),
-    excluding non-working types like OFF/leave/TOIL/etc.
-    Uses ShiftType.is_working when known; otherwise falls back to prefix check.
-    """
-    c = (code or "").strip().upper()
-    if not c:
-        return False
-
-    NON_WORKING = {"OFF", "AL", "PL", "SPL", "TOU8", "TOUI",
-                   "OSS", "OFFICE", "WFH", "CTB", "MTG"}
-    if c in NON_WORKING:
-        return False
-
-    try:
-        sh = get_shift(c)
-    except NameError:
-        sh = None
-    if sh is None:
-        try:
-            sh = ShiftType.query.filter_by(code=c).first()
-        except Exception:
-            sh = None
-
-    if sh is not None:
-        return bool(getattr(sh, "is_working", False)) and c.startswith("D")
-    return c.startswith("D")
-
-
 _fatigue_rule_config_service = FatigueRuleConfigService(
     FatigueRuleConfigDependencies(
         db=db,
@@ -2259,47 +2225,6 @@ def _admin_action_dependencies():
         delete_special_requirement=delete_special_requirement,
         seed_toil_balances=seed_toil_balances,
     )
-
-
-@app.route("/admin", methods=["GET", "POST"])
-@login_required
-@admin_required
-def admin():
-
-    if request.method == "POST":
-        form = request.form.get("form", "")
-        response = dispatch_admin_action(
-            form, request.form, _admin_action_dependencies()
-        )
-        if response is not None:
-            return response
-
-    return render_template(
-        "admin.html",
-        **build_admin_context(AdminContextDependencies(
-            db=db,
-            Watch=Watch,
-            ShiftType=ShiftType,
-            QualificationType=QualificationType,
-            WorkPattern=WorkPattern,
-            Staff=Staff,
-            Requirement=Requirement,
-            SpecialRequirement=SpecialRequirement,
-            Leave=Leave,
-            Unit=Unit,
-            current_unit_id=_current_unit_id,
-            roster_settings_snapshot=_roster_settings_snapshot,
-            validate_pattern=_validated_pattern,
-            shift_counter_group=shift_counter_group,
-            sms_number_options=_sms_number_options,
-            sms_operational_options=_sms_operational_options,
-            sms_default_number=_sms_default_number,
-            absence_types=get_absence_types,
-            default_base_pattern=DEFAULT_BASE_PATTERN,
-            pattern_codes=PATTERN_CODES,
-        )),
-    )
-
 
 
 # Keep your dedicated staff edit route (ATCO edit)
@@ -3339,6 +3264,32 @@ app.register_blueprint(create_calendar_feed_blueprint(CalendarFeedDependencies(
 app.register_blueprint(create_administration_blueprint(AdministrationDependencies(
     is_admin_user=is_admin_user,
     live_position_enabled=live_position_enabled,
+)))
+app.register_blueprint(create_admin_dashboard_blueprint(AdminDashboardDependencies(
+    is_admin_user=is_admin_user,
+    actions=_admin_action_dependencies(),
+    context=AdminContextDependencies(
+        db=db,
+        Watch=Watch,
+        ShiftType=ShiftType,
+        QualificationType=QualificationType,
+        WorkPattern=WorkPattern,
+        Staff=Staff,
+        Requirement=Requirement,
+        SpecialRequirement=SpecialRequirement,
+        Leave=Leave,
+        Unit=Unit,
+        current_unit_id=_current_unit_id,
+        roster_settings_snapshot=_roster_settings_snapshot,
+        validate_pattern=_validated_pattern,
+        shift_counter_group=shift_counter_group,
+        sms_number_options=_sms_number_options,
+        sms_operational_options=_sms_operational_options,
+        sms_default_number=_sms_default_number,
+        absence_types=get_absence_types,
+        default_base_pattern=DEFAULT_BASE_PATTERN,
+        pattern_codes=PATTERN_CODES,
+    ),
 )))
 app.register_blueprint(create_staff_edit_blueprint(StaffEditDependencies(
     db=db,

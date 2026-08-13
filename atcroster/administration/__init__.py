@@ -1,6 +1,11 @@
 """Administration landing and policy-bound routes."""
 
-from .blueprint import AdministrationDependencies, create_administration_blueprint
+from .blueprint import (
+    AdminDashboardDependencies,
+    AdministrationDependencies,
+    create_admin_dashboard_blueprint,
+    create_administration_blueprint,
+)
 from .actions import AdminActionDependencies, dispatch_admin_action
 from .toil import (
     ToilAdministrationDependencies,
@@ -13,9 +18,11 @@ from .toil import (
 
 __all__ = (
     "AdministrationDependencies",
+    "AdminDashboardDependencies",
     "AdminActionDependencies",
     "ToilAdministrationDependencies",
     "create_administration_blueprint",
+    "create_admin_dashboard_blueprint",
     "dispatch_admin_action",
     "create_toil_administration_blueprint",
     "seed_toil_balances",
