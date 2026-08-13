@@ -37,6 +37,21 @@ class ReportingRuntimeDependencies:
     get_absence_types: Callable[..., list[dict[str, Any]]]
 
 
+def create_reporting_runtime_dependencies(
+    *, operational_models: Any, saas_models: Any, **services: Any
+) -> ReportingRuntimeDependencies:
+    """Bind reporting records at the reporting-domain boundary."""
+    return ReportingRuntimeDependencies(
+        Assignment=operational_models.Assignment,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        BankHoliday=saas_models.BankHoliday,
+        ChangeLog=operational_models.ChangeLog,
+        ShiftType=operational_models.ShiftType,
+        **services,
+    )
+
+
 class ReportingRuntime:
     """Own annotation, fairness, leave, and financial-year report calculations."""
 

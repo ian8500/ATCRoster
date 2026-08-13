@@ -124,7 +124,7 @@ from atcroster.clock import utcnow
 from atcroster.compatibility import module_callback
 from atcroster.composition import DeferredReference
 from atcroster.web_assets import register_template_helpers
-from atcroster.reports import ReportingRuntime, ReportingRuntimeDependencies
+from atcroster.reports import ReportingRuntime, create_reporting_runtime_dependencies
 from atcroster.auth import (
     AuthRuntime,
     AuthRuntimeDependencies,
@@ -1181,13 +1181,9 @@ _training_profile_allowed = partial(
 # -------------------- Metrics + CSV (date range; FYTD default) --------------------
 # (… unchanged metrics functions from your file …)
 
-reporting_runtime = ReportingRuntime(ReportingRuntimeDependencies(
-    Assignment=Assignment,
-    Staff=Staff,
-    Watch=Watch,
-    BankHoliday=BankHoliday,
-    ChangeLog=ChangeLog,
-    ShiftType=ShiftType,
+reporting_runtime = ReportingRuntime(create_reporting_runtime_dependencies(
+    operational_models=_operational_models,
+    saas_models=SaaS,
     FairnessAssignment=FairnessAssignment,
     FairnessStaff=FairnessStaff,
     current_unit_id=_current_unit_id,
