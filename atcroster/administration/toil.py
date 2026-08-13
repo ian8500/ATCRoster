@@ -9,6 +9,8 @@ from typing import Any, Callable
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
+from toil_service import apply_toil_transaction
+
 
 def seed_toil_balances(raw_lines: str, *, db: Any, Staff: Any) -> tuple[int, int]:
     """Import legacy TOIL balances expressed as days or hours."""
@@ -48,7 +50,7 @@ def seed_toil_balances(raw_lines: str, *, db: Any, Staff: Any) -> tuple[int, int
 def annotation_accrual_half_days(
     parsed: dict[str, Any] | None,
     *,
-    annotation_config: Callable[[str], dict[str, Any] | None],
+    annotation_config: Callable[[str | None], dict[str, Any] | None],
 ) -> int:
     if not parsed:
         return 0
@@ -110,6 +112,91 @@ def accrued_and_used_half_days(
         elif assignment.effective_code == "TOUI":
             used += 1
     return accrued, used
+
+
+@dataclass(frozen=True)
+class ToilServiceDependencies:
+    db: Any
+    Staff: Any
+    Assignment: Any
+    ToilTransaction: Any
+    current_unit_id: Callable[[], int]
+    parse_annotation: Callable[[str], dict[str, Any] | None]
+    annotation_config: Callable[[str | None], dict[str, Any] | None]
+    now: Callable[[], Any]
+
+
+class ToilService:
+    """Own TOIL ledger transactions and roster-annotation accounting."""
+
+    def __init__(self, dependencies: ToilServiceDependencies):
+        self.dependencies = dependencies
+
+    def accrual_half_days(self, parsed: dict[str, Any] | None) -> int:
+        return annotation_accrual_half_days(
+            parsed,
+            annotation_config=self.dependencies.annotation_config,
+        )
+
+    def record_transaction(
+        self,
+        person_id: int,
+        delta_half_days: int,
+        reason: str,
+        actor_id: int,
+        transaction_key: str | None = None,
+        source_type: str = "manual",
+        source_id: int | None = None,
+    ):
+        deps = self.dependencies
+        return apply_toil_transaction(
+            deps.db,
+            deps.Staff,
+            deps.ToilTransaction,
+            unit_id=deps.current_unit_id(),
+            person_id=person_id,
+            delta_half_days=delta_half_days,
+            reason=reason,
+            actor_id=actor_id,
+            utcnow=deps.now,
+            transaction_key=transaction_key,
+            source_type=source_type,
+            source_id=source_id,
+        )
+
+    def apply_annotation_delta(
+        self,
+        staff: Any,
+        old_annotation: str,
+        new_annotation: str,
+        *,
+        actor_id: int,
+        transaction_key: str | None = None,
+        source_id: int | None = None,
+    ) -> None:
+        return apply_annotation_toil_delta(
+            staff,
+            old_annotation,
+            new_annotation,
+            actor_id=actor_id,
+            parse_annotation=self.dependencies.parse_annotation,
+            accrual_half_days=self.accrual_half_days,
+            record_transaction=self.record_transaction,
+            transaction_key=transaction_key,
+            source_id=source_id,
+        )
+
+    def accrued_and_used(
+        self, staff_id: int, start_day: Any, end_day: Any
+    ) -> tuple[int, int]:
+        return accrued_and_used_half_days(
+            staff_id,
+            start_day,
+            end_day,
+            Assignment=self.dependencies.Assignment,
+            parse_annotation=self.dependencies.parse_annotation,
+            accrual_half_days=self.accrual_half_days,
+        )
 
 
 @dataclass(frozen=True)

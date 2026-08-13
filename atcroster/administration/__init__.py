@@ -8,6 +8,8 @@ from .blueprint import (
 )
 from .actions import AdminActionDependencies, dispatch_admin_action
 from .toil import (
+    ToilService,
+    ToilServiceDependencies,
     ToilAdministrationDependencies,
     create_toil_administration_blueprint,
     seed_toil_balances,
@@ -21,6 +23,8 @@ __all__ = (
     "AdminDashboardDependencies",
     "AdminActionDependencies",
     "ToilAdministrationDependencies",
+    "ToilService",
+    "ToilServiceDependencies",
     "create_administration_blueprint",
     "create_admin_dashboard_blueprint",
     "dispatch_admin_action",

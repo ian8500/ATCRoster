@@ -49,7 +49,6 @@ from roster_logic import (
     shift_minutes,
     validated_pattern,
 )
-from toil_service import apply_toil_transaction
 from production_operations import (
     MetricsRegistry,
     begin_request,
@@ -273,14 +272,13 @@ from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_fe
 from atcroster.administration import (
     AdminDashboardDependencies,
     AdministrationDependencies,
+    ToilService,
+    ToilServiceDependencies,
     ToilAdministrationDependencies,
     create_admin_dashboard_blueprint,
     create_administration_blueprint,
     create_toil_administration_blueprint,
     seed_toil_balances,
-    annotation_accrual_half_days,
-    apply_annotation_toil_delta,
-    accrued_and_used_half_days,
 )
 from atcroster.administration.actions import AdminActionDependencies
 from atcroster.administration.onboarding import (
@@ -2093,68 +2091,20 @@ def _current_leave_year_window(s: Staff, today: date | None = None):
     return current_leave_year_window(s, today)
 
 
-def _toil_accrual_half_days_from_annotation(parsed):
-    return annotation_accrual_half_days(
-        parsed, annotation_config=get_annotation_config
-    )
-
-
-def _record_toil_transaction(
-    person_id: int,
-    delta_half_days: int,
-    reason: str,
-    actor_id: int,
-    transaction_key: str | None = None,
-    source_type: str = "manual",
-    source_id: int | None = None,
-):
-    return apply_toil_transaction(
-        db,
-        Staff,
-        ToilTransaction,
-        unit_id=_current_unit_id(),
-        person_id=person_id,
-        delta_half_days=delta_half_days,
-        reason=reason,
-        actor_id=actor_id,
-        utcnow=utcnow,
-        transaction_key=transaction_key,
-        source_type=source_type,
-        source_id=source_id,
-    )
-
-
-def _apply_toil_annotation_delta(
-    staff: Staff,
-    old_annot: str,
-    new_annot: str,
-    *,
-    actor_id: int,
-    transaction_key: str | None = None,
-    source_id: int | None = None,
-):
-    return apply_annotation_toil_delta(
-        staff,
-        old_annot,
-        new_annot,
-        actor_id=actor_id,
-        parse_annotation=parse_annotation,
-        accrual_half_days=_toil_accrual_half_days_from_annotation,
-        record_transaction=_record_toil_transaction,
-        transaction_key=transaction_key,
-        source_id=source_id,
-    )
-
-
-def _toil_accrued_used_in_range_half_days(staff_id: int, start_day: date, end_day: date):
-    return accrued_and_used_half_days(
-        staff_id,
-        start_day,
-        end_day,
-        Assignment=Assignment,
-        parse_annotation=parse_annotation,
-        accrual_half_days=_toil_accrual_half_days_from_annotation,
-    )
+toil_service = ToilService(ToilServiceDependencies(
+    db=db,
+    Staff=Staff,
+    Assignment=Assignment,
+    ToilTransaction=ToilTransaction,
+    current_unit_id=_current_unit_id,
+    parse_annotation=parse_annotation,
+    annotation_config=get_annotation_config,
+    now=utcnow,
+))
+_toil_accrual_half_days_from_annotation = toil_service.accrual_half_days
+_record_toil_transaction = toil_service.record_transaction
+_apply_toil_annotation_delta = toil_service.apply_annotation_delta
+_toil_accrued_used_in_range_half_days = toil_service.accrued_and_used
 
 
 # ===== Sickness Report (unchanged) =====
