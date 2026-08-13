@@ -189,11 +189,11 @@ from atcroster.roster.publication import (
 )
 from atcroster.roster.overtime import (
     OvertimeSupport,
-    OvertimeSupportDependencies,
-    OvertimeCandidateDependencies,
     OvertimeCandidateService,
-    OvertimeDependencies,
+    create_overtime_candidate_dependencies,
+    create_overtime_dependencies,
     create_overtime_blueprint,
+    create_overtime_support_dependencies,
 )
 from atcroster.roster.setup import update_unit_roster_setup
 from atcroster.roster.watch_configuration import (
@@ -1221,8 +1221,8 @@ _compute_metrics_range = reporting_runtime.compute_metrics
 _compute_fairness_range = reporting_runtime.compute_fairness
 _fy_start_for = reporting_runtime.financial_year_start
 
-overtime_support = OvertimeSupport(OvertimeSupportDependencies(
-    Assignment=Assignment,
+overtime_support = OvertimeSupport(create_overtime_support_dependencies(
+    operational_models=_operational_models,
     parse_annotation=parse_annotation,
     annotation_tags_for=annotation_tags_for,
     working_codes=get_working_codes,
@@ -1288,10 +1288,8 @@ staff_has_qualification = eligibility_service.has_qualification
 _staff_has_shift_qualification = eligibility_service.has_shift_qualification
 
 _overtime_candidate_service = OvertimeCandidateService(
-    OvertimeCandidateDependencies(
-        Assignment=Assignment,
-        Staff=Staff,
-        Watch=Watch,
+    create_overtime_candidate_dependencies(
+        operational_models=_operational_models,
         current_unit_id=_current_unit_id,
         get_shift=get_shift,
         ensure_assignments_for_range=ensure_assignments_for_range,
@@ -1817,9 +1815,8 @@ app.register_blueprint(create_reference_data_blueprint(create_reference_data_dep
     non_working_codes=get_non_working_codes,
     admin_required=admin_required,
 )))
-app.register_blueprint(create_overtime_blueprint(OvertimeDependencies(
-    ShiftType=ShiftType,
-    Staff=Staff,
+app.register_blueprint(create_overtime_blueprint(create_overtime_dependencies(
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     consume_rate_limit=_consume_rate_limit,
     is_editor_user=is_editor_user,

@@ -116,6 +116,16 @@ class OvertimeSupportDependencies:
     get_shift: Callable[..., Any]
 
 
+def create_overtime_support_dependencies(
+    *, operational_models: Any, **services: Any
+) -> OvertimeSupportDependencies:
+    """Bind historical roster records for overtime checks."""
+    return OvertimeSupportDependencies(
+        Assignment=operational_models.Assignment,
+        **services,
+    )
+
+
 class OvertimeSupport:
     """Own the historical-duty checks used to rank overtime candidates."""
 
@@ -187,6 +197,17 @@ class OvertimeDependencies:
     sms_configured: Callable[[], bool]
 
 
+def create_overtime_dependencies(
+    *, operational_models: Any, **services: Any
+) -> OvertimeDependencies:
+    """Bind overtime route models outside the application root."""
+    return OvertimeDependencies(
+        ShiftType=operational_models.ShiftType,
+        Staff=operational_models.Staff,
+        **services,
+    )
+
+
 @dataclass(frozen=True)
 class OvertimeCandidateDependencies:
     Assignment: Any
@@ -203,6 +224,18 @@ class OvertimeCandidateDependencies:
     would_create_new_fatigue_issues: Callable[..., dict[Any, list[str]]]
     count_aava_soal: Callable[[int, Any], tuple[int, int]]
     had_sc_within_48h: Callable[[Any, Any, Any], bool]
+
+
+def create_overtime_candidate_dependencies(
+    *, operational_models: Any, **services: Any
+) -> OvertimeCandidateDependencies:
+    """Bind candidate-selection records at the roster boundary."""
+    return OvertimeCandidateDependencies(
+        Assignment=operational_models.Assignment,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        **services,
+    )
 
 
 class OvertimeCandidateService:
