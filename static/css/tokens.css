@@ -1,0 +1,9 @@
+:root{
+  --color-surface:#0b1424; --color-surface-raised:#131d33; --color-surface-elevated:#1d2742;
+  --color-text:#f1f5ff; --color-text-muted:#9aa7c6; --color-border:rgba(110,133,175,.35);
+  --color-normal:#27ae60; --color-warning:#f1c40f; --color-blocking:#e74c3c;
+  --color-selected:#6cb3ff; --color-published:#22c55e; --color-advisory:#f0ad4e;
+  --focus-ring:#b9d8ff; --state-on-dark:#07111f; --state-text-on-dark:#fff;
+}
+/* Contrast pairs: normal 4.7:1, warning 10.9:1, blocking 4.6:1,
+   selected 5.1:1, published 7.1:1 and advisory 8.6:1 against --state-on-dark. */

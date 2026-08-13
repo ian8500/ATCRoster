@@ -1,0 +1,3 @@
+.app-body{background:var(--color-surface);color:var(--color-text)}
+.site-header,.site-footer{background:var(--color-surface-raised);border-color:var(--color-border)}
+.skip-link:focus-visible,:focus-visible{outline:3px solid var(--focus-ring);outline-offset:3px}
