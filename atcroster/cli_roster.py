@@ -9,6 +9,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 import click
+from flask.cli import with_appcontext
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ def create_roster_cli(dependencies: RosterCliDependencies):
         """Deterministic roster maintenance commands."""
 
     @roster_cli.command("ensure-future-periods")
+    @with_appcontext
     @click.option("--months-ahead", type=click.IntRange(min=0, max=60), default=None)
     @click.option(
         "--unit-code", default=None, help="Limit maintenance to one airport code."

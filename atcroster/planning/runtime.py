@@ -67,6 +67,7 @@ class PlanningDependencies:
 @dataclass(frozen=True)
 class PlanningServices:
     patterns: Any
+    admin: Any
     validation: Any
     proposals: Any
     override_classification: Any
@@ -133,4 +134,4 @@ def create_planning_services(app: Any, deps: PlanningDependencies) -> PlanningSe
             record_roster_impact=deps.record_roster_impact,
         )
     ))
-    return PlanningServices(patterns, validation, proposals, override_classification)
+    return PlanningServices(patterns, admin, validation, proposals, override_classification)

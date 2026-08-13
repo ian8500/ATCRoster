@@ -3,6 +3,7 @@
 from functools import wraps
 from typing import Any, Optional, Tuple
 from flask import redirect, url_for, flash, abort, session, g
+import json as _json
 import os
 import sys
 from functools import lru_cache
@@ -357,6 +358,8 @@ except Exception:
 
 # -------------------- App setup --------------------
 app = create_app()
+# Legacy callers imported the JSON module from the former monolith.
+json = _json
 _runtime_settings = get_runtime_settings(app)
 configure_production_logging(app, _runtime_settings.deployment_environment)
 _operational_metrics = MetricsRegistry()
@@ -1774,6 +1777,7 @@ planning_services = create_planning_services(app, PlanningDependencies(
     record_roster_impact=record_roster_impact,
 ))
 work_pattern_service = planning_services.patterns
+work_pattern_admin_service = planning_services.admin
 roster_validation_service = planning_services.validation
 roster_proposal_service = planning_services.proposals
 override_classification_service = planning_services.override_classification
@@ -1922,8 +1926,9 @@ publication_service = create_publication_service(PublicationDependencies(
     compliance_findings=_compliance_findings,
     position_assurance=_position_assurance,
     valid_email=_valid_email,
-    send_account_email=_send_account_email,
+    send_account_email=lambda *args: globals()["_send_account_email"](*args),
 ))
+_roster_snapshot = publication_service.snapshot
 app.register_blueprint(create_roster_blueprint(RosterDependencies(
     db=db,
     RosterPublication=RosterPublication,
@@ -2055,7 +2060,9 @@ register_notification_blueprints(app, NotificationRegistrationDependencies(
     can_send_unit_messages=can_send_unit_messages,
     sms_configuration=sms_configuration,
     normalise_sms_number=_normalise_sms_number,
-    send_sms=_send_sms,
+    send_sms=lambda *args, **kwargs: globals()["_send_sms_via_messagemedia"](
+        *args, **kwargs
+    ),
     record_sms_audit=_record_sms_audit,
     flash_sms_result=_flash_sms_result,
 ))
