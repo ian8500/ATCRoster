@@ -26,6 +26,183 @@ class OvertimeDependencies:
     sms_configured: Callable[[], bool]
 
 
+@dataclass(frozen=True)
+class OvertimeCandidateDependencies:
+    Assignment: Any
+    Staff: Any
+    Watch: Any
+    current_unit_id: Callable[[], int]
+    get_shift: Callable[..., Any]
+    ensure_assignments_for_range: Callable[[Any, Any], None]
+    annotation_codes_for_tag: Callable[..., list[str]]
+    get_annotation_config: Callable[[str], Any]
+    staff_has_shift_qualification: Callable[[Any, Any, Any], bool]
+    has_in_date_ue: Callable[[Any, Any], bool]
+    worked_like_consecutive_days: Callable[..., int]
+    would_create_new_fatigue_issues: Callable[..., dict[Any, list[str]]]
+    count_aava_soal: Callable[[int, Any], tuple[int, int]]
+    had_sc_within_48h: Callable[[Any, Any, Any], bool]
+
+
+class OvertimeCandidateService:
+    """Find and rank operational staff eligible for an overtime duty."""
+
+    def __init__(self, dependencies: OvertimeCandidateDependencies):
+        self.dependencies = dependencies
+
+    def compute(
+        self, chosen_date: Any, chosen_shift_code: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
+        dependencies = self.dependencies
+        shift_code = (chosen_shift_code or "").upper().strip()
+        unit_id = dependencies.current_unit_id()
+        shift = dependencies.get_shift(shift_code, unit_id)
+        if not (chosen_date and shift and shift.is_working):
+            return [], [], "Please select a valid date and working shift."
+
+        lookahead_days = 14
+        dependencies.ensure_assignments_for_range(
+            chosen_date - timedelta(days=30),
+            chosen_date + timedelta(days=lookahead_days),
+        )
+        staff_members = (
+            dependencies.Staff.query.outerjoin(
+                dependencies.Watch,
+                dependencies.Staff.watch_id == dependencies.Watch.id,
+            )
+            .filter(
+                dependencies.Staff.unit_id == unit_id,
+                dependencies.Staff.is_operational.is_(True),
+            )
+            .order_by(dependencies.Watch.order_index, dependencies.Staff.name)
+            .all()
+        )
+
+        soal_codes = dependencies.annotation_codes_for_tag("soal", active_only=False)
+        soal_display = "SOAL"
+        if soal_codes:
+            first = soal_codes[0]
+            info = dependencies.get_annotation_config(first)
+            soal_display = (info.get("label") if info else first) or first
+
+        results: list[dict[str, Any]] = []
+        excluded: list[dict[str, Any]] = []
+        for staff in staff_members:
+            reasons = self._exclusion_reasons(
+                staff, shift, chosen_date, shift_code, unit_id, lookahead_days
+            )
+            assignment = dependencies.Assignment.query.filter_by(
+                unit_id=unit_id, staff_id=staff.id, day=chosen_date
+            ).first()
+            rostered_code = assignment.code if assignment else "OFF"
+            blocking, warnings = self._fatigue_outcome(
+                staff, chosen_date, shift_code, lookahead_days
+            )
+            reasons.extend(blocking)
+            if reasons:
+                excluded.append(
+                    {
+                        "staff": staff,
+                        "watch": self._watch_name(staff),
+                        "rostered_code": rostered_code,
+                        "reasons": reasons,
+                    }
+                )
+                continue
+
+            aava, soal = dependencies.count_aava_soal(
+                staff.id, chosen_date - timedelta(days=1)
+            )
+            flags = []
+            if rostered_code == "AL":
+                flags.append(f"On AL that day — {soal_display} required")
+            if dependencies.had_sc_within_48h(staff, chosen_date, shift):
+                flags.append("SC/SSC within 48h — managerial approval required")
+            flags.extend(warnings)
+            results.append(
+                {
+                    "staff": staff,
+                    "watch": self._watch_name(staff),
+                    "aava_to_date": aava,
+                    "soal_to_date": soal,
+                    "total_to_date": aava + soal,
+                    "score": aava + soal,
+                    "flags": flags,
+                }
+            )
+
+        results.sort(
+            key=lambda row: (
+                row["aava_to_date"],
+                row["soal_to_date"],
+                row["staff"].name.lower(),
+            )
+        )
+        excluded.sort(key=lambda row: row["staff"].name.lower())
+        return results, excluded, None
+
+    def _exclusion_reasons(
+        self, staff, shift, chosen_date, shift_code, unit_id, lookahead_days
+    ) -> list[str]:
+        dependencies = self.dependencies
+        reasons = ["Opted out of overtime"] if staff.exclude_from_ot else []
+        if not reasons and not dependencies.staff_has_shift_qualification(
+            staff, shift, chosen_date
+        ):
+            qualification = (shift.required_qualification or "").strip().upper()
+            reasons.append(
+                f"Missing or expired {qualification} qualification"
+                if qualification
+                else "Missing required shift qualification"
+            )
+        assignment = dependencies.Assignment.query.filter_by(
+            unit_id=unit_id, staff_id=staff.id, day=chosen_date
+        ).first()
+        rostered_code = assignment.code if assignment else "OFF"
+        rostered_shift = dependencies.get_shift(rostered_code, unit_id)
+        if rostered_shift and rostered_shift.is_working:
+            reasons.append(f"Already rostered for {rostered_code}")
+        if rostered_code in {"SC", "SSC"}:
+            reasons.append(f"Rostered {rostered_code}")
+        if not dependencies.has_in_date_ue(staff, chosen_date):
+            reasons.append("No in-date tower or radar endorsement")
+        consecutive = dependencies.worked_like_consecutive_days(
+            staff, chosen_date - timedelta(days=1), lookback_days=6
+        )
+        if consecutive >= 6:
+            reasons.append("Already worked six consecutive duties")
+        return reasons
+
+    def _fatigue_outcome(
+        self, staff, chosen_date, shift_code, lookahead_days
+    ) -> tuple[list[str], list[str]]:
+        issues = self.dependencies.would_create_new_fatigue_issues(
+            staff,
+            chosen_date,
+            shift_code,
+            lookback_days=30,
+            lookahead_days=lookahead_days,
+        )
+        warnings = []
+        blocking = []
+        for finding_day, findings in issues.items():
+            for finding in findings:
+                if finding.startswith(("D24:", "D24 rest deficit")):
+                    warnings.append(f"{finding_day.isoformat()}: {finding}")
+                else:
+                    blocking.append(finding)
+        return (
+            ["Blocking fatigue rule: " + "; ".join(sorted(set(blocking)))]
+            if blocking
+            else [],
+            warnings,
+        )
+
+    @staticmethod
+    def _watch_name(staff: Any) -> str:
+        return staff.watch.name.replace("Watch ", "") if staff.watch else "-"
+
+
 def create_overtime_blueprint(dependencies: OvertimeDependencies) -> Blueprint:
     blueprint = Blueprint("overtime", __name__)
     ShiftType = dependencies.ShiftType

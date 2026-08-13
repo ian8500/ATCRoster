@@ -202,7 +202,12 @@ from atcroster.roster.publication import (
     PublicationDependencies,
     create_publication_service,
 )
-from atcroster.roster.overtime import OvertimeDependencies, create_overtime_blueprint
+from atcroster.roster.overtime import (
+    OvertimeCandidateDependencies,
+    OvertimeCandidateService,
+    OvertimeDependencies,
+    create_overtime_blueprint,
+)
 from atcroster.roster.setup import update_unit_roster_setup
 from atcroster.roster.watch_configuration import (
     WatchConfigurationDependencies,
@@ -3360,125 +3365,7 @@ def _count_ot_since_prev_april(staff_id: int, upto: date):
 
 
 def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: str):
-    shift_code = (chosen_shift_code or "").upper().strip()
-    unit_id = _current_unit_id()
-    sh = get_shift(shift_code, unit_id)
-    if not (chosen_date and sh and sh.is_working):
-        return [], [], "Please select a valid date and working shift."
-
-    lookahead_days = 14
-    ensure_assignments_for_range(chosen_date - timedelta(days=30),
-                                 chosen_date + timedelta(days=lookahead_days))
-
-    staff_members = (
-        Staff.query
-        .outerjoin(Watch, Staff.watch_id == Watch.id)
-        .filter(
-            Staff.unit_id == unit_id,
-            Staff.is_operational.is_(True),
-        )
-        .order_by(Watch.order_index, Staff.name)
-        .all()
-    )
-
-    soal_codes = annotation_codes_for_tag("soal", active_only=False)
-    soal_display = "SOAL"
-    if soal_codes:
-        first = soal_codes[0]
-        info = get_annotation_config(first)
-        soal_display = (info.get("label") if info else first) or first
-
-    results = []
-    excluded = []
-    for s in staff_members:
-        reasons = []
-        if s.exclude_from_ot:
-            reasons.append("Opted out of overtime")
-
-        if not reasons and not _staff_has_shift_qualification(s, sh, chosen_date):
-            qualification = (sh.required_qualification or "").strip().upper()
-            reasons.append(
-                f"Missing or expired {qualification} qualification"
-                if qualification else "Missing required shift qualification"
-            )
-
-        a_today = Assignment.query.filter_by(
-            unit_id=unit_id, staff_id=s.id, day=chosen_date
-        ).first()
-        code_today = a_today.code if a_today else "OFF"
-        sh_today = get_shift(code_today, unit_id)
-        if sh_today and sh_today.is_working:
-            reasons.append(f"Already rostered for {code_today}")
-
-        if code_today in ("SC", "SSC"):
-            reasons.append(f"Rostered {code_today}")
-
-        if not _has_in_date_ue(s, chosen_date):
-            reasons.append("No in-date tower or radar endorsement")
-
-        if _worked_like_consecutive_days(s, chosen_date - timedelta(days=1), lookback_days=6) >= 6:
-            reasons.append("Already worked six consecutive duties")
-
-        future_issues = would_create_new_fatigue_issues(
-            s, chosen_date, shift_code, lookback_days=30, lookahead_days=lookahead_days
-        )
-
-        d24_warnings = []
-        blocking_issues = {}
-        for _d, _lst in future_issues.items():
-            keep = []
-            for _f in _lst:
-                if _f.startswith(("D24:", "D24 rest deficit")):
-                    d24_warnings.append(f"{_d.isoformat()}: {_f}")
-                else:
-                    keep.append(_f)
-            if keep:
-                blocking_issues[_d] = keep
-
-        if any(blocking_issues.values()):
-            fatigue_reasons = sorted({
-                issue
-                for issues in blocking_issues.values()
-                for issue in issues
-            })
-            reasons.append("Blocking fatigue rule: " + "; ".join(fatigue_reasons))
-
-        if reasons:
-            excluded.append({
-                "staff": s,
-                "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
-                "rostered_code": code_today,
-                "reasons": reasons,
-            })
-            continue
-
-        count_upto = chosen_date - timedelta(days=1)
-        aava_to_date, soal_to_date = _count_aava_soal_since_prev_april(
-            s.id, count_upto)
-        total_to_date = aava_to_date + soal_to_date
-
-        flags = []
-        if code_today == "AL":
-            flags.append(f"On AL that day — {soal_display} required")
-        if _had_sc_within_48h(s, chosen_date, sh):
-            flags.append(
-                "SC/SSC within 48h — managerial approval required")
-        flags.extend(d24_warnings)
-
-        results.append({
-            "staff": s,
-            "watch": s.watch.name.replace("Watch ", "") if s.watch else "-",
-            "aava_to_date": aava_to_date,
-            "soal_to_date": soal_to_date,
-            "total_to_date": total_to_date,
-            "score": total_to_date,
-            "flags": flags
-        })
-
-    results.sort(key=lambda r: (
-        r["aava_to_date"], r["soal_to_date"], r["staff"].name.lower()))
-    excluded.sort(key=lambda row: row["staff"].name.lower())
-    return results, excluded, None
+    return _overtime_candidate_service.compute(chosen_date, chosen_shift_code)
 
 
 
@@ -3679,6 +3566,26 @@ def _staff_has_shift_qualification(
         shift.required_qualification,
         duty_date or date.today(),
     )
+
+
+_overtime_candidate_service = OvertimeCandidateService(
+    OvertimeCandidateDependencies(
+        Assignment=Assignment,
+        Staff=Staff,
+        Watch=Watch,
+        current_unit_id=_current_unit_id,
+        get_shift=get_shift,
+        ensure_assignments_for_range=ensure_assignments_for_range,
+        annotation_codes_for_tag=annotation_codes_for_tag,
+        get_annotation_config=get_annotation_config,
+        staff_has_shift_qualification=_staff_has_shift_qualification,
+        has_in_date_ue=_has_in_date_ue,
+        worked_like_consecutive_days=_worked_like_consecutive_days,
+        would_create_new_fatigue_issues=would_create_new_fatigue_issues,
+        count_aava_soal=_count_aava_soal_since_prev_april,
+        had_sc_within_48h=_had_sc_within_48h,
+    )
+)
 
 
 
