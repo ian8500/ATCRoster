@@ -207,14 +207,12 @@ from atcroster.roster.publication import (
     create_publication_service,
 )
 from atcroster.roster.overtime import (
+    OvertimeSupport,
+    OvertimeSupportDependencies,
     OvertimeCandidateDependencies,
     OvertimeCandidateService,
     OvertimeDependencies,
-    count_tagged_assignments,
     create_overtime_blueprint,
-    had_sickness_within_48_hours,
-    has_in_date_endorsement,
-    worked_like_consecutive_days,
 )
 from atcroster.roster.setup import update_unit_roster_setup
 from atcroster.roster.watch_configuration import (
@@ -1980,56 +1978,25 @@ _compute_fairness_range = reporting_runtime.compute_fairness
 _fy_start_for = reporting_runtime.financial_year_start
 
 
-def _count_aava_soal_since_prev_april(staff_id: int, upto: date):
-    counts = count_tagged_assignments(
-        staff_id,
-        upto,
-        ("aava", "soal"),
-        Assignment=Assignment,
-        parse_annotation=parse_annotation,
-        annotation_tags_for=annotation_tags_for,
-    )
-    return counts["aava"], counts["soal"]
-
-
-def _worked_like_consecutive_days(staff: Staff, upto_day: date, lookback_days: int = 10) -> int:
-    return worked_like_consecutive_days(
-        staff,
-        upto_day,
-        Assignment=Assignment,
-        working_codes=get_working_codes,
-        lookback_days=lookback_days,
-    )
-
-
-def _had_sc_within_48h(staff: Staff, ref_day: date, ref_shift: ShiftType) -> bool:
-    return had_sickness_within_48_hours(
-        staff,
-        ref_day,
-        ref_shift,
-        Assignment=Assignment,
-        span=_span,
-        get_shift=get_shift,
-    )
-
-
-def _has_in_date_ue(s: Staff, ref_day: date) -> bool:
-    return has_in_date_endorsement(s, ref_day)
+overtime_support = OvertimeSupport(OvertimeSupportDependencies(
+    Assignment=Assignment,
+    parse_annotation=parse_annotation,
+    annotation_tags_for=annotation_tags_for,
+    working_codes=get_working_codes,
+    span=_span,
+    get_shift=get_shift,
+))
+_count_aava_soal_since_prev_april = overtime_support.count_aava_soal
+_worked_like_consecutive_days = overtime_support.worked_like_consecutive_days
+_had_sc_within_48h = overtime_support.had_sickness_within_48_hours
+_has_in_date_ue = overtime_support.has_in_date_endorsement
 
 
 # -------------------- Overtime finder (admin/editor) --------------------
 # (… unchanged from your file …)
 
 
-def _count_ot_since_prev_april(staff_id: int, upto: date):
-    return count_tagged_assignments(
-        staff_id,
-        upto,
-        ("ot",),
-        Assignment=Assignment,
-        parse_annotation=parse_annotation,
-        annotation_tags_for=annotation_tags_for,
-    )["ot"]
+_count_ot_since_prev_april = overtime_support.count_overtime
 
 # … keep the rest of your overtime helpers exactly as pasted …
 

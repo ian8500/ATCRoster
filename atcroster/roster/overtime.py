@@ -107,6 +107,71 @@ def has_in_date_endorsement(staff: Any, reference_day: Any) -> bool:
 
 
 @dataclass(frozen=True)
+class OvertimeSupportDependencies:
+    Assignment: Any
+    parse_annotation: Callable[[Any], Any]
+    annotation_tags_for: Callable[[str], set[str]]
+    working_codes: Callable[[], set[str]]
+    span: Callable[..., tuple[Any, Any]]
+    get_shift: Callable[..., Any]
+
+
+class OvertimeSupport:
+    """Own the historical-duty checks used to rank overtime candidates."""
+
+    def __init__(self, dependencies: OvertimeSupportDependencies):
+        self.dependencies = dependencies
+
+    def _tag_counts(
+        self, staff_id: int, upto: Any, tags: tuple[str, ...]
+    ) -> dict[str, int]:
+        deps = self.dependencies
+        return count_tagged_assignments(
+            staff_id,
+            upto,
+            tags,
+            Assignment=deps.Assignment,
+            parse_annotation=deps.parse_annotation,
+            annotation_tags_for=deps.annotation_tags_for,
+        )
+
+    def count_aava_soal(self, staff_id: int, upto: Any) -> tuple[int, int]:
+        counts = self._tag_counts(staff_id, upto, ("aava", "soal"))
+        return counts["aava"], counts["soal"]
+
+    def count_overtime(self, staff_id: int, upto: Any) -> int:
+        return self._tag_counts(staff_id, upto, ("ot",))["ot"]
+
+    def worked_like_consecutive_days(
+        self, staff: Any, upto_day: Any, lookback_days: int = 10
+    ) -> int:
+        return worked_like_consecutive_days(
+            staff,
+            upto_day,
+            Assignment=self.dependencies.Assignment,
+            working_codes=self.dependencies.working_codes,
+            lookback_days=lookback_days,
+        )
+
+    def had_sickness_within_48_hours(
+        self, staff: Any, reference_day: Any, reference_shift: Any
+    ) -> bool:
+        deps = self.dependencies
+        return had_sickness_within_48_hours(
+            staff,
+            reference_day,
+            reference_shift,
+            Assignment=deps.Assignment,
+            span=deps.span,
+            get_shift=deps.get_shift,
+        )
+
+    @staticmethod
+    def has_in_date_endorsement(staff: Any, reference_day: Any) -> bool:
+        return has_in_date_endorsement(staff, reference_day)
+
+
+@dataclass(frozen=True)
 class OvertimeDependencies:
     ShiftType: Any
     Staff: Any
