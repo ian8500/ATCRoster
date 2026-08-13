@@ -46,6 +46,18 @@ class ReportsDependencies:
     operational_currency_runtime: Any
 
 
+def create_reports_dependencies(
+    *, operational_models: Any, **services: Any
+) -> ReportsDependencies:
+    """Bind report queries to their operational records."""
+    return ReportsDependencies(
+        Assignment=operational_models.Assignment,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        **services,
+    )
+
+
 def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
     blueprint = Blueprint("reports", __name__)
 

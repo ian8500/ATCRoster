@@ -344,7 +344,7 @@ from absence_requests_blueprint import (
     create_absence_request_dependencies,
     create_absence_requests_blueprint,
 )
-from reports_blueprint import ReportsDependencies, create_reports_blueprint
+from reports_blueprint import create_reports_blueprint, create_reports_dependencies
 from roster_blueprint import create_roster_blueprint, create_roster_dependencies
 from training_blueprint import create_training_blueprint, create_training_dependencies
 from roster_period_service import RosterPeriodDependencies, RosterPeriodService
@@ -1580,10 +1580,8 @@ register_qualification_blueprints(app, QualificationRegistrationDependencies(
     save_currency_requirement=_save_operational_currency_requirement,
     currency_shortfalls=_operational_currency_shortfalls,
 ))
-app.register_blueprint(create_reports_blueprint(ReportsDependencies(
-    Assignment=Assignment,
-    Staff=Staff,
-    Watch=Watch,
+app.register_blueprint(create_reports_blueprint(create_reports_dependencies(
+    operational_models=_operational_models,
     is_admin_user=is_admin_user,
     current_unit_id=_current_unit_id,
     validate_csrf=_validate_csrf,
