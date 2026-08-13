@@ -1,5 +1,6 @@
 """Subscribed airport module launcher."""
 
 from .blueprint import ModuleDependencies, create_module_blueprint
+from .availability import ModuleAvailability
 
-__all__ = ("ModuleDependencies", "create_module_blueprint")
+__all__ = ("ModuleAvailability", "ModuleDependencies", "create_module_blueprint")

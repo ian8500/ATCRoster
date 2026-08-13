@@ -235,7 +235,11 @@ from atcroster.roster.impacts import (
 )
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
-from atcroster.modules import ModuleDependencies, create_module_blueprint
+from atcroster.modules import (
+    ModuleAvailability,
+    ModuleDependencies,
+    create_module_blueprint,
+)
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
 from atcroster.administration import (
     AdminDashboardDependencies,
@@ -982,69 +986,21 @@ _load_month_roster_fast = _memoize(seconds=300)(_load_month_roster_core)
 # === Unified permissions (admins, editors, WM, DWM) ===
 
 
-def is_admin_user(u) -> bool:
-    return is_admin(u)
-
-
-def is_editor_user(u) -> bool:
-    return is_editor(u)
-
-
-def user_permissions(u) -> dict[str, bool]:
-    return permissions_for(u)
-
-
-def has_unit_permission(u, permission: str) -> bool:
-    return has_permission(u, permission)
-
-
-def is_under_training(person) -> bool:
-    return is_trainee(person)
-
-
-def can_record_training(u) -> bool:
-    return may_record_training(u)
-
-
-def can_manage_training(u) -> bool:
-    return may_manage_training(u)
-
-
-def training_enabled(unit_id: int) -> bool:
-    return bool(FeatureFlag.query.filter_by(
-        unit_id=unit_id, key="training_module", enabled=True
-    ).first())
-
-
-def competency_enabled(unit_id: int) -> bool:
-    row = FeatureFlag.query.filter_by(
-        unit_id=unit_id, key="competency_module"
-    ).first()
-    # Existing airports inherit their current combined-module entitlement
-    # until Super Admin explicitly chooses a separate competency setting.
-    return bool(row.enabled) if row else training_enabled(unit_id)
-
-
-def live_position_enabled(unit_id: int) -> bool:
-    return bool(FeatureFlag.query.filter_by(
-        unit_id=unit_id, key="live_position_monitoring", enabled=True
-    ).first())
-
-
-def can_edit_roster(u) -> bool:
-    return may_edit_roster(u)
-
-
-def can_apply_annotations(u) -> bool:
-    return may_apply_annotations(u)
-
-
-def can_send_unit_messages(u) -> bool:
-    return may_send_unit_messages(u)
-
-
-def can_override_roster_conflicts(u) -> bool:
-    return may_override_roster_conflicts(u)
+is_admin_user = is_admin
+is_editor_user = is_editor
+user_permissions = permissions_for
+has_unit_permission = has_permission
+is_under_training = is_trainee
+can_record_training = may_record_training
+can_manage_training = may_manage_training
+can_edit_roster = may_edit_roster
+can_apply_annotations = may_apply_annotations
+can_send_unit_messages = may_send_unit_messages
+can_override_roster_conflicts = may_override_roster_conflicts
+module_availability = ModuleAvailability(FeatureFlag)
+training_enabled = module_availability.training
+competency_enabled = module_availability.competency
+live_position_enabled = module_availability.live_position
 
 
 def tenant_get(model, record_id: int):
