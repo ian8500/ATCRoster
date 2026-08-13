@@ -84,6 +84,11 @@ single-assignment deferred references from `atcroster.composition`, which fail
 clearly when assembly order is invalid. A clean-process import test detects new
 circular-import failures.
 
+The public application export contract is covered by
+`tests/test_application_compatibility.py`. Any extraction that removes a
+legacy model, helper, or service alias must either retain that alias or update
+the contract alongside a deliberate integration migration.
+
 The public `app.py` module is a small compatibility entrypoint. Application
 composition and legacy model compatibility live in `atcroster.application`, so
 WSGI, workers, scripts, and existing integrations retain the stable `app`
