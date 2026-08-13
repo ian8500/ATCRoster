@@ -2,7 +2,7 @@
 
 from functools import wraps
 from typing import Any, Optional, Tuple
-from flask import request, redirect, url_for, flash, abort, session, g
+from flask import redirect, url_for, flash, abort, session, g
 import os
 import sys
 from functools import lru_cache
@@ -284,7 +284,7 @@ from atcroster.administration.staff_edit import (
 from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.navigation import (
     NavigationContextDependencies,
-    build_navigation_context,
+    register_navigation_context,
 )
 from atcroster.requests import (
     RequestWorkflowDependencies,
@@ -342,7 +342,11 @@ from atcroster.security.headers import (
     SecurityHeaderDependencies,
     register_security_headers,
 )
-from atcroster.security import PrincipalBoundaryDependencies, register_principal_boundaries
+from atcroster.security import (
+    PrincipalBoundaryDependencies,
+    create_admin_required,
+    register_principal_boundaries,
+)
 from atcroster.security.sessions import (
     SessionLifecycle,
     SessionLifecycleDependencies,
@@ -1784,13 +1788,7 @@ _is_working_day_code = roster_editing_runtime.working_day_code
 _is_working_m_code = roster_editing_runtime.working_morning_code
 _is_working_n_code = roster_editing_runtime.working_night_code
 
-def admin_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if not current_user.is_authenticated or not is_admin_user(current_user):
-            abort(403)
-        return f(*args, **kwargs)
-    return wrapper
+admin_required = create_admin_required(is_admin_user)
 
 
 
@@ -1804,29 +1802,26 @@ def _clamp_prev_next(year, month):
             f"{next_y}-{next_m:02d}")
 
 
-@app.context_processor
-def inject_perms():
-    return build_navigation_context(
-        current_user,
-        request.endpoint,
-        NavigationContextDependencies(
-            db=db,
-            Unit=Unit,
-            Staff=Staff,
-            ShiftRequest=ShiftRequest,
-            FeatureFlag=FeatureFlag,
-            Notification=Notification,
-            BriefingDelivery=BriefingDelivery,
-            BriefingItem=BriefingItem,
-            is_admin_user=is_admin_user,
-            is_editor_user=is_editor_user,
-            briefing_enabled=briefing_enabled,
-            training_enabled=training_enabled,
-            competency_enabled=competency_enabled,
-            live_position_enabled=live_position_enabled,
-            briefing_local_now=briefing_local_now,
-        ),
-    )
+inject_perms = register_navigation_context(
+    app,
+    NavigationContextDependencies(
+        db=db,
+        Unit=Unit,
+        Staff=Staff,
+        ShiftRequest=ShiftRequest,
+        FeatureFlag=FeatureFlag,
+        Notification=Notification,
+        BriefingDelivery=BriefingDelivery,
+        BriefingItem=BriefingItem,
+        is_admin_user=is_admin_user,
+        is_editor_user=is_editor_user,
+        briefing_enabled=briefing_enabled,
+        training_enabled=training_enabled,
+        competency_enabled=competency_enabled,
+        live_position_enabled=live_position_enabled,
+        briefing_local_now=briefing_local_now,
+    ),
+)
 
 
 # -------------------- Admin --------------------
@@ -2779,6 +2774,7 @@ app.register_blueprint(create_reference_data_blueprint(ReferenceDataDependencies
     banned_codes=get_banned_roster_codes,
     excluded_codes=get_exclude_from_counters,
     non_working_codes=get_non_working_codes,
+    admin_required=admin_required,
 )))
 app.register_blueprint(create_overtime_blueprint(OvertimeDependencies(
     ShiftType=ShiftType,

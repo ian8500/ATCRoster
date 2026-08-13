@@ -5,9 +5,11 @@ from .principal_boundaries import (
     enforce_principal_boundaries,
     register_principal_boundaries,
 )
+from .decorators import create_admin_required
 
 __all__ = (
     "PrincipalBoundaryDependencies",
     "enforce_principal_boundaries",
     "register_principal_boundaries",
+    "create_admin_required",
 )

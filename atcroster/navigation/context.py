@@ -7,6 +7,9 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from flask import Flask, request
+from flask_login import current_user
+
 
 @dataclass(frozen=True)
 class NavigationContextDependencies:
@@ -120,6 +123,19 @@ def build_navigation_context(
         "current_unit": current_unit,
         "unit_branding": branding,
     }
+
+
+def register_navigation_context(
+    app: Flask, dependencies: NavigationContextDependencies
+) -> Callable[[], dict[str, Any]]:
+    """Register the authenticated navigation context with Jinja."""
+
+    def inject_navigation_context() -> dict[str, Any]:
+        return build_navigation_context(current_user, request.endpoint, dependencies)
+
+    inject_navigation_context.__name__ = "inject_perms"
+    app.context_processor(inject_navigation_context)
+    return inject_navigation_context
 
 
 def _branding_for(unit: Any) -> dict[str, str]:

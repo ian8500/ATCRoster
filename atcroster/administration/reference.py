@@ -29,6 +29,7 @@ class ReferenceDataDependencies:
     banned_codes: Callable[[], set[str]]
     excluded_codes: Callable[[], set[str]]
     non_working_codes: Callable[[], set[str]]
+    admin_required: Callable[[Callable[..., Any]], Callable[..., Any]]
 
 
 def create_reference_data_blueprint(
@@ -52,6 +53,7 @@ def create_reference_data_blueprint(
     get_non_working_codes = dependencies.non_working_codes
 
     @login_required
+    @dependencies.admin_required
     def admin_reference():
         unit_id = _current_unit_id()
         if not unit_id:
