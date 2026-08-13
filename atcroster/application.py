@@ -118,6 +118,7 @@ from atcroster.roster import (
     invalidate_month_for_day, is_month_locked as roster_period_is_locked,
     lock_date_for_month as roster_period_lock_date, memoize,
     month_add as roster_period_add, parse_annotation as parse_roster_annotation,
+    month_has_data as roster_month_has_data,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -1613,13 +1614,7 @@ def roster_edit_required(f):
 
 
 def month_has_data(year: int, month: int) -> bool:
-    """Fast check: do we already have any assignments for this month?"""
-    start = date(year, month, 1)
-    ny, nm = _month_add(year, month, 1)
-    end = date(ny, nm, 1)  # exclusive
-    return db.session.query(Assignment.id)\
-        .filter(Assignment.day >= start, Assignment.day < end)\
-        .limit(1).first() is not None
+    return roster_month_has_data(db, Assignment, year, month, _month_add)
 
 
 def _lock_roster_month(unit_id: int, year: int, month: int) -> Requirement:
