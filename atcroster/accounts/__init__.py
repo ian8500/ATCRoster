@@ -10,6 +10,7 @@ from .recovery_blueprint import RecoveryRequestDependencies, create_recovery_req
 from .registration import (
     AccountRegistrationDependencies,
     create_account_registration_dependencies,
+    register_account_runtime_blueprints,
     register_account_blueprints,
 )
 
@@ -27,5 +28,6 @@ __all__ = (
     "create_recovery_request_blueprint",
     "AccountRegistrationDependencies",
     "create_account_registration_dependencies",
+    "register_account_runtime_blueprints",
     "register_account_blueprints",
 )

@@ -82,6 +82,35 @@ def create_account_registration_dependencies(
     )
 
 
+def register_account_runtime_blueprints(
+    app: Any, *, db: Any, operational_models: Any, saas_models: Any,
+    services: Any,
+) -> None:
+    """Register account routes from account-owned composition inputs."""
+    register_account_blueprints(app, create_account_registration_dependencies(
+        db=db, operational_models=operational_models, saas_models=saas_models,
+        deployment_environment=services.deployment_environment,
+        current_unit_id=services.current_unit_id,
+        is_admin_user=services.is_admin_user, is_editor_user=services.is_editor_user,
+        validate_csrf=services.validate_csrf,
+        consume_rate_limit=services.consume_rate_limit,
+        valid_email=services.valid_email, normalized_login=services.normalized_login,
+        platform_support_emails=services.platform_support_emails,
+        unit_admin_emails=services.unit_admin_emails, send_email=services.send_email,
+        now=services.now, active_recovery=services.active_recovery,
+        bind_authenticated_unit=services.bind_authenticated_unit,
+        generate_password_hash=services.generate_password_hash,
+        tenant_get=services.tenant_get, run_signup=services.run_signup,
+        signup_error=services.signup_error,
+        normalise_uk_mobile=services.normalise_uk_mobile,
+        normalise_phone=services.normalise_phone, qr_data_uri=services.qr_data_uri,
+        absence_types=services.absence_types, month_range=services.month_range,
+        get_shift=services.get_shift,
+        shift_duration_minutes=services.shift_duration_minutes,
+        live_position_enabled=services.live_position_enabled,
+    ))
+
+
 def register_account_blueprints(app: Any, deps: AccountRegistrationDependencies) -> None:
     app.register_blueprint(create_recovery_request_blueprint(
         RecoveryRequestDependencies(
