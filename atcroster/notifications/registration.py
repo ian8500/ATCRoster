@@ -27,6 +27,22 @@ class NotificationRegistrationDependencies:
     notifications: Any
 
 
+def create_notification_registration_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> NotificationRegistrationDependencies:
+    """Bind notification routes to canonical operational models."""
+    return NotificationRegistrationDependencies(
+        db=db,
+        Notification=operational_models.Notification,
+        SmsAudit=operational_models.SmsAudit,
+        SmsSenderRegistration=operational_models.SmsSenderRegistration,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        Assignment=operational_models.Assignment,
+        **services,
+    )
+
+
 def register_notification_blueprints(
     app: Any, deps: NotificationRegistrationDependencies
 ) -> None:

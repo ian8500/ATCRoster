@@ -170,7 +170,7 @@ from atcroster.extensions import (
 )
 from atcroster.public import public_blueprint
 from atcroster.notifications import (
-    NotificationRegistrationDependencies,
+    create_notification_registration_dependencies,
     NotificationRuntime,
     NotificationRuntimeDependencies,
     register_notification_blueprints,
@@ -1729,14 +1729,9 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     record_qualification_roster_impact=record_qualification_roster_impact,
     TrainingObjective=TrainingObjective,
 )))
-register_notification_blueprints(app, NotificationRegistrationDependencies(
+register_notification_blueprints(app, create_notification_registration_dependencies(
     db=db,
-    Notification=Notification,
-    SmsAudit=SmsAudit,
-    SmsSenderRegistration=SmsSenderRegistration,
-    Staff=Staff,
-    Watch=Watch,
-    Assignment=Assignment,
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     now=utcnow,
     validate_csrf=_validate_csrf,
