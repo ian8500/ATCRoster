@@ -144,6 +144,7 @@ main {
 .hero,
 .statement,
 .investment,
+.development,
 .module,
 .capabilities,
 footer {
@@ -423,6 +424,53 @@ h3 {
   margin: 16px 0 0;
   color: var(--muted);
   font-size: 12px;
+}
+.development {
+  padding: 120px 0;
+  border-top: 1px solid var(--line);
+}
+.development h2 {
+  max-width: 760px;
+  margin-top: 14px;
+}
+.development-intro {
+  max-width: 720px;
+  color: var(--green2);
+  font-size: 18px;
+}
+.development-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 45px;
+}
+.development-grid article {
+  min-height: 245px;
+  padding: 30px;
+  border: 1px solid #5b513c;
+  background: linear-gradient(
+    145deg,
+    rgb(53 44 29 / 0.75),
+    rgb(22 24 18 / 0.85)
+  );
+}
+.development-status {
+  display: inline-block;
+  padding: 0.22rem 0.45rem;
+  border: 1px solid #866b3e;
+  color: var(--amber);
+  font:
+    10px ui-monospace,
+    monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.development-grid h3 {
+  margin-top: 2rem;
+}
+.development-grid p {
+  color: var(--muted);
+  font-size: 14px;
 }
 .module {
   padding: 120px 0;
@@ -800,6 +848,9 @@ button:focus-visible {
   .capability-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .development-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
   .investment-copy {
     grid-template-columns: 1fr;
     gap: 18px;
@@ -816,6 +867,7 @@ button:focus-visible {
   .hero,
   .statement,
   .investment,
+  .development,
   .module,
   .capabilities,
   footer {
@@ -824,7 +876,8 @@ button:focus-visible {
   .hero,
   .module,
   .capabilities,
-  .investment {
+  .investment,
+  .development {
     padding-top: 70px;
     padding-bottom: 70px;
   }
@@ -838,6 +891,7 @@ button:focus-visible {
     padding: 15px 0 0;
   }
   .capability-grid,
+  .development-grid,
   .evidence-grid,
   .briefing-status,
   .position-cards {
