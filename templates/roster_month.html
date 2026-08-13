@@ -153,6 +153,7 @@
 <div class="roster-sticky-shield" data-roster-sticky-shield aria-hidden="true"></div>
 <h2>ATC Roster – {{ month_title }}</h2>
 <div class="roster-save-status" data-roster-save-status role="status" aria-live="polite"></div>
+<div class="roster-editor-status" data-roster-editor-status aria-live="polite"></div>
 
 <div class="month-nav roster-month-nav">
   {% if prev_ym %}
@@ -191,6 +192,18 @@
   {% endif %}
 </section>
 
+<section class="roster-readiness" data-roster-readiness aria-label="Publish readiness">
+  <div><span class="eyebrow">Publish readiness</span><strong>{{ roster_validation.blocking_count }} blocking item{{ '' if roster_validation.blocking_count == 1 else 's' }}</strong></div>
+  <button type="button" data-roster-filter="coverage"><strong>{{ staffing_shortfall_count }}</strong><span>Coverage</span></button>
+  <button type="button" data-roster-filter="fatigue"><strong>{{ fatigue_warning_count }}</strong><span>Fatigue</span></button>
+  <button type="button" data-roster-filter="qualification"><strong>{{ qualification_warning_count }}</strong><span>Qualification</span></button>
+  <button type="button" data-roster-filter="leave"><strong>{{ leave_conflict_count }}</strong><span>Leave</span></button>
+  <button type="button" data-roster-filter="request"><strong>{{ unresolved_request_count }}</strong><span>Requests</span></button>
+  <button type="button" class="btn btn-sm" data-roster-command-open aria-keyshortcuts="Control+K Meta+K">Commands <kbd>⌘K</kbd></button>
+  <button type="button" class="btn btn-sm" data-roster-undo disabled>Undo last change</button>
+  <span class="roster-unsaved" data-roster-unsaved hidden>Unsaved changes</span>
+</section>
+
 <template id="roster-shift-options">
   <optgroup label="Working shifts">
     {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code in ['SC','SSC'] %} disabled{% endif %}>{{ sh.code }}</option>{% endfor %}
@@ -208,7 +221,8 @@
      data-can-edit="{{ '1' if can_edit else '0' }}"
      data-readonly="{{ '1' if readonly else '0' }}"
      data-day-count="{{ days|length }}"
-     data-roster-telemetry-url="{{ url_for('roster_telemetry') }}">
+     data-roster-telemetry-url="{{ url_for('roster_telemetry') }}"
+     data-csrf-token="{{ csrf_token() }}">
 
 <table class="roster">
   <thead>
@@ -258,9 +272,12 @@
           {% set ann = ann_map.get(s.id, {}).get(d, "") %}
           {% set ann_note = ann_note_map.get(s.id, {}).get(d, "") %}
           {% set applied_request = applied_request_map.get((s.id, d)) %}
+          {% set req_info = req_pending_map.get((s.id, d)) %}
           {% set prefix = ('m' if code == 'EM' else ('a' if code == 'LA' else code[:1]|lower)) %}
           <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if rv_blocking %} roster-validation-blocking{% elif rv %} roster-validation-advisory{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
               data-roster-staff="{{ s.id }}" data-roster-day="{{ d.isoformat() }}"
+              data-roster-name="{{ s.name }}" data-roster-code="{{ code }}"
+              data-readiness="{% if f %}fatigue {% endif %}{% if rv_blocking %}coverage {% endif %}{% if capability_matrix.get((s.id, d)) and not capability_matrix[(s.id, d)].counts_as_operational and code %}qualification {% endif %}{% if code == 'AL' %}leave {% endif %}{% if req_info %}request{% endif %}"
               {% if applied_request %}title="Applied from an approved shift request" aria-label="{{ s.name }}, {{ d.strftime('%d %B %Y') }}, {{ code }}, applied from an approved shift request"{% endif %}>
             {% if applied_request %}
               <span class="request-applied-marker" aria-hidden="true"></span>
@@ -296,9 +313,7 @@
                     aria-label="{{ s.name }} absence on {{ d.strftime('%d %B %Y') }}: {{ code }}">{{ code }}</span>
             </div>
             {% else %}
-            <form class="shift-picker" method="post" action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="assignment_version" value="{{ assignment_version_map.get((s.id, d), 0) }}">
+            <div class="shift-picker" data-roster-cell-action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}" data-roster-version="{{ assignment_version_map.get((s.id, d), 0) }}">
               <select name="code"
                       class="code-input code-len-{{ code|length }}{% if code %} {{ code|lower }} group-{{ prefix }}{% endif %}"
                       data-roster-auto-submit="true" data-saved-value="{{ code }}"
@@ -312,11 +327,10 @@
                 <option value="__BASELINE__">↺ Baseline</option>
                 {% endif %}
               </select>
-            </form>
+            </div>
             {% endif %}
             {% endif %}
 
-            {% set req_info = req_pending_map.get((s.id, d)) %}
             {% if req_info %}
               <div class="req-badge req-badge--{{ req_info.status }}" role="status"
                    aria-label="{{ req_info.status|capitalize }} shift request for {{ req_info.code }}"
@@ -370,6 +384,17 @@
   </tfoot>
 </table>
 </div> <!-- /#roster -->
+
+<aside class="roster-inspector" data-roster-inspector hidden aria-labelledby="roster-inspector-title">
+  <button type="button" class="roster-inspector__close" data-roster-inspector-close aria-label="Close selected-cell inspector">×</button>
+  <span class="eyebrow">Selected assignment</span><h3 id="roster-inspector-title" data-roster-inspector-title>Choose a cell</h3>
+  <p data-roster-inspector-detail>Select a roster cell to review and edit its assignment.</p>
+</aside>
+<dialog class="roster-command-palette" data-roster-command-palette aria-labelledby="roster-command-title">
+  <form method="dialog"><div class="annotation-dialog__header"><h3 id="roster-command-title">Roster commands</h3><button aria-label="Close commands">×</button></div>
+  <label>Shift code <input data-roster-command-input autocomplete="off" placeholder="Type a shift code, then Enter"></label>
+  <p>Use arrow keys to move between cells. Press Enter to edit the selected cell. Press Escape to close.</p></form>
+</dialog>
 
 {% if can_edit and not readonly %}
 <dialog class="annotation-dialog" id="roster-annotation-dialog" aria-labelledby="roster-annotation-dialog-title">
@@ -552,20 +577,26 @@
       count.classList.toggle('rag-count--over', Number(count.textContent) > Number(required.textContent));
     });
   };
-  const saveRosterShift = async (form) => {
-    if (form.dataset.saving === '1') return;
-    const select = form.querySelector('[data-roster-auto-submit]');
-    const cell = form.closest('.cell');
+  const latestRosterChanges = [];
+  const rosterUnsaved = document.querySelector('[data-roster-unsaved]');
+  const rosterUndo = document.querySelector('[data-roster-undo]');
+  const saveRosterShift = async (picker, requestedCode = null) => {
+    if (picker.dataset.saving === '1') return;
+    const select = picker.querySelector('[data-roster-auto-submit]');
+    const cell = picker.closest('.cell');
     if (!select || !cell) return;
     const previousValue = select.dataset.savedValue || '';
-    const formData = new FormData(form);
+    const formData = new FormData();
+    formData.set('_csrf_token', rosterRoot.dataset.csrfToken || '');
+    formData.set('assignment_version', picker.dataset.rosterVersion || '0');
+    formData.set('code', requestedCode === null ? select.value : requestedCode);
     const clearingOverride = formData.get('code') === '__BASELINE__';
-    form.dataset.saving = '1';
-    form.classList.add('is-saving');
+    picker.dataset.saving = '1';
+    picker.classList.add('is-saving');
     select.disabled = true;
     showRosterSaveStatus('Saving…');
     try {
-      const response = await fetch(form.action, {
+      const response = await fetch(picker.dataset.rosterCellAction, {
         method: 'POST',
         body: formData,
         credentials: 'same-origin',
@@ -577,6 +608,8 @@
       const prefix = code === 'EM' ? 'm' : (code === 'LA' ? 'a' : code.slice(0, 1).toLowerCase());
       select.value = code;
       select.dataset.savedValue = code;
+      picker.dataset.rosterVersion = payload.version;
+      cell.dataset.rosterCode = code;
       if (clearingOverride) select.querySelector('option[value="__BASELINE__"]')?.remove();
       select.className = `code-input code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
       cell.querySelectorAll('input[name="assignment_version"]').forEach((input) => { input.value = payload.version; });
@@ -585,20 +618,67 @@
       cell.classList.remove('request-applied');
       cell.querySelector('.request-applied-marker')?.remove();
       updateRosterDaySummary(payload.day, payload.day_summary);
+      latestRosterChanges.push({ picker, code: previousValue, version: payload.version });
+      if (latestRosterChanges.length > 20) latestRosterChanges.shift();
+      rosterUndo.disabled = false;
+      rosterUnsaved.hidden = false;
       showRosterSaveStatus('Saved');
     } catch (error) {
       select.value = previousValue;
       showRosterSaveStatus(error.message || 'The roster change could not be saved.', true);
     } finally {
       select.disabled = false;
-      form.dataset.saving = '0';
-      form.classList.remove('is-saving');
+      picker.dataset.saving = '0';
+      picker.classList.remove('is-saving');
       select.focus({ preventScroll: true });
     }
   };
   rosterRoot?.addEventListener('change', (event) => {
     const select = event.target.closest('[data-roster-auto-submit]');
-    if (select) saveRosterShift(select.form);
+    if (select) saveRosterShift(select.closest('[data-roster-cell-action]'));
+  });
+  rosterUndo?.addEventListener('click', () => {
+    const change = latestRosterChanges.pop();
+    if (!change) return;
+    saveRosterShift(change.picker, change.code);
+    rosterUndo.disabled = latestRosterChanges.length === 0;
+  });
+  const inspector = document.querySelector('[data-roster-inspector]');
+  const inspectorTitle = document.querySelector('[data-roster-inspector-title]');
+  const inspectorDetail = document.querySelector('[data-roster-inspector-detail]');
+  let selectedRosterCell = null;
+  const selectRosterCell = (cell) => {
+    document.querySelectorAll('.cell.is-selected').forEach((item) => item.classList.remove('is-selected'));
+    selectedRosterCell = cell; cell?.classList.add('is-selected');
+    if (!cell) return;
+    inspector.hidden = false;
+    inspectorTitle.textContent = `${cell.dataset.rosterName} · ${cell.dataset.rosterDay}`;
+    inspectorDetail.textContent = `Shift ${cell.dataset.rosterCode || 'not assigned'}. Use Enter or ⌘K to change it.`;
+  };
+  rosterRoot?.addEventListener('click', (event) => { const cell = event.target.closest('.cell'); if (cell) selectRosterCell(cell); });
+  document.querySelector('[data-roster-inspector-close]')?.addEventListener('click', () => { inspector.hidden = true; selectedRosterCell?.classList.remove('is-selected'); });
+  document.querySelectorAll('[data-roster-filter]').forEach((button) => button.addEventListener('click', () => {
+    const filter = button.dataset.rosterFilter;
+    const matches = [...document.querySelectorAll(`.cell[data-readiness~="${filter}"]`)];
+    document.querySelectorAll('.cell.is-readiness-match').forEach((cell) => cell.classList.remove('is-readiness-match'));
+    matches.forEach((cell) => cell.classList.add('is-readiness-match'));
+    matches[0]?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    showRosterSaveStatus(matches.length ? `${matches.length} affected cell${matches.length === 1 ? '' : 's'} highlighted` : 'No affected cells in this month');
+  }));
+  const commandPalette = document.querySelector('[data-roster-command-palette]');
+  const commandInput = document.querySelector('[data-roster-command-input]');
+  const openCommands = () => { commandPalette?.showModal(); commandInput?.focus(); };
+  document.querySelector('[data-roster-command-open]')?.addEventListener('click', openCommands);
+  commandInput?.addEventListener('change', () => { const picker = selectedRosterCell?.querySelector('[data-roster-cell-action]'); if (picker) saveRosterShift(picker, commandInput.value.trim().toUpperCase()); commandPalette?.close(); });
+  document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openCommands(); return; }
+    if (!selectedRosterCell || event.target.matches('input,select,textarea')) return;
+    const cells = [...document.querySelectorAll('.cell.editable')]; const index = cells.indexOf(selectedRosterCell);
+    const width = Number(rosterRoot?.dataset.dayCount || 1); let target = null;
+    if (event.key === 'ArrowRight') target = cells[index + 1]; if (event.key === 'ArrowLeft') target = cells[index - 1];
+    if (event.key === 'ArrowDown') target = cells[index + width]; if (event.key === 'ArrowUp') target = cells[index - width];
+    if (target) { event.preventDefault(); selectRosterCell(target); target.querySelector('select')?.focus({ preventScroll: true }); }
+    if (event.key === 'Enter') { event.preventDefault(); selectedRosterCell.querySelector('select')?.focus(); }
   });
   const annotationDialog = document.getElementById('roster-annotation-dialog');
   const annotationForm = annotationDialog?.querySelector('[data-roster-annotation-form]');
@@ -638,11 +718,6 @@
   });
   document.addEventListener('submit', (event) => {
     const form = event.target;
-    if (form.matches('.shift-picker')) {
-      event.preventDefault();
-      saveRosterShift(form);
-      return;
-    }
     if (form.matches('[data-roster-annotation-form]')) {
       rememberRosterPosition();
       return;

@@ -789,6 +789,17 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             and capability_matrix.get((person.id, duty_day)) is not None
             and not capability_matrix[(person.id, duty_day)].counts_as_operational
         )
+        fatigue_warning_count = sum(
+            1 for person in staff for duty_day in days
+            if fatigue.get(person.id, {}).get(duty_day)
+        )
+        leave_conflict_count = sum(
+            1 for person in staff for duty_day in days
+            if (assignment_map.get(person.id, {}).get(duty_day) or "").upper() == "AL"
+        )
+        unresolved_request_count = sum(
+            1 for item in requests if (item.status or "pending").lower() == "pending"
+        )
         return render_template(
             "roster_month.html",
             ym=ym,
@@ -831,6 +842,10 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             can_publish_roster=dependencies.can_publish_roster(current_user),
             staffing_shortfall_count=staffing_shortfall_count,
             qualification_warning_count=qualification_warning_count,
+            fatigue_warning_count=fatigue_warning_count,
+            leave_conflict_count=leave_conflict_count,
+            unresolved_request_count=unresolved_request_count,
+            capability_matrix=capability_matrix,
         )
 
     @login_required

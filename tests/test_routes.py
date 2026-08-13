@@ -1158,6 +1158,23 @@ def test_stale_roster_cell_version_is_rejected(client):
         assert assignment.version == stale_version + 1
 
 
+def test_monthly_roster_exposes_delegated_editor_decision_controls(client):
+    login(client)
+    response = client.get("/roster/2025-04")
+
+    assert response.status_code == 200
+    for marker in (
+        b"data-roster-readiness",
+        b"data-roster-command-palette",
+        b"data-roster-inspector",
+        b"data-roster-cell-action",
+        b"data-roster-undo",
+        b"data-roster-unsaved",
+    ):
+        assert marker in response.data
+    assert b'<form class="shift-picker"' not in response.data
+
+
 def test_roster_shift_can_be_saved_without_a_page_reload(client):
     login(client)
     duty_day = date(2025, 4, 3)
