@@ -23,6 +23,17 @@ class WatchMoveDependencies:
     log_change: Callable[..., None]
 
 
+def create_watch_move_dependencies(
+    *, db: Any, operational_models: Any, roster_impact_event_type: Any,
+    **services: Any,
+) -> WatchMoveDependencies:
+    return WatchMoveDependencies(
+        db=db, Staff=operational_models.Staff, Watch=operational_models.Watch,
+        StaffWatchHistory=operational_models.StaffWatchHistory,
+        RosterImpactEventType=roster_impact_event_type, **services,
+    )
+
+
 def create_watch_move_blueprint(dependencies: WatchMoveDependencies) -> Blueprint:
     blueprint = Blueprint("staff_watch_moves", __name__)
     db = dependencies.db

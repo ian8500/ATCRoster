@@ -259,11 +259,11 @@ from atcroster.administration.reference import (
     create_reference_data_blueprint,
 )
 from atcroster.administration.lifecycle import (
-    StaffLifecycleDependencies,
+    create_staff_lifecycle_dependencies,
     create_staff_lifecycle_blueprint,
 )
 from atcroster.administration.watch_moves import (
-    WatchMoveDependencies,
+    create_watch_move_dependencies,
     create_watch_move_blueprint,
 )
 from atcroster.administration.absence_types import update_absence_types
@@ -1846,21 +1846,19 @@ app.register_blueprint(create_overtime_blueprint(OvertimeDependencies(
     default_sms_body=_default_overtime_sms_body,
     sms_configured=_sms_service_configured,
 )))
-app.register_blueprint(create_staff_lifecycle_blueprint(StaffLifecycleDependencies(
+app.register_blueprint(create_staff_lifecycle_blueprint(create_staff_lifecycle_dependencies(
     db=db,
-    Staff=Staff,
-    RosterImpactEventType=RosterImpactEventType,
+    operational_models=_operational_models,
+    roster_impact_event_type=RosterImpactEventType,
     current_unit_id=_current_unit_id,
     parse_date=_parse_date,
     record_roster_impact=record_roster_impact,
     admin_required=admin_required,
 )))
-app.register_blueprint(create_watch_move_blueprint(WatchMoveDependencies(
+app.register_blueprint(create_watch_move_blueprint(create_watch_move_dependencies(
     db=db,
-    Staff=Staff,
-    Watch=Watch,
-    StaffWatchHistory=StaffWatchHistory,
-    RosterImpactEventType=RosterImpactEventType,
+    operational_models=_operational_models,
+    roster_impact_event_type=RosterImpactEventType,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
     record_roster_impact=record_roster_impact,

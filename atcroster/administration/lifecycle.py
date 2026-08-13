@@ -21,6 +21,16 @@ class StaffLifecycleDependencies:
     admin_required: Callable[[Callable[..., Any]], Callable[..., Any]]
 
 
+def create_staff_lifecycle_dependencies(
+    *, db: Any, operational_models: Any, roster_impact_event_type: Any,
+    **services: Any,
+) -> StaffLifecycleDependencies:
+    return StaffLifecycleDependencies(
+        db=db, Staff=operational_models.Staff,
+        RosterImpactEventType=roster_impact_event_type, **services,
+    )
+
+
 def create_staff_lifecycle_blueprint(
     dependencies: StaffLifecycleDependencies,
 ) -> Blueprint:
