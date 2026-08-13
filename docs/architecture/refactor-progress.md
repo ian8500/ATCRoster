@@ -35,6 +35,7 @@
 | Overtime SMS delivery orchestration | `atcroster/notifications/overtime.py` |
 | SMS audit administration and delivery webhook | `atcroster/notifications/admin.py` |
 | Unit messaging route | `atcroster/notifications/messaging.py` |
+| Platform provisioning worker health | `atcroster/platform/worker_health.py` |
 
 ## Safe stopping boundary
 

@@ -144,6 +144,7 @@ from atcroster.administration import (
 from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.accounts import PasswordDependencies, create_password_blueprint
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
+from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -7610,29 +7611,6 @@ def platform_admin():
     )
 
 
-@app.get("/platform/worker-health")
-@login_required
-def platform_worker_health():
-    if getattr(current_user, "role", "") != "superadmin":
-        abort(403)
-    from platform_provisioning import worker_health_snapshot
-
-    snapshot = worker_health_snapshot(
-        sys.modules[__name__],
-        stale_after_seconds=(
-            int(os.environ.get("ATCROSTER_PROVISIONING_LEASE_SECONDS", "120"))
-            * 2
-        ),
-    )
-    _operational_metrics.set("worker_queue_depth", snapshot["queue_depth"])
-    _operational_metrics.set(
-        "worker_oldest_queued_age_seconds",
-        snapshot["oldest_queued_age_seconds"],
-    )
-    _operational_metrics.set("stale_workers", snapshot["stale_workers"])
-    return jsonify(snapshot), 200 if snapshot["status"] == "ready" else 503
-
-
 @app.route("/unit/accounts", methods=["GET", "POST"])
 @login_required
 def unit_accounts():
@@ -10199,6 +10177,21 @@ app.register_blueprint(create_password_blueprint(PasswordDependencies(
 app.register_blueprint(create_admin_utility_blueprint(AdminUtilityDependencies(
     ChangeLog=ChangeLog,
     is_admin_user=is_admin_user,
+)))
+def _worker_health_snapshot(application_module, *, stale_after_seconds: int):
+    """Load the worker dependency only when the privileged probe is requested."""
+    from platform_provisioning import worker_health_snapshot
+
+    return worker_health_snapshot(
+        application_module,
+        stale_after_seconds=stale_after_seconds,
+    )
+
+
+app.register_blueprint(create_worker_health_blueprint(WorkerHealthDependencies(
+    application_module=sys.modules[__name__],
+    metrics=_operational_metrics,
+    worker_health_snapshot=_worker_health_snapshot,
 )))
 app.register_blueprint(briefing_blueprint)
 
