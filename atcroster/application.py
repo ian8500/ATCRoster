@@ -134,7 +134,10 @@ from atcroster.clock import utcnow
 from atcroster.auth import (
     decrypt_secret,
     matching_totp_step,
+    consume_rate_limit,
+    privacy_rate_limit_key,
     record_security_event,
+    reset_rate_limit,
     totp_qr_data_uri,
 )
 from atcroster.audit import record_central_security_event
@@ -7883,9 +7886,9 @@ LOGIN_RATE_LIMIT = 10
 
 
 def _login_rate_key(username: str) -> str:
-    remote = request.remote_addr or "unknown"
-    return privacy_key(
-        str(app.config["SECRET_KEY"]), "login", remote, username.lower()
+    return privacy_rate_limit_key(
+        str(app.config["SECRET_KEY"]), "login", request.remote_addr or "unknown",
+        username.lower(), privacy_key,
     )
 
 
@@ -7893,30 +7896,20 @@ def _consume_rate_limit(
     scope: str, subject: object, limit: int = LOGIN_RATE_LIMIT,
     window: timedelta = LOGIN_RATE_WINDOW, fail_closed: bool = True,
 ) -> bool:
-    key = privacy_key(
-        str(app.config["SECRET_KEY"]), scope,
-        request.remote_addr or "unknown", subject,
+    return consume_rate_limit(
+        limiter=_rate_limiter,
+        key=privacy_rate_limit_key(str(app.config["SECRET_KEY"]), scope, request.remote_addr or "unknown", subject, privacy_key),
+        limit=limit, window=window, unavailable=LimiterUnavailable,
+        security_event=_security_event, scope=scope, fail_closed=fail_closed,
     )
-    try:
-        return _rate_limiter.consume(
-            key, limit, max(1, int(window.total_seconds()))
-        )
-    except LimiterUnavailable:
-        _security_event("rate_limiter_unavailable", scope=scope)
-        if fail_closed:
-            abort(503, "Security service is temporarily unavailable.")
-        return True
 
 
 def _reset_rate_limit(scope: str, subject: object) -> None:
-    key = privacy_key(
-        str(app.config["SECRET_KEY"]), scope,
-        request.remote_addr or "unknown", subject,
+    reset_rate_limit(
+        limiter=_rate_limiter,
+        key=privacy_rate_limit_key(str(app.config["SECRET_KEY"]), scope, request.remote_addr or "unknown", subject, privacy_key),
+        unavailable=LimiterUnavailable, security_event=_security_event, scope=scope,
     )
-    try:
-        _rate_limiter.reset(key)
-    except LimiterUnavailable:
-        _security_event("rate_limiter_unavailable", scope=scope)
 
 
 def _security_event(event: str, **safe_fields) -> None:
