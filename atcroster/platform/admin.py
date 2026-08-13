@@ -8,7 +8,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Callable
+from typing import Any, Callable, AbstractSet
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -33,8 +33,8 @@ class PlatformAdminDependencies:
     validate_csrf: Callable[[], None]
     consume_rate_limit: Callable[..., bool]
     security_event: Callable[..., None]
-    feature_flags: set[str]
-    module_feature_flags: set[str]
+    feature_flags: AbstractSet[str]
+    module_feature_flags: AbstractSet[str]
 
 
 def create_platform_admin_blueprint(

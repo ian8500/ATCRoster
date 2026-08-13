@@ -43,10 +43,11 @@ def enforce_operational_writes(
         return
     for record in session.new:
         if isinstance(record, operational_models):
-            supplied = getattr(record, "unit_id", None)
+            operational_record: Any = record
+            supplied = getattr(operational_record, "unit_id", None)
             if supplied not in (None, unit_id):
                 raise PermissionError("Cross-unit writes are forbidden")
-            record.unit_id = unit_id
+            operational_record.unit_id = unit_id
 
 
 def invalidate_touched_units(

@@ -24,7 +24,7 @@ class FatigueRuntimeDependencies:
     is_working: Callable[..., bool]
     span: Callable[..., Any]
     is_night_duty: Callable[..., bool]
-    is_early_start: Callable[..., bool]
+    is_early_start: Callable[..., tuple[bool, bool]]
     is_morning_duty: Callable[..., bool]
     analyze_segments: Callable[..., Any]
     custom_fatigue_flags: Callable[..., Any]

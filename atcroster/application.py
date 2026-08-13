@@ -1,7 +1,7 @@
 """Application assembly and legacy compatibility implementation."""
 
 from functools import wraps
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from flask import redirect, url_for, flash, abort, session, g
 import os
 import sys
@@ -374,6 +374,7 @@ DEPLOYMENT_ENV = _runtime_settings.deployment_environment
 FIELD_ENCRYPTION_KEY = _runtime_settings.field_encryption_key
 FIELD_ENCRYPTION_KEYS = _runtime_settings.field_encryption_keys
 
+_rate_limiter: Any
 if DEPLOYMENT_ENV == "production":
     import redis
     _rate_limiter = RedisRateLimiter(
@@ -441,7 +442,7 @@ app.register_blueprint(public_blueprint)
 _error_handlers = register_error_handlers(
     app,
     ErrorHandlerDependencies(
-        security_event=lambda event, **safe_fields: _security_event(
+        security_event=lambda event, **safe_fields: globals()["_security_event"](
             event, **safe_fields
         )
     ),
@@ -462,9 +463,9 @@ _bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
     TenantHookDependencies(
         deployment_environment=DEPLOYMENT_ENV,
         current_user=lambda: current_user,
-        enforce_session=lambda user: _session_lifecycle.enforce_request(user),
+        enforce_session=lambda user: globals()["_session_lifecycle"].enforce_request(user),
         routing_for_unit=lambda unit_id: db.session.get(
-            DatabaseRoutingMetadata, unit_id
+            globals()["DatabaseRoutingMetadata"], unit_id
         ),
         clear_context=clear_request_context,
         bind_authenticated_unit=bind_authenticated_unit,
@@ -976,7 +977,7 @@ def month_has_data(year: int, month: int) -> bool:
     return roster_month_has_data(db, Assignment, year, month, _month_add)
 
 
-def _lock_roster_month(unit_id: int, year: int, month: int) -> Requirement:
+def _lock_roster_month(unit_id: int, year: int, month: int) -> Any:
     return lock_roster_period(
         db, Requirement, unit_id, year, month, ensure_month_requirement,
     )
@@ -1156,7 +1157,7 @@ roster_fatigue_flags_matrix = fatigue_runtime.findings_matrix
 
 
 def roster_fatigue_flags_for_range(
-    staff: Staff,
+    staff: Any,
     day_list,
     code_by_day: dict[date, str],
     unit_id: int | None = None,
@@ -1173,7 +1174,7 @@ def roster_fatigue_flags_for_range(
 
 
 def would_trigger_fatigue_with_plan(
-    staff: Staff, day: date, code: str, proposed_codes: dict[date, str]
+    staff: Any, day: date, code: str, proposed_codes: dict[date, str]
 ):
     """Compatibility adapter retaining patchable legacy fatigue hooks."""
     return proposed_plan_findings(
@@ -1193,7 +1194,7 @@ def would_trigger_fatigue_with_plan(
     )
 
 
-def would_trigger_fatigue(staff: Staff, day: date, code: str):
+def would_trigger_fatigue(staff: Any, day: date, code: str):
     """Legacy three-argument fatigue check."""
     return would_trigger_fatigue_with_plan(staff, day, code, {})
 
@@ -1440,7 +1441,7 @@ reporting_runtime = ReportingRuntime(ReportingRuntimeDependencies(
     current_unit_id=_current_unit_id,
     annotation_snapshot=_annotation_snapshot,
     parse_annotation=parse_annotation,
-    work_pattern_service=lambda: work_pattern_service,
+    work_pattern_service=lambda: globals()["work_pattern_service"],
     code_from_pattern=code_from_pattern,
     shift_duration_minutes=shift_duration_minutes,
     calculate_fairness=calculate_fairness,
@@ -1665,7 +1666,7 @@ def _central_security_event(
     )
 
 
-def _record_successful_login(user: Staff) -> None:
+def _record_successful_login(user: Any) -> None:
     record_successful_login(
         db=db,
         PlatformIdentity=PlatformIdentity,

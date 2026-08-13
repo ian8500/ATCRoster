@@ -149,7 +149,7 @@ def create_publication_service(
         ).all()
         assignment_map = {(row.staff_id, row.day): row for row in assignments}
         requirement = Requirement.query.filter_by(year=year, month=month).first()
-        counts = {day: Counter() for day in days}
+        counts: dict[date, Counter[str]] = {day: Counter() for day in days}
         qualification_gaps = []
         unassigned = []
 

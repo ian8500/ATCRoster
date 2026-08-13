@@ -60,7 +60,7 @@ def create_qualification_blueprint(
     _person_has_other_valid_ue = dependencies.person_has_other_valid_ue
     record_roster_impact = dependencies.record_roster_impact
 
-    def _qualification_snapshot(record: PersonQualification) -> dict:
+    def _qualification_snapshot(record: Any) -> dict:
         return {
             "person_id": record.person_id,
             "qualification_type_id": record.qualification_type_id,
@@ -70,7 +70,7 @@ def create_qualification_blueprint(
             "status": record.status,
         }
 
-    def _record_qualification_history(record: PersonQualification, action: str) -> None:
+    def _record_qualification_history(record: Any, action: str) -> None:
         db.session.add(
             PersonQualificationHistory(
                 unit_id=record.unit_id,
@@ -84,7 +84,7 @@ def create_qualification_blueprint(
         )
 
     def _sync_qualification_to_roster_profile(
-        person: Staff, qtype: QualificationType, expires_on: date | None
+        person: Any, qtype: Any, expires_on: date | None
     ) -> None:
         legacy_field = {
             "MEDICAL": "medical_expiry",

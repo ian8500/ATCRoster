@@ -485,7 +485,7 @@ class Assignment(db.Model):
             return self.generated_code
         return self.code
 
-    @effective_code.expression
+    @effective_code.expression  # type: ignore[no-redef]
     def effective_code(cls):
         return db.func.coalesce(cls.override_code, cls.generated_code, cls.code)
 

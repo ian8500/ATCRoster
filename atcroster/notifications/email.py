@@ -13,7 +13,7 @@ def email_service_configured() -> bool:
     return bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM_ADDRESS"))
 
 
-def valid_email(value: str) -> str:
+def valid_email(value: str | None) -> str:
     candidate = (value or "").strip().casefold()
     if len(candidate) > 254 or candidate.count("@") != 1:
         return ""
