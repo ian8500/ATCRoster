@@ -98,11 +98,12 @@ from atcroster.roster import (
     shift_groups_snapshot,
     counter_group as resolve_shift_counter_group,
     counter_group_for_day as resolve_shift_counter_group_for_day,
-    expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     parse_year_month as parse_roster_year_month,
     ensure_month_requirement as ensure_roster_month_requirement,
     requirements_for_day as resolve_roster_requirements_for_day,
+    PatternRuntime,
+    PatternRuntimeDependencies,
 )
 from atcroster.roster.editing import RosterEditingDependencies, RosterEditingRuntime
 from atcroster.roster.shifts import save_counter_mapping
@@ -155,7 +156,6 @@ from atcroster.qualifications import (
     record_roster_impact_for_qualification,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
-from atcroster.workforce import effective_watch as resolve_effective_watch, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.workforce.joiners import JoinerDependencies, create_joiner
 from atcroster.fatigue import (
     FatigueRuntime,
@@ -221,13 +221,6 @@ from atcroster.roster.assignments import (
 )
 from atcroster.roster.annotations import AnnotationCatalogue
 from atcroster.roster.settings import RosterSettingsCatalogue
-from atcroster.roster.patterns import (
-    code_for_day as resolve_pattern_code,
-    leave_code_for,
-    night_active_on,
-    pattern_context as resolve_pattern_context,
-    unit_pattern_context,
-)
 from atcroster.models.tenant_events import register_tenant_session_events
 from atcroster.roster.impacts import (
     RosterImpactRuntime,
@@ -1033,27 +1026,6 @@ def month_range(year: int, month: int):
     return month_days(year, month)
 
 
-def watch_id_for_staff_on(staff_id: int, on_date: date) -> int | None:
-    return _watch_id_for_staff_on(
-        authenticated_unit_id(), staff_id, on_date
-    )
-
-
-def watch_ids_for_staff_on(
-    staff: list[Staff], on_date: date
-) -> dict[int, int | None]:
-    return resolve_watch_ids(StaffWatchHistory, staff, authenticated_unit_id(), on_date)
-
-
-@lru_cache(maxsize=4096)
-def _watch_id_for_staff_on(
-    unit_id: int, staff_id: int, on_date: date
-) -> int | None:
-    """Return the watch_id that applies to this staff on a given date
-    using StaffWatchHistory; fall back to Staff.watch_id if no history."""
-    return resolve_watch_id(db, StaffWatchHistory, Staff, unit_id, staff_id, on_date)
-
-
 def parse_ym(ym: str):
     return parse_roster_year_month(ym, parse_year_month)
 
@@ -1078,46 +1050,29 @@ roster_settings_catalogue.set_secondary_cache_clear(
 PATTERN_CODES = ("M", "A", "D", "N", "OPS", "OFF")
 DEFAULT_BASE_PATTERN = "M,M,A,A,N,N,OFF,OFF,OFF,OFF"
 
-
-def _expand_pattern(raw_value: str | None) -> list[str]:
-    return expand_roster_pattern(raw_value, expand_pattern)
-
-
-def _validated_pattern(raw_value: str | None) -> list[str]:
-    return validate_roster_pattern(raw_value, validated_pattern)
-
-
-def _effective_watch(staff: Staff, on_date: date) -> Watch | None:
-    return resolve_effective_watch(db, StaffWatchHistory, staff, on_date)
-
-
-def _unit_pattern_context(unit_id: int) -> tuple[list[str], date]:
-    return unit_pattern_context(unit_id, settings_snapshot=_roster_settings_snapshot, validate_pattern=_validated_pattern, default_pattern=DEFAULT_BASE_PATTERN)
-
-
-def _pattern_context(staff: Staff, on_date: date) -> tuple[list[str], date]:
-    return resolve_pattern_context(staff, on_date, db=db, StaffWatchHistory=StaffWatchHistory, effective_watch=_effective_watch, validate_pattern=_validated_pattern, unit_context=_unit_pattern_context)
-
-
-def pattern_for(staff: Staff, on_date: date | None = None):
-    return _pattern_context(staff, on_date or date.today())[0]
-
-
-def _night_active_on(unit_id: int, on_date: date) -> bool:
-    return night_active_on(unit_id, on_date, settings_snapshot=_roster_settings_snapshot)
-
-
-def day_leave_for(staff: Staff, d: date):
-    return leave_code_for(staff, d)
-
-
-def code_from_pattern(staff: Staff, d: date):
-    return resolve_pattern_code(staff, d, resolve_context=_pattern_context, night_active=_night_active_on)
-
-
-def _effective_watch_id(staff: Staff, duty_day: date) -> int | None:
-    watch = _effective_watch(staff, duty_day)
-    return watch.id if watch else None
+pattern_runtime = PatternRuntime(PatternRuntimeDependencies(
+    db=db,
+    Staff=Staff,
+    StaffWatchHistory=StaffWatchHistory,
+    authenticated_unit_id=authenticated_unit_id,
+    settings_snapshot=_roster_settings_snapshot,
+    expand_pattern=expand_pattern,
+    validated_pattern=validated_pattern,
+    default_pattern=DEFAULT_BASE_PATTERN,
+))
+watch_id_for_staff_on = pattern_runtime.watch_id
+watch_ids_for_staff_on = pattern_runtime.watch_ids
+_watch_id_for_staff_on = pattern_runtime.cached_watch_id
+_expand_pattern = pattern_runtime.expand
+_validated_pattern = pattern_runtime.validate
+_effective_watch = pattern_runtime.effective_watch
+_unit_pattern_context = pattern_runtime.unit_context
+_pattern_context = pattern_runtime.context
+pattern_for = pattern_runtime.pattern_for
+_night_active_on = pattern_runtime.night_active
+day_leave_for = pattern_runtime.leave_for
+code_from_pattern = pattern_runtime.code_for
+_effective_watch_id = pattern_runtime.effective_watch_id
 
 
 def deterministic_roster_population_service():
@@ -1171,12 +1126,7 @@ _person_has_other_valid_ue = roster_impact_runtime.person_has_other_valid_ue
 record_qualification_roster_impact = roster_impact_runtime.record_qualification
 
 
-def _cycle_day_for(staff: Staff, d: date) -> int | None:
-    """Return the 1-indexed pattern cycle day for `staff` on date `d`."""
-    pat, anchor = _pattern_context(staff, d)
-    if not pat:
-        return None
-    return ((d - anchor).days % len(pat)) + 1
+_cycle_day_for = pattern_runtime.cycle_day
 
 
 assignment_runtime = AssignmentRuntime(AssignmentRuntimeDependencies(
