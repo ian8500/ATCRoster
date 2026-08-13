@@ -2,7 +2,11 @@
 
 from .blueprint import QualificationDependencies, create_qualification_blueprint
 from .status import staff_has_qualification, staff_is_countable
-from .compliance import monthly_compliance_findings
+from .compliance import (
+    ComplianceRuntime,
+    ComplianceRuntimeDependencies,
+    monthly_compliance_findings,
+)
 from .currency import (
     OperationalCurrencyRuntime,
     OperationalCurrencyRuntimeDependencies,
@@ -27,6 +31,8 @@ __all__ = (
     "QualificationDependencies",
     "create_qualification_blueprint",
     "monthly_compliance_findings",
+    "ComplianceRuntime",
+    "ComplianceRuntimeDependencies",
     "currency_window",
     "OperationalCurrencyRuntime",
     "OperationalCurrencyRuntimeDependencies",

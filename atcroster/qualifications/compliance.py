@@ -4,7 +4,38 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any, Callable
+
+
+@dataclass(frozen=True)
+class ComplianceRuntimeDependencies:
+    Assignment: Any
+    Staff: Any
+    Watch: Any
+    month_range: Callable[..., tuple[Any, list[Any]]]
+    fatigue_rule_config: Callable[[], dict[str, Any]]
+    fatigue_flags_for_range: Callable[[Any, list[Any]], dict[Any, list[str]]]
+
+
+class ComplianceRuntime:
+    """Own monthly qualification and fatigue-compliance report assembly."""
+
+    def __init__(self, dependencies: ComplianceRuntimeDependencies) -> None:
+        self.dependencies = dependencies
+
+    def findings(self, year: int, month: int) -> dict[str, Any]:
+        deps = self.dependencies
+        return monthly_compliance_findings(
+            year,
+            month,
+            Assignment=deps.Assignment,
+            Staff=deps.Staff,
+            Watch=deps.Watch,
+            month_range=deps.month_range,
+            fatigue_rule_config=deps.fatigue_rule_config,
+            fatigue_flags_for_range=deps.fatigue_flags_for_range,
+        )
 
 
 def monthly_compliance_findings(

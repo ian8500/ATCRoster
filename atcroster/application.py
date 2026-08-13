@@ -143,13 +143,14 @@ from atcroster.qualifications import (
     QualificationRuntimeDependencies,
     EligibilityDependencies,
     EligibilityService,
+    ComplianceRuntime,
+    ComplianceRuntimeDependencies,
     OperationalCurrencyRuntime,
     OperationalCurrencyRuntimeDependencies,
     QualificationDependencies,
     create_qualification_blueprint,
     classify_qualification_impact,
     has_other_valid_ue,
-    monthly_compliance_findings,
     record_roster_impact_for_qualification,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
@@ -1215,19 +1216,15 @@ would_create_new_fatigue_issues = fatigue_runtime.new_findings
 
 
 _compliance_month = compliance_month
-
-
-def _compliance_findings(year: int, month: int) -> dict:
-    return monthly_compliance_findings(
-        year,
-        month,
+compliance_runtime = ComplianceRuntime(ComplianceRuntimeDependencies(
         Assignment=Assignment,
         Staff=Staff,
         Watch=Watch,
         month_range=month_range,
         fatigue_rule_config=_fatigue_rule_config,
         fatigue_flags_for_range=fatigue_flags_for_range,
-    )
+))
+_compliance_findings = compliance_runtime.findings
 
 
 # -------------------- Migrations / seeding --------------------
