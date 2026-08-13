@@ -20,6 +20,7 @@ from .assignments import assignment_for_day
 from .mutations import set_assignment_code
 from .codes import is_non_working, is_working_with_prefix, normalize_code
 from .pattern_runtime import PatternRuntime, PatternRuntimeDependencies
+from .months import RosterMonthService
 
 __all__ = (
     "LOCKED_SOURCES",
@@ -47,6 +48,7 @@ __all__ = (
     "parse_year_month",
     "PatternRuntime",
     "PatternRuntimeDependencies",
+    "RosterMonthService",
     "requirements_for_day",
     "set_assignment_code",
     "shift_groups_snapshot",

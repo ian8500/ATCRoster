@@ -90,8 +90,6 @@ from atcroster.roster import (
     invalidate_month_for_day, is_month_locked as roster_period_is_locked,
     lock_date_for_month as roster_period_lock_date, memoize,
     month_add as roster_period_add,
-    month_has_data as roster_month_has_data,
-    lock_roster_month as lock_roster_period,
     shift_groups_snapshot,
     ShiftCounterService,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
@@ -100,6 +98,7 @@ from atcroster.roster import (
     requirements_for_day as resolve_roster_requirements_for_day,
     PatternRuntime,
     PatternRuntimeDependencies,
+    RosterMonthService,
 )
 from atcroster.roster.editing import RosterEditingDependencies, RosterEditingRuntime
 from atcroster.roster.shifts import save_counter_mapping
@@ -963,24 +962,6 @@ def roster_edit_required(f):
     return wrapper
 
 
-def month_has_data(year: int, month: int) -> bool:
-    return roster_month_has_data(db, Assignment, year, month, _month_add)
-
-
-def _lock_roster_month(unit_id: int, year: int, month: int) -> Any:
-    return lock_roster_period(
-        db, Requirement, unit_id, year, month, ensure_month_requirement,
-    )
-
-
-def month_range(year: int, month: int):
-    return month_days(year, month)
-
-
-def parse_ym(ym: str):
-    return parse_roster_year_month(ym, parse_year_month)
-
-
 def get_shift(code: str, unit_id: int | None = None):
     # hot path → use cached lookup
     return _shift_by_code(
@@ -1101,7 +1082,7 @@ assignment_runtime = AssignmentRuntime(AssignmentRuntimeDependencies(
     ),
     Requirement=Requirement,
     SpecialRequirement=SpecialRequirement,
-    month_range=month_range,
+    month_range=month_days,
     shift_minutes=shift_minutes,
     daily_requirements=daily_requirements,
     ensure_month_requirement=ensure_roster_month_requirement,
@@ -1121,6 +1102,20 @@ requirements_for_day = assignment_runtime.requirements_for_day
 generate_month = assignment_runtime.generate_month
 generate_range = assignment_runtime.generate_range
 ensure_assignments_for_range = assignment_runtime.generate_range
+
+roster_month_service = RosterMonthService(
+    db=db,
+    Assignment=Assignment,
+    Requirement=Requirement,
+    add_months=partial(roster_period_add, add_months=add_months),
+    days_for_month=month_days,
+    parse_year_month=partial(parse_roster_year_month, parser=parse_year_month),
+    ensure_month_requirement=ensure_month_requirement,
+)
+month_has_data = roster_month_service.has_data
+_lock_roster_month = roster_month_service.lock
+month_range = roster_month_service.range
+parse_ym = roster_month_service.parse
 
 
 _fatigue_rule_config_service = FatigueRuleConfigService(
