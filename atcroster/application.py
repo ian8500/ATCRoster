@@ -14,15 +14,13 @@ import csv
 import secrets
 import sys
 from functools import lru_cache
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 import json
 import click
 import hashlib
 import pyotp
 
-from flask_sqlalchemy import SQLAlchemy
-from flask_sqlalchemy.session import Session as FlaskSqlAlchemySession
 from flask_login import (
     LoginManager, login_user, logout_user,
     current_user, login_required
@@ -133,7 +131,9 @@ from access_policy import (
     permissions_for,
 )
 from atcroster import create_app, get_runtime_settings
+from atcroster.clock import utcnow
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
+from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
 from atcroster.notifications import (
     NotificationDependencies,
@@ -213,7 +213,6 @@ from tenancy import (
     bind_authenticated_unit,
     bind_platform_control,
     clear_request_context,
-    operational_engine_for_authenticated_unit,
     operational_unit_context,
     reset_authenticated_unit,
     reset_platform_control,
@@ -290,11 +289,6 @@ def _asset_url(filename: str, **extra: object) -> str:
 app.jinja_env.globals["asset_url"] = _asset_url
 
 
-def utcnow():
-    """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
-
-
 REQUEST_STATUSES = frozenset({"pending", "approved", "rejected", "fulfilled", "cancelled"})
 REQUEST_TRANSITIONS = {
     "pending": frozenset({"approved", "rejected", "cancelled"}),
@@ -348,72 +342,8 @@ _forbidden = _error_handlers[403]
 _not_found = _error_handlers[404]
 _internal_error = _error_handlers[500]
 
-OPERATIONAL_TABLE_NAMES = frozenset({
-    "roster_setting", "annotation_type", "watch", "staff", "shift_type",
-    "requirement", "special_requirement", "leave", "sickness", "assignment",
-    "shift_request", "sms_audit",
-    "request_audit", "notification", "annotation_audit", "ai_rule_set",
-    "change_log", "staff_watch_history", "qualification_type",
-    "person_qualification", "person_qualification_history",
-    "roster_publication", "roster_acknowledgement", "scenario",
-    "operational_position", "operational_position_group",
-    "operational_position_time_allowance",
-    "position_endorsement", "position_requirement",
-    "break_plan", "achieved_duty", "fatigue_report",
-    "roster_rule_version", "mfa_credential",
-    "briefing_item", "briefing_delivery", "briefing_audit",
-    "briefing_assurance_run", "briefing_message_type",
-    "handover_field", "handover_record", "handover_operational_state",
-    "handover_equipment",
-    "training_level", "training_objective", "training_session",
-    "training_score", "position_currency_category",
-    "position_participant_role", "position_status_event",
-    "position_session", "position_session_participant",
-    "controller_kiosk_credential", "position_session_audit",
-    "toil_transaction", "work_pattern", "work_pattern_day",
-    "work_pattern_day_allowed_shift", "staff_pattern_assignment",
-    "staff_rule", "bank_holiday", "roster_proposal",
-    "roster_proposal_assignment", "roster_period",
-    "roster_impact_event", "roster_impact_exception",
-})
-
-
-class TenantRoutedSession(FlaskSqlAlchemySession):
-    """Route operational mappers to the authenticated airport database."""
-
-    def get_bind(self, mapper=None, clause=None, bind=None, **kwargs):
-        if bind is not None:
-            return bind
-        table_name = None
-        if mapper is not None:
-            try:
-                table_name = mapper.persist_selectable.name
-            except AttributeError:
-                try:
-                    table_name = mapper.__table__.name
-                except AttributeError:
-                    table_name = None
-        if table_name in OPERATIONAL_TABLE_NAMES:
-            try:
-                return operational_engine_for_authenticated_unit()
-            except RuntimeError:
-                # Local legacy databases remain available only outside
-                # production while they are imported as the first unit.
-                if DEPLOYMENT_ENV == "production":
-                    raise RuntimeError(
-                        "Operational database access requires an authenticated "
-                        "airport route."
-                    )
-        return super().get_bind(
-            mapper=mapper, clause=clause, bind=bind, **kwargs
-        )
-
-
 # Database & login
-db = SQLAlchemy(app, session_options={
-    "expire_on_commit": False,
-    "class_": TenantRoutedSession,
-})
+db = create_tenant_database(app, DEPLOYMENT_ENV)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 

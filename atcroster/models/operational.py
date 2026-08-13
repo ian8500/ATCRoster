@@ -4,10 +4,8 @@ from flask_login import UserMixin
 from sqlalchemy.ext.hybrid import hybrid_property
 from werkzeug.security import check_password_hash
 
-# The application constructs the sole SQLAlchemy extension before importing
-# this model module. This compatibility edge will disappear when extension
-# ownership moves to atcroster.extensions.
-from atcroster.application import db, utcnow
+from atcroster.extensions import db
+from atcroster.clock import utcnow
 
 # -------------------- Models --------------------
 
