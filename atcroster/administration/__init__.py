@@ -6,7 +6,11 @@ from .blueprint import (
     create_admin_dashboard_blueprint,
     create_administration_blueprint,
 )
-from .actions import AdminActionDependencies, dispatch_admin_action
+from .actions import (
+    AdminActionDependencies,
+    create_admin_action_dependencies,
+    dispatch_admin_action,
+)
 from .toil import (
     ToilService,
     ToilServiceDependencies,
@@ -22,6 +26,7 @@ __all__ = (
     "AdministrationDependencies",
     "AdminDashboardDependencies",
     "AdminActionDependencies",
+    "create_admin_action_dependencies",
     "ToilAdministrationDependencies",
     "ToilService",
     "ToilServiceDependencies",

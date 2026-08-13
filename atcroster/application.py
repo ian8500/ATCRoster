@@ -241,11 +241,11 @@ from atcroster.administration import (
     ToilServiceDependencies,
     ToilAdministrationDependencies,
     create_admin_dashboard_blueprint,
+    create_admin_action_dependencies,
     create_administration_blueprint,
     create_toil_administration_blueprint,
     seed_toil_balances,
 )
-from atcroster.administration.actions import AdminActionDependencies
 from atcroster.administration.onboarding import (
     OnboardingDependencies,
     create_onboarding_blueprint,
@@ -1212,18 +1212,10 @@ inject_perms = register_navigation_context(
 
 
 def _admin_action_dependencies():
-    return AdminActionDependencies(
+    return create_admin_action_dependencies(
         db=db,
-        Watch=Watch,
-        Staff=Staff,
-        WorkPattern=WorkPattern,
-        StaffWatchHistory=StaffWatchHistory,
-        StaffPatternAssignment=StaffPatternAssignment,
-        QualificationType=QualificationType,
-        PersonQualification=PersonQualification,
-        ShiftType=ShiftType,
-        Requirement=Requirement,
-        SpecialRequirement=SpecialRequirement,
+        operational_models=_operational_models,
+        saas_models=SaaS,
         RosterImpactEventType=RosterImpactEventType,
         JoinerDependencies=JoinerDependencies,
         WatchConfigurationDependencies=WatchConfigurationDependencies,
@@ -1256,10 +1248,7 @@ def _admin_action_dependencies():
         save_special_requirement=save_special_requirement,
         delete_special_requirement=delete_special_requirement,
         seed_toil_balances=seed_toil_balances,
-    )
-
-
-# Keep your dedicated staff edit route (ATCO edit)
+)
 
 
 

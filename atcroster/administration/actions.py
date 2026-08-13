@@ -55,6 +55,26 @@ class AdminActionDependencies:
     seed_toil_balances: Callable[..., tuple[int, int]]
 
 
+def create_admin_action_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> AdminActionDependencies:
+    """Bind administration actions to the canonical model registries."""
+    return AdminActionDependencies(
+        db=db,
+        Watch=operational_models.Watch,
+        Staff=operational_models.Staff,
+        WorkPattern=saas_models.WorkPattern,
+        StaffWatchHistory=operational_models.StaffWatchHistory,
+        StaffPatternAssignment=saas_models.StaffPatternAssignment,
+        QualificationType=saas_models.QualificationType,
+        PersonQualification=saas_models.PersonQualification,
+        ShiftType=operational_models.ShiftType,
+        Requirement=operational_models.Requirement,
+        SpecialRequirement=operational_models.SpecialRequirement,
+        **services,
+    )
+
+
 def dispatch_admin_action(
     form: str, values: Mapping[str, str], dependencies: AdminActionDependencies
 ):
