@@ -7,7 +7,6 @@ from typing import Any, Optional, Tuple
 from flask import render_template, request, redirect, url_for, flash, abort, session, g
 import os
 import re
-import secrets
 import sys
 from functools import lru_cache
 from datetime import date, datetime, time, timedelta
@@ -282,7 +281,11 @@ from atcroster.accounts.signup import (
     run_invitation_signup,
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
-from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
+from atcroster.platform import (
+    WorkerHealthDependencies,
+    add_role_and_calendar_token,
+    create_worker_health_blueprint,
+)
 from atcroster.platform.admin import (
     PlatformAdminDependencies,
     create_platform_admin_blueprint,
@@ -2606,46 +2609,7 @@ def migrate_tenant_foundation_compat():
 
 
 def migrate_add_role_and_calendar_token():
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        cols = [row[1]
-                for row in conn.execute(text("PRAGMA table_info(staff)"))]
-        if "role" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE staff ADD COLUMN role VARCHAR(10) DEFAULT 'user'"))
-            except Exception:
-                pass
-        if "calendar_token" not in cols:
-            try:
-                conn.execute(
-                    text("ALTER TABLE staff ADD COLUMN calendar_token VARCHAR(64)"))
-            except Exception:
-                pass
-        if "email" not in cols:
-            try:
-                conn.execute(text(
-                    "ALTER TABLE staff ADD COLUMN email VARCHAR(254) "
-                    "NOT NULL DEFAULT ''"
-                ))
-            except Exception:
-                pass
-        try:
-            conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_staff_calendar_token ON staff (calendar_token)"))
-        except Exception:
-            pass
-
-    changed = False
-    for u in Staff.query.all():
-        if not u.role or u.role not in ("superadmin", "admin", "editor", "user"):
-            u.role = "admin" if getattr(u, "is_admin", False) else "user"
-            changed = True
-        if not u.calendar_token:
-            u.calendar_token = secrets.token_hex(16)
-            changed = True
-    if changed:
-        db.session.commit()
+    return add_role_and_calendar_token(db=db, Staff=Staff)
 
 
 def migrate_add_assignment_annotation():
