@@ -57,6 +57,45 @@ class OperationalRegistrationDependencies:
     month_range: Callable[..., Any]
     staff_has_shift_qualification: Callable[..., bool]
 
+
+def create_operational_registration_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> OperationalRegistrationDependencies:
+    """Bind operational-route models at the live-position boundary."""
+    return OperationalRegistrationDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        ShiftType=operational_models.ShiftType,
+        Assignment=operational_models.Assignment,
+        Requirement=operational_models.Requirement,
+        SpecialRequirement=operational_models.SpecialRequirement,
+        FeatureFlag=saas_models.FeatureFlag,
+        OperationalPosition=saas_models.OperationalPosition,
+        OperationalPositionTimeAllowance=saas_models.OperationalPositionTimeAllowance,
+        OperationalPositionGroup=saas_models.OperationalPositionGroup,
+        PositionCurrencyCategory=saas_models.PositionCurrencyCategory,
+        PositionStatusEvent=saas_models.PositionStatusEvent,
+        PositionSession=saas_models.PositionSession,
+        PositionSessionParticipant=saas_models.PositionSessionParticipant,
+        PositionParticipantRole=saas_models.PositionParticipantRole,
+        PositionSessionAudit=saas_models.PositionSessionAudit,
+        PositionEndorsement=saas_models.PositionEndorsement,
+        PositionRequirement=saas_models.PositionRequirement,
+        HandoverField=operational_models.HandoverField,
+        HandoverRecord=operational_models.HandoverRecord,
+        HandoverOperationalState=operational_models.HandoverOperationalState,
+        HandoverEquipment=operational_models.HandoverEquipment,
+        BreakPlan=saas_models.BreakPlan,
+        AchievedDuty=saas_models.AchievedDuty,
+        FatigueReport=saas_models.FatigueReport,
+        RosterRuleVersion=saas_models.RosterRuleVersion,
+        Scenario=saas_models.Scenario,
+        **services,
+    )
+
+
 def register_operational_blueprints(app: Any, d: OperationalRegistrationDependencies) -> None:
     app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
         db=d.db, Unit=d.Unit, OperationalPosition=d.OperationalPosition,

@@ -350,7 +350,7 @@ from training_blueprint import create_training_blueprint, create_training_depend
 from roster_period_service import RosterPeriodDependencies, RosterPeriodService
 from atcroster.planning import PlanningDependencies, create_planning_services
 from atcroster.live_position import (
-    OperationalRegistrationDependencies,
+    create_operational_registration_dependencies,
     register_operational_blueprints,
 )
 from tenancy import (
@@ -1491,25 +1491,8 @@ roster_period_service = RosterPeriodService(RosterPeriodDependencies(
     db=db, RosterPeriod=RosterPeriod, utcnow=utcnow,
 ))
 
-register_operational_blueprints(app, OperationalRegistrationDependencies(
-    db=db, Unit=Unit, Staff=Staff, Watch=Watch, ShiftType=ShiftType,
-    Assignment=Assignment, Requirement=Requirement,
-    SpecialRequirement=SpecialRequirement, FeatureFlag=FeatureFlag,
-    OperationalPosition=OperationalPosition,
-    OperationalPositionTimeAllowance=OperationalPositionTimeAllowance,
-    OperationalPositionGroup=OperationalPositionGroup,
-    PositionCurrencyCategory=PositionCurrencyCategory,
-    PositionStatusEvent=PositionStatusEvent, PositionSession=PositionSession,
-    PositionSessionParticipant=PositionSessionParticipant,
-    PositionParticipantRole=PositionParticipantRole,
-    PositionSessionAudit=PositionSessionAudit,
-    PositionEndorsement=PositionEndorsement,
-    PositionRequirement=PositionRequirement,
-    HandoverField=HandoverField, HandoverRecord=HandoverRecord,
-    HandoverOperationalState=HandoverOperationalState,
-    HandoverEquipment=HandoverEquipment, BreakPlan=BreakPlan,
-    AchievedDuty=AchievedDuty, FatigueReport=FatigueReport,
-    RosterRuleVersion=RosterRuleVersion, Scenario=Scenario,
+register_operational_blueprints(app, create_operational_registration_dependencies(
+    db=db, operational_models=_operational_models, saas_models=SaaS,
     now=utcnow, is_admin_user=is_admin_user, is_editor_user=is_editor_user,
     can_edit_roster=can_edit_roster,
     live_position_enabled=live_position_enabled,
