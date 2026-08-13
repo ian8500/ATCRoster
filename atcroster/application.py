@@ -385,12 +385,9 @@ _override_classifier_reference: DeferredReference[Any] = DeferredReference(
 # module. Ownership remains with the tenant database extension.
 OPERATIONAL_TABLE_NAMES = _OPERATIONAL_TABLE_NAMES
 
-# Writable local instance folder for development and tests.
 # Preserve the legacy public repository root for scripts and compatibility
 # callers; Flask itself owns the package-local application module.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INSTANCE_DIR = app.instance_path
-os.makedirs(INSTANCE_DIR, exist_ok=True)
 
 DEPLOYMENT_ENV = _runtime_settings.deployment_environment
 FIELD_ENCRYPTION_KEY = _runtime_settings.field_encryption_key
