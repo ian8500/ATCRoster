@@ -126,6 +126,7 @@ from atcroster.notifications import (
     email_service_configured,
     send_account_email,
     valid_email,
+    SmsConfigurationService,
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
@@ -558,56 +559,25 @@ def _normalise_uk_mobile(value: str | None) -> str:
 
 
 def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, str]]:
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    raw = _roster_settings_snapshot(resolved_unit_id).get(key, "[]")
-    try:
-        values = json.loads(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        values = []
-    result = []
-    seen = set()
-    for item in values if isinstance(values, list) else []:
-        if not isinstance(item, dict):
-            continue
-        number = _normalise_sms_number(item.get("number"))
-        if not number or number in seen:
-            continue
-        seen.add(number)
-        result.append({
-            "number": number,
-            "label": (str(item.get("label") or number).strip()[:80] or number),
-        })
-    return result
+    return sms_configuration.number_options(key, unit_id)
 
 
 def _sms_sender_options(unit_id: int | None = None) -> list[dict[str, str]]:
-    fallback = _normalise_uk_mobile(_messagemedia_credentials()[2])
-    configured = _sms_number_options("sms_sender_numbers", unit_id)
-    if fallback and fallback not in {item["number"] for item in configured}:
-        configured.append({"number": fallback, "label": "Unit fallback sender"})
-    return configured
+    return sms_configuration.sender_options(unit_id)
 
 
 def _sms_operational_options(unit_id: int | None = None) -> list[dict[str, str]]:
-    return _sms_number_options("sms_operational_numbers", unit_id)
+    return sms_configuration.operational_options(unit_id)
 
 
 def _sms_default_number(
     setting_key: str, options: list[dict[str, str]], unit_id: int | None = None
 ) -> str:
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    configured = _normalise_sms_number(
-        _roster_settings_snapshot(resolved_unit_id).get(setting_key)
-    )
-    allowed = {item["number"] for item in options}
-    return configured if configured in allowed else (
-        options[0]["number"] if options else ""
-    )
+    return sms_configuration.default_number(setting_key, options, unit_id)
 
 
 def _sms_service_configured() -> bool:
-    key, secret, fallback = _messagemedia_credentials()
-    return bool(key and secret and _normalise_sms_number(fallback))
+    return sms_configuration.service_configured()
 
 
 def _email_service_configured() -> bool:
@@ -1857,6 +1827,12 @@ def get_shift_counter_map(unit_id: int | None = None) -> dict[str, str]:
         for code, group in values.items()
         if str(group).upper() in {"", "M", "D", "A", "N"}
     }
+
+
+sms_configuration = SmsConfigurationService(
+    settings_snapshot=_roster_settings_snapshot,
+    current_unit_id=_current_unit_id,
+)
 
 
 def shift_counter_group(
