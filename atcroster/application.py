@@ -311,7 +311,7 @@ from atcroster.platform import (
     operational_routes_ready,
 )
 from atcroster.platform.admin import (
-    PlatformAdminDependencies,
+    create_platform_admin_dependencies,
     create_platform_admin_blueprint,
 )
 from atcroster.security.csrf import register_csrf_protection
@@ -1906,19 +1906,10 @@ app.register_blueprint(create_worker_health_blueprint(WorkerHealthDependencies(
     metrics=_operational_metrics,
     worker_health_snapshot=load_worker_health_snapshot,
 )))
-app.register_blueprint(create_platform_admin_blueprint(PlatformAdminDependencies(
+app.register_blueprint(create_platform_admin_blueprint(create_platform_admin_dependencies(
     db=db,
-    PlatformIdentity=PlatformIdentity,
-    Unit=Unit,
-    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
-    PlanHistory=PlanHistory,
-    SuperAdminAudit=SuperAdminAudit,
-    UnitMembership=UnitMembership,
-    SecureInvitation=SecureInvitation,
-    ProvisioningJob=ProvisioningJob,
-    SignupWorkflow=SignupWorkflow,
-    FeatureFlag=FeatureFlag,
-    AggregateUsageEvent=AggregateUsageEvent,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     now=utcnow,
     validate_csrf=_validate_csrf,
     consume_rate_limit=_consume_rate_limit,

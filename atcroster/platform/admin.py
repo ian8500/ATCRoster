@@ -37,6 +37,27 @@ class PlatformAdminDependencies:
     module_feature_flags: AbstractSet[str]
 
 
+def create_platform_admin_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> PlatformAdminDependencies:
+    """Bind control-plane records at the platform administration boundary."""
+    return PlatformAdminDependencies(
+        db=db,
+        PlatformIdentity=saas_models.PlatformIdentity,
+        Unit=operational_models.Unit,
+        DatabaseRoutingMetadata=saas_models.DatabaseRoutingMetadata,
+        PlanHistory=saas_models.PlanHistory,
+        SuperAdminAudit=saas_models.SuperAdminAudit,
+        UnitMembership=saas_models.UnitMembership,
+        SecureInvitation=saas_models.SecureInvitation,
+        ProvisioningJob=saas_models.ProvisioningJob,
+        SignupWorkflow=saas_models.SignupWorkflow,
+        FeatureFlag=saas_models.FeatureFlag,
+        AggregateUsageEvent=saas_models.AggregateUsageEvent,
+        **services,
+    )
+
+
 def create_platform_admin_blueprint(
     dependencies: PlatformAdminDependencies,
 ) -> Blueprint:
