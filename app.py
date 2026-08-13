@@ -142,6 +142,7 @@ from atcroster.administration import (
     create_administration_blueprint,
 )
 from atcroster.home import HomeDependencies, create_home_blueprint
+from atcroster.accounts import PasswordDependencies, create_password_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -4159,75 +4160,6 @@ def admin_required(f):
             abort(403)
         return f(*args, **kwargs)
     return wrapper
-
-# -------------------- Password management --------------------
-
-
-@app.route("/password", methods=["GET", "POST"])
-@login_required
-def password_change():
-    """Allow any logged-in user to reset OWN password."""
-    if request.method == "POST":
-        _validate_csrf()
-        cur = request.form.get("current_password", "")
-        new1 = request.form.get("new_password", "")
-        new2 = request.form.get("confirm_password", "")
-        if not current_user.check_password(cur):
-            flash("Current password is incorrect.", "error")
-            return redirect(
-                url_for("password_change")
-                if current_user.role == "superadmin"
-                else url_for("staff_profile", sid=current_user.id) + "#security"
-            )
-        if not new1 or new1 != new2:
-            flash("New passwords do not match.", "error")
-            return redirect(
-                url_for("password_change")
-                if current_user.role == "superadmin"
-                else url_for("staff_profile", sid=current_user.id) + "#security"
-            )
-        if len(new1) < 12:
-            flash("Use a password of at least 12 characters.", "error")
-            return redirect(
-                url_for("password_change")
-                if current_user.role == "superadmin"
-                else url_for("staff_profile", sid=current_user.id) + "#security"
-            )
-        if new1 == cur:
-            flash("Choose a password different from the current password.", "error")
-            return redirect(
-                url_for("password_change")
-                if current_user.role == "superadmin"
-                else url_for("staff_profile", sid=current_user.id) + "#security"
-            )
-        if current_user.role == "superadmin":
-            new_hash = generate_password_hash(new1)
-            identity = PlatformIdentity.query.filter_by(
-                username=current_user.username
-            ).first_or_404()
-            identity.password_hash = new_hash
-            db.session.commit()
-        else:
-            u = tenant_get(Staff, current_user.id)
-            if not u:
-                abort(404)
-            u.set_password(new1)
-            identity = PlatformIdentity.query.filter_by(
-                username=u.username
-            ).first()
-            if identity:
-                identity.password_hash = u.password_hash
-            db.session.commit()
-        flash("Password updated.", "ok")
-        return redirect(
-            url_for("platform_admin")
-            if current_user.role == "superadmin"
-            else url_for("staff_profile", sid=current_user.id) + "#security"
-        )
-    return render_template("password.html")
-
-# -------------------- Main / Roster --------------------
-
 
 def _roster_snapshot(year: int, month: int) -> dict:
     start = date(year, month, 1)
@@ -10293,6 +10225,14 @@ app.register_blueprint(create_home_blueprint(HomeDependencies(
     Unit=Unit,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
+)))
+app.register_blueprint(create_password_blueprint(PasswordDependencies(
+    db=db,
+    Staff=Staff,
+    PlatformIdentity=PlatformIdentity,
+    tenant_get=tenant_get,
+    validate_csrf=_validate_csrf,
+    generate_password_hash=generate_password_hash,
 )))
 app.register_blueprint(briefing_blueprint)
 
