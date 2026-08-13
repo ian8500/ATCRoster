@@ -30,6 +30,7 @@
 | Account email delivery and address validation | `atcroster/notifications/email.py` |
 | Unit-scoped SMS configuration selection | `atcroster/notifications/configuration.py` |
 | Successful SMS delivery audit persistence | `atcroster/notifications/audit.py` |
+| Overtime SMS delivery orchestration | `atcroster/notifications/overtime.py` |
 
 ## Safe stopping boundary
 

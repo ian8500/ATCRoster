@@ -128,6 +128,8 @@ from atcroster.notifications import (
     valid_email,
     SmsConfigurationService,
     SmsAuditService,
+    OvertimeSmsService,
+    default_overtime_sms_body,
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
@@ -657,40 +659,11 @@ def _record_sms_audit(
 def _send_overtime_sms_notifications(
     staff_list: list["Staff"], message: str
 ) -> tuple[int, list[tuple[Optional["Staff"], str]]]:
-    sender_options = _sms_sender_options()
-    from_number = _sms_default_number(
-        "sms_default_sender", sender_options
-    )
-    if not (_sms_service_configured() and from_number):
-        return 0, [(None, "SMS sending is not configured." )]
-
-    sent = 0
-    failures: list[tuple[Optional["Staff"], str]] = []
-    for staff in staff_list:
-        if not (staff and staff.phone_number):
-            failures.append((staff, "No phone number on file."))
-            continue
-        ok, detail = _send_sms(staff.phone_number, message, from_number)
-        if ok:
-            _record_sms_audit(
-                sender_number=from_number,
-                recipient_number=staff.phone_number,
-                recipient_label=staff.name,
-                body=message,
-                message_type="overtime",
-                provider_message_id=detail,
-            )
-            sent += 1
-        else:
-            failures.append((staff, detail))
-    return sent, failures
+    return overtime_sms_service.notify(staff_list, message)
 
 
 def _default_overtime_sms_body(chosen_date: date | None, shift_code: str | None) -> str:
-    if not (chosen_date and shift_code):
-        return ""
-    return (f"Overtime available on {chosen_date.isoformat()} for {shift_code} shift. "
-            "Please reply if interested.")
+    return default_overtime_sms_body(chosen_date, shift_code)
 
 
 def _flash_sms_result(
@@ -1833,6 +1806,11 @@ sms_audit_service = SmsAuditService(
     SmsAudit=SmsAudit,
     current_unit_id=_current_unit_id,
     current_user=lambda: current_user,
+)
+overtime_sms_service = OvertimeSmsService(
+    configuration=sms_configuration,
+    audit=sms_audit_service,
+    send=_send_sms,
 )
 
 

@@ -1,9 +1,12 @@
+from datetime import date
+
 from atcroster.notifications.sms import (
     normalise_sms_number, normalise_uk_mobile, parse_sms_number_lines,
 )
 from atcroster.notifications.email import valid_email
 from atcroster.notifications.configuration import SmsConfigurationService
 from atcroster.notifications.audit import SmsAuditService
+from atcroster.notifications.overtime import OvertimeSmsService, default_overtime_sms_body
 
 
 def test_normalise_sms_number_accepts_e164_display_punctuation():
@@ -73,3 +76,18 @@ def test_sms_audit_service_stamps_current_unit_and_actor():
     assert added[0].unit_id == 4
     assert added[0].sent_by_staff_id == 9
     assert added[0].sender_number == "+447700900123"
+
+
+def test_overtime_sms_service_sends_and_audits_eligible_staff():
+    records = []
+    configuration = type("Configuration", (), {
+        "sender_options": lambda self: [{"number": "+447700900123"}],
+        "default_number": lambda self, key, options: options[0]["number"],
+        "service_configured": lambda self: True,
+    })()
+    audit = type("Audit", (), {"record": lambda self, **kwargs: records.append(kwargs)})()
+    service = OvertimeSmsService(configuration, audit, lambda *_args: (True, "provider-id"))
+    staff = type("Staff", (), {"name": "Alex", "phone_number": "+447700900124"})()
+    assert service.notify([staff], "Available") == (1, [])
+    assert records[0]["message_type"] == "overtime"
+    assert default_overtime_sms_body(date(2026, 8, 14), "M").startswith("Overtime available")
