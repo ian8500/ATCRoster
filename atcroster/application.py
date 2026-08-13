@@ -11,9 +11,7 @@ import secrets
 import sys
 from functools import lru_cache
 from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
 import json
-import click
 import hashlib
 
 from flask_login import (
@@ -196,6 +194,7 @@ from atcroster.roster.publication import (
 )
 from atcroster.roster.overtime import OvertimeDependencies, create_overtime_blueprint
 from atcroster.cli import CliDependencies, create_cli_commands
+from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
 from atcroster.administration import (
@@ -6119,53 +6118,14 @@ register_operations_routes(
 )
 
 
-@app.cli.group("roster")
-def roster_cli():
-    """Deterministic roster maintenance commands."""
-
-
-@roster_cli.command("ensure-future-periods")
-@click.option(
-    "--months-ahead", type=click.IntRange(min=0, max=60), default=None,
-    help="Override ROSTER_GENERATION_MONTHS_AHEAD for this run.",
-)
-@click.option("--unit-code", default=None, help="Limit maintenance to one airport code.")
-def ensure_future_roster_periods(months_ahead, unit_code):
-    """Create and populate the configured future roster horizon idempotently."""
-    configured = int(
-        months_ahead if months_ahead is not None
-        else os.environ.get("ROSTER_GENERATION_MONTHS_AHEAD", "18")
-    )
-    query = Unit.query.filter(Unit.status == "active", Unit.code != "CTRL")
-    if unit_code:
-        query = query.filter(db.func.upper(Unit.code) == unit_code.strip().upper())
-    created_periods = generated_periods = 0
-    for unit in query.order_by(Unit.id).all():
-        reference = datetime.now(ZoneInfo(unit.timezone or "Europe/London")).date()
-        for offset in range(configured + 1):
-            year, month = add_months(reference.year, reference.month, offset)
-            period, created = roster_period_service.ensure_period(
-                unit, year, month, reference_date=reference,
-            )
-            db.session.flush()
-            if created:
-                created_periods += 1
-            if created and period.status == "FUTURE_AUTOMATIC":
-                start = date(year, month, 1)
-                next_year, next_month = add_months(year, month, 1)
-                end = date(next_year, next_month, 1) - timedelta(days=1)
-                roster_impact_service().handle_roster_impact_event(
-                    unit.id, RosterImpactEventType.FUTURE_PERIOD_CREATED,
-                    start, effective_to=end, rebuild_baseline=True,
-                    reason=f"Automatic future roster period {year:04d}-{month:02d} created.",
-                    reference_date=reference,
-                )
-                generated_periods += 1
-            db.session.commit()
-    click.echo(
-        f"Roster horizon ready: {created_periods} period(s) created, "
-        f"{generated_periods} future period(s) populated."
-    )
+app.cli.add_command(create_roster_cli(RosterCliDependencies(
+    db=db,
+    Unit=Unit,
+    RosterImpactEventType=RosterImpactEventType,
+    add_months=add_months,
+    roster_period_service=roster_period_service,
+    roster_impact_service=roster_impact_service,
+)))
 
 # -------------------- WSGI entry point --------------------
 # Compatibility alias for WSGI servers that import ``application``.
