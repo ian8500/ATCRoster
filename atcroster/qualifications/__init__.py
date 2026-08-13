@@ -26,6 +26,7 @@ from .history import (
 from .assurance import has_valid_endorsement, monthly_position_assurance
 from .runtime import QualificationRuntime, QualificationRuntimeDependencies
 from .eligibility import EligibilityDependencies, EligibilityService
+from .access import may_view_training_profile
 from .registration import (
     QualificationRegistrationDependencies,
     register_qualification_blueprints,
@@ -57,6 +58,7 @@ __all__ = (
     "QualificationRuntimeDependencies",
     "EligibilityDependencies",
     "EligibilityService",
+    "may_view_training_profile",
     "QualificationRegistrationDependencies",
     "register_qualification_blueprints",
 )

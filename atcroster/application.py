@@ -153,6 +153,7 @@ from atcroster.qualifications import (
     classify_qualification_impact,
     has_other_valid_ue,
     record_roster_impact_for_qualification,
+    may_view_training_profile,
 )
 from atcroster.audit import (
     ChangeAuditService,
@@ -874,22 +875,19 @@ _minutes_between = operational_currency_runtime.minutes_between
 _operational_currency_shortfalls = operational_currency_runtime.shortfalls
 
 
-def _parse_sms_number_lines(raw: str) -> tuple[list[dict[str, str]], list[str]]:
-    return parse_sms_number_lines(raw)
-
-
-def bootstrap_reference_data() -> None:
-    return bootstrap_roster_reference_data(
-        db=db,
-        Unit=Unit,
-        AnnotationType=AnnotationType,
-        RosterSetting=RosterSetting,
-        annotation_defaults=DEFAULT_ANNOTATION_TYPES,
-        roster_defaults=DEFAULT_ROSTER_SETTINGS,
-        normalise_codes=_normalise_codes,
-        refresh_annotation_cache=refresh_annotation_cache,
-        refresh_roster_settings_cache=refresh_roster_settings_cache,
-    )
+_parse_sms_number_lines = parse_sms_number_lines
+bootstrap_reference_data = partial(
+    bootstrap_roster_reference_data,
+    db=db,
+    Unit=Unit,
+    AnnotationType=AnnotationType,
+    RosterSetting=RosterSetting,
+    annotation_defaults=DEFAULT_ANNOTATION_TYPES,
+    roster_defaults=DEFAULT_ROSTER_SETTINGS,
+    normalise_codes=_normalise_codes,
+    refresh_annotation_cache=refresh_annotation_cache,
+    refresh_roster_settings_cache=refresh_roster_settings_cache,
+)
 
 
 if (
@@ -1417,20 +1415,19 @@ def _admin_action_dependencies():
 # -------------------- Leave / Sickness / TOIL --------------------
 
 
-def _group_sickness_instances(assignments, month_start=None, month_end=None):
-    return group_sickness_instances(assignments, month_start, month_end)
+_group_sickness_instances = group_sickness_instances
 
 
 # -------------------- Staff profile --------------------
 
 
-def _training_profile_allowed(person):
-    return bool(
-        person.id == current_user.id
-        or is_editor_user(current_user)
-        or can_manage_training(current_user)
-        or can_record_training(current_user)
-    )
+_training_profile_allowed = partial(
+    may_view_training_profile,
+    actor=current_user,
+    is_editor=is_editor_user,
+    can_manage_training=can_manage_training,
+    can_record_training=can_record_training,
+)
 
 
 
