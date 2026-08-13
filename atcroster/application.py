@@ -147,6 +147,7 @@ from access_policy import (
 )
 from atcroster import create_app, get_runtime_settings
 from atcroster.clock import utcnow
+from atcroster.web_assets import register_template_helpers
 from atcroster.auth import (
     AuthRuntime,
     AuthRuntimeDependencies,
@@ -469,34 +470,7 @@ _field_ciphers = _field_encryption.ciphers
 _encrypt_field = _field_encryption.encrypt
 _decrypt_field = _field_encryption.decrypt
 
-# Jinja helper
-app.jinja_env.globals['now'] = lambda: datetime.now()
-
-
-@lru_cache(maxsize=256)
-def _asset_version(filename: str) -> Optional[int]:
-    """Return a process-stable static version without a stat per template use."""
-    static_folder = app.static_folder
-    if not static_folder:
-        return None
-    try:
-        return int(os.path.getmtime(os.path.join(static_folder, filename)))
-    except (OSError, TypeError, ValueError):
-        return None
-
-
-def _asset_url(filename: str, **extra: object) -> str:
-    """Return a cache-busting static asset URL using the file mtime."""
-
-    version = _asset_version(filename)
-
-    if version is not None:
-        return url_for("static", filename=filename, v=version, **extra)
-
-    return url_for("static", filename=filename, **extra)
-
-
-app.jinja_env.globals["asset_url"] = _asset_url
+_asset_version, _asset_url = register_template_helpers(app)
 
 
 REQUEST_STATUSES = frozenset({"pending", "approved", "rejected", "fulfilled", "cancelled"})
