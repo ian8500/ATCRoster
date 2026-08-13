@@ -180,7 +180,7 @@ from atcroster.notifications import (
     send_via_messagemedia,
     valid_email,
     SmsConfigurationService,
-    SmsAuditService,
+    create_sms_audit_service,
     OvertimeSmsService,
     default_overtime_sms_body,
 )
@@ -659,9 +659,9 @@ sms_configuration = SmsConfigurationService(
     settings_snapshot=_roster_settings_snapshot,
     current_unit_id=_current_unit_id,
 )
-sms_audit_service = SmsAuditService(
+sms_audit_service = create_sms_audit_service(
     db=db,
-    SmsAudit=SmsAudit,
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     current_user=lambda: current_user,
 )

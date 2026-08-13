@@ -35,3 +35,14 @@ class SmsAuditService:
             delivery_status=delivery_status[:30],
         ))
         self.db.session.commit()
+
+
+def create_sms_audit_service(
+    *, db: Any, operational_models: Any, **services: Any
+) -> SmsAuditService:
+    """Bind SMS audit records inside the notifications domain."""
+    return SmsAuditService(
+        db=db,
+        SmsAudit=operational_models.SmsAudit,
+        **services,
+    )
