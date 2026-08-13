@@ -13,6 +13,7 @@ from .runtime import NotificationRuntime, NotificationRuntimeDependencies
 from .registration import (
     NotificationRegistrationDependencies,
     create_notification_registration_dependencies,
+    register_notification_runtime_blueprints,
     register_notification_blueprints,
 )
 from .admin import SmsAdministrationDependencies, create_sms_administration_blueprint
@@ -30,6 +31,7 @@ __all__ = (
     "NotificationRuntime", "NotificationRuntimeDependencies",
     "NotificationRegistrationDependencies", "register_notification_blueprints",
     "create_notification_registration_dependencies",
+    "register_notification_runtime_blueprints",
     "SmsAdministrationDependencies", "create_sms_administration_blueprint",
     "MessagingDependencies", "create_messaging_blueprint",
 )

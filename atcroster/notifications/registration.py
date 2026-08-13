@@ -43,6 +43,23 @@ def create_notification_registration_dependencies(
     )
 
 
+def register_notification_runtime_blueprints(
+    app: Any, *, db: Any, operational_models: Any, services: Any
+) -> None:
+    """Register notification routes from notification-owned runtime inputs."""
+    register_notification_blueprints(
+        app,
+        create_notification_registration_dependencies(
+            db=db, operational_models=operational_models,
+            current_unit_id=services.current_unit_id, now=services.now,
+            validate_csrf=services.validate_csrf,
+            is_admin_user=services.is_admin_user,
+            can_send_unit_messages=services.can_send_unit_messages,
+            notifications=services.notifications,
+        ),
+    )
+
+
 def register_notification_blueprints(
     app: Any, deps: NotificationRegistrationDependencies
 ) -> None:

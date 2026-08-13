@@ -174,10 +174,9 @@ from atcroster.extensions import (
 )
 from atcroster.public import public_blueprint
 from atcroster.notifications import (
-    create_notification_registration_dependencies,
+    register_notification_runtime_blueprints,
     NotificationRuntime,
     NotificationRuntimeDependencies,
-    register_notification_blueprints,
     parse_sms_number_lines,
     send_via_messagemedia,
     valid_email,
@@ -1571,16 +1570,17 @@ app.register_blueprint(create_training_blueprint(create_training_dependencies(
     sync_qualification_to_roster_profile=_sync_qualification_to_roster_profile,
     record_qualification_roster_impact=record_qualification_roster_impact,
 )))
-register_notification_blueprints(app, create_notification_registration_dependencies(
+register_notification_runtime_blueprints(
+    app,
     db=db,
     operational_models=_operational_models,
-    current_unit_id=_current_unit_id,
-    now=utcnow,
-    validate_csrf=_validate_csrf,
-    is_admin_user=is_admin_user,
-    can_send_unit_messages=can_send_unit_messages,
-    notifications=notification_runtime,
-))
+    services=SimpleNamespace(
+        current_unit_id=_current_unit_id, now=utcnow,
+        validate_csrf=_validate_csrf, is_admin_user=is_admin_user,
+        can_send_unit_messages=can_send_unit_messages,
+        notifications=notification_runtime,
+    ),
+)
 register_module_blueprint(
     app,
     saas_models=SaaS,
