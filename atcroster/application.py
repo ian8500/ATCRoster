@@ -206,7 +206,11 @@ from atcroster.roster.overtime import (
     OvertimeCandidateDependencies,
     OvertimeCandidateService,
     OvertimeDependencies,
+    count_tagged_assignments,
     create_overtime_blueprint,
+    had_sickness_within_48_hours,
+    has_in_date_endorsement,
+    worked_like_consecutive_days,
 )
 from atcroster.roster.setup import update_unit_roster_setup
 from atcroster.roster.watch_configuration import (
@@ -3281,67 +3285,40 @@ def _fy_start_for(d: date) -> date:
 
 
 def _count_aava_soal_since_prev_april(staff_id: int, upto: date):
-    start = date(upto.year if upto.month >= 4 else upto.year - 1, 4, 1)
-    q = (Assignment.query
-         .filter(Assignment.staff_id == staff_id,
-                 Assignment.day >= start,
-                 Assignment.day <= upto))
-    aava = 0
-    soal = 0
-    for a in q.all():
-        p = parse_annotation(a.annotation)
-        if not p:
-            continue
-        tags = annotation_tags_for(p["type"])
-        if "aava" in tags:
-            aava += 1
-        if "soal" in tags:
-            soal += 1
-    return aava, soal
+    counts = count_tagged_assignments(
+        staff_id,
+        upto,
+        ("aava", "soal"),
+        Assignment=Assignment,
+        parse_annotation=parse_annotation,
+        annotation_tags_for=annotation_tags_for,
+    )
+    return counts["aava"], counts["soal"]
 
 
 def _worked_like_consecutive_days(staff: Staff, upto_day: date, lookback_days: int = 10) -> int:
-    count = 0
-    cur = upto_day
-    for _ in range(lookback_days):
-        a = Assignment.query.filter_by(staff_id=staff.id, day=cur).first()
-        code = a.code if a else None
-        if not code:
-            break
-        if code in get_working_codes():
-            count += 1
-            cur = cur - timedelta(days=1)
-        else:
-            break
-    return count
+    return worked_like_consecutive_days(
+        staff,
+        upto_day,
+        Assignment=Assignment,
+        working_codes=get_working_codes,
+        lookback_days=lookback_days,
+    )
 
 
 def _had_sc_within_48h(staff: Staff, ref_day: date, ref_shift: ShiftType) -> bool:
-    ref_start, _ = _span(ref_day, ref_shift) if ref_shift else (
-        datetime.combine(ref_day, time(0, 0)), None)
-    start_window = ref_start - timedelta(hours=48)
-    end_window = ref_start
-
-    q = (Assignment.query
-         .filter(Assignment.staff_id == staff.id,
-                 Assignment.day >= (start_window.date() - timedelta(days=1)),
-                 Assignment.day <= end_window.date()))
-    for a in q.all():
-        if a.code in ("SC", "SSC"):
-            sh = get_shift(a.code)
-            sdt, edt = _span(a.day, sh) if sh else (None, None)
-            if sdt and edt:
-                if edt > start_window and sdt < end_window:
-                    return True
-    return False
+    return had_sickness_within_48_hours(
+        staff,
+        ref_day,
+        ref_shift,
+        Assignment=Assignment,
+        span=_span,
+        get_shift=get_shift,
+    )
 
 
 def _has_in_date_ue(s: Staff, ref_day: date) -> bool:
-    def valid(expiry: date, ut_flag: bool):
-        return (not ut_flag) and (expiry is not None) and (expiry >= ref_day)
-    tower_ok = valid(s.tower_ue_expiry, s.tower_ut)
-    radar_ok = valid(s.radar_ue_expiry, s.radar_ut)
-    return tower_ok or radar_ok
+    return has_in_date_endorsement(s, ref_day)
 
 
 # -------------------- Overtime finder (admin/editor) --------------------
@@ -3349,17 +3326,14 @@ def _has_in_date_ue(s: Staff, ref_day: date) -> bool:
 
 
 def _count_ot_since_prev_april(staff_id: int, upto: date):
-    start = date(upto.year if upto.month >= 4 else upto.year - 1, 4, 1)
-    q = (Assignment.query
-         .filter(Assignment.staff_id == staff_id,
-                 Assignment.day >= start,
-                 Assignment.day <= upto))
-    total = 0
-    for a in q.all():
-        p = parse_annotation(a.annotation)
-        if p and ("ot" in annotation_tags_for(p["type"])):
-            total += 1
-    return total
+    return count_tagged_assignments(
+        staff_id,
+        upto,
+        ("ot",),
+        Assignment=Assignment,
+        parse_annotation=parse_annotation,
+        annotation_tags_for=annotation_tags_for,
+    )["ot"]
 
 # … keep the rest of your overtime helpers exactly as pasted …
 

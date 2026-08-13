@@ -3,11 +3,107 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from typing import Any, Callable
 
 from flask import Blueprint, abort, flash, render_template, request
 from flask_login import current_user, login_required
+
+
+def count_tagged_assignments(
+    staff_id: int,
+    upto: Any,
+    tags: tuple[str, ...],
+    *,
+    Assignment: Any,
+    parse_annotation: Callable[[Any], Any],
+    annotation_tags_for: Callable[[str], set[str]],
+) -> dict[str, int]:
+    """Count tagged annotations in the current April-to-March year."""
+    start = upto.replace(
+        year=upto.year if upto.month >= 4 else upto.year - 1,
+        month=4,
+        day=1,
+    )
+    counts = dict.fromkeys(tags, 0)
+    assignments = Assignment.query.filter(
+        Assignment.staff_id == staff_id,
+        Assignment.day >= start,
+        Assignment.day <= upto,
+    ).all()
+    for assignment in assignments:
+        parsed = parse_annotation(assignment.annotation)
+        if not parsed:
+            continue
+        assignment_tags = annotation_tags_for(parsed["type"])
+        for tag in tags:
+            if tag in assignment_tags:
+                counts[tag] += 1
+    return counts
+
+
+def worked_like_consecutive_days(
+    staff: Any,
+    upto_day: Any,
+    *,
+    Assignment: Any,
+    working_codes: Callable[[], set[str]],
+    lookback_days: int = 10,
+) -> int:
+    count = 0
+    current_day = upto_day
+    codes = working_codes()
+    for _ in range(lookback_days):
+        assignment = Assignment.query.filter_by(
+            staff_id=staff.id, day=current_day
+        ).first()
+        code = assignment.code if assignment else None
+        if not code or code not in codes:
+            break
+        count += 1
+        current_day -= timedelta(days=1)
+    return count
+
+
+def had_sickness_within_48_hours(
+    staff: Any,
+    reference_day: Any,
+    reference_shift: Any,
+    *,
+    Assignment: Any,
+    span: Callable[..., tuple[Any, Any]],
+    get_shift: Callable[..., Any],
+) -> bool:
+    reference_start, _ = (
+        span(reference_day, reference_shift)
+        if reference_shift
+        else (datetime.combine(reference_day, time(0, 0)), None)
+    )
+    start_window = reference_start - timedelta(hours=48)
+    assignments = Assignment.query.filter(
+        Assignment.staff_id == staff.id,
+        Assignment.day >= start_window.date() - timedelta(days=1),
+        Assignment.day <= reference_start.date(),
+    ).all()
+    for assignment in assignments:
+        if assignment.code not in {"SC", "SSC"}:
+            continue
+        shift = get_shift(assignment.code)
+        start, end = span(assignment.day, shift) if shift else (None, None)
+        if start and end and end > start_window and start < reference_start:
+            return True
+    return False
+
+
+def has_in_date_endorsement(staff: Any, reference_day: Any) -> bool:
+    """Return whether tower or radar endorsement is valid and unrestricted."""
+
+    def valid(expiry: Any, under_training: bool) -> bool:
+        return not under_training and expiry is not None and expiry >= reference_day
+
+    return valid(staff.tower_ue_expiry, staff.tower_ut) or valid(
+        staff.radar_ue_expiry, staff.radar_ut
+    )
 
 
 @dataclass(frozen=True)
