@@ -207,6 +207,8 @@ from atcroster.accounts import (
     normalise_phone_number,
     record_successful_login,
     unit_admin_emails,
+    RecoveryRequestDependencies,
+    create_recovery_request_blueprint,
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
@@ -7729,108 +7731,6 @@ def _active_recovery_from_digest(
     )
 
 
-@app.route("/recover", methods=["GET", "POST"])
-def account_recovery():
-    mode = (request.values.get("mode") or "password").strip()
-    if mode not in {"password", "username"}:
-        mode = "password"
-    if request.method == "POST":
-        _validate_csrf()
-        if not _consume_rate_limit(
-            "account-recovery",
-            hashlib.sha256(
-                f"{request.remote_addr}:{mode}".encode()
-            ).hexdigest(),
-            limit=8,
-            window=timedelta(hours=1),
-        ):
-            abort(429, "Too many recovery attempts. Try again later.")
-        if mode == "username":
-            email = _valid_email(request.form.get("email") or "")
-            airport_code = (
-                request.form.get("airport_code") or ""
-            ).strip().upper()
-            if email:
-                identities = PlatformIdentity.query.filter(
-                    db.func.lower(PlatformIdentity.email) == email
-                ).order_by(PlatformIdentity.username).all()
-                if identities:
-                    usernames = "\n".join(
-                        f"- {identity.username}" for identity in identities
-                    )
-                    _send_account_email(
-                        email,
-                        "Your ATCRoster username",
-                        "The username(s) registered to this email address are:\n"
-                        f"{usernames}\n\nIf you did not request this, contact "
-                        "your Unit Administrator.",
-                    )
-                elif airport_code:
-                    unit = Unit.query.filter_by(code=airport_code).first()
-                    if unit:
-                        for admin_email in _unit_admin_emails(unit.id):
-                            _send_account_email(
-                                admin_email,
-                                f"Username recovery assistance for {unit.code}",
-                                "A user requested username assistance for "
-                                f"{email}. Verify their identity using your "
-                                "approved local process before disclosing or "
-                                "updating account details.",
-                            )
-        else:
-            username = _normalized_login(
-                request.form.get("username") or ""
-            )
-            identity = PlatformIdentity.query.filter_by(
-                username=username
-            ).first()
-            if identity:
-                membership = UnitMembership.query.filter_by(
-                    identity_id=identity.id, status="active"
-                ).first()
-                unit_id = membership.unit_id if membership else None
-                approvers = (
-                    _platform_support_emails()
-                    if identity.role == "superadmin"
-                    or (membership and membership.role == "UnitAdmin")
-                    else _unit_admin_emails(unit_id)
-                )
-                if not approvers:
-                    approvers = _platform_support_emails()
-                raw_token = secrets.token_urlsafe(32)
-                row = RecoveryRequest(
-                    unit_id=unit_id,
-                    identity_id=identity.id,
-                    person_id=membership.person_id if membership else None,
-                    approval_token_digest=hashlib.sha256(
-                        raw_token.encode()
-                    ).hexdigest(),
-                    state="pending_approval",
-                    expires_at=utcnow() + timedelta(hours=24),
-                )
-                db.session.add(row)
-                db.session.commit()
-                approval_url = url_for(
-                    "approve_account_recovery",
-                    token=raw_token,
-                    _external=True,
-                )
-                for approver in approvers:
-                    _send_account_email(
-                        approver,
-                        "ATCRoster password reset approval required",
-                        f"A password reset was requested for {username}.\n\n"
-                        f"Review and approve it here:\n{approval_url}\n\n"
-                        "The link expires in 24 hours. Do not forward it.",
-                    )
-        flash(
-            "If the supplied details match an account, the recovery process "
-            "has started. Check email or contact your administrator.",
-            "ok",
-        )
-        return redirect(url_for("account_recovery", mode=mode))
-    return render_template("account_recovery.html", mode=mode)
-
 
 @app.route("/recover/approve/<token>", methods=["GET", "POST"])
 @login_required
@@ -8815,6 +8715,21 @@ app.register_blueprint(create_home_blueprint(HomeDependencies(
     Unit=Unit,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
+)))
+app.register_blueprint(create_recovery_request_blueprint(RecoveryRequestDependencies(
+    db=db,
+    PlatformIdentity=PlatformIdentity,
+    UnitMembership=UnitMembership,
+    RecoveryRequest=RecoveryRequest,
+    Unit=Unit,
+    validate_csrf=_validate_csrf,
+    consume_rate_limit=_consume_rate_limit,
+    valid_email=_valid_email,
+    normalized_login=_normalized_login,
+    platform_support_emails=_platform_support_emails,
+    unit_admin_emails=_unit_admin_emails,
+    send_email=_send_account_email,
+    now=utcnow,
 )))
 app.register_blueprint(create_password_blueprint(PasswordDependencies(
     db=db,

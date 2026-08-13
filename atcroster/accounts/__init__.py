@@ -6,6 +6,7 @@ from .phones import normalise_phone_number
 from .lifecycle import record_successful_login
 from .password import PasswordDependencies, create_password_blueprint
 from .recovery import active_recovery_from_digest
+from .recovery_blueprint import RecoveryRequestDependencies, create_recovery_request_blueprint
 
 __all__ = (
     "KioskAccountDependencies",
@@ -17,4 +18,6 @@ __all__ = (
     "record_successful_login",
     "unit_admin_emails",
     "active_recovery_from_digest",
+    "RecoveryRequestDependencies",
+    "create_recovery_request_blueprint",
 )
