@@ -233,7 +233,10 @@ from atcroster.modules import (
     ModuleDependencies,
     create_module_blueprint,
 )
-from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
+from atcroster.calendar_feed import (
+    create_calendar_feed_blueprint,
+    create_calendar_feed_dependencies,
+)
 from atcroster.administration import (
     AdminDashboardDependencies,
     AdministrationDependencies,
@@ -1741,11 +1744,10 @@ app.register_blueprint(create_module_blueprint(ModuleDependencies(
     competency_enabled=competency_enabled,
     is_admin_user=is_admin_user,
 )))
-app.register_blueprint(create_calendar_feed_blueprint(CalendarFeedDependencies(
-    Staff=Staff,
-    Assignment=Assignment,
+app.register_blueprint(create_calendar_feed_blueprint(create_calendar_feed_dependencies(
     get_shift=get_shift,
     db=db,
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
     validate_csrf=_validate_csrf,

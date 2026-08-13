@@ -23,6 +23,18 @@ class CalendarFeedDependencies:
     validate_csrf: Callable[[], None]
 
 
+def create_calendar_feed_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> CalendarFeedDependencies:
+    """Bind calendar routes to canonical operational models."""
+    return CalendarFeedDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        Assignment=operational_models.Assignment,
+        **services,
+    )
+
+
 def _calendar_window_today() -> tuple[date, date]:
     today = date.today()
     current_start = date(today.year, today.month, 1)
