@@ -12,16 +12,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 E2E_MFA_SECRET = "JBSWY3DPEHPK3PXP"
 
+# Python puts ``scripts/`` first when this file is launched directly. Ensure
+# the root-level WSGI compatibility module is importable in CI and locally.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 
 def main() -> None:
     database = os.environ.get("ATCROSTER_E2E_DATABASE")
     if not database:
         raise SystemExit("ATCROSTER_E2E_DATABASE is required for browser tests.")
+    database_path = Path(database).resolve()
+    os.environ["DATABASE_URL"] = f"sqlite:///{database_path}"
+    os.environ["CONTROL_DATABASE_URL"] = f"sqlite:///{database_path}"
     os.environ.setdefault("ATCROSTER_ENV", "development")
     os.environ.setdefault("ATCROSTER_SKIP_RUNTIME_SCHEMA", "1")
     os.environ.setdefault("FLASK_SECRET_KEY", "e2e-only-not-a-production-secret-123456")
     subprocess.run(
-        [sys.executable, "scripts/seed_acceptance_data.py", "--database", database, "--reset"],
+        [sys.executable, "scripts/seed_acceptance_data.py", "--database", str(database_path), "--reset"],
         cwd=ROOT,
         check=True,
     )
@@ -32,8 +40,9 @@ def main() -> None:
         roster.MfaCredential.query.filter_by(person_id=user.id).delete()
         roster.db.session.add(
             roster.MfaCredential(
+                unit_id=user.unit_id,
                 person_id=user.id,
-                encrypted_secret=roster._encrypt_mfa_secret(E2E_MFA_SECRET),
+                encrypted_secret=roster._encrypt_field(E2E_MFA_SECRET),
                 enabled=True,
                 recovery_codes_digest="[]",
             )
