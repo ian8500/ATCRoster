@@ -193,6 +193,10 @@ from atcroster.notifications import (
     MessagingDependencies,
     create_messaging_blueprint,
 )
+from atcroster.roster.publication import (
+    PublicationDependencies,
+    create_publication_service,
+)
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
 from atcroster.administration import (
@@ -3124,237 +3128,6 @@ def admin_required(f):
         return f(*args, **kwargs)
     return wrapper
 
-def _roster_snapshot(year: int, month: int) -> dict:
-    start = date(year, month, 1)
-    ny, nm = _month_add(year, month, 1)
-    end = date(ny, nm, 1)
-    assignments = (
-        Assignment.query.filter(
-            Assignment.unit_id == _current_unit_id(),
-            Assignment.day >= start, Assignment.day < end
-        )
-        .order_by(Assignment.staff_id, Assignment.day)
-        .all()
-    )
-    return {
-        "generated_at": utcnow().isoformat(),
-        "year": year,
-        "month": month,
-        "assignments": [
-            {
-                "staff_id": row.staff_id,
-                "day": row.day.isoformat(),
-                "code": row.code,
-                "annotation": row.annotation or "",
-            }
-            for row in assignments
-        ],
-    }
-
-
-def _can_publish_roster(user) -> bool:
-    """Month publication is available to accountable operational managers."""
-    return bool(
-        is_admin_user(user)
-        or getattr(user, "is_wm", False)
-        or getattr(user, "is_dwm", False)
-    )
-
-
-def _active_roster_publication(year: int, month: int):
-    return (
-        RosterPublication.query.filter_by(
-            unit_id=_current_unit_id(),
-            year=year,
-            month=month,
-            state="published",
-        )
-        .order_by(RosterPublication.version.desc())
-        .first()
-    )
-
-
-def _publication_matches_live_roster(publication, year: int, month: int) -> bool:
-    """A changed roster returns to Draft until the new state is published."""
-    if not publication:
-        return False
-    try:
-        published_rows = json.loads(
-            publication.snapshot_json or "{}"
-        ).get("assignments", [])
-    except (TypeError, json.JSONDecodeError):
-        return False
-    live_rows = _roster_snapshot(year, month)["assignments"]
-    try:
-        return normalise_assignment_snapshot(
-            published_rows
-        ) == normalise_assignment_snapshot(live_rows)
-    except (KeyError, TypeError, ValueError):
-        return False
-
-
-def _publication_preflight(year: int, month: int) -> dict:
-    _, days = month_range(year, month)
-    staff = Staff.query.filter_by(is_operational=True).order_by(Staff.name).all()
-    assignments = Assignment.query.filter(
-        Assignment.day >= days[0], Assignment.day <= days[-1]
-    ).all()
-    assignment_map = {(row.staff_id, row.day): row for row in assignments}
-    requirement = Requirement.query.filter_by(year=year, month=month).first()
-    counts = {day: Counter() for day in days}
-    qualification_gaps = []
-    unassigned = []
-
-    for person in staff:
-        for day in days:
-            assignment = assignment_map.get((person.id, day))
-            if not assignment:
-                unassigned.append({"staff": person, "day": day})
-                continue
-            shift = get_shift(assignment.code)
-            if (
-                shift and shift.is_working and shift.required_qualification
-                and not _staff_has_shift_qualification(person, shift, day)
-            ):
-                qualification_gaps.append({
-                    "staff": person, "day": day, "shift": shift,
-                    "qualification": shift.required_qualification,
-                })
-            if (
-                shift and shift.is_working and not shift.is_training
-                and assignment.code not in get_exclude_from_counters()
-                and staff_is_countable_on(person, day)
-            ):
-                group = shift_counter_group_for_day(
-                    assignment.code, day, _current_unit_id()
-                )
-                if group:
-                    counts[day][group] += 1
-
-    coverage_gaps = []
-    for day in days:
-        for group in ("M", "D", "A", "N"):
-            needed = (
-                0
-                if group == "N" and not _night_active_on(
-                    _current_unit_id(), day
-                )
-                else int(
-                    getattr(requirement, f"req_{group.lower()}", 0) or 0
-                )
-            )
-            available = counts[day][group]
-            if available < needed:
-                coverage_gaps.append({
-                    "day": day, "group": group,
-                    "available": available, "needed": needed,
-                    "shortfall": needed - available,
-                })
-
-    fatigue = _compliance_findings(year, month)
-    position_rows = _position_assurance(year, month)
-    position_shortfalls = [row for row in position_rows if row["shortfall"]]
-    approved_rule = RosterRuleVersion.query.filter(
-        RosterRuleVersion.state == "approved",
-        db.or_(
-            RosterRuleVersion.effective_from.is_(None),
-            RosterRuleVersion.effective_from <= days[0],
-        ),
-    ).order_by(RosterRuleVersion.version.desc()).first()
-    critical_reports = FatigueReport.query.filter(
-        FatigueReport.duty_day >= days[0],
-        FatigueReport.duty_day <= days[-1],
-        FatigueReport.severity.in_(("high", "unfit")),
-        FatigueReport.status != "closed",
-    ).all()
-    configuration_blocks = []
-    if not OperationalPosition.query.filter_by(is_active=True).first():
-        configuration_blocks.append("No active operational positions configured.")
-    if not PositionRequirement.query.filter(
-        PositionRequirement.day >= days[0],
-        PositionRequirement.day <= days[-1],
-    ).first():
-        configuration_blocks.append("No position requirements configured for the month.")
-    if not approved_rule:
-        configuration_blocks.append("No approved rostering rule version governs the month.")
-    if not BreakPlan.query.filter(
-        BreakPlan.day >= days[0], BreakPlan.day <= days[-1]
-    ).first():
-        configuration_blocks.append("No operational break plan is recorded for the month.")
-    # Only incomplete roster cells and known competence failures prevent a
-    # release. Other findings stay visible and require a manager rationale,
-    # but do not trap a unit in optional setup workflows.
-    hard_blocks = len(qualification_gaps) + len(unassigned)
-    return {
-        "fatigue_total": fatigue["total"],
-        "fatigue_critical": fatigue["critical"],
-        "coverage_gaps": coverage_gaps,
-        "qualification_gaps": qualification_gaps,
-        "unassigned": unassigned,
-        "position_assurance": position_rows,
-        "position_shortfalls": position_shortfalls,
-        "critical_fatigue_reports": critical_reports,
-        "configuration_blocks": configuration_blocks,
-        "approved_rule": approved_rule,
-        "hard_blocks": hard_blocks,
-        "exceptions": (
-            fatigue["total"] + len(coverage_gaps)
-            + len(position_shortfalls) + len(critical_reports)
-            + len(configuration_blocks)
-        ),
-        "ready": hard_blocks == 0,
-    }
-
-
-def _send_roster_publication_emails(
-    unit_id: int,
-    year: int,
-    month: int,
-    published_at: datetime,
-) -> tuple[int, int, int]:
-    """Email each registered unit user without exposing recipient addresses."""
-    recipients = (
-        Staff.query
-        .filter(
-            Staff.unit_id == unit_id,
-            Staff.membership_status == "active",
-            Staff.email.isnot(None),
-            Staff.email != "",
-        )
-        .order_by(Staff.name)
-        .all()
-    )
-    unit = db.session.get(Unit, unit_id)
-    unit_name = (unit.name or unit.code) if unit else "your airport"
-    month_name = date(year, month, 1).strftime("%B %Y")
-    roster_url = url_for(
-        "roster_month", ym=f"{year:04d}-{month:02d}", _external=True
-    )
-    subject = f"{month_name} roster published — {unit_name}"
-    sent = 0
-    failed = 0
-    unique_addresses: set[str] = set()
-
-    for person in recipients:
-        address = _valid_email(person.email)
-        if not address or address in unique_addresses:
-            continue
-        unique_addresses.add(address)
-        body = (
-            f"Hello {person.name},\n\n"
-            f"The {month_name} roster for {unit_name} was published on "
-            f"{published_at.strftime('%d %B %Y')}.\n\n"
-            f"View the roster: {roster_url}\n\n"
-            "Please sign in to ATC Roster to review your duties. If you "
-            "believe anything is incorrect, contact your unit management "
-            "team.\n"
-        )
-        if _send_account_email(address, subject, body):
-            sent += 1
-        else:
-            failed += 1
-
-    return sent, failed, len(unique_addresses)
 
 
 def _clamp_prev_next(year, month):
@@ -7866,6 +7639,35 @@ app.register_blueprint(create_reports_blueprint(ReportsDependencies(
     competency_enabled=competency_enabled,
     operational_currency_shortfalls=_operational_currency_shortfalls,
 )))
+publication_service = create_publication_service(PublicationDependencies(
+    db=db,
+    Assignment=Assignment,
+    RosterPublication=RosterPublication,
+    Staff=Staff,
+    Requirement=Requirement,
+    RosterRuleVersion=RosterRuleVersion,
+    FatigueReport=FatigueReport,
+    OperationalPosition=OperationalPosition,
+    PositionRequirement=PositionRequirement,
+    BreakPlan=BreakPlan,
+    Unit=Unit,
+    current_unit_id=_current_unit_id,
+    now=utcnow,
+    month_add=_month_add,
+    month_range=month_range,
+    is_admin_user=is_admin_user,
+    normalise_snapshot=normalise_assignment_snapshot,
+    get_shift=get_shift,
+    staff_has_shift_qualification=_staff_has_shift_qualification,
+    excluded_codes=get_exclude_from_counters,
+    staff_is_countable_on=staff_is_countable_on,
+    shift_counter_group_for_day=shift_counter_group_for_day,
+    night_active_on=_night_active_on,
+    compliance_findings=_compliance_findings,
+    position_assurance=_position_assurance,
+    valid_email=_valid_email,
+    send_account_email=_send_account_email,
+))
 app.register_blueprint(create_roster_blueprint(RosterDependencies(
     db=db,
     RosterPublication=RosterPublication,
@@ -7879,18 +7681,18 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     ShiftRequest=ShiftRequest,
     AnnotationType=AnnotationType,
     AnnotationAudit=AnnotationAudit,
-    can_publish_roster=_can_publish_roster,
+    can_publish_roster=publication_service.can_publish,
     validate_csrf=_validate_csrf,
     parse_year_month=parse_ym,
     current_unit_id=_current_unit_id,
     month_has_data=month_has_data,
     ensure_month_requirement=ensure_month_requirement,
     generate_month=generate_month,
-    active_publication=_active_roster_publication,
-    publication_matches_live=_publication_matches_live_roster,
-    roster_snapshot=_roster_snapshot,
+    active_publication=publication_service.active_publication,
+    publication_matches_live=publication_service.matches_live,
+    roster_snapshot=publication_service.snapshot,
     utcnow=utcnow,
-    send_publication_emails=_send_roster_publication_emails,
+    send_publication_emails=publication_service.send_emails,
     log_change=log_change,
     consume_rate_limit=_consume_rate_limit,
     month_range=month_range,
