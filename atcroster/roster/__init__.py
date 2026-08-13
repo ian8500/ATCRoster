@@ -19,7 +19,11 @@ from .editing import LOCKED_SOURCES, cell_is_protected
 from .assignments import assignment_for_day
 from .mutations import set_assignment_code
 from .codes import is_non_working, is_working_with_prefix, normalize_code
-from .pattern_runtime import PatternRuntime, PatternRuntimeDependencies
+from .pattern_runtime import (
+    PatternRuntime,
+    PatternRuntimeDependencies,
+    create_pattern_runtime_dependencies,
+)
 from .months import RosterMonthService, create_roster_month_service
 from .lookups import ShiftLookupService
 
@@ -49,6 +53,7 @@ __all__ = (
     "parse_year_month",
     "PatternRuntime",
     "PatternRuntimeDependencies",
+    "create_pattern_runtime_dependencies",
     "RosterMonthService",
     "create_roster_month_service",
     "ShiftLookupService",

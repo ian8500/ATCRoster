@@ -94,7 +94,7 @@ from atcroster.roster import (
     ensure_month_requirement as ensure_roster_month_requirement,
     requirements_for_day as resolve_roster_requirements_for_day,
     PatternRuntime,
-    PatternRuntimeDependencies,
+    create_pattern_runtime_dependencies,
     create_roster_month_service,
     ShiftLookupService,
 )
@@ -841,10 +841,9 @@ roster_settings_catalogue.set_secondary_cache_clear(
 PATTERN_CODES = ("M", "A", "D", "N", "OPS", "OFF")
 DEFAULT_BASE_PATTERN = "M,M,A,A,N,N,OFF,OFF,OFF,OFF"
 
-pattern_runtime = PatternRuntime(PatternRuntimeDependencies(
+pattern_runtime = PatternRuntime(create_pattern_runtime_dependencies(
     db=db,
-    Staff=Staff,
-    StaffWatchHistory=StaffWatchHistory,
+    operational_models=_operational_models,
     authenticated_unit_id=authenticated_unit_id,
     settings_snapshot=_roster_settings_snapshot,
     expand_pattern=expand_pattern,

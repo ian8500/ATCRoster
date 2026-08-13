@@ -37,6 +37,18 @@ class PatternRuntimeDependencies:
     today: Callable[[], date] = date.today
 
 
+def create_pattern_runtime_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> PatternRuntimeDependencies:
+    """Bind pattern resolution records within the roster domain."""
+    return PatternRuntimeDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        StaffWatchHistory=operational_models.StaffWatchHistory,
+        **services,
+    )
+
+
 class PatternRuntime:
     """Resolve tenant-scoped watch membership and dated roster patterns."""
 
