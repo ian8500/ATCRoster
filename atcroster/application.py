@@ -157,6 +157,7 @@ from atcroster.auth import (
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
+from atcroster.fatigue import assignment_is_fatigue_safe
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -3075,13 +3076,7 @@ def _has_leave_or_sick(staff_id: int, d: date) -> bool:
 
 
 def _fatigue_ok(staff: "Staff", day: date, code: str) -> bool:
-    """True if assigning `code` on `day` would NOT create new fatigue flags."""
-    try:
-        flags = would_trigger_fatigue(staff, day, code)
-    except Exception:
-        # If the analysis fails for any reason, be safe and block the assignment
-        return False
-    return len(flags) == 0
+    return assignment_is_fatigue_safe(staff, day, code, would_trigger_fatigue)
 
 # Back-compat shim so all AI code can call the same name
 
