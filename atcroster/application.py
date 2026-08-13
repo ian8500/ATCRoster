@@ -155,8 +155,8 @@ from atcroster.qualifications import (
     may_view_training_profile,
 )
 from atcroster.audit import (
-    ChangeAuditService,
     context_month_for_date,
+    create_change_audit_service,
     record_central_security_event,
 )
 from atcroster.workforce.joiners import JoinerDependencies, create_joiner
@@ -1044,9 +1044,9 @@ _parse_date = parse_roster_date
 _normalise_phone_number = normalise_phone_number
 parse_annotation = annotation_catalogue.parse
 _context_month_for_date = context_month_for_date
-change_audit_service = ChangeAuditService(
+change_audit_service = create_change_audit_service(
     db=db,
-    ChangeLog=ChangeLog,
+    operational_models=_operational_models,
     current_user=lambda: current_user,
     now=utcnow,
 )

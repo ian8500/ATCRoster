@@ -47,6 +47,17 @@ class ChangeAuditService:
         )
 
 
+def create_change_audit_service(
+    *, db: Any, operational_models: Any, **services: Any
+) -> ChangeAuditService:
+    """Bind append-only change records in the audit domain."""
+    return ChangeAuditService(
+        db=db,
+        ChangeLog=operational_models.ChangeLog,
+        **services,
+    )
+
+
 def context_month_for_date(value: date | None) -> str | None:
     return None if value is None else f"{value.year:04d}-{value.month:02d}"
 
