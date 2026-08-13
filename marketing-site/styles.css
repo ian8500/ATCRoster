@@ -238,7 +238,7 @@ h3 {
 .statement {
   padding: 70px 0;
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
+  grid-template-columns: 1.4fr repeat(3, 1fr);
   gap: 24px;
   border-top: 1px solid var(--line);
 }
@@ -333,7 +333,8 @@ h3 {
   color: var(--white);
 }
 .roster-preview,
-.monitor-preview {
+.monitor-preview,
+.briefing-preview {
   position: relative;
   border: 1px solid #34443b;
   border-radius: 8px;
@@ -342,7 +343,8 @@ h3 {
   box-shadow: 0 28px 70px rgb(0 0 0 / 0.45);
 }
 .roster-preview:before,
-.monitor-preview:before {
+.monitor-preview:before,
+.briefing-preview:before {
   content: "";
   position: absolute;
   top: 10px;
@@ -507,13 +509,86 @@ h3 {
 .position-card p b {
   color: #fff;
 }
+.briefing-preview {
+  color: var(--green2);
+  background: #0b110e;
+}
+.briefing-head,
+.briefing-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0.8rem 1rem;
+  font:
+    11px ui-monospace,
+    monospace;
+}
+.briefing-head {
+  border-bottom: 1px solid var(--line);
+}
+.briefing-head b {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #83e5aa;
+  color: #83e5aa;
+  font-weight: 500;
+}
+.briefing-body {
+  padding: 2rem;
+  background: linear-gradient(145deg, #16251e, #0d1511);
+}
+.briefing-meta {
+  margin: 0;
+  color: var(--amber);
+  font:
+    11px ui-monospace,
+    monospace;
+}
+.briefing-body h3 {
+  max-width: 420px;
+  margin: 1.4rem 0 0.8rem;
+  font-size: clamp(24px, 2.8vw, 38px);
+}
+.briefing-body > p:not(.briefing-meta) {
+  max-width: 430px;
+  color: var(--muted);
+}
+.briefing-status {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 2rem;
+}
+.briefing-status span {
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.briefing-status b {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--white);
+  font-size: 12px;
+}
+.briefing-footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+.briefing-footer button {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+}
 .capabilities {
   padding: 120px 0;
   border-top: 1px solid var(--line);
 }
 .capability-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-top: 45px;
 }
@@ -603,7 +678,7 @@ button:focus-visible {
     transform: none;
   }
   .capability-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
   .investment-copy {
     grid-template-columns: 1fr;
@@ -644,6 +719,7 @@ button:focus-visible {
   }
   .capability-grid,
   .evidence-grid,
+  .briefing-status,
   .position-cards {
     grid-template-columns: 1fr;
   }
