@@ -227,7 +227,7 @@ from atcroster.roster.impacts import (
     RosterImpactRuntimeDependencies,
 )
 from atcroster.cli import CliDependencies, create_cli_commands
-from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
+from atcroster.cli_roster import create_roster_cli, create_roster_cli_dependencies
 from atcroster.modules import (
     ModuleAvailability,
     create_module_blueprint,
@@ -1929,10 +1929,10 @@ register_operations_routes(
     ),
 )
 
-app.cli.add_command(create_roster_cli(RosterCliDependencies(
+app.cli.add_command(create_roster_cli(create_roster_cli_dependencies(
     db=db,
-    Unit=Unit,
-    RosterImpactEventType=RosterImpactEventType,
+    operational_models=_operational_models,
+    roster_impact_event_type=RosterImpactEventType,
     add_months=add_months,
     roster_period_service=roster_period_service,
     roster_impact_service=roster_impact_service,

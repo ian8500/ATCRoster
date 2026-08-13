@@ -22,6 +22,18 @@ class RosterCliDependencies:
     roster_impact_service: Callable[[], Any]
 
 
+def create_roster_cli_dependencies(
+    *, db: Any, operational_models: Any, roster_impact_event_type: Any, **services: Any
+) -> RosterCliDependencies:
+    """Bind CLI persistence dependencies at the roster boundary."""
+    return RosterCliDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        RosterImpactEventType=roster_impact_event_type,
+        **services,
+    )
+
+
 def create_roster_cli(dependencies: RosterCliDependencies):
     """Build the roster CLI group for composition-root registration."""
 
