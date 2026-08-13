@@ -63,7 +63,6 @@ from fatigue_compliance import (
     FatigueRuleConfigService,
     compliance_month,
 )
-from work_pattern_service import WorkPatternDependencies, WorkPatternService
 from roster_population_service import (
     DeterministicRosterPopulationService,
     PopulationDependencies,
@@ -333,13 +332,8 @@ from training_blueprint import TrainingDependencies, create_training_blueprint
 from operations_blueprint import OperationsDependencies, create_operations_blueprint
 from live_position_blueprint import LivePositionDependencies, create_live_position_blueprint
 from handover_blueprint import HandoverDependencies, create_handover_blueprint
-from work_pattern_admin_service import WorkPatternAdminDependencies, WorkPatternAdminService
-from work_pattern_blueprint import WorkPatternBlueprintDependencies, create_work_pattern_blueprint
-from roster_validation_service import RosterValidationDependencies, RosterValidationService
-from roster_proposal_service import RosterProposalDependencies, RosterProposalService
-from work_pattern_migration_service import WorkPatternMigrationDependencies, WorkPatternMigrationService
-from override_classification_service import OverrideClassificationDependencies, OverrideClassificationService
 from roster_period_service import RosterPeriodDependencies, RosterPeriodService
+from atcroster.planning import PlanningDependencies, create_planning_services
 from tenancy import (
     authenticated_database_route_optional,
     authenticated_unit_id,
@@ -1732,106 +1726,49 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 # -------------------- Run --------------------
 
-work_pattern_service = WorkPatternService(WorkPatternDependencies(
+planning_services = create_planning_services(app, PlanningDependencies(
+    db=db,
     Staff=Staff,
     ShiftType=ShiftType,
     Leave=Leave,
     Assignment=Assignment,
+    Sickness=Sickness,
+    Requirement=Requirement,
+    SpecialRequirement=SpecialRequirement,
     WorkPattern=WorkPattern,
     WorkPatternDay=WorkPatternDay,
     WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
     StaffPatternAssignment=StaffPatternAssignment,
     StaffRule=StaffRule,
+    BankHoliday=BankHoliday,
+    RosterProposal=RosterProposal,
+    RosterProposalAssignment=RosterProposalAssignment,
+    ChangeLog=ChangeLog,
     shift_group=lambda shift: shift_counter_group(shift.code, shift.unit_id),
+    requirements_for_day=requirements_for_day,
+    shift_group_for_day=shift_counter_group_for_day,
+    shift_minutes=shift_duration_minutes,
+    staff_is_countable_on=staff_is_countable_on,
+    staff_has_qualification=_staff_has_shift_qualification,
+    would_trigger_fatigue=would_trigger_fatigue_with_plan,
+    compute_fairness_range=_compute_fairness_range,
+    now=utcnow,
+    pattern_context=_pattern_context,
+    is_admin_user=is_admin_user,
+    current_unit_id=_current_unit_id,
+    validate_csrf=_validate_csrf,
+    record_roster_impact=record_roster_impact,
 ))
+work_pattern_service = planning_services.patterns
+roster_validation_service = planning_services.validation
+roster_proposal_service = planning_services.proposals
+override_classification_service = planning_services.override_classification
 get_pattern_day_for_staff = work_pattern_service.get_pattern_day_for_staff
 get_effective_staff_rules = work_pattern_service.get_effective_staff_rules
 is_staff_eligible_for_shift = work_pattern_service.is_staff_eligible_for_shift
 calculate_soft_rule_penalty = work_pattern_service.calculate_soft_rule_penalty
-
-work_pattern_admin_service = WorkPatternAdminService(
-    WorkPatternAdminDependencies(
-        db=db,
-        WorkPattern=WorkPattern,
-        WorkPatternDay=WorkPatternDay,
-        WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
-        ShiftType=ShiftType,
-        pattern_service=work_pattern_service,
-    )
-)
-roster_validation_service = RosterValidationService(
-    RosterValidationDependencies(
-        Staff=Staff,
-        ShiftType=ShiftType,
-        Assignment=Assignment,
-        StaffPatternAssignment=StaffPatternAssignment,
-        StaffRule=StaffRule,
-        work_pattern_service=work_pattern_service,
-    )
-)
-roster_proposal_service = RosterProposalService(
-    RosterProposalDependencies(
-        db=db,
-        Staff=Staff,
-        ShiftType=ShiftType,
-        Assignment=Assignment,
-        Sickness=Sickness,
-        Requirement=Requirement,
-        SpecialRequirement=SpecialRequirement,
-        RosterProposal=RosterProposal,
-        RosterProposalAssignment=RosterProposalAssignment,
-        ChangeLog=ChangeLog,
-        work_pattern_service=work_pattern_service,
-        requirements_for_day=requirements_for_day,
-        shift_group_for_day=shift_counter_group_for_day,
-        shift_minutes=shift_duration_minutes,
-        staff_is_countable_on=staff_is_countable_on,
-        staff_has_qualification=_staff_has_shift_qualification,
-        would_trigger_fatigue=would_trigger_fatigue_with_plan,
-        compute_fairness_range=_compute_fairness_range,
-        utcnow=utcnow,
-    )
-)
-override_classification_service = OverrideClassificationService(
-    OverrideClassificationDependencies(
-        Assignment=Assignment, Staff=Staff, ShiftType=ShiftType,
-        work_pattern_service=work_pattern_service,
-    )
-)
 roster_period_service = RosterPeriodService(RosterPeriodDependencies(
     db=db, RosterPeriod=RosterPeriod, utcnow=utcnow,
-))
-work_pattern_migration_service = WorkPatternMigrationService(
-    WorkPatternMigrationDependencies(
-        db=db,
-        Staff=Staff,
-        WorkPattern=WorkPattern,
-        WorkPatternDay=WorkPatternDay,
-        ShiftType=ShiftType,
-        StaffPatternAssignment=StaffPatternAssignment,
-        pattern_context=_pattern_context,
-        pattern_service=work_pattern_service,
-    )
-)
-app.register_blueprint(create_work_pattern_blueprint(
-    WorkPatternBlueprintDependencies(
-        db=db,
-        Staff=Staff,
-        ShiftType=ShiftType,
-        WorkPattern=WorkPattern,
-        WorkPatternDay=WorkPatternDay,
-        WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
-        StaffPatternAssignment=StaffPatternAssignment,
-        StaffRule=StaffRule,
-        BankHoliday=BankHoliday,
-        is_admin_user=is_admin_user,
-        current_unit_id=_current_unit_id,
-        validate_csrf=_validate_csrf,
-        pattern_service=work_pattern_service,
-        admin_service=work_pattern_admin_service,
-        migration_service=work_pattern_migration_service,
-        record_roster_impact=record_roster_impact,
-    )
 ))
 
 app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
