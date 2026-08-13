@@ -19,7 +19,7 @@ from .legacy_migrations import (
     add_watch_pattern_configuration,
     upgrade_tenant_foundation,
 )
-from .registration import register_platform_blueprints
+from .registration import register_platform_blueprints, register_platform_operations
 
 __all__ = (
     "WorkerHealthDependencies",
@@ -39,4 +39,5 @@ __all__ = (
     "load_worker_health_snapshot",
     "operational_routes_ready",
     "register_platform_blueprints",
+    "register_platform_operations",
 )

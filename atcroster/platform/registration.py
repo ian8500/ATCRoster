@@ -6,6 +6,7 @@ from typing import Any
 
 from .admin import create_platform_admin_blueprint, create_platform_admin_dependencies
 from .worker_health import create_worker_health_blueprint, WorkerHealthDependencies
+from production_operations import register_operations_routes
 
 
 def register_platform_blueprints(
@@ -27,3 +28,16 @@ def register_platform_blueprints(
             module_feature_flags=services.module_feature_flags,
         )
     ))
+
+
+def register_platform_operations(app: Any, *, db: Any, services: Any) -> None:
+    """Attach platform diagnostics and readiness endpoints."""
+    register_operations_routes(
+        app,
+        db=db,
+        environment=services.environment,
+        limiter=services.limiter,
+        metrics=services.metrics,
+        required_tables=services.required_tables,
+        additional_readiness_check=services.additional_readiness_check,
+    )

@@ -47,7 +47,6 @@ from production_operations import (
     begin_request,
     configure_production_logging,
     finish_request,
-    register_operations_routes,
     structured_event,
 )
 from absence_requests import (
@@ -285,6 +284,7 @@ from atcroster.platform import (
     load_worker_health_snapshot,
     operational_routes_ready,
     register_platform_blueprints,
+    register_platform_operations,
 )
 from atcroster.security.csrf import register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
@@ -1700,17 +1700,14 @@ register_platform_blueprints(
 )
 app.register_blueprint(briefing_blueprint)
 
-register_operations_routes(
-    app,
-    db=db,
-    environment=DEPLOYMENT_ENV,
-    limiter=_rate_limiter,
-    metrics=_operational_metrics,
-    required_tables=CONTROL_TABLES,
-    additional_readiness_check=lambda: operational_routes_ready(
-        db=db,
-        Unit=Unit,
-        DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+register_platform_operations(
+    app, db=db,
+    services=SimpleNamespace(
+        environment=DEPLOYMENT_ENV, limiter=_rate_limiter,
+        metrics=_operational_metrics, required_tables=CONTROL_TABLES,
+        additional_readiness_check=lambda: operational_routes_ready(
+            db=db, Unit=Unit, DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+        ),
     ),
 )
 
