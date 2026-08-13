@@ -11,6 +11,7 @@ from .compliance import (
 from .currency import (
     OperationalCurrencyRuntime,
     OperationalCurrencyRuntimeDependencies,
+    create_operational_currency_runtime_dependencies,
     currency_window,
     load_currency_requirement,
     minutes_between,
@@ -48,6 +49,7 @@ __all__ = (
     "currency_window",
     "OperationalCurrencyRuntime",
     "OperationalCurrencyRuntimeDependencies",
+    "create_operational_currency_runtime_dependencies",
     "load_currency_requirement",
     "minutes_between",
     "operational_currency_shortfalls",

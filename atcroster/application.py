@@ -146,7 +146,7 @@ from atcroster.qualifications import (
     ComplianceRuntime,
     create_compliance_runtime_dependencies,
     OperationalCurrencyRuntime,
-    OperationalCurrencyRuntimeDependencies,
+    create_operational_currency_runtime_dependencies,
     create_qualification_registration_dependencies,
     register_qualification_blueprints,
     classify_qualification_impact,
@@ -723,13 +723,10 @@ competency_enabled = module_availability.competency
 live_position_enabled = module_availability.live_position
 
 operational_currency_runtime = OperationalCurrencyRuntime(
-    OperationalCurrencyRuntimeDependencies(
+    create_operational_currency_runtime_dependencies(
         db=db,
-        Staff=Staff,
-        PositionEndorsement=PositionEndorsement,
-        PositionSession=PositionSession,
-        PositionParticipantRole=PositionParticipantRole,
-        PositionSessionParticipant=PositionSessionParticipant,
+        operational_models=_operational_models,
+        saas_models=SaaS,
         current_unit_id=_current_unit_id,
         settings_snapshot=_roster_settings_snapshot,
         save_setting=_save_roster_setting,

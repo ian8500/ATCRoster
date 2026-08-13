@@ -25,6 +25,21 @@ class OperationalCurrencyRuntimeDependencies:
     defaults: Mapping[str, Any]
 
 
+def create_operational_currency_runtime_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> OperationalCurrencyRuntimeDependencies:
+    """Bind currency reporting records within the qualifications domain."""
+    return OperationalCurrencyRuntimeDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        PositionEndorsement=saas_models.PositionEndorsement,
+        PositionSession=saas_models.PositionSession,
+        PositionParticipantRole=saas_models.PositionParticipantRole,
+        PositionSessionParticipant=saas_models.PositionSessionParticipant,
+        **services,
+    )
+
+
 class OperationalCurrencyRuntime:
     """Own persisted operational-currency policy and shortfall reporting."""
 
