@@ -22,12 +22,15 @@ class UnitAccountsDependencies:
     PlatformIdentity: Any
     UnitMembership: Any
     SecureInvitation: Any
+    MfaCredential: Any
     current_unit_id: Callable[[], int]
     is_admin_user: Callable[[Any], bool]
     validate_csrf: Callable[[], None]
     normalized_login: Callable[[str], str]
     now: Callable[[], Any]
     tenant_get: Callable[[Any, int], Any]
+    consume_rate_limit: Callable[..., bool]
+    central_security_event: Callable[..., None]
 
 
 def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Blueprint:
@@ -39,6 +42,7 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
     PlatformIdentity = dependencies.PlatformIdentity
     UnitMembership = dependencies.UnitMembership
     SecureInvitation = dependencies.SecureInvitation
+    MfaCredential = dependencies.MfaCredential
     _current_unit_id = dependencies.current_unit_id
     is_admin_user = dependencies.is_admin_user
     _validate_csrf = dependencies.validate_csrf
@@ -232,6 +236,62 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
                     db.session.commit()
                     flash("Account deactivated.", "ok")
                 return redirect(url_for("unit_accounts"))
+            if action == "reset_mfa":
+                if not dependencies.consume_rate_limit(
+                    "unit-admin-mfa-reset", current_user.id, limit=5,
+                    window=timedelta(minutes=15),
+                ):
+                    abort(429, "Too many MFA reset attempts. Try again later.")
+                try:
+                    membership_id = int(request.form.get("membership_id") or 0)
+                except ValueError:
+                    abort(400, "Invalid account.")
+                reason = (request.form.get("reason") or "").strip()
+                if len(reason) < 5 or len(reason) > 200:
+                    abort(400, "Provide a reset reason between 5 and 200 characters.")
+                membership = UnitMembership.query.filter_by(
+                    id=membership_id, unit_id=unit_id, status="active"
+                ).first_or_404()
+                if membership.person_id == current_user.id:
+                    abort(403, "You cannot reset your own MFA.")
+                target = tenant_get(Staff, membership.person_id) if membership.person_id else None
+                identity = db.session.get(PlatformIdentity, membership.identity_id)
+                if not target or not identity or target.role == "superadmin" or identity.public_id.startswith("platform-"):
+                    abort(403, "Platform administrator MFA can only be reset through the platform-security process.")
+                # A UnitAdmin target can only be reset by a different UnitAdmin;
+                # self-reset is blocked above, including for the last administrator.
+                if membership.role == "UnitAdmin":
+                    requester = UnitMembership.query.filter_by(
+                        unit_id=unit_id, person_id=current_user.id, status="active", role="UnitAdmin"
+                    ).first()
+                    if not requester:
+                        abort(403)
+                credential = MfaCredential.query.filter_by(
+                    unit_id=unit_id, person_id=target.id
+                ).with_for_update().first()
+                if not credential:
+                    credential = MfaCredential(
+                        unit_id=unit_id, person_id=target.id, encrypted_secret="", enabled=False,
+                        reset_required=True, recovery_codes_digest="[]",
+                    )
+                    db.session.add(credential)
+                else:
+                    credential.encrypted_secret = ""
+                    credential.enabled = False
+                    credential.reset_required = True
+                    credential.last_used_step = None
+                    credential.recovery_codes_digest = "[]"
+                dependencies.central_security_event(
+                    "airport_mfa_reset", "success", identity.id,
+                    hashlib.sha256(current_user.username.lower().encode()).hexdigest()[:16],
+                    f"unit={unit_id};target={target.id};reason={reason}",
+                )
+                db.session.commit()
+                flash(
+                    "MFA reset. The existing authenticator was revoked and the user must enrol a new authenticator after their next password login.",
+                    "ok",
+                )
+                return redirect(url_for("unit_accounts"))
             if action == "restore":
                 try:
                     membership_id = int(request.form.get("membership_id") or 0)
@@ -319,6 +379,10 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
             pending_invitations=pending_invitations,
             eligible_people=eligible_people,
             staff_by_id={person.id: person for person in roster_people},
+            mfa_by_person={
+                credential.person_id: credential
+                for credential in MfaCredential.query.filter_by(unit_id=unit_id).all()
+            },
         )
 
     @blueprint.record_once

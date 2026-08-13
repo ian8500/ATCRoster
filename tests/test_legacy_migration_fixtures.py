@@ -134,7 +134,7 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
             connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-                == "20260812_57"
+                == "20260813_58"
         )
         if "unit" in inspector.get_table_names():
             unit_columns = {

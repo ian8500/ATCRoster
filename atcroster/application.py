@@ -1674,6 +1674,7 @@ register_account_runtime_blueprints(
         absence_types=get_absence_types, month_range=month_range, get_shift=get_shift,
         shift_duration_minutes=shift_duration_minutes,
         live_position_enabled=live_position_enabled,
+        central_security_event=_central_security_event,
     ),
 )
 register_admin_utility_blueprint(

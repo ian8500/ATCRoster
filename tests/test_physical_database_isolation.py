@@ -1,5 +1,6 @@
 from datetime import date, time
 
+import pyotp
 import pytest
 
 import app
@@ -82,8 +83,14 @@ def _seed_operational_unit(
             day=date(2026, 10, 10), code="M",
             requester_comment=f"{marker}-ONLY",
         ))
+        mfa_secret = pyotp.random_base32()
+        db.session.add(app.MfaCredential(
+            unit_id=unit_id, person_id=person.id,
+            encrypted_secret=app._encrypt_field(mfa_secret), enabled=True,
+            enrolled_at=app.utcnow(),
+        ))
         db.session.commit()
-        return person.id, person.password_hash, str(engine.url)
+        return person.id, person.password_hash, mfa_secret, str(engine.url)
     finally:
         db.session.remove()
         reset_authenticated_unit(token)
@@ -105,10 +112,10 @@ def test_authenticated_airports_use_physically_distinct_databases(
             Unit(id=2, code="BBB", name="Airport B"),
         ])
         db.session.commit()
-        person_a, password_a, url_a = _seed_operational_unit(
+        person_a, password_a, secret_a_mfa, url_a = _seed_operational_unit(
             1, secret_a, "physical-a", "AIRPORT-A"
         )
-        person_b, password_b, url_b = _seed_operational_unit(
+        person_b, password_b, secret_b_mfa, url_b = _seed_operational_unit(
             2, secret_b, "physical-b", "AIRPORT-B"
         )
         assert url_a != url_b
@@ -151,6 +158,18 @@ def test_authenticated_airports_use_physically_distinct_databases(
     assert client_b.post("/login", data={
         "_csrf_token": token_b,
         "username": "physical-b", "password": "Physical-Test-2026!",
+    }).status_code == 302
+    client_a.get("/login/mfa")
+    client_b.get("/login/mfa")
+    with client_a.session_transaction() as session:
+        mfa_token_a = session["_csrf_token"]
+    with client_b.session_transaction() as session:
+        mfa_token_b = session["_csrf_token"]
+    assert client_a.post("/login/mfa", data={
+        "_csrf_token": mfa_token_a, "code": pyotp.TOTP(secret_a_mfa).now(),
+    }).status_code == 302
+    assert client_b.post("/login/mfa", data={
+        "_csrf_token": mfa_token_b, "code": pyotp.TOTP(secret_b_mfa).now(),
     }).status_code == 302
     page_a = client_a.get("/requests")
     page_b = client_b.get("/requests")

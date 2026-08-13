@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
-import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Callable
@@ -22,7 +20,7 @@ from flask import (
     session,
     url_for,
 )
-from flask_login import current_user, login_required, login_user
+from flask_login import current_user, login_user
 
 
 @dataclass(frozen=True)
@@ -67,14 +65,14 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
             return None, None
         return identity, identity
 
-    def complete_platform_login(identity: Any, user: Any, recovery_used: bool = False):
+    def complete_platform_login(identity: Any, user: Any):
         next_url = session.get("_platform_mfa_next", "")
         session.clear()
         login_user(user)
         dependencies.initialize_authenticated_session(user, platform_mfa=True)
         identity.last_active_at = dependencies.now()
         dependencies.central_security_event(
-            "platform_recovery_code_used" if recovery_used else "platform_mfa_verified",
+            "platform_mfa_verified",
             "success",
             identity.id,
             hashlib.sha256(identity.username.lower().encode()).hexdigest()[:16],
@@ -125,7 +123,6 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
                 dependencies.db.session.commit()
                 flash("The verification code is not valid.", "error")
                 return redirect(url_for("platform_mfa_setup"))
-            recovery_codes = [secrets.token_hex(5).upper() for _ in range(10)]
             credential = dependencies.PlatformMfaCredential.query.filter_by(
                 identity_id=identity.id
             ).first()
@@ -137,20 +134,13 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
             credential.encrypted_secret = dependencies.encrypt_field(pending)
             credential.enabled, credential.reset_required = True, False
             credential.enrolled_at = dependencies.now()
-            credential.recovery_codes_digest = json.dumps(
-                [hashlib.sha256(value.encode()).hexdigest() for value in recovery_codes]
-            )
+            credential.recovery_codes_digest = "[]"
             dependencies.central_security_event(
                 "platform_mfa_enrolment", "success", identity.id
             )
             dependencies.db.session.commit()
             session.pop("_pending_platform_mfa_secret", None)
-            return render_template(
-                "mfa_setup.html",
-                enabled=True,
-                recovery_codes=recovery_codes,
-                platform_enrolment=True,
-            )
+            return redirect(url_for("platform_mfa_challenge"))
         return render_template(
             "mfa_setup.html",
             enabled=False,
@@ -179,7 +169,7 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
                 dependencies.db.session.commit()
                 abort(429, "Too many verification attempts. Try again later.")
             code = re.sub(r"[\s-]", "", request.form.get("code") or "").upper()
-            accepted, recovery_used = False, False
+            accepted = False
             if re.fullmatch(r"\d{6}", code):
                 step = dependencies.matching_totp_step(
                     dependencies.decrypt_secret(credential), code
@@ -189,18 +179,8 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
                     or step > credential.last_used_step
                 ):
                     credential.last_used_step, accepted = step, True
-            elif re.fullmatch(r"[A-Z0-9]{10}", code):
-                digests = json.loads(credential.recovery_codes_digest or "[]")
-                digest = hashlib.sha256(code.encode()).hexdigest()
-                if digest in digests:
-                    digests.remove(digest)
-                    credential.recovery_codes_digest, accepted, recovery_used = (
-                        json.dumps(digests),
-                        True,
-                        True,
-                    )
             if accepted:
-                return complete_platform_login(identity, user, recovery_used)
+                return complete_platform_login(identity, user)
             dependencies.central_security_event(
                 "platform_mfa_verification", "denied", identity.id
             )
@@ -248,15 +228,6 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
                     or step > credential.last_used_step
                 ):
                     credential.last_used_step, accepted = step, True
-            elif re.fullmatch(r"[A-Z0-9]{10}", code):
-                digests = json.loads(credential.recovery_codes_digest or "[]")
-                digest = hashlib.sha256(code.encode()).hexdigest()
-                if digest in digests:
-                    digests.remove(digest)
-                    credential.recovery_codes_digest, accepted = (
-                        json.dumps(digests),
-                        True,
-                    )
             if accepted:
                 next_url = session.get("_mfa_next", "")
                 session.clear()
@@ -277,30 +248,46 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
             flash("Invalid, expired or already-used verification code.", "error")
         return render_template("mfa_challenge.html")
 
-    @login_required
     def mfa_setup():
-        if getattr(current_user, "role", "") == "superadmin":
-            abort(
-                403,
-                "Platform administrator MFA is managed by the deployment identity control and cannot open an airport credential store.",
+        pending_user_id = int(session.get("_mfa_user_id") or 0)
+        pending_unit_id = int(session.get("_mfa_unit_id") or 0)
+        pending_enrolment = bool(pending_user_id and pending_unit_id)
+        if pending_enrolment:
+            routing = dependencies.db.session.get(
+                dependencies.DatabaseRoutingMetadata, pending_unit_id
             )
+            g.tenant_context_token = dependencies.bind_authenticated_unit(
+                pending_unit_id, routing.secret_name if routing else None
+            )
+            enrolment_user = dependencies.Staff.query.filter_by(
+                id=pending_user_id, unit_id=pending_unit_id, membership_status="active"
+            ).first()
+            if not enrolment_user:
+                session.clear()
+                return redirect(url_for("login"))
+        elif current_user.is_authenticated:
+            enrolment_user = current_user
+        else:
+            return redirect(url_for("login"))
+        if getattr(enrolment_user, "role", "") == "superadmin":
+            abort(403)
         credential = dependencies.MfaCredential.query.filter_by(
-            person_id=current_user.id
+            person_id=enrolment_user.id
         ).first()
-        if credential and credential.enabled:
+        if credential and credential.enabled and not credential.reset_required:
             return render_template("mfa_setup.html", enabled=True)
         pending = session.get("_pending_mfa_secret")
         if not pending:
             pending = pyotp.random_base32()
             session["_pending_mfa_secret"] = pending
         provisioning_uri = pyotp.TOTP(pending).provisioning_uri(
-            name=current_user.username, issuer_name="ATCRoster"
+            name=enrolment_user.username, issuer_name="ATCRoster"
         )
         if request.method == "POST":
             dependencies.validate_csrf()
             if not dependencies.consume_rate_limit(
                 "airport-mfa-enrolment",
-                f"{dependencies.current_unit_id()}:{current_user.id}",
+                f"{enrolment_user.unit_id}:{enrolment_user.id}",
                 limit=10,
                 window=timedelta(minutes=15),
             ):
@@ -308,34 +295,44 @@ def create_mfa_blueprint(dependencies: MfaRouteDependencies) -> Blueprint:
             code = re.sub(r"\s", "", request.form.get("code") or "")
             if not pyotp.TOTP(pending).verify(code, valid_window=1):
                 flash("The verification code is not valid.", "error")
-                return redirect(url_for("staff_profile", sid=current_user.id) + "#mfa")
-            recovery_codes = [secrets.token_hex(5).upper() for _ in range(10)]
+                return redirect(url_for("mfa_setup"))
             if not credential:
                 credential = dependencies.MfaCredential(
-                    unit_id=dependencies.current_unit_id(),
-                    person_id=current_user.id,
+                    unit_id=enrolment_user.unit_id,
+                    person_id=enrolment_user.id,
                     encrypted_secret="",
                 )
                 dependencies.db.session.add(credential)
-            credential.encrypted_secret, credential.enabled = (
+            credential.encrypted_secret, credential.enabled, credential.reset_required = (
                 dependencies.encrypt_field(pending),
                 True,
+                False,
             )
             credential.enrolled_at = dependencies.now()
-            credential.recovery_codes_digest = json.dumps(
-                [hashlib.sha256(code.encode()).hexdigest() for code in recovery_codes]
-            )
+            credential.recovery_codes_digest = "[]"
             dependencies.db.session.commit()
             session.pop("_pending_mfa_secret", None)
-            session["_auth_stamp"] = dependencies.current_auth_stamp(current_user)
-            session["_new_mfa_recovery_codes"] = recovery_codes
-            return redirect(url_for("staff_profile", sid=current_user.id) + "#mfa")
+            if pending_enrolment:
+                next_url = session.get("_mfa_next", "")
+                session.clear()
+                login_user(enrolment_user)
+                dependencies.initialize_authenticated_session(enrolment_user)
+                dependencies.security_event(
+                    "mfa_reenrolment_succeeded",
+                    principal=hashlib.sha256(enrolment_user.username.lower().encode()).hexdigest()[:16],
+                    unit_id=enrolment_user.unit_id,
+                )
+                dependencies.record_successful_login(enrolment_user)
+                return redirect(dependencies.canonical_login_redirect(next_url, user_id=enrolment_user.id))
+            session["_auth_stamp"] = dependencies.current_auth_stamp(enrolment_user)
+            return redirect(url_for("staff_profile", sid=enrolment_user.id) + "#mfa")
         return render_template(
             "mfa_setup.html",
             enabled=False,
             secret=pending,
             provisioning_uri=provisioning_uri,
             qr_data_uri=dependencies.totp_qr_data_uri(provisioning_uri),
+            reset_enrolment=pending_enrolment and bool(credential and credential.reset_required),
         )
 
     @blueprint.record_once

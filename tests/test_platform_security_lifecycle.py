@@ -82,12 +82,12 @@ def test_superadmin_requires_central_mfa_before_platform_access():
     enabled = client.post("/login/platform-mfa/setup", data={
         "_csrf_token": token, "code": pyotp.TOTP(secret).now(),
     })
-    assert enabled.status_code == 200
+    assert enabled.status_code == 302
     with app.app.app_context():
         credential = PlatformMfaCredential.query.one()
         assert credential.enabled
         assert secret not in credential.encrypted_secret
-        assert credential.recovery_codes_digest != "[]"
+        assert credential.recovery_codes_digest == "[]"
     client.get("/login/platform-mfa")
     verified = client.post("/login/platform-mfa", data={
         "_csrf_token": _csrf(client),

@@ -1060,6 +1060,9 @@ def register_saas_models(db, utcnow):
         enabled = db.Column(db.Boolean, nullable=False, default=False)
         enrolled_at = db.Column(db.DateTime)
         last_used_step = db.Column(db.BigInteger)
+        reset_required = db.Column(db.Boolean, nullable=False, default=False)
+        # Retained solely for deployed-schema compatibility. Recovery codes
+        # are no longer generated, shown, stored or accepted by application code.
         recovery_codes_digest = db.Column(db.Text, nullable=False, default="[]")
 
     return SimpleNamespace(**locals())

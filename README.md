@@ -64,7 +64,7 @@ context. Forms and query strings never select a tenant database.
 The platform administrator must never be given operational database
 credentials, staff search, impersonation, or exports. Future support access
 requires a separate airport-approved, time-limited, reason-bound,
-MFA-protected, fully audited design.
+MFA-protected, fully audited design. MFA loss is handled by an authorised administrator reset followed by forced re-enrolment; user-held recovery codes are not issued.
 
 ## Getting started
 
