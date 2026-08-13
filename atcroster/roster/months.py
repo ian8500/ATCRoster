@@ -39,3 +39,15 @@ class RosterMonthService:
 
     def parse(self, value: str) -> tuple[int, int]:
         return self.parse_year_month(value)
+
+
+def create_roster_month_service(
+    *, db: Any, operational_models: Any, **services: Any
+) -> RosterMonthService:
+    """Bind roster-month records at the roster boundary."""
+    return RosterMonthService(
+        db=db,
+        Assignment=operational_models.Assignment,
+        Requirement=operational_models.Requirement,
+        **services,
+    )

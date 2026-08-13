@@ -20,7 +20,7 @@ from .assignments import assignment_for_day
 from .mutations import set_assignment_code
 from .codes import is_non_working, is_working_with_prefix, normalize_code
 from .pattern_runtime import PatternRuntime, PatternRuntimeDependencies
-from .months import RosterMonthService
+from .months import RosterMonthService, create_roster_month_service
 from .lookups import ShiftLookupService
 
 __all__ = (
@@ -50,6 +50,7 @@ __all__ = (
     "PatternRuntime",
     "PatternRuntimeDependencies",
     "RosterMonthService",
+    "create_roster_month_service",
     "ShiftLookupService",
     "requirements_for_day",
     "set_assignment_code",

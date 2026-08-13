@@ -96,7 +96,7 @@ from atcroster.roster import (
     requirements_for_day as resolve_roster_requirements_for_day,
     PatternRuntime,
     PatternRuntimeDependencies,
-    RosterMonthService,
+    create_roster_month_service,
     ShiftLookupService,
 )
 from atcroster.roster.editing import RosterEditingDependencies, RosterEditingRuntime
@@ -956,10 +956,9 @@ generate_month = assignment_runtime.generate_month
 generate_range = assignment_runtime.generate_range
 ensure_assignments_for_range = assignment_runtime.generate_range
 
-roster_month_service = RosterMonthService(
+roster_month_service = create_roster_month_service(
     db=db,
-    Assignment=Assignment,
-    Requirement=Requirement,
+    operational_models=_operational_models,
     add_months=partial(roster_period_add, add_months=add_months),
     days_for_month=month_days,
     parse_year_month=partial(parse_roster_year_month, parser=parse_year_month),
