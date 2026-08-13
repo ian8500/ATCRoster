@@ -193,7 +193,7 @@ from atcroster.notifications import (
     MessagingDependencies,
     create_messaging_blueprint,
 )
-from atcroster.notifications.configuration import validate_sms_settings
+from atcroster.notifications.configuration import save_sms_settings
 from atcroster.roster.publication import (
     PublicationDependencies,
     create_publication_service,
@@ -3328,65 +3328,13 @@ def admin():
 
         if form == "sms_settings":
             _validate_csrf()
-            senders, sender_errors = _parse_sms_number_lines(
-                request.form.get("sms_sender_numbers") or ""
+            error = save_sms_settings(
+                request.form,
+                db=db,
+                parse_number_lines=_parse_sms_number_lines,
+                save_setting=_save_roster_setting,
             )
-            destinations, destination_errors = _parse_sms_number_lines(
-                request.form.get("sms_operational_numbers") or ""
-            )
-            default_sender = _normalise_sms_number(
-                request.form.get("sms_default_sender")
-            )
-            default_destination = _normalise_sms_number(
-                request.form.get("sms_default_operational_number")
-            )
-            allowed_senders = {item["number"] for item in senders}
-            allowed_destinations = {item["number"] for item in destinations}
-            sms_settings_error = validate_sms_settings(
-                senders, destinations, sender_errors, destination_errors,
-                default_sender, default_destination,
-            )
-            if sms_settings_error and (sender_errors or destination_errors):
-                invalid = ", ".join(
-                    [f"sender {item}" for item in sender_errors]
-                    + [f"destination {item}" for item in destination_errors]
-                )
-                flash(
-                    f"Use international numbers such as +447700900123. "
-                    f"Check {invalid}.",
-                    "error",
-                )
-            elif default_sender and default_sender not in allowed_senders:
-                flash("The default sender must be in the sender list.", "error")
-            elif (
-                default_destination
-                and default_destination not in allowed_destinations
-            ):
-                flash(
-                    "The default operational number must be in its list.",
-                    "error",
-                )
-            else:
-                _save_roster_setting(
-                    "sms_sender_numbers",
-                    json.dumps(senders, separators=(",", ":")),
-                )
-                _save_roster_setting(
-                    "sms_operational_numbers",
-                    json.dumps(destinations, separators=(",", ":")),
-                )
-                _save_roster_setting(
-                    "sms_default_sender",
-                    default_sender or (senders[0]["number"] if senders else ""),
-                )
-                _save_roster_setting(
-                    "sms_default_operational_number",
-                    default_destination or (
-                        destinations[0]["number"] if destinations else ""
-                    ),
-                )
-                db.session.commit()
-                flash("SMS numbers saved for this airport.", "ok")
+            flash(error or "SMS numbers saved for this airport.", "error" if error else "ok")
             return redirect(url_for("admin") + "#sms")
 
         if form == "unit_roster_setup":
