@@ -169,10 +169,10 @@ from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
 from atcroster.notifications import (
-    NotificationDependencies,
+    NotificationRegistrationDependencies,
     NotificationRuntime,
     NotificationRuntimeDependencies,
-    create_notification_blueprint,
+    register_notification_blueprints,
     parse_sms_number_lines,
     send_via_messagemedia,
     valid_email,
@@ -180,10 +180,6 @@ from atcroster.notifications import (
     SmsAuditService,
     OvertimeSmsService,
     default_overtime_sms_body,
-    SmsAdministrationDependencies,
-    create_sms_administration_blueprint,
-    MessagingDependencies,
-    create_messaging_blueprint,
 )
 from atcroster.notifications.configuration import save_sms_settings
 from atcroster.roster.publication import (
@@ -2144,40 +2140,25 @@ app.register_blueprint(create_operations_blueprint(OperationsDependencies(
     staff_has_shift_qualification=_staff_has_shift_qualification,
     Scenario=Scenario,
 )))
-app.register_blueprint(create_notification_blueprint(NotificationDependencies(
+register_notification_blueprints(app, NotificationRegistrationDependencies(
     db=db,
     Notification=Notification,
-    current_unit_id=_current_unit_id,
-    utcnow=utcnow,
-    validate_csrf=_validate_csrf,
-)))
-app.register_blueprint(create_sms_administration_blueprint(
-    SmsAdministrationDependencies(
-        db=db,
-        SmsAudit=SmsAudit,
-        SmsSenderRegistration=SmsSenderRegistration,
-        current_unit_id=_current_unit_id,
-        is_admin_user=is_admin_user,
-        validate_csrf=_validate_csrf,
-        utcnow=utcnow,
-    )
-))
-app.register_blueprint(create_messaging_blueprint(MessagingDependencies(
-    db=db,
+    SmsAudit=SmsAudit,
+    SmsSenderRegistration=SmsSenderRegistration,
     Staff=Staff,
     Watch=Watch,
     Assignment=Assignment,
-    SmsSenderRegistration=SmsSenderRegistration,
     current_unit_id=_current_unit_id,
-    utcnow=utcnow,
-    can_send_unit_messages=can_send_unit_messages,
+    now=utcnow,
     validate_csrf=_validate_csrf,
+    is_admin_user=is_admin_user,
+    can_send_unit_messages=can_send_unit_messages,
     sms_configuration=sms_configuration,
     normalise_sms_number=_normalise_sms_number,
     send_sms=_send_sms,
     record_sms_audit=_record_sms_audit,
     flash_sms_result=_flash_sms_result,
-)))
+))
 app.register_blueprint(create_module_blueprint(ModuleDependencies(
     FeatureFlag=FeatureFlag,
     briefing_enabled=briefing_enabled,
