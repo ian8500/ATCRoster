@@ -387,6 +387,8 @@ from atcroster.platform import (
     add_toil_and_leave_fields,
     add_watch_pattern_configuration,
     create_worker_health_blueprint,
+    load_worker_health_snapshot,
+    operational_routes_ready,
     upgrade_tenant_foundation,
 )
 from atcroster.platform.admin import (
@@ -3478,20 +3480,10 @@ app.register_blueprint(create_admin_utility_blueprint(AdminUtilityDependencies(
     ChangeLog=ChangeLog,
     is_admin_user=is_admin_user,
 )))
-def _worker_health_snapshot(application_module, *, stale_after_seconds: int):
-    """Load the worker dependency only when the privileged probe is requested."""
-    from platform_provisioning import worker_health_snapshot
-
-    return worker_health_snapshot(
-        application_module,
-        stale_after_seconds=stale_after_seconds,
-    )
-
-
 app.register_blueprint(create_worker_health_blueprint(WorkerHealthDependencies(
     application_module=sys.modules[__name__],
     metrics=_operational_metrics,
-    worker_health_snapshot=_worker_health_snapshot,
+    worker_health_snapshot=load_worker_health_snapshot,
 )))
 app.register_blueprint(create_platform_admin_blueprint(PlatformAdminDependencies(
     db=db,
@@ -3515,19 +3507,6 @@ app.register_blueprint(create_platform_admin_blueprint(PlatformAdminDependencies
 )))
 app.register_blueprint(briefing_blueprint)
 
-def _operational_routes_ready() -> bool:
-    active_units = Unit.query.filter(
-        Unit.status == "active", Unit.code != "CTRL"
-    ).all()
-    for unit in active_units:
-        routing = db.session.get(DatabaseRoutingMetadata, unit.id)
-        if not routing or not routing.secret_name or not os.environ.get(
-            routing.secret_name
-        ):
-            return False
-    return True
-
-
 register_operations_routes(
     app,
     db=db,
@@ -3535,7 +3514,11 @@ register_operations_routes(
     limiter=_rate_limiter,
     metrics=_operational_metrics,
     required_tables=CONTROL_TABLES,
-    additional_readiness_check=_operational_routes_ready,
+    additional_readiness_check=lambda: operational_routes_ready(
+        db=db,
+        Unit=Unit,
+        DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+    ),
 )
 
 
