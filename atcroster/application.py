@@ -150,6 +150,7 @@ from atcroster.auth import (
     totp_qr_data_uri,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
+from atcroster.workforce import watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -1637,29 +1638,7 @@ def watch_id_for_staff_on(staff_id: int, on_date: date) -> int | None:
 def watch_ids_for_staff_on(
     staff: list[Staff], on_date: date
 ) -> dict[int, int | None]:
-    """Resolve a roster's watch memberships with one history query."""
-    staff_by_id = {person.id: person for person in staff}
-    if not staff_by_id:
-        return {}
-    rows = (
-        StaffWatchHistory.query.filter(
-            StaffWatchHistory.unit_id == authenticated_unit_id(),
-            StaffWatchHistory.staff_id.in_(staff_by_id),
-            StaffWatchHistory.effective_date <= on_date,
-        )
-        .order_by(
-            StaffWatchHistory.staff_id,
-            StaffWatchHistory.effective_date.desc(),
-            StaffWatchHistory.id.desc(),
-        )
-        .all()
-    )
-    resolved: dict[int, int | None] = {}
-    for row in rows:
-        resolved.setdefault(row.staff_id, row.watch_id)
-    for staff_id, person in staff_by_id.items():
-        resolved.setdefault(staff_id, person.watch_id)
-    return resolved
+    return resolve_watch_ids(StaffWatchHistory, staff, authenticated_unit_id(), on_date)
 
 
 @lru_cache(maxsize=4096)
@@ -1668,19 +1647,7 @@ def _watch_id_for_staff_on(
 ) -> int | None:
     """Return the watch_id that applies to this staff on a given date
     using StaffWatchHistory; fall back to Staff.watch_id if no history."""
-    hist = (StaffWatchHistory.query
-            .filter(StaffWatchHistory.unit_id == unit_id,
-                    StaffWatchHistory.staff_id == staff_id,
-                    StaffWatchHistory.effective_date <= on_date,
-                    db.or_(StaffWatchHistory.effective_to.is_(None), StaffWatchHistory.effective_to >= on_date))
-            .order_by(StaffWatchHistory.effective_date.desc())
-            .first())
-    if hist:
-        return hist.watch_id
-    s = Staff.query.filter_by(
-        id=staff_id, unit_id=unit_id
-    ).first()
-    return s.watch_id if s else None
+    return resolve_watch_id(db, StaffWatchHistory, Staff, unit_id, staff_id, on_date)
 
 
 def parse_ym(ym: str):
