@@ -289,6 +289,7 @@ from atcroster.platform import (
     add_role_and_calendar_token,
     add_unique_assignment_key,
     add_invitation_target,
+    add_toil_and_leave_fields,
     add_watch_pattern_configuration,
     create_worker_health_blueprint,
     upgrade_tenant_foundation,
@@ -2623,42 +2624,7 @@ def migrate_add_invitation_target():
 
 
 def migrate_add_toil_half_days_and_convert():
-    """Add toil_half_days; add leave-year columns; convert legacy toil_minutes -> half-days if present."""
-    from sqlalchemy import text
-    with db.engine.connect() as conn:
-        cols = [row[1]
-                for row in conn.execute(text("PRAGMA table_info(staff)"))]
-
-        def addcol(name, ddl):
-            if name not in cols:
-                try:
-                    conn.execute(text(f"ALTER TABLE staff ADD COLUMN {ddl}"))
-                except Exception:
-                    pass
-
-        addcol("toil_half_days",         "toil_half_days INTEGER DEFAULT 0")
-        addcol("leave_year_start_month",
-               "leave_year_start_month INTEGER DEFAULT 4")
-        addcol("leave_entitlement_days",
-               "leave_entitlement_days INTEGER DEFAULT 0")
-        addcol("leave_public_holidays",
-               "leave_public_holidays INTEGER DEFAULT 0")
-        addcol("leave_carryover_days",
-               "leave_carryover_days INTEGER DEFAULT 0")
-
-        # Convert legacy toil_minutes → toil_half_days (240 min = 0.5 day)
-        if "toil_minutes" in cols:
-            try:
-                res = conn.execute(
-                    text("SELECT id, COALESCE(toil_minutes,0) FROM staff"))
-                rows = res.fetchall()
-                for sid, mins in rows:
-                    half = int(round(mins / 240.0))
-                    conn.execute(text("UPDATE staff SET toil_half_days=:half WHERE id=:sid"),
-                                 {"half": half, "sid": sid})
-            except Exception:
-                pass
-    db.session.commit()
+    return add_toil_and_leave_fields(db=db)
 
 
 def ensure_shift(code, name, start=None, end=None, is_working=False, is_training=False):

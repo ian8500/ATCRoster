@@ -131,6 +131,48 @@ def add_invitation_target(*, db: Any) -> None:
         db.session.commit()
 
 
+def add_toil_and_leave_fields(*, db: Any) -> None:
+    """Add leave fields and convert legacy TOIL minutes into half-days."""
+    with db.engine.connect() as connection:
+        columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(staff)"))
+        }
+        additions = {
+            "toil_half_days": "toil_half_days INTEGER DEFAULT 0",
+            "leave_year_start_month": ("leave_year_start_month INTEGER DEFAULT 4"),
+            "leave_entitlement_days": ("leave_entitlement_days INTEGER DEFAULT 0"),
+            "leave_public_holidays": ("leave_public_holidays INTEGER DEFAULT 0"),
+            "leave_carryover_days": ("leave_carryover_days INTEGER DEFAULT 0"),
+        }
+        for name, definition in additions.items():
+            if name not in columns:
+                try:
+                    connection.execute(
+                        text(f"ALTER TABLE staff ADD COLUMN {definition}")
+                    )
+                except Exception:
+                    pass
+
+        if "toil_minutes" in columns:
+            try:
+                rows = connection.execute(
+                    text("SELECT id, COALESCE(toil_minutes,0) FROM staff")
+                ).fetchall()
+                for staff_id, minutes in rows:
+                    connection.execute(
+                        text(
+                            "UPDATE staff SET toil_half_days=:half WHERE id=:staff_id"
+                        ),
+                        {
+                            "half": int(round(minutes / 240.0)),
+                            "staff_id": staff_id,
+                        },
+                    )
+            except Exception:
+                pass
+    db.session.commit()
+
+
 def execute_session_ddl(*, db: Any, statement: str) -> None:
     """Apply optional legacy DDL without leaving a failed session behind."""
     try:
