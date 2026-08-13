@@ -199,6 +199,10 @@ from atcroster.roster.watch_configuration import (
     WatchConfigurationDependencies,
     update_watch_configuration,
 )
+from atcroster.roster.shift_configuration import (
+    ShiftConfigurationDependencies,
+    update_shift_definition,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -3611,108 +3615,26 @@ def admin():
                 return redirect(url_for("admin_staff_edit", sid=s.id))
 
         # Create / edit / delete shifts
-        if form == "shift_new":
-            code = request.form.get("code", "").strip().upper()
-            name = request.form.get("name", "").strip()
-            start = _parse_hhmm(request.form.get("start"))
-            end = _parse_hhmm(request.form.get("end"))
-            is_working = bool(request.form.get("is_working"))
-            is_training = bool(request.form.get("is_training"))
-            is_active = bool(request.form.get("is_active"))
-            is_requestable = bool(request.form.get("is_requestable"))
-            required_qualification = (
-                request.form.get("required_qualification") or ""
-            ).strip().upper()
-            allowed_qualifications = {
-                row.code
-                for row in QualificationType.query.filter_by(
-                    unit_id=_current_unit_id(), is_active=True
-                ).all()
-            } | {""}
-            if not code:
-                flash("Shift code is required.", "error")
-            elif required_qualification not in allowed_qualifications:
-                flash("Unknown required qualification.", "error")
-            elif is_requestable and (not is_active or not is_working):
-                flash("Only active working shifts can be requestable.", "error")
-            elif ShiftType.query.filter_by(code=code).first():
-                flash("Shift code already exists.", "error")
-            else:
-                sh = ShiftType(code=code, name=name or code, start_time=start, end_time=end,
-                               is_working=is_working, is_training=is_training,
-                               is_active=is_active, is_requestable=is_requestable,
-                               required_qualification=required_qualification)
-                db.session.add(sh)
-                record_roster_impact(
-                    RosterImpactEventType.SHIFT_DEFINITION_CHANGE,
-                    date.today(), rebuild_baseline=True,
-                    reason=f"Shift {code} created.",
-                )
-                db.session.commit()
-                refresh_shift_cache()
-                _shift_groups_snapshot.cache_clear()
-                flash("Shift added.", "ok")
-                return redirect(url_for("admin"))
-
-        if form == "shift_edit":
-            sid = int(request.form.get("shift_id"))
-            sh = ShiftType.query.filter_by(
-                id=sid, unit_id=_current_unit_id()
-            ).first_or_404()
-            sh.name = request.form.get("name", "").strip() or sh.name
-            sh.start_time = _parse_hhmm(request.form.get("start"))
-            sh.end_time = _parse_hhmm(request.form.get("end"))
-            sh.is_working = bool(request.form.get("is_working"))
-            sh.is_training = bool(request.form.get("is_training"))
-            sh.is_active = bool(request.form.get("is_active"))
-            requested = bool(request.form.get("is_requestable"))
-            required_qualification = (
-                request.form.get("required_qualification") or ""
-            ).strip().upper()
-            allowed_qualifications = {
-                row.code
-                for row in QualificationType.query.filter_by(
-                    unit_id=_current_unit_id(), is_active=True
-                ).all()
-            } | {""}
-            if required_qualification not in allowed_qualifications:
-                flash("Unknown required qualification.", "error")
-                return redirect(url_for("admin"))
-            if requested and (not sh.is_active or not sh.is_working):
-                flash("Only active working shifts can be requestable.", "error")
-                return redirect(url_for("admin"))
-            sh.is_requestable = requested
-            sh.required_qualification = required_qualification
-            record_roster_impact(
-                RosterImpactEventType.SHIFT_DEFINITION_CHANGE,
-                date.today(), rebuild_baseline=True,
-                reason=f"Shift {sh.code} definition changed.",
+        if form in {"shift_new", "shift_edit", "shift_delete"}:
+            message, category = update_shift_definition(
+                form,
+                request.form,
+                ShiftConfigurationDependencies(
+                    db=db,
+                    ShiftType=ShiftType,
+                    QualificationType=QualificationType,
+                    RosterImpactEventType=RosterImpactEventType,
+                    current_unit_id=_current_unit_id,
+                    parse_hhmm=_parse_hhmm,
+                    record_roster_impact=record_roster_impact,
+                    prune_roster_code_settings=_prune_roster_code_settings,
+                    refresh_shift_cache=refresh_shift_cache,
+                    clear_shift_groups_cache=_shift_groups_snapshot.cache_clear,
+                ),
             )
-            db.session.commit()
-            refresh_shift_cache()
-            _shift_groups_snapshot.cache_clear()
-
-            flash("Shift updated.", "ok")
-            return redirect(url_for("admin"))
-
-        if form == "shift_delete":
-            sid = int(request.form.get("shift_id"))
-            sh = ShiftType.query.filter_by(
-                id=sid, unit_id=_current_unit_id()
-            ).first_or_404()
-            db.session.delete(sh)
-            db.session.flush()
-            _prune_roster_code_settings(_current_unit_id())
-            record_roster_impact(
-                RosterImpactEventType.SHIFT_DEFINITION_CHANGE,
-                date.today(), rebuild_baseline=True,
-                reason=f"Shift {sh.code} removed.",
-            )
-            db.session.commit()
-            refresh_shift_cache()
-            _shift_groups_snapshot.cache_clear()
-            flash("Shift deleted.", "ok")
-            return redirect(url_for("admin"))
+            flash(message, category)
+            if category == "ok":
+                return redirect(url_for("admin"))
 
         # Save requirements grid (includes req_d)
         if form == "req":
