@@ -221,7 +221,7 @@ from atcroster.roster.assignments import (
     create_allocation_runtime_dependencies,
 )
 from atcroster.roster.annotations import AnnotationCatalogue
-from atcroster.roster.settings import RosterSettingsCatalogue
+from atcroster.roster.settings import create_roster_settings_catalogue
 from atcroster.models.tenant_events import register_tenant_session_events
 from atcroster.models import append_only_audit_models, operational_models
 from atcroster.roster.impacts import (
@@ -618,10 +618,9 @@ _enforce_principal_boundaries = register_principal_boundaries(
 
 # -------------------- Reference data helpers --------------------
 
-roster_settings_catalogue = RosterSettingsCatalogue(
+roster_settings_catalogue = create_roster_settings_catalogue(
     db=db,
-    RosterSetting=RosterSetting,
-    ShiftType=ShiftType,
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     defaults=DEFAULT_ROSTER_SETTINGS,
     absence_defaults=DEFAULT_ABSENCE_TYPES,

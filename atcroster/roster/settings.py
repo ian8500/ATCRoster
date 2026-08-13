@@ -322,3 +322,15 @@ class RosterSettingsCatalogue:
             RosterSetting=self.RosterSetting,
             refresh_cache=self.refresh,
         )
+
+
+def create_roster_settings_catalogue(
+    *, db: Any, operational_models: Any, **services: Any
+) -> RosterSettingsCatalogue:
+    """Bind roster settings records within the roster domain."""
+    return RosterSettingsCatalogue(
+        db=db,
+        RosterSetting=operational_models.RosterSetting,
+        ShiftType=operational_models.ShiftType,
+        **services,
+    )
