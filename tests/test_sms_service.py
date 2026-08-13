@@ -1,7 +1,7 @@
 from datetime import date
 
 from atcroster.notifications.sms import (
-    normalise_sms_number, normalise_uk_mobile, parse_sms_number_lines,
+    ClickSendSmsProvider, normalise_sms_number, normalise_uk_mobile, parse_sms_number_lines,
 )
 from atcroster.notifications.email import valid_email
 from atcroster.notifications.configuration import SmsConfigurationService
@@ -11,7 +11,7 @@ from atcroster.notifications.overtime import OvertimeSmsService, default_overtim
 
 def test_normalise_sms_number_accepts_e164_display_punctuation():
     assert normalise_sms_number("+44 (7700) 900-123") == "+447700900123"
-    assert normalise_sms_number("07700900123") == ""
+    assert normalise_sms_number("07700900123") == "+447700900123"
     assert normalise_sms_number("+123") == ""
 
 
@@ -35,7 +35,7 @@ def test_parse_sms_number_lines_deduplicates_and_reports_invalid_lines():
 
 
 def test_sms_configuration_uses_only_configured_unit_numbers(monkeypatch):
-    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900124")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900124")
     service = SmsConfigurationService(
         settings_snapshot=lambda unit_id: {
             "sms_sender_numbers": '[{"number": "+447700900123", "label": "Ops"}]',
@@ -44,10 +44,7 @@ def test_sms_configuration_uses_only_configured_unit_numbers(monkeypatch):
         current_unit_id=lambda: 7,
     )
     options = service.sender_options()
-    assert options == [
-        {"number": "+447700900123", "label": "Ops"},
-        {"number": "+447700900124", "label": "Unit fallback sender"},
-    ]
+    assert options == [{"number": "+447700900123", "label": "Ops"}]
     assert service.default_number("sms_default_sender", options) == "+447700900123"
 
 
@@ -91,3 +88,28 @@ def test_overtime_sms_service_sends_and_audits_eligible_staff():
     assert service.notify([staff], "Available") == (1, [])
     assert records[0]["message_type"] == "overtime"
     assert default_overtime_sms_body(date(2026, 8, 14), "M").startswith("Overtime available")
+
+
+def test_clicksend_provider_parses_acceptance_without_network(monkeypatch):
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "test@example.com")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "test-key")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900123")
+
+    class Response:
+        def read(self):
+            return b'{"response_code":"SUCCESS","data":{"messages":[{"message_id":"abc","status":"Queued"}]}}'
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+
+    monkeypatch.setattr("atcroster.notifications.sms.urllib_request.urlopen", lambda *_args, **_kwargs: Response())
+    result = ClickSendSmsProvider().send(to="07700900124", body="Test")
+    assert result.accepted and result.provider == "clicksend" and result.provider_message_id == "abc"
+
+
+def test_clicksend_rejects_invalid_sender_or_recipient(monkeypatch):
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "test@example.com")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "test-key")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "not-a-number")
+    assert ClickSendSmsProvider().send(to="07700900124", body="Test").error_code == "not_configured"
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900123")
+    assert ClickSendSmsProvider().send(to="invalid", body="Test").error_code == "invalid_recipient"

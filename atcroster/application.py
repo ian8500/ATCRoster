@@ -2831,7 +2831,6 @@ app.register_blueprint(create_staff_profile_blueprint(StaffProfileDependencies(
     Staff=Staff,
     UnitMembership=UnitMembership,
     PlatformIdentity=PlatformIdentity,
-    SmsSenderRegistration=SmsSenderRegistration,
     MfaCredential=MfaCredential,
     Assignment=Assignment,
     Notification=Notification,

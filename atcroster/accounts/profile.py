@@ -19,7 +19,6 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
-from sqlalchemy.exc import ProgrammingError
 
 
 @dataclass(frozen=True)
@@ -28,7 +27,6 @@ class StaffProfileDependencies:
     Staff: Any
     UnitMembership: Any
     PlatformIdentity: Any
-    SmsSenderRegistration: Any
     MfaCredential: Any
     Assignment: Any
     Notification: Any
@@ -52,7 +50,6 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
     Staff = dependencies.Staff
     UnitMembership = dependencies.UnitMembership
     PlatformIdentity = dependencies.PlatformIdentity
-    SmsSenderRegistration = dependencies.SmsSenderRegistration
     MfaCredential = dependencies.MfaCredential
     Assignment = dependencies.Assignment
     Notification = dependencies.Notification
@@ -62,7 +59,6 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
     _normalise_uk_mobile = dependencies.normalise_uk_mobile
     _valid_email = dependencies.valid_email
     _normalise_phone_number = dependencies.normalise_phone
-    utcnow = dependencies.now
     _totp_qr_data_uri = dependencies.qr_data_uri
     get_absence_types = dependencies.absence_types
     month_range = dependencies.month_range
@@ -82,47 +78,6 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
             _validate_csrf()
             if s.id != current_user.id:
                 abort(403)
-            if request.form.get("form") == "sms_sender_registration":
-                if not s.is_wm:
-                    abort(403)
-                number = _normalise_uk_mobile(request.form.get("sender_number"))
-                if not number:
-                    flash(
-                        "Enter a UK mobile number, for example +447700900123.", "error"
-                    )
-                else:
-                    try:
-                        row = SmsSenderRegistration.query.filter_by(
-                            unit_id=s.unit_id,
-                            staff_id=s.id,
-                            number=number,
-                            provider="messagemedia",
-                        ).first()
-                    except ProgrammingError:
-                        db.session.rollback()
-                        flash(
-                            "Personal sender registration is being enabled for this airport. Please try again shortly.",
-                            "error",
-                        )
-                        return redirect(url_for("staff_profile", sid=s.id) + "#contact")
-                    if not row:
-                        row = SmsSenderRegistration(
-                            unit_id=s.unit_id,
-                            staff_id=s.id,
-                            number=number,
-                        )
-                        db.session.add(row)
-                    else:
-                        row.status = "pending_dashboard_verification"
-                        row.verification_requested_at = utcnow()
-                        row.verified_at = None
-                        row.expires_at = None
-                    db.session.commit()
-                    flash(
-                        "Number recorded. Verify it in Sinch MessageMedia, then ask a Unit Administrator to confirm it here.",
-                        "ok",
-                    )
-                return redirect(url_for("staff_profile", sid=s.id) + "#contact")
             email = _valid_email(request.form.get("email") or "")
             phone = _normalise_phone_number(request.form.get("phone_number"))
             if not email:
@@ -242,18 +197,6 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
             .limit(8)
             .all()
         )
-        sms_sender_registrations = []
-        if s.id == current_user.id and s.is_wm:
-            try:
-                sms_sender_registrations = (
-                    SmsSenderRegistration.query.filter_by(
-                        unit_id=s.unit_id, staff_id=s.id, provider="messagemedia"
-                    )
-                    .order_by(SmsSenderRegistration.id.desc())
-                    .all()
-                )
-            except ProgrammingError:
-                db.session.rollback()
         return render_template(
             "staff_profile.html",
             staff=s,
@@ -272,7 +215,6 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
             mfa_provisioning_uri=mfa_provisioning_uri,
             mfa_qr_data_uri=mfa_qr_data_uri,
             mfa_recovery_codes=mfa_recovery_codes,
-            sms_sender_registrations=sms_sender_registrations,
         )
 
     @blueprint.record_once

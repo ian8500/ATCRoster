@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from .sms import messagemedia_credentials, normalise_sms_number, normalise_uk_mobile
+from .sms import clicksend_credentials, normalise_sms_number, normalise_uk_mobile
 
 
 def validate_sms_settings(
@@ -110,9 +110,11 @@ class SmsConfigurationService:
 
     def sender_options(self, unit_id: int | None = None) -> list[dict[str, str]]:
         configured = self.number_options("sms_sender_numbers", unit_id)
-        fallback = normalise_uk_mobile(messagemedia_credentials()[2])
-        if fallback and fallback not in {item["number"] for item in configured}:
-            configured.append({"number": fallback, "label": "Unit fallback sender"})
+        fallback = normalise_uk_mobile(clicksend_credentials()[2])
+        # A unit's configured sender always wins. The platform default is only
+        # available to a unit that has not yet configured its own sender.
+        if not configured and fallback:
+            configured.append({"number": fallback, "label": "Platform default sender"})
         return configured
 
     def operational_options(self, unit_id: int | None = None) -> list[dict[str, str]]:
@@ -135,5 +137,5 @@ class SmsConfigurationService:
         )
 
     def service_configured(self) -> bool:
-        key, secret, fallback = messagemedia_credentials()
-        return bool(key and secret and normalise_sms_number(fallback))
+        username, api_key, fallback = clicksend_credentials()
+        return bool(username and api_key and normalise_uk_mobile(fallback))

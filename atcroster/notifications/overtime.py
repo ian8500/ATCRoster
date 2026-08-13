@@ -33,6 +33,11 @@ class OvertimeSmsService:
                 sent += 1
             else:
                 failures.append((staff, detail))
+                self.audit.record(
+                    sender_number=from_number, recipient_number=staff.phone_number,
+                    recipient_label=staff.name, body=message, message_type="overtime",
+                    provider_message_id=detail, delivery_status="failed",
+                )
         return sent, failures
 
 

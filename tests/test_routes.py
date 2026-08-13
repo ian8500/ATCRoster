@@ -3350,9 +3350,9 @@ def test_unit_messages_recipient_order_and_default(client):
 
 def test_admin_configures_airport_sms_numbers(client, monkeypatch):
     login(client)
-    monkeypatch.setenv("MESSAGEMEDIA_API_KEY", "test-key")
-    monkeypatch.setenv("MESSAGEMEDIA_API_SECRET", "test-secret")
-    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900999")
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "test@example.com")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "test-key")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900999")
 
     response = client.post(
         "/admin",
@@ -3385,16 +3385,16 @@ def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
     client, monkeypatch
 ):
     login(client)
-    monkeypatch.setenv("MESSAGEMEDIA_API_KEY", "test-key")
-    monkeypatch.setenv("MESSAGEMEDIA_API_SECRET", "test-secret")
-    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900999")
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "test@example.com")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "test-key")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900999")
     sent = []
 
     def fake_send(to_number, body, from_number=None):
         sent.append((to_number, body, from_number))
         return True, "SMtest"
 
-    monkeypatch.setattr(app, "_send_sms_via_messagemedia", fake_send)
+    monkeypatch.setattr(app, "_send_sms_via_clicksend", fake_send)
     rejected = client.post(
         "/messages",
         data={
@@ -3447,31 +3447,6 @@ def test_sms_audit_is_unit_admin_only(client):
     wm_client = app.app.test_client()
     login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
-
-
-def test_messagemedia_delivery_webhook_requires_token_and_updates_audit(client, monkeypatch):
-    with app.app.app_context():
-        audit = app.SmsAudit(
-            unit_id=1, sent_by_staff_id=1, sent_by_name="Admin Test",
-            sender_number="+447700900123", recipient_number="+447700900124",
-            recipient_label="Duty desk", message_type="operational",
-            message_content="Update", provider_message_id="delivery-test",
-        )
-        db.session.add(audit)
-        db.session.commit()
-        audit_id = audit.id
-
-    monkeypatch.setenv("MESSAGEMEDIA_WEBHOOK_TOKEN", "webhook-test-token")
-    forbidden = client.post("/webhooks/messagemedia/delivery", json={"id": "delivery-test"})
-    assert forbidden.status_code == 403
-    accepted = client.post(
-        "/webhooks/messagemedia/delivery",
-        json={"id": "delivery-test", "status": "delivered"},
-        headers={"X-ATCRoster-Webhook-Token": "webhook-test-token"},
-    )
-    assert accepted.status_code == 204
-    with app.app.app_context():
-        assert db.session.get(app.SmsAudit, audit_id).delivery_status == "delivered"
 
 
 def test_users_can_delete_only_their_own_read_notifications(client):

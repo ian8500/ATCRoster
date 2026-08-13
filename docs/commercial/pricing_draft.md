@@ -39,7 +39,7 @@ permanent hidden tier.
 ## Cost validation before approval
 
 For each tier calculate Railway databases/web/worker/Redis, independent backup,
-monitoring, email, support time, Sinch MessageMedia use, payment fees, insurance, tax,
+monitoring, email, support time, ClickSend use, payment fees, insurance, tax,
 security testing and legal/accounting overhead. Target a gross margin that
 funds support and assurance; do not price only against Railway's current hobby
 bill.

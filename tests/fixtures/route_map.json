@@ -67,11 +67,11 @@
     "rule": "/admin/sms-audit"
   },
   {
-    "endpoint": "confirm_sms_sender",
+    "endpoint": "send_test_sms",
     "methods": [
       "POST"
     ],
-    "rule": "/admin/sms-senders/<int:registration_id>/confirm"
+    "rule": "/admin/sms-test"
   },
   {
     "endpoint": "admin_staff_edit",
@@ -938,12 +938,5 @@
       "POST"
     ],
     "rule": "/unit/onboarding"
-  },
-  {
-    "endpoint": "messagemedia_delivery_webhook",
-    "methods": [
-      "POST"
-    ],
-    "rule": "/webhooks/messagemedia/delivery"
   }
 ]

@@ -338,7 +338,7 @@ class SmsAudit(db.Model):
     message_type = db.Column(db.String(30), nullable=False, default="unit")
     message_content = db.Column(db.Text, nullable=False)
     provider_message_id = db.Column(db.String(64), nullable=False, default="")
-    provider = db.Column(db.String(30), nullable=False, default="messagemedia")
+    provider = db.Column(db.String(30), nullable=False, default="clicksend")
     delivery_status = db.Column(db.String(30), nullable=False, default="submitted")
 
 
@@ -348,7 +348,7 @@ class SmsSenderRegistration(db.Model):
     unit_id = db.Column(db.Integer, db.ForeignKey("unit.id"), nullable=False, index=True)
     staff_id = db.Column(db.Integer, db.ForeignKey("staff.id"), nullable=False, index=True)
     number = db.Column(db.String(20), nullable=False)
-    provider = db.Column(db.String(30), nullable=False, default="messagemedia")
+    provider = db.Column(db.String(30), nullable=False, default="clicksend")
     status = db.Column(db.String(30), nullable=False, default="pending_dashboard_verification")
     provider_identifier = db.Column(db.String(120), nullable=False, default="")
     verification_requested_at = db.Column(db.DateTime, nullable=False, default=utcnow)

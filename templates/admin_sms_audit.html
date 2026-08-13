@@ -4,21 +4,20 @@
 {% set admin_page_title = 'SMS audit' %}
 {% include "_admin_context_header.html" %}
 {% include "_report_actions.html" %}
-{% set setup_steps = [('Review the delivery record', 'Use this page to confirm the messages successfully delivered for this unit.'), ('Check sender and recipient', 'Verify who sent the message and the number that received it.'), ('Use Communications for new messages', 'This is an audit record; send operational messages from the Communications page.')] %}
+{% set setup_steps = [('Configure ClickSend', 'Set platform credentials securely and verify this unit sender in ClickSend.'), ('Send a controlled test', 'Use the test function below to confirm the unit sender.'), ('Review the delivery record', 'Use this page to review each attempted message for this unit.')] %}
 {% include "_setup_walkthrough.html" %}
 
 <section class="card">
-  <div class="card-hd">Sinch personal sender verification</div>
+  <div class="card-hd">SMS configuration</div>
   <div class="card-bd">
-    <p class="text-muted">Watch Managers verify their own number in the Sinch dashboard. Confirm it here only after checking the dashboard; verification codes are never entered or stored in ATCRoster.</p>
-    <div class="table-scroll"><table class="mini admin-table"><thead><tr><th>Watch Manager</th><th>Number</th><th>Status</th><th>Confirm verification</th></tr></thead><tbody>
-    {% for item in registrations %}<tr><td>{{ item.staff_id }}</td><td class="mono">{{ item.number }}</td><td>{{ item.status.replace('_', ' ')|title }}</td><td>{% if item.status != 'verified' %}<form method="post" action="{{ url_for('confirm_sms_sender', registration_id=item.id) }}" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="date" name="expires_at"><input name="provider_identifier" placeholder="Sinch sender ID (optional)"><button class="btn btn-small" type="submit">Confirm</button></form>{% else %}Expires {{ item.expires_at.strftime('%d %b %Y') if item.expires_at else '—' }}{% endif %}</td></tr>{% else %}<tr><td colspan="4">No personal sender numbers registered.</td></tr>{% endfor %}
-    </tbody></table></div>
+    <p><strong>Provider</strong> ClickSend<br><strong>Sender</strong> <span class="mono">{{ senders[0].number if senders else 'Not configured' }}</span><br><strong>API credentials</strong> {{ '✓ Configured' if sms_ready else 'Not configured' }}</p>
+    <p class="text-muted">The sender must be verified as an Own Number in ClickSend. ATCO Roster never verifies or stores sender credentials.</p>
+    <form method="post" action="{{ url_for('send_test_sms') }}" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label>Send test SMS <input type="tel" name="recipient_number" placeholder="+447700900123" required></label><button class="btn btn-primary" type="submit" {% if not sms_ready or not senders %}disabled{% endif %}>Send test SMS</button></form>
   </div>
 </section>
 
 <section class="card mt-3">
-  <div class="card-hd">Successful SMS deliveries</div>
+  <div class="card-hd">SMS attempts</div>
   <div class="card-bd">
     <div class="table-scroll">
       <table class="mini admin-table">
@@ -45,12 +44,12 @@
             <td class="sms-audit-message">{{ row.message_content }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="7">No successful SMS deliveries have been recorded yet.</td></tr>
+          <tr><td colspan="7">No SMS attempts have been recorded yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <p class="text-muted mt-3">The most recent 1,000 deliveries are shown. Failed sends are not recorded as delivered messages.</p>
+    <p class="text-muted mt-3">The most recent 1,000 attempts are shown. Provider credentials are never stored or displayed.</p>
   </div>
 </section>
 {% endblock %}

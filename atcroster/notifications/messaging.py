@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable
 
-from flask import Blueprint, abort, current_app, flash, render_template, request
+from flask import Blueprint, abort, flash, render_template, request
 from flask_login import current_user, login_required
-from sqlalchemy.exc import ProgrammingError
 
 
 @dataclass(frozen=True)
@@ -17,7 +16,6 @@ class MessagingDependencies:
     Staff: Any
     Watch: Any
     Assignment: Any
-    SmsSenderRegistration: Any
     current_unit_id: Callable[[], int]
     utcnow: Callable[[], Any]
     can_send_unit_messages: Callable[[Any], bool]
@@ -47,24 +45,6 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
         selected_recipient = request.form.get("recipient_id", "")
         selected_watch = request.form.get("watch_id", "")
         sender_options = dependencies.sms_configuration.sender_options()
-        if current_user.is_wm:
-            now = dependencies.utcnow()
-            try:
-                verified = dependencies.SmsSenderRegistration.query.filter(
-                    dependencies.SmsSenderRegistration.unit_id == dependencies.current_unit_id(),
-                    dependencies.SmsSenderRegistration.staff_id == current_user.id,
-                    dependencies.SmsSenderRegistration.provider == "messagemedia",
-                    dependencies.SmsSenderRegistration.status == "verified",
-                    dependencies.db.or_(
-                        dependencies.SmsSenderRegistration.expires_at.is_(None),
-                        dependencies.SmsSenderRegistration.expires_at > now,
-                    ),
-                ).order_by(dependencies.SmsSenderRegistration.verified_at.desc()).all()
-            except ProgrammingError:
-                dependencies.db.session.rollback()
-                current_app.logger.warning("sms_sender_registration_schema_unavailable")
-                verified = []
-            sender_options = ([{"number": item.number, "label": "My verified mobile"} for item in verified] or sender_options)
         operational_options = dependencies.sms_configuration.operational_options()
         default_sender = dependencies.sms_configuration.default_number("sms_default_sender", sender_options)
         default_operational = dependencies.sms_configuration.default_number("sms_default_operational_number", operational_options)
@@ -112,6 +92,7 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
                         sent += 1
                     else:
                         failures.append((person, detail))
+                        dependencies.record_sms_audit(sender_number=selected_sender, recipient_number=person.phone_number, recipient_label=person.name, body=body, message_type="shift_reminder", provider_message_id=detail, delivery_status="failed")
                 dependencies.flash_sms_result(sent, failures)
             elif not message:
                 flash("Enter a custom message.", "error")
@@ -123,6 +104,8 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
                 preview = [(label, message)]
                 if ok:
                     dependencies.record_sms_audit(sender_number=selected_sender, recipient_number=direct_recipient, recipient_label=label, body=message, message_type="operational", provider_message_id=detail)
+                else:
+                    dependencies.record_sms_audit(sender_number=selected_sender, recipient_number=direct_recipient, recipient_label=label, body=message, message_type="operational", provider_message_id=detail, delivery_status="failed")
                 dependencies.flash_sms_result(1 if ok else 0, [] if ok else [(None, detail)])
             else:
                 sent, failures = 0, []
@@ -133,6 +116,7 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
                         sent += 1
                     else:
                         failures.append((person, detail))
+                        dependencies.record_sms_audit(sender_number=selected_sender, recipient_number=person.phone_number, recipient_label=person.name, body=message, message_type="unit", provider_message_id=detail, delivery_status="failed")
                 preview = [(person.name, message) for person in recipients]
                 dependencies.flash_sms_result(sent, failures)
         return render_template(

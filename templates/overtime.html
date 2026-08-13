@@ -104,7 +104,7 @@
       <div>
         <p class="muted">Selected shift: <strong>{{ chosen_shift }}</strong> on <strong>{{ chosen_date }}</strong></p>
         {% if not sms_ready %}
-          <p class="muted">SMS sending is disabled until the Sinch MessageMedia credentials and fallback sender are set.</p>
+          <p class="muted">SMS sending is disabled until ClickSend credentials and a verified sender are set.</p>
         {% endif %}
         <button class="btn" {% if not sms_ready %}disabled{% endif %}>
           <i class="fa-solid fa-paper-plane"></i> Send SMS

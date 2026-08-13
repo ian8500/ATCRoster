@@ -24,7 +24,7 @@ Low-severity findings—primarily deliberate compatibility exception handling
 and fixed process-launch commands—are the initial recorded debt. Three
 medium false positives carry inline, rule-specific suppressions:
 
-- Sinch MessageMedia uses a fixed HTTPS API origin;
+- ClickSend uses a fixed HTTPS API origin;
 - the desktop readiness probe uses a generated loopback URL;
 - the Railway worker exposes only its health listener on all interfaces.
 

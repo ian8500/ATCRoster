@@ -488,17 +488,17 @@ step.
   shortcut. Unit Admins can add or deactivate airport-specific types there.
   Deactivation preserves history while removing the type from new entries and
   reports.
-- Configure Sinch MessageMedia before sending overtime or unit SMS messages.
+- Configure ClickSend before sending overtime or unit SMS messages.
 - **Messages** is available only to Admin, WM and DWM users. It can target one
   person, a named watch, or all active airport users with a custom message or
   a personalised today-shift reminder. Watch Managers register their own
-  verified UK mobile sender; a configured Sinch fallback sender is used only
-  when no verified personal sender is available.
-- Every successful unit, operational, shift-reminder, and overtime SMS is
+  verified UK mobile sender. Each airport can configure its own ClickSend
+  Own Number, while credentials remain platform configuration.
+- Every attempted unit, operational, shift-reminder, and overtime SMS is
   retained in the airport-isolated **Admin → SMS audit**. The audit records
   who initiated it, the actual sender and recipient numbers, delivery time,
   message type, provider reference and exact message content. Only Unit
-  Administrators can view it; failed sends are not shown as delivered.
+  Administrators can view it, including safely recorded failed attempts.
 - Reports include fatigue, sickness, leave year, overtime, swaps, extensions,
   and CSV exports.
 
@@ -508,20 +508,20 @@ than relying on fixed OT/Swap/EXT codes. If a retired annotation appears in
 the selected date range, it remains visible as a historical column so earlier
 records are not hidden. The CSV export uses the same columns as the screen.
 
-Sinch MessageMedia environment variables:
+ClickSend environment variables:
 
 ```text
-MESSAGEMEDIA_API_KEY
-MESSAGEMEDIA_API_SECRET
-MESSAGEMEDIA_FALLBACK_SENDER
+CLICK_SEND_USERNAME
+CLICK_SEND_API_KEY
+CLICK_SEND_DEFAULT_SENDER
 ```
 
 When they are absent, SMS sending is disabled.
 
-Sinch MessageMedia never chooses a random sender. A Watch Manager's personal
-sender must be verified in Sinch MessageMedia. Airport settings are tenant
-scoped; one airport cannot select another airport's sender or operational
-destination. Enter numbers in E.164 format, for example `+447700900123`.
+ClickSend never chooses a random sender. Every sender must be verified in
+ClickSend as an Own Number. Airport settings are tenant scoped; one airport
+cannot select another airport's sender or operational destination. Enter
+numbers in E.164 format, for example `+447700900123`.
 
 ### Calendar subscription
 
