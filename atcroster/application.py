@@ -156,23 +156,20 @@ from atcroster.auth import (
 )
 from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_blueprint
 from atcroster.qualifications import (
+    QualificationRuntime,
+    QualificationRuntimeDependencies,
     QualificationDependencies,
     create_qualification_blueprint,
     currency_window,
     classify_qualification_impact,
     has_other_valid_ue,
-    has_valid_endorsement,
     load_currency_requirement,
     monthly_compliance_findings,
-    monthly_position_assurance,
     minutes_between as calculate_minutes_between,
     operational_currency_shortfalls,
-    qualification_snapshot,
-    record_qualification_history as add_qualification_history,
     record_roster_impact_for_qualification,
     staff_has_qualification as qualification_status_for_staff,
     staff_is_countable as qualification_staff_is_countable,
-    sync_legacy_roster_profile,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
@@ -2214,49 +2211,21 @@ _run_invitation_signup = signup_saga.run
 
 
 
-def _qualification_snapshot(record: PersonQualification) -> dict:
-    return qualification_snapshot(record)
-
-
-def _record_qualification_history(
-    record: PersonQualification, action: str
-) -> None:
-    return add_qualification_history(
-        record,
-        action,
-        db=db,
-        PersonQualificationHistory=PersonQualificationHistory,
-        actor_id=current_user.id,
-    )
-
-
-def _sync_qualification_to_roster_profile(
-    person: Staff, qtype: QualificationType, expires_on: date | None
-) -> None:
-    return sync_legacy_roster_profile(person, qtype, expires_on)
-
-
-
-
-def _valid_endorsement(person_id: int, position_id: int, on_day: date) -> bool:
-    return has_valid_endorsement(
-        person_id,
-        position_id,
-        on_day,
-        PositionEndorsement=PositionEndorsement,
-    )
-
-
-def _position_assurance(year: int, month: int) -> list[dict]:
-    return monthly_position_assurance(
-        year,
-        month,
-        Assignment=Assignment,
-        OperationalPosition=OperationalPosition,
-        PositionRequirement=PositionRequirement,
-        month_range=month_range,
-        valid_endorsement=_valid_endorsement,
-    )
+qualification_runtime = QualificationRuntime(QualificationRuntimeDependencies(
+    db=db,
+    PersonQualificationHistory=PersonQualificationHistory,
+    PositionEndorsement=PositionEndorsement,
+    Assignment=Assignment,
+    OperationalPosition=OperationalPosition,
+    PositionRequirement=PositionRequirement,
+    current_user=lambda: current_user,
+    month_range=month_range,
+))
+_qualification_snapshot = qualification_runtime.snapshot
+_record_qualification_history = qualification_runtime.record_history
+_sync_qualification_to_roster_profile = qualification_runtime.sync_roster_profile
+_valid_endorsement = qualification_runtime.valid_endorsement
+_position_assurance = qualification_runtime.position_assurance
 
 
 
