@@ -234,3 +234,82 @@ def assignment_for_day(db: Any, Assignment: Any, staff_id: int, day: date) -> An
         assignment = Assignment(staff_id=staff_id, day=day)
         db.session.add(assignment)
     return assignment
+
+
+@dataclass(frozen=True)
+class AssignmentRuntimeDependencies:
+    refresh: AssignmentRefreshDependencies
+    Requirement: Any
+    SpecialRequirement: Any
+    month_range: Callable[[int, int], tuple[Any, list[date]]]
+    shift_minutes: Callable[[Any], int]
+    daily_requirements: Callable[..., dict[str, int]]
+    ensure_month_requirement: Callable[..., Any]
+    requirements_for_day: Callable[..., dict[str, int]]
+
+
+class AssignmentRuntime:
+    """Own roster assignment refresh, requirements, and month generation."""
+
+    def __init__(self, dependencies: AssignmentRuntimeDependencies):
+        self.dependencies = dependencies
+
+    def set_assignment(
+        self,
+        staff: Any,
+        day: date,
+        code: str,
+        source: str = "auto",
+        note: str = "",
+    ):
+        return set_generated_assignment(
+            staff,
+            day,
+            code,
+            dependencies=self.dependencies.refresh,
+            source=source,
+            note=note,
+        )
+
+    def overwrite_assignment(self, staff: Any, day: date, code: str, note: str = ""):
+        return set_absence_override(
+            staff,
+            day,
+            code,
+            dependencies=self.dependencies.refresh,
+            note=note,
+        )
+
+    def refresh_day(self, staff: Any, day: date):
+        return refresh_pattern_day(staff, day, self.dependencies.refresh)
+
+    def shift_duration_minutes(self, shift: Any) -> int:
+        return self.dependencies.shift_minutes(shift)
+
+    def ensure_month_requirement(
+        self, year: int, month: int, default: tuple[int, int, int, int] = (4, 4, 4, 2)
+    ):
+        deps = self.dependencies
+        return deps.ensure_month_requirement(
+            deps.refresh.db, deps.Requirement, year, month, default
+        )
+
+    def requirements_for_day(
+        self, requirement: Any, day: date, special: Any = None
+    ) -> dict[str, int]:
+        deps = self.dependencies
+        return deps.requirements_for_day(
+            requirement, day, special, deps.daily_requirements
+        )
+
+    def generate_month(self, year: int, month: int, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        deps = self.dependencies
+        return generate_month_assignments(
+            year,
+            month,
+            db=deps.refresh.db,
+            Staff=deps.refresh.Staff,
+            month_range=deps.month_range,
+            refresh_day=self.refresh_day,
+        )

@@ -105,7 +105,6 @@ from atcroster.roster import (
     expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     parse_year_month as parse_roster_year_month,
-    duration_minutes as roster_shift_duration_minutes,
     ensure_month_requirement as ensure_roster_month_requirement,
     requirements_for_day as resolve_roster_requirements_for_day,
 )
@@ -181,7 +180,7 @@ from atcroster.notifications import (
     normalise_sms_number,
     normalise_uk_mobile,
     parse_sms_number_lines,
-    send_via_messagemedia,
+    send_via_clicksend,
     email_service_configured,
     send_account_email,
     valid_email,
@@ -224,13 +223,11 @@ from atcroster.roster.month_view import (
     load_month_roster,
 )
 from atcroster.roster.assignments import (
+    AssignmentRuntime,
+    AssignmentRuntimeDependencies,
     AssignmentRefreshDependencies,
     allocate_day_shift_shortfall,
     generate_assignment_range,
-    generate_month_assignments,
-    refresh_pattern_day,
-    set_absence_override,
-    set_generated_assignment,
 )
 from atcroster.roster.annotations import AnnotationCatalogue
 from atcroster.roster.settings import RosterSettingsCatalogue
@@ -560,11 +557,6 @@ def _invalidate_month_cache_for_day(d: date):
     )
 
 
-def _messagemedia_credentials() -> tuple[str, str, str]:
-    from atcroster.notifications.sms import messagemedia_credentials
-    return messagemedia_credentials()
-
-
 def _normalise_sms_number(value: str | None) -> str:
     return normalise_sms_number(value)
 
@@ -619,14 +611,14 @@ def _unit_admin_emails(unit_id: int) -> list[str]:
     return unit_admin_emails(db, PlatformIdentity, UnitMembership, unit_id)
 
 
-def _send_sms_via_messagemedia(
+def _send_sms_via_clicksend(
     to_number: str, body: str, from_number: str | None = None,
 ) -> tuple[bool, str]:
-    return send_via_messagemedia(to_number, body, from_number)
+    return send_via_clicksend(to_number, body, from_number)
 
 
 def _send_sms(to_number: str, body: str, from_number: str | None = None) -> tuple[bool, str]:
-    return _send_sms_via_messagemedia(to_number, body, from_number)
+    return _send_sms_via_clicksend(to_number, body, from_number)
 
 
 def _record_sms_audit(
@@ -1418,8 +1410,8 @@ def _cycle_day_for(staff: Staff, d: date) -> int | None:
     return ((d - anchor).days % len(pat)) + 1
 
 
-def _assignment_refresh_dependencies():
-    return AssignmentRefreshDependencies(
+assignment_runtime = AssignmentRuntime(AssignmentRuntimeDependencies(
+    refresh=AssignmentRefreshDependencies(
         db=db,
         Assignment=Assignment,
         Staff=Staff,
@@ -1427,63 +1419,26 @@ def _assignment_refresh_dependencies():
         day_leave_for=day_leave_for,
         get_shift=get_shift,
         absence_types=get_absence_types,
-    )
+    ),
+    Requirement=Requirement,
+    SpecialRequirement=SpecialRequirement,
+    month_range=month_range,
+    shift_minutes=shift_minutes,
+    daily_requirements=daily_requirements,
+    ensure_month_requirement=ensure_roster_month_requirement,
+    requirements_for_day=resolve_roster_requirements_for_day,
+))
+def _assignment_refresh_dependencies():
+    return assignment_runtime.dependencies.refresh
 
 
-def set_assignment(staff: Staff, d: date, code: str, source="auto", note=""):
-    return set_generated_assignment(
-        staff,
-        d,
-        code,
-        dependencies=_assignment_refresh_dependencies(),
-        source=source,
-        note=note,
-    )
-
-
-def overwrite_assignment(staff: Staff, d: date, code: str, note: str = ""):
-    return set_absence_override(
-        staff,
-        d,
-        code,
-        dependencies=_assignment_refresh_dependencies(),
-        note=note,
-    )
-
-# Respect manual edits & only clear annotations when auto changes the code
-
-
-def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
-    return refresh_pattern_day(staff, d, _assignment_refresh_dependencies())
-
-
-def shift_duration_minutes(shift: ShiftType):
-    return roster_shift_duration_minutes(shift, shift_minutes)
-
-
-def ensure_month_requirement(year, month, default=(4, 4, 4, 2)):
-    return ensure_roster_month_requirement(db, Requirement, year, month, default)
-
-
-def requirements_for_day(
-    requirement: Requirement | None,
-    day: date,
-    special: SpecialRequirement | None = None,
-) -> dict[str, int]:
-    return resolve_roster_requirements_for_day(requirement, day, special, daily_requirements)
-
-# Idempotent month generation that preserves manual entries
-
-
-def generate_month(year: int, month: int, *args, **kwargs):
-    return generate_month_assignments(
-        year,
-        month,
-        db=db,
-        Staff=Staff,
-        month_range=month_range,
-        refresh_day=refresh_day_from_pattern_and_leave,
-    )
+set_assignment = assignment_runtime.set_assignment
+overwrite_assignment = assignment_runtime.overwrite_assignment
+refresh_day_from_pattern_and_leave = assignment_runtime.refresh_day
+shift_duration_minutes = assignment_runtime.shift_duration_minutes
+ensure_month_requirement = assignment_runtime.ensure_month_requirement
+requirements_for_day = assignment_runtime.requirements_for_day
+generate_month = assignment_runtime.generate_month
 
 
 _fatigue_rule_config_service = FatigueRuleConfigService(
@@ -2651,13 +2606,17 @@ app.register_blueprint(create_notification_blueprint(NotificationDependencies(
 )))
 app.register_blueprint(create_sms_administration_blueprint(
     SmsAdministrationDependencies(
-        db=db,
         SmsAudit=SmsAudit,
-        SmsSenderRegistration=SmsSenderRegistration,
         current_unit_id=_current_unit_id,
         is_admin_user=is_admin_user,
         validate_csrf=_validate_csrf,
-        utcnow=utcnow,
+        consume_rate_limit=lambda scope, subject, limit, window_seconds: _consume_rate_limit(
+            scope, subject, limit=limit, window=timedelta(seconds=window_seconds)
+        ),
+        configuration=sms_configuration,
+        normalise_sms_number=_normalise_sms_number,
+        send_sms=_send_sms,
+        record_sms_audit=_record_sms_audit,
     )
 ))
 app.register_blueprint(create_messaging_blueprint(MessagingDependencies(
@@ -2665,7 +2624,6 @@ app.register_blueprint(create_messaging_blueprint(MessagingDependencies(
     Staff=Staff,
     Watch=Watch,
     Assignment=Assignment,
-    SmsSenderRegistration=SmsSenderRegistration,
     current_unit_id=_current_unit_id,
     utcnow=utcnow,
     can_send_unit_messages=can_send_unit_messages,
