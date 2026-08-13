@@ -348,7 +348,7 @@ from reports_blueprint import create_reports_blueprint, create_reports_dependenc
 from roster_blueprint import create_roster_blueprint, create_roster_dependencies
 from training_blueprint import create_training_blueprint, create_training_dependencies
 from roster_period_service import RosterPeriodDependencies, RosterPeriodService
-from atcroster.planning import PlanningDependencies, create_planning_services
+from atcroster.planning import create_planning_dependencies, create_planning_services
 from atcroster.live_position import (
     create_operational_registration_dependencies,
     register_operational_blueprints,
@@ -1443,24 +1443,10 @@ app.jinja_env.globals['ShiftType'] = ShiftType
 
 # -------------------- Run --------------------
 
-planning_services = create_planning_services(app, PlanningDependencies(
+planning_services = create_planning_services(app, create_planning_dependencies(
     db=db,
-    Staff=Staff,
-    ShiftType=ShiftType,
-    Leave=Leave,
-    Assignment=Assignment,
-    Sickness=Sickness,
-    Requirement=Requirement,
-    SpecialRequirement=SpecialRequirement,
-    WorkPattern=WorkPattern,
-    WorkPatternDay=WorkPatternDay,
-    WorkPatternDayAllowedShift=WorkPatternDayAllowedShift,
-    StaffPatternAssignment=StaffPatternAssignment,
-    StaffRule=StaffRule,
-    BankHoliday=BankHoliday,
-    RosterProposal=RosterProposal,
-    RosterProposalAssignment=RosterProposalAssignment,
-    ChangeLog=ChangeLog,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     shift_group=lambda shift: shift_counter_group(shift.code, shift.unit_id),
     requirements_for_day=requirements_for_day,
     shift_group_for_day=shift_counter_group_for_day,

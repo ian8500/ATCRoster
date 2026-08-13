@@ -64,6 +64,32 @@ class PlanningDependencies:
     record_roster_impact: Callable[..., Any]
 
 
+def create_planning_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> PlanningDependencies:
+    """Bind planning records at the planning-domain composition boundary."""
+    return PlanningDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        ShiftType=operational_models.ShiftType,
+        Leave=operational_models.Leave,
+        Assignment=operational_models.Assignment,
+        Sickness=operational_models.Sickness,
+        Requirement=operational_models.Requirement,
+        SpecialRequirement=operational_models.SpecialRequirement,
+        WorkPattern=saas_models.WorkPattern,
+        WorkPatternDay=saas_models.WorkPatternDay,
+        WorkPatternDayAllowedShift=saas_models.WorkPatternDayAllowedShift,
+        StaffPatternAssignment=saas_models.StaffPatternAssignment,
+        StaffRule=saas_models.StaffRule,
+        BankHoliday=saas_models.BankHoliday,
+        RosterProposal=saas_models.RosterProposal,
+        RosterProposalAssignment=saas_models.RosterProposalAssignment,
+        ChangeLog=operational_models.ChangeLog,
+        **services,
+    )
+
+
 @dataclass(frozen=True)
 class PlanningServices:
     patterns: Any
