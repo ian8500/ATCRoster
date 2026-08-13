@@ -29,13 +29,6 @@ from rate_limiting import (
     LimiterUnavailable, MemoryRateLimiter, RedisRateLimiter, privacy_key,
 )
 from fairness_service import FairnessAssignment, FairnessStaff, calculate_fairness
-from reporting import (
-    compute_annotation_metrics,
-    current_leave_year_window,
-    financial_year_start,
-    group_consecutive_days,
-    leave_summary_for_month,
-)
 from roster_logic import (
     add_months,
     daily_requirements,
@@ -146,6 +139,7 @@ from access_policy import (
 from atcroster import create_app, get_runtime_settings
 from atcroster.clock import utcnow
 from atcroster.web_assets import register_template_helpers
+from atcroster.reports import ReportingRuntime, ReportingRuntimeDependencies
 from atcroster.auth import (
     AuthRuntime,
     AuthRuntimeDependencies,
@@ -233,10 +227,6 @@ from atcroster.roster.shift_configuration import (
 )
 from atcroster.roster.reference_data import (
     bootstrap_reference_data as bootstrap_roster_reference_data,
-)
-from atcroster.roster.fairness import (
-    FairnessDependencies,
-    FairnessReportService,
 )
 from atcroster.roster.month_view import (
     MonthRosterLoadDependencies,
@@ -1966,44 +1956,28 @@ def _training_profile_allowed(person):
 # (… unchanged metrics functions from your file …)
 
 
-def _compute_metrics_range(
-    start_day: date, end_day: date, watch_id: int | None = None
-):
-    return compute_annotation_metrics(
-        start_day,
-        end_day,
-        watch_id=watch_id,
-        Assignment=Assignment,
-        Staff=Staff,
-        Watch=Watch,
-        annotation_items=_annotation_snapshot(
-            int(_current_unit_id() or 1)
-        )["items"],
-        parse_annotation=parse_annotation,
-    )
-
-
-def _compute_fairness_range(start_day: date, end_day: date):
-    return FairnessReportService(
-        FairnessDependencies(
-            Assignment=Assignment,
-            BankHoliday=BankHoliday,
-            ChangeLog=ChangeLog,
-            ShiftType=ShiftType,
-            Staff=Staff,
-            FairnessAssignment=FairnessAssignment,
-            FairnessStaff=FairnessStaff,
-            current_unit_id=_current_unit_id,
-            work_pattern_service=work_pattern_service,
-            code_from_pattern=code_from_pattern,
-            shift_duration_minutes=shift_duration_minutes,
-            calculate_fairness=calculate_fairness,
-        )
-    ).compute(start_day, end_day)
-
-
-def _fy_start_for(d: date) -> date:
-    return financial_year_start(d)
+reporting_runtime = ReportingRuntime(ReportingRuntimeDependencies(
+    Assignment=Assignment,
+    Staff=Staff,
+    Watch=Watch,
+    BankHoliday=BankHoliday,
+    ChangeLog=ChangeLog,
+    ShiftType=ShiftType,
+    FairnessAssignment=FairnessAssignment,
+    FairnessStaff=FairnessStaff,
+    current_unit_id=_current_unit_id,
+    annotation_snapshot=_annotation_snapshot,
+    parse_annotation=parse_annotation,
+    work_pattern_service=lambda: work_pattern_service,
+    code_from_pattern=code_from_pattern,
+    shift_duration_minutes=shift_duration_minutes,
+    calculate_fairness=calculate_fairness,
+    month_range=month_range,
+    get_absence_types=get_absence_types,
+))
+_compute_metrics_range = reporting_runtime.compute_metrics
+_compute_fairness_range = reporting_runtime.compute_fairness
+_fy_start_for = reporting_runtime.financial_year_start
 
 
 def _count_aava_soal_since_prev_april(staff_id: int, upto: date):
@@ -2065,25 +2039,13 @@ def _compute_overtime_candidates(chosen_date: date | None, chosen_shift_code: st
 
 
 
-def _leave_summary_for_month(year: int, month: int, watch_id: int | None = None):
-    return leave_summary_for_month(
-        year,
-        month,
-        watch_id,
-        unit_id=_current_unit_id(),
-        Assignment=Assignment,
-        Staff=Staff,
-        Watch=Watch,
-        month_range=month_range,
-        active_leave_types=get_absence_types("leave", active_only=True),
-    )
+_leave_summary_for_month = reporting_runtime.leave_summary
 
 
 # ===== Leave-Year report (per-person config; AL only; includes TOIL days) =====
 # (unchanged from your post)
 
-def _current_leave_year_window(s: Staff, today: date | None = None):
-    return current_leave_year_window(s, today)
+_current_leave_year_window = reporting_runtime.current_leave_year_window
 
 
 toil_service = ToilService(ToilServiceDependencies(
@@ -2105,8 +2067,7 @@ _toil_accrued_used_in_range_half_days = toil_service.accrued_and_used
 # ===== Sickness Report (unchanged) =====
 
 
-def _group_consecutive_days(days_set):
-    return group_consecutive_days(days_set)
+_group_consecutive_days = reporting_runtime.group_consecutive_days
 
 
 # -------------------- Request Sheets (shift requests) --------------------
