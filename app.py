@@ -139,7 +139,9 @@ from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
 from atcroster.administration import (
     AdministrationDependencies,
+    ToilAdministrationDependencies,
     create_administration_blueprint,
+    create_toil_administration_blueprint,
 )
 from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.accounts import (
@@ -8693,63 +8695,6 @@ def _position_assurance(year: int, month: int) -> list[dict]:
 
 
 
-@app.route("/admin/toil/new", methods=["GET", "POST"])
-@login_required
-@admin_required
-def admin_toil_new():
-    atcos = Staff.query.filter_by(
-        is_operational=True).filter(
-            Staff.role != "position_monitor"
-        ).order_by(Staff.name.asc()).all()
-    if request.method == "POST":
-        _validate_csrf()
-        try:
-            sid = int(request.form["staff_id"])
-            amount = float(request.form.get("amount", "0") or 0)
-        except (KeyError, TypeError, ValueError):
-            flash("Choose an ATCO and enter a valid adjustment.", "error")
-            return redirect(url_for("admin_toil_new"))
-        unit = request.form.get("unit", "days").lower()
-        note = (request.form.get("note") or "").strip()
-        s = Staff.query.filter_by(
-            id=sid, unit_id=_current_unit_id()
-        ).first_or_404()
-        # Convert to half-days
-        direction = -1 if request.form.get("direction") == "subtract" else 1
-        if unit.startswith("day"):
-            half = int(round(amount * 2))
-        else:  # hours
-            half = int(round((amount / 8.0) * 2))
-        if amount <= 0 or half <= 0:
-            flash("Enter an adjustment greater than zero.", "error")
-            return redirect(url_for("admin_toil_new"))
-        try:
-            _record_toil_transaction(
-                s.id,
-                direction * half,
-                note,
-                current_user.id,
-                transaction_key=request.form.get("transaction_key"),
-                source_type="manual_admin",
-            )
-        except ValueError as error:
-            flash(str(error), "error")
-            return redirect(url_for("admin_toil_new"))
-        db.session.commit()
-        verb = "added to" if direction > 0 else "deducted from"
-        flash(
-            f"{amount:g} {unit} {verb} {s.name}'s TOIL balance.",
-            "ok",
-        )
-        return redirect(url_for("admin_toil_new"))
-    selected_staff_id = request.args.get("staff_id", type=int)
-    if selected_staff_id and selected_staff_id not in {staff.id for staff in atcos}:
-        abort(404)
-    return render_template(
-        "admin_toil_new.html", atcos=atcos, selected_staff_id=selected_staff_id,
-        transaction_key=secrets.token_hex(24)
-    )
-
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
 
@@ -10047,6 +9992,16 @@ app.register_blueprint(create_operational_currency_blueprint(
         save_currency_requirement=_save_operational_currency_requirement,
         currency_shortfalls=_operational_currency_shortfalls,
         validate_csrf=_validate_csrf,
+    )
+))
+app.register_blueprint(create_toil_administration_blueprint(
+    ToilAdministrationDependencies(
+        db=db,
+        Staff=Staff,
+        current_unit_id=_current_unit_id,
+        is_admin_user=is_admin_user,
+        validate_csrf=_validate_csrf,
+        record_toil_transaction=_record_toil_transaction,
     )
 ))
 app.register_blueprint(create_admin_utility_blueprint(AdminUtilityDependencies(
