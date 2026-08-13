@@ -135,6 +135,7 @@ from atcroster.auth import (
     decrypt_secret,
     matching_totp_step,
     consume_rate_limit,
+    credential_for_auth_stamp,
     privacy_rate_limit_key,
     record_security_event,
     reset_rate_limit,
@@ -7924,12 +7925,7 @@ def _security_event(event: str, **safe_fields) -> None:
 
 
 def _credential_for_auth_stamp(user):
-    if getattr(user, "role", "") == "superadmin":
-        return PlatformMfaCredential.query.filter_by(
-            identity_id=user.id
-        ).first()
-    # The user loader has already bound the verified operational tenant.
-    return MfaCredential.query.filter_by(person_id=user.id).first()
+    return credential_for_auth_stamp(user, PlatformMfaCredential, MfaCredential)
 
 
 _session_lifecycle = SessionLifecycle(
