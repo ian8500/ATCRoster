@@ -14,3 +14,8 @@ def shift_groups_snapshot(ShiftType: Any, unit_id: int, banned_codes: Callable[[
         sorted((shift for shift in allowed if shift.is_training), key=lambda shift: shift.code),
         sorted((shift for shift in allowed if not shift.is_working and not shift.is_training), key=lambda shift: shift.code),
     )
+
+
+def duration_minutes(shift: Any, shift_minutes: Callable[[Any], int]) -> int:
+    """Return the canonical duration for one configured shift."""
+    return shift_minutes(shift)

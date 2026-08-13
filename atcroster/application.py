@@ -125,6 +125,7 @@ from atcroster.roster import (
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     is_sunday as roster_date_is_sunday,
     parse_year_month as parse_roster_year_month,
+    duration_minutes as roster_shift_duration_minutes,
     cell_is_protected,
     assignment_for_day,
     is_non_working as roster_code_is_non_working,
@@ -2056,7 +2057,7 @@ def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
 
 
 def shift_duration_minutes(shift: ShiftType):
-    return shift_minutes(shift)
+    return roster_shift_duration_minutes(shift, shift_minutes)
 
 
 def ensure_month_requirement(year, month, default=(4, 4, 4, 2)):
