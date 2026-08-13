@@ -775,10 +775,11 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             else None
         )
         staffing_shortfall_count = sum(
-            max(0, requirements[duty_day][code] - counters[duty_day][code])
+            1
             for duty_day in days
             for code in ("M", "D", "A", "N")
-            if code != "N" or night_active[duty_day]
+            if (code != "N" or night_active[duty_day])
+            and requirements[duty_day][code] > counters[duty_day][code]
         )
         qualification_warning_count = sum(
             1
@@ -800,6 +801,42 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         unresolved_request_count = sum(
             1 for item in requests if (item.status or "pending").lower() == "pending"
         )
+        readiness_issues: dict[str, list[dict[str, str]]] = {
+            "coverage": [], "fatigue": [], "qualification": [],
+            "leave": [], "request": [],
+        }
+        for duty_day in days:
+            for code in ("M", "D", "A", "N"):
+                if (
+                    (code != "N" or night_active[duty_day])
+                    and requirements[duty_day][code] > counters[duty_day][code]
+                ):
+                    readiness_issues["coverage"].append({
+                        "date": duty_day.isoformat(), "shift": code,
+                        "controller": "Unassigned", "severity": "blocking",
+                        "remediation": "Review staffing requirement",
+                        "href": url_for("roster_month", ym=ym),
+                    })
+        for person in staff:
+            for duty_day in days:
+                code = (assignment_map.get(person.id, {}).get(duty_day) or "").upper()
+                base = {"date": duty_day.isoformat(), "shift": code or "—", "controller": person.name, "staff_id": str(person.id)}
+                if fatigue.get(person.id, {}).get(duty_day):
+                    readiness_issues["fatigue"].append({**base, "severity": "warning", "remediation": "Review fatigue warning", "href": url_for("roster_month", ym=ym)})
+                capability = capability_matrix.get((person.id, duty_day))
+                if code and capability is not None and not capability.counts_as_operational:
+                    readiness_issues["qualification"].append({**base, "severity": "blocking", "remediation": "Review qualification status", "href": url_for("compliance_centre")})
+                if code == "AL":
+                    readiness_issues["leave"].append({**base, "severity": "advisory", "remediation": "Review leave record", "href": url_for("absence_requests.requests_page")})
+        for request_row in requests:
+            if (request_row.status or "pending").lower() == "pending":
+                person = next((row for row in staff if row.id == request_row.staff_id), None)
+                readiness_issues["request"].append({
+                    "date": request_row.day.isoformat(), "shift": request_row.code,
+                    "controller": person.name if person else "Unknown", "severity": "advisory",
+                    "staff_id": str(request_row.staff_id),
+                    "remediation": "Resolve request", "href": url_for("absence_requests.requests_page"),
+                })
         return render_template(
             "roster_month.html",
             ym=ym,
@@ -846,6 +883,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             leave_conflict_count=leave_conflict_count,
             unresolved_request_count=unresolved_request_count,
             capability_matrix=capability_matrix,
+            readiness_issues=readiness_issues,
         )
 
     @login_required

@@ -1169,10 +1169,22 @@ def test_monthly_roster_exposes_delegated_editor_decision_controls(client):
         b"data-roster-inspector",
         b"data-roster-cell-action",
         b"data-roster-undo",
-        b"data-roster-unsaved",
+        b"data-roster-session-status",
     ):
         assert marker in response.data
     assert b'<form class="shift-picker"' not in response.data
+
+
+def test_monthly_roster_readiness_lists_are_precise_and_session_status_is_truthful(client):
+    login(client)
+    response = client.get("/roster/2025-04")
+
+    assert response.status_code == 200
+    assert b"Saved in this session" in response.data
+    assert b"Unsaved changes" not in response.data
+    assert b"rosterReadinessIssues" in response.data
+    assert b"data-roster-readiness-dialog" in response.data
+    assert b"data-roster-cell-action] select:not(:disabled)" in response.data
 
 
 def test_roster_shift_can_be_saved_without_a_page_reload(client):

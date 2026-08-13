@@ -12,7 +12,7 @@ from typing import Any, Callable
 from urllib import parse as urllib_parse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 
@@ -203,6 +203,7 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
         if cached and time.monotonic() - cached[0] < 60:
             return cached[1]
         result = {"available": "false", "raw": "", "observed": ""}
+        connection = None
         try:
             query = urllib_parse.urlencode({"ids": code, "format": "json"})
             connection = http.client.HTTPSConnection(
@@ -214,10 +215,15 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
                 headers={"User-Agent": "ATCRoster/1.0 operational-handover"},
             )
             response = connection.getresponse()
-            try:
-                payload = json.loads(response.read().decode("utf-8"))
-            finally:
-                connection.close()
+            if not 200 <= response.status < 300:
+                raise http.client.HTTPException("METAR service returned a non-success status")
+            content_type = response.getheader("Content-Type", "").lower()
+            if "application/json" not in content_type:
+                raise http.client.HTTPException("METAR service returned a non-JSON response")
+            payload_bytes = response.read(65_537)
+            if len(payload_bytes) > 65_536:
+                raise http.client.HTTPException("METAR response exceeded the size limit")
+            payload = json.loads(payload_bytes.decode("utf-8"))
             if isinstance(payload, list) and payload:
                 item = payload[0]
                 result = {
@@ -225,8 +231,14 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
                     "raw": str(item.get("rawOb") or item.get("raw_text") or ""),
                     "observed": str(item.get("reportTime") or item.get("obsTime") or ""),
                 }
-        except Exception:
-            pass
+        except (http.client.HTTPException, OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            current_app.logger.warning(
+                "metar_fetch_failed",
+                extra={"structured_fields": {"event": "metar_fetch_failed", "icao": code, "error_type": type(error).__name__}},
+            )
+        finally:
+            if connection is not None:
+                connection.close()
         metar_cache[code] = (time.monotonic(), result)
         return result
 
