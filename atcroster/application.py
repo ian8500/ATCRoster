@@ -76,10 +76,6 @@ from roster_impact_service import (
     RosterImpactEventType,
     RosterImpactService,
 )
-from operational_capability import (
-    OperationalCapabilityDependencies,
-    OperationalCapabilityService,
-)
 from roster_month_cache import RosterMonthCache
 from atcroster.roster.defaults import (
     DEFAULT_ABSENCE_TYPES,
@@ -145,6 +141,8 @@ from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_bluepr
 from atcroster.qualifications import (
     QualificationRuntime,
     QualificationRuntimeDependencies,
+    EligibilityDependencies,
+    EligibilityService,
     QualificationDependencies,
     create_qualification_blueprint,
     currency_window,
@@ -155,8 +153,6 @@ from atcroster.qualifications import (
     minutes_between as calculate_minutes_between,
     operational_currency_shortfalls,
     record_roster_impact_for_qualification,
-    staff_has_qualification as qualification_status_for_staff,
-    staff_is_countable as qualification_staff_is_countable,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.workforce import effective_watch as resolve_effective_watch, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
@@ -864,27 +860,17 @@ get_exclude_from_counters = roster_settings_catalogue.get_excluded_counter_codes
 get_non_working_codes = roster_settings_catalogue.get_non_working_codes
 
 
-def staff_is_countable_on(person: Staff, on_date: date) -> bool:
-    return qualification_staff_is_countable(
-        person, on_date, capability_for=get_staff_operational_capability
-    )
-
-
-def operational_capability_service():
-    return OperationalCapabilityService(OperationalCapabilityDependencies(
-        db=db, Staff=Staff, QualificationType=QualificationType,
-        PersonQualification=PersonQualification,
-    ))
-
-
-def get_staff_operational_capability(staff_id: int, on_date: date):
-    return operational_capability_service().get_staff_operational_capability(
-        staff_id, on_date
-    )
-
-
-def get_operational_capability_matrix(staff: list[Staff], days: list[date]):
-    return operational_capability_service().get_capability_matrix(staff, days)
+eligibility_service = EligibilityService(EligibilityDependencies(
+    db=db,
+    Staff=Staff,
+    QualificationType=QualificationType,
+    PersonQualification=PersonQualification,
+    authenticated_unit_id=authenticated_unit_id,
+))
+staff_is_countable_on = eligibility_service.is_countable
+operational_capability_service = eligibility_service.capability_service
+get_staff_operational_capability = eligibility_service.operational_capability
+get_operational_capability_matrix = eligibility_service.capability_matrix
 
 
 get_shift_counter_map = roster_settings_catalogue.get_shift_counter_map
@@ -1836,27 +1822,8 @@ _notify_requester = request_workflow_service.notify_requester
 _safe_request_admin_month = request_workflow_service.safe_admin_month
 
 
-def staff_has_qualification(
-    staff: Staff, qualification_code: str, duty_date: date
-) -> bool:
-    return qualification_status_for_staff(
-        staff,
-        qualification_code,
-        duty_date,
-        QualificationType=QualificationType,
-        PersonQualification=PersonQualification,
-        authenticated_unit_id=authenticated_unit_id,
-    )
-
-
-def _staff_has_shift_qualification(
-    staff: Staff, shift: ShiftType, duty_date: date | None = None
-) -> bool:
-    return staff_has_qualification(
-        staff,
-        shift.required_qualification,
-        duty_date or date.today(),
-    )
+staff_has_qualification = eligibility_service.has_qualification
+_staff_has_shift_qualification = eligibility_service.has_shift_qualification
 
 
 _overtime_candidate_service = OvertimeCandidateService(
