@@ -17,6 +17,7 @@ from .history import (
     record_roster_impact_for_qualification,
     sync_legacy_roster_profile,
 )
+from .assurance import has_valid_endorsement, monthly_position_assurance
 
 __all__ = (
     "QualificationDependencies",
@@ -32,5 +33,7 @@ __all__ = (
     "record_qualification_history",
     "record_roster_impact_for_qualification",
     "sync_legacy_roster_profile",
+    "has_valid_endorsement",
+    "monthly_position_assurance",
     "staff_has_qualification",
 )

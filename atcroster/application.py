@@ -167,8 +167,10 @@ from atcroster.qualifications import (
     currency_window,
     classify_qualification_impact,
     has_other_valid_ue,
+    has_valid_endorsement,
     load_currency_requirement,
     monthly_compliance_findings,
+    monthly_position_assurance,
     minutes_between as calculate_minutes_between,
     operational_currency_shortfalls,
     qualification_snapshot,
@@ -3071,44 +3073,24 @@ def _sync_qualification_to_roster_profile(
 
 
 def _valid_endorsement(person_id: int, position_id: int, on_day: date) -> bool:
-    row = PositionEndorsement.query.filter_by(
-        person_id=person_id, position_id=position_id, status="valid"
-    ).first()
-    return bool(
-        row and row.valid_from <= on_day
-        and (row.valid_until is None or row.valid_until >= on_day)
+    return has_valid_endorsement(
+        person_id,
+        position_id,
+        on_day,
+        PositionEndorsement=PositionEndorsement,
     )
 
 
 def _position_assurance(year: int, month: int) -> list[dict]:
-    _, days = month_range(year, month)
-    requirements = PositionRequirement.query.filter(
-        PositionRequirement.day >= days[0],
-        PositionRequirement.day <= days[-1],
-    ).order_by(PositionRequirement.day, PositionRequirement.shift_code).all()
-    positions = {
-        row.id: row for row in OperationalPosition.query.all()
-    }
-    rows = []
-    for requirement in requirements:
-        assignments = Assignment.query.filter_by(
-            day=requirement.day, code=requirement.shift_code
-        ).all()
-        eligible = [
-            assignment for assignment in assignments
-            if _valid_endorsement(
-                assignment.staff_id, requirement.position_id, requirement.day
-            )
-        ]
-        target = requirement.required_count + requirement.contingency_count
-        rows.append({
-            "requirement": requirement,
-            "position": positions.get(requirement.position_id),
-            "eligible": len(eligible),
-            "target": target,
-            "shortfall": max(0, target - len(eligible)),
-        })
-    return rows
+    return monthly_position_assurance(
+        year,
+        month,
+        Assignment=Assignment,
+        OperationalPosition=OperationalPosition,
+        PositionRequirement=PositionRequirement,
+        month_range=month_range,
+        valid_endorsement=_valid_endorsement,
+    )
 
 
 
