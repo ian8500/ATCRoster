@@ -133,6 +133,54 @@ jobs:
           PY
       - run: python -m pytest -q tests/test_postgresql_multidatabase.py tests/test_redis_integration.py
 
+  playwright-e2e:
+    name: Playwright end-to-end
+    runs-on: ubuntu-latest
+    env:
+      ATCROSTER_ENV: development
+      ATCROSTER_E2E_DATABASE: ${{ runner.temp }}/atcroster-e2e.db
+      ATCROSTER_E2E_BASE_URL: http://127.0.0.1:5000
+      ATCROSTER_E2E_USERNAME: lba.admin
+      ATCROSTER_E2E_PASSWORD: Test-ATCRoster-2026!
+      ATCROSTER_E2E_MFA_SECRET: JBSWY3DPEHPK3PXP
+      FLASK_SECRET_KEY: e2e-only-not-a-production-secret-123456
+      ATCROSTER_SKIP_RUNTIME_SCHEMA: "1"
+      REDIS_URL: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@1d0ff46b6a8f5f6d60d06e5b9585b7ebc470a09a # v4.4.0
+        with:
+          node-version: "22.14.0"
+          cache: npm
+      - run: pip install -r requirements-dev.txt
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Start isolated seeded browser-test application
+        run: python scripts/run_e2e_server.py > "$RUNNER_TEMP/atcroster-e2e.log" 2>&1 &
+      - name: Wait for application readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:5000/health/ready; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/atcroster-e2e.log"
+          exit 1
+      - run: npm run test:e2e
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-e2e-failure-${{ github.sha }}
+          path: |
+            test-results/
+            playwright-report/
+            ${{ runner.temp }}/atcroster-e2e.log
+          if-no-files-found: warn
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:

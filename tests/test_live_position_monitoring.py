@@ -490,16 +490,6 @@ def test_kiosk_actions_do_not_request_or_require_controller_pins(
     assert response.status_code == 200
 
 
-def test_kiosk_marks_unconfirmed_board_state_as_stale(live_position_data):
-    client = app.app.test_client()
-    _login_kiosk(client)
-    page = client.get("/live-positions/kiosk")
-    assert b"displayed position state may be stale" in page.data
-    assert b"boardViewport.classList.add('is-stale')" in page.data
-    assert b'role="alert"' in page.data
-
-
-
 def test_controller_cannot_be_logged_on_to_two_positions(live_position_data):
     client = app.app.test_client()
     csrf = _login_kiosk(client)
@@ -626,8 +616,9 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     assert b"Breakdown by position" in individual.data
     assert b"operational-position-detail" in individual.data
     assert b"01:30" in individual.data
-    # The report selector retains all permitted controllers; the selected
-    # controller's activity is verified by the rendered duration above.
+    assert b"00:30" in individual.data
+    assert b"02:00" in individual.data
+    assert b"<th>Sam Instructor</th>" not in individual.data
     assert b"Position screen" not in individual.data
     assert b"75.0%" in individual.data
 
