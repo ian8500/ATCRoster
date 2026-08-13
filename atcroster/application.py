@@ -178,6 +178,7 @@ from atcroster.workforce.joiners import JoinerDependencies, create_joiner
 from atcroster.fatigue import (
     assignment_is_fatigue_safe,
     configured_findings as configured_fatigue_findings,
+    new_findings_for_proposed_assignment,
     segments_from_assignments,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
@@ -2318,48 +2319,22 @@ def would_create_new_fatigue_issues(
     lookback_days: int = 30,
     lookahead_days: int = 14,
 ):
-    sh = get_shift(proposed_code, staff.unit_id)
-    if not _is_working(sh):
-        return {}
-    start = proposed_day - timedelta(days=lookback_days)
-    end = proposed_day + timedelta(days=lookahead_days)
-    segs_base = _segments_for_staff(staff, start, end)
-    observation_start = datetime.combine(start, time.min)
-    config = _fatigue_rule_config(staff.unit_id)
-    flags_base = _configured_fatigue_findings(
-        segs_base, config, observation_start
+    return new_findings_for_proposed_assignment(
+        staff,
+        proposed_day,
+        proposed_code,
+        lookback_days=lookback_days,
+        lookahead_days=lookahead_days,
+        get_shift=get_shift,
+        is_working=_is_working,
+        segments_for_staff=_segments_for_staff,
+        fatigue_rule_config=_fatigue_rule_config,
+        configured_fatigue_findings=_configured_fatigue_findings,
+        span=_span,
+        is_early_start=_is_early_start,
+        is_night_duty=_is_night_duty,
+        is_morning_duty=_is_morning_duty,
     )
-    sdt, edt = _span(proposed_day, sh)
-    if not sdt:
-        return {}
-    definitions = config["definitions"]
-    is_early, is_pre0600 = _is_early_start(sdt, definitions)
-    segs_prop = [
-        segment for segment in segs_base
-        if segment["day"] != proposed_day
-    ]
-    segs_prop.append({
-        "day": proposed_day,
-        "start": sdt,
-        "end": edt,
-        "mins": int((edt - sdt).total_seconds() // 60),
-        "night": _is_night_duty(sdt, edt, definitions),
-        "early": is_early,
-        "early_pre0600": is_pre0600,
-        "morning": _is_morning_duty(sdt),
-    })
-    flags_prop = _configured_fatigue_findings(
-        segs_prop, config, observation_start
-    )
-    new_flags = {}
-    for d, lst in flags_prop.items():
-        if d < proposed_day:
-            continue
-        base_set = set(flags_base.get(d, []))
-        diff = sorted(set(lst) - base_set)
-        if diff:
-            new_flags[d] = diff
-    return new_flags
 
 
 _compliance_month = compliance_month

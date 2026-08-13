@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, time, timedelta
 from typing import Any, Callable
 
 
@@ -75,3 +76,61 @@ def configured_findings(
     return {
         finding_day: messages for finding_day, messages in filtered.items() if messages
     }
+
+
+def new_findings_for_proposed_assignment(
+    staff: Any,
+    proposed_day: Any,
+    proposed_code: str,
+    *,
+    lookback_days: int,
+    lookahead_days: int,
+    get_shift: Callable[..., Any],
+    is_working: Callable[[Any], bool],
+    segments_for_staff: Callable[[Any, Any, Any], list[dict[str, Any]]],
+    fatigue_rule_config: Callable[[int], dict[str, Any]],
+    configured_fatigue_findings: Callable[..., dict[Any, list[str]]],
+    span: Callable[..., tuple[Any, Any]],
+    is_early_start: Callable[..., tuple[bool, bool]],
+    is_night_duty: Callable[..., bool],
+    is_morning_duty: Callable[[Any], bool],
+) -> dict[Any, list[str]]:
+    """Return only fatigue findings introduced by a proposed duty."""
+    shift = get_shift(proposed_code, staff.unit_id)
+    if not is_working(shift):
+        return {}
+    start_day = proposed_day - timedelta(days=lookback_days)
+    end_day = proposed_day + timedelta(days=lookahead_days)
+    baseline_segments = segments_for_staff(staff, start_day, end_day)
+    observation_start = datetime.combine(start_day, time.min)
+    config = fatigue_rule_config(staff.unit_id)
+    baseline = configured_fatigue_findings(baseline_segments, config, observation_start)
+    start, end = span(proposed_day, shift)
+    if not start:
+        return {}
+    definitions = config["definitions"]
+    early, pre0600 = is_early_start(start, definitions)
+    proposed_segments = [
+        segment for segment in baseline_segments if segment["day"] != proposed_day
+    ]
+    proposed_segments.append(
+        {
+            "day": proposed_day,
+            "start": start,
+            "end": end,
+            "mins": int((end - start).total_seconds() // 60),
+            "night": is_night_duty(start, end, definitions),
+            "early": early,
+            "early_pre0600": pre0600,
+            "morning": is_morning_duty(start),
+        }
+    )
+    proposed = configured_fatigue_findings(proposed_segments, config, observation_start)
+    result = {}
+    for finding_day, findings in proposed.items():
+        if finding_day < proposed_day:
+            continue
+        new_findings = sorted(set(findings) - set(baseline.get(finding_day, [])))
+        if new_findings:
+            result[finding_day] = new_findings
+    return result
