@@ -27,6 +27,7 @@
 | Administration landing | `atcroster/administration/blueprint.py` |
 | Authenticated home redirect | `atcroster/home.py` |
 | SMS normalization and provider delivery | `atcroster/notifications/sms.py` |
+| Account email delivery and address validation | `atcroster/notifications/email.py` |
 
 ## Safe stopping boundary
 
