@@ -6,7 +6,7 @@ from flask import redirect, url_for, flash, abort, session, g
 import json as _json
 import os
 import sys
-from functools import lru_cache
+from functools import lru_cache, partial
 from datetime import date, timedelta
 
 from flask_login import (
@@ -276,6 +276,7 @@ from atcroster.navigation import (
 from atcroster.requests import (
     RequestWorkflowDependencies,
     RequestWorkflowService,
+    clamp_request_navigation,
 )
 from atcroster.accounts import (
     AccountRegistrationDependencies,
@@ -1316,14 +1317,7 @@ admin_required = create_admin_required(is_admin_user)
 
 
 
-def _clamp_prev_next(year, month):
-    """Clamp navigation so you cannot go earlier than MIN_MONTH."""
-    prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
-    next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
-    prev_allowed = date(prev_y, prev_m, 1) >= date(
-        MIN_MONTH.year, MIN_MONTH.month, 1)
-    return (f"{prev_y}-{prev_m:02d}" if prev_allowed else None,
-            f"{next_y}-{next_m:02d}")
+_clamp_prev_next = partial(clamp_request_navigation, minimum_month=MIN_MONTH)
 
 
 inject_perms = register_navigation_context(

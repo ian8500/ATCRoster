@@ -4,7 +4,21 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Callable
+
+
+def clamp_request_navigation(
+    year: int, month: int, minimum_month: date
+) -> tuple[str | None, str]:
+    """Return safe adjacent month links for request administration."""
+    previous_year, previous_month = (year - 1, 12) if month == 1 else (year, month - 1)
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    previous_allowed = date(previous_year, previous_month, 1) >= minimum_month.replace(day=1)
+    return (
+        f"{previous_year}-{previous_month:02d}" if previous_allowed else None,
+        f"{next_year}-{next_month:02d}",
+    )
 
 
 def load_unit_request_rules(
