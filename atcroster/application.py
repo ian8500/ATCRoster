@@ -241,13 +241,13 @@ from atcroster.administration import (
     AdminDashboardDependencies,
     AdministrationDependencies,
     ToilService,
-    ToilServiceDependencies,
-    ToilAdministrationDependencies,
     create_admin_dashboard_blueprint,
     create_admin_action_dependencies,
     create_admin_context_dependencies,
     create_administration_blueprint,
     create_toil_administration_blueprint,
+    create_toil_administration_dependencies,
+    create_toil_service_dependencies,
     seed_toil_balances,
 )
 from atcroster.administration.onboarding import (
@@ -1248,11 +1248,10 @@ _leave_summary_for_month = reporting_runtime.leave_summary
 
 _current_leave_year_window = reporting_runtime.current_leave_year_window
 
-toil_service = ToilService(ToilServiceDependencies(
+toil_service = ToilService(create_toil_service_dependencies(
     db=db,
-    Staff=Staff,
-    Assignment=Assignment,
-    ToilTransaction=ToilTransaction,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     current_unit_id=_current_unit_id,
     parse_annotation=parse_annotation,
     annotation_config=get_annotation_config,
@@ -1888,9 +1887,9 @@ register_account_blueprints(app, create_account_registration_dependencies(
     live_position_enabled=live_position_enabled,
 ))
 app.register_blueprint(create_toil_administration_blueprint(
-    ToilAdministrationDependencies(
+    create_toil_administration_dependencies(
         db=db,
-        Staff=Staff,
+        operational_models=_operational_models,
         current_unit_id=_current_unit_id,
         is_admin_user=is_admin_user,
         validate_csrf=_validate_csrf,

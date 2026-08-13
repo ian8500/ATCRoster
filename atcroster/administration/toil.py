@@ -126,6 +126,19 @@ class ToilServiceDependencies:
     now: Callable[[], Any]
 
 
+def create_toil_service_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> ToilServiceDependencies:
+    """Bind TOIL ledger records at the administration boundary."""
+    return ToilServiceDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        Assignment=operational_models.Assignment,
+        ToilTransaction=saas_models.ToilTransaction,
+        **services,
+    )
+
+
 class ToilService:
     """Own TOIL ledger transactions and roster-annotation accounting."""
 
@@ -207,6 +220,17 @@ class ToilAdministrationDependencies:
     is_admin_user: Callable[[Any], bool]
     validate_csrf: Callable[[], None]
     record_toil_transaction: Callable[..., None]
+
+
+def create_toil_administration_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> ToilAdministrationDependencies:
+    """Bind the manual TOIL route's operational model."""
+    return ToilAdministrationDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        **services,
+    )
 
 
 def create_toil_administration_blueprint(
