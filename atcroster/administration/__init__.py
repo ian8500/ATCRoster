@@ -26,6 +26,7 @@ from .toil import (
     accrued_and_used_half_days,
 )
 from .context import AdminContextDependencies, create_admin_context_dependencies
+from .registration import register_administration_blueprints
 
 __all__ = (
     "AdministrationDependencies",
@@ -49,4 +50,5 @@ __all__ = (
     "annotation_accrual_half_days",
     "apply_annotation_toil_delta",
     "accrued_and_used_half_days",
+    "register_administration_blueprints",
 )

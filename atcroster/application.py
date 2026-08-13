@@ -5,6 +5,7 @@ from flask import redirect, url_for, flash, abort, session, g
 import json as _json
 import os
 import sys
+from types import SimpleNamespace
 from functools import partial
 from datetime import date, timedelta
 
@@ -241,38 +242,12 @@ from atcroster.calendar_feed import (
 )
 from atcroster.administration import (
     ToilService,
-    create_admin_dashboard_blueprint,
-    create_admin_dashboard_dependencies,
     create_admin_action_dependencies,
-    create_admin_context_dependencies,
-    create_administration_blueprint,
-    create_administration_dependencies,
-    create_toil_administration_blueprint,
-    create_toil_administration_dependencies,
     create_toil_service_dependencies,
+    register_administration_blueprints,
     seed_toil_balances,
 )
-from atcroster.administration.onboarding import (
-    create_onboarding_dependencies,
-    create_onboarding_blueprint,
-)
-from atcroster.administration.reference import (
-    create_reference_data_dependencies,
-    create_reference_data_blueprint,
-)
-from atcroster.administration.lifecycle import (
-    create_staff_lifecycle_dependencies,
-    create_staff_lifecycle_blueprint,
-)
-from atcroster.administration.watch_moves import (
-    create_watch_move_dependencies,
-    create_watch_move_blueprint,
-)
 from atcroster.administration.absence_types import update_absence_types
-from atcroster.administration.staff_edit import (
-    create_staff_edit_dependencies,
-    create_staff_edit_blueprint,
-)
 from atcroster.home import create_home_blueprint, create_home_dependencies
 from atcroster.navigation import (
     create_navigation_context_dependencies,
@@ -1642,18 +1617,17 @@ app.register_blueprint(create_calendar_feed_blueprint(create_calendar_feed_depen
     is_admin_user=is_admin_user,
     validate_csrf=_validate_csrf,
 )))
-app.register_blueprint(create_administration_blueprint(create_administration_dependencies(
-    is_admin_user=is_admin_user,
-    live_position_enabled=live_position_enabled,
-)))
-app.register_blueprint(create_admin_dashboard_blueprint(create_admin_dashboard_dependencies(
-    is_admin_user=is_admin_user,
-    actions=_admin_action_dependencies(),
-    context=create_admin_context_dependencies(
-        db=db,
-        operational_models=_operational_models,
-        saas_models=SaaS,
+register_administration_blueprints(
+    app,
+    db=db,
+    operational_models=_operational_models,
+    saas_models=SaaS,
+    roster_impact_event_type=RosterImpactEventType,
+    services=SimpleNamespace(
+        admin_actions=_admin_action_dependencies,
         current_unit_id=_current_unit_id,
+        is_admin_user=is_admin_user,
+        live_position_enabled=live_position_enabled,
         roster_settings_snapshot=_roster_settings_snapshot,
         validate_pattern=_validated_pattern,
         shift_counter_group=shift_counter_group,
@@ -1663,48 +1637,27 @@ app.register_blueprint(create_admin_dashboard_blueprint(create_admin_dashboard_d
         absence_types=get_absence_types,
         default_base_pattern=DEFAULT_BASE_PATTERN,
         pattern_codes=PATTERN_CODES,
+        parse_date=_parse_date,
+        valid_email=_valid_email,
+        normalise_phone=_normalise_phone_number,
+        now=utcnow,
+        record_qualification_history=_record_qualification_history,
+        record_roster_impact=record_roster_impact,
+        user_permissions=user_permissions,
+        admin_required=admin_required,
+        validate_csrf=_validate_csrf,
+        refresh_annotation_cache=refresh_annotation_cache,
+        normalise_codes=_normalise_codes,
+        save_codes_setting=_save_codes_setting,
+        prune_roster_code_settings=_prune_roster_code_settings,
+        working_codes=get_working_codes,
+        banned_codes=get_banned_roster_codes,
+        excluded_codes=get_exclude_from_counters,
+        non_working_codes=get_non_working_codes,
+        log_change=log_change,
+        record_toil_transaction=_record_toil_transaction,
     ),
-)))
-app.register_blueprint(create_staff_edit_blueprint(create_staff_edit_dependencies(
-    db=db,
-    operational_models=_operational_models,
-    saas_models=SaaS,
-    roster_impact_event_type=RosterImpactEventType,
-    current_unit_id=_current_unit_id,
-    parse_date=_parse_date,
-    valid_email=_valid_email,
-    normalise_phone=_normalise_phone_number,
-    validate_pattern=_validated_pattern,
-    now=utcnow,
-    record_qualification_history=_record_qualification_history,
-    record_roster_impact=record_roster_impact,
-    user_permissions=user_permissions,
-    admin_required=admin_required,
-    pattern_codes=PATTERN_CODES,
-)))
-app.register_blueprint(create_onboarding_blueprint(create_onboarding_dependencies(
-    db=db,
-    operational_models=_operational_models,
-    saas_models=SaaS,
-    current_unit_id=_current_unit_id,
-    is_admin_user=is_admin_user,
-    validate_csrf=_validate_csrf,
-)))
-app.register_blueprint(create_reference_data_blueprint(create_reference_data_dependencies(
-    db=db,
-    operational_models=_operational_models,
-    current_unit_id=_current_unit_id,
-    validate_csrf=_validate_csrf,
-    refresh_annotation_cache=refresh_annotation_cache,
-    normalise_codes=_normalise_codes,
-    save_codes_setting=_save_codes_setting,
-    prune_roster_code_settings=_prune_roster_code_settings,
-    working_codes=get_working_codes,
-    banned_codes=get_banned_roster_codes,
-    excluded_codes=get_exclude_from_counters,
-    non_working_codes=get_non_working_codes,
-    admin_required=admin_required,
-)))
+)
 app.register_blueprint(create_overtime_blueprint(create_overtime_dependencies(
     operational_models=_operational_models,
     current_unit_id=_current_unit_id,
@@ -1717,24 +1670,6 @@ app.register_blueprint(create_overtime_blueprint(create_overtime_dependencies(
     send_sms=_send_overtime_sms_notifications,
     default_sms_body=_default_overtime_sms_body,
     sms_configured=_sms_service_configured,
-)))
-app.register_blueprint(create_staff_lifecycle_blueprint(create_staff_lifecycle_dependencies(
-    db=db,
-    operational_models=_operational_models,
-    roster_impact_event_type=RosterImpactEventType,
-    current_unit_id=_current_unit_id,
-    parse_date=_parse_date,
-    record_roster_impact=record_roster_impact,
-    admin_required=admin_required,
-)))
-app.register_blueprint(create_watch_move_blueprint(create_watch_move_dependencies(
-    db=db,
-    operational_models=_operational_models,
-    roster_impact_event_type=RosterImpactEventType,
-    current_unit_id=_current_unit_id,
-    is_admin_user=is_admin_user,
-    record_roster_impact=record_roster_impact,
-    log_change=log_change,
 )))
 app.register_blueprint(create_home_blueprint(create_home_dependencies(
     db=db,
@@ -1772,16 +1707,6 @@ register_account_blueprints(app, create_account_registration_dependencies(
     get_shift=get_shift,
     shift_duration_minutes=shift_duration_minutes,
     live_position_enabled=live_position_enabled,
-))
-app.register_blueprint(create_toil_administration_blueprint(
-    create_toil_administration_dependencies(
-        db=db,
-        operational_models=_operational_models,
-        current_unit_id=_current_unit_id,
-        is_admin_user=is_admin_user,
-        validate_csrf=_validate_csrf,
-        record_toil_transaction=_record_toil_transaction,
-    )
 ))
 app.register_blueprint(create_admin_utility_blueprint(create_admin_utility_dependencies(
     operational_models=_operational_models,
