@@ -43,6 +43,26 @@ class PublicationDependencies:
     send_account_email: Callable[[str, str, str], bool]
 
 
+def create_publication_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> PublicationDependencies:
+    """Bind publication records at the roster-domain composition boundary."""
+    return PublicationDependencies(
+        db=db,
+        Assignment=operational_models.Assignment,
+        RosterPublication=saas_models.RosterPublication,
+        Staff=operational_models.Staff,
+        Requirement=operational_models.Requirement,
+        RosterRuleVersion=saas_models.RosterRuleVersion,
+        FatigueReport=saas_models.FatigueReport,
+        OperationalPosition=saas_models.OperationalPosition,
+        PositionRequirement=saas_models.PositionRequirement,
+        BreakPlan=saas_models.BreakPlan,
+        Unit=operational_models.Unit,
+        **services,
+    )
+
+
 def create_publication_service(
     dependencies: PublicationDependencies,
 ) -> SimpleNamespace:

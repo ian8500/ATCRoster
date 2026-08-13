@@ -184,7 +184,7 @@ from atcroster.notifications import (
 )
 from atcroster.notifications.configuration import save_sms_settings
 from atcroster.roster.publication import (
-    PublicationDependencies,
+    create_publication_dependencies,
     create_publication_service,
 )
 from atcroster.roster.overtime import (
@@ -1595,18 +1595,10 @@ app.register_blueprint(create_reports_blueprint(create_reports_dependencies(
     competency_enabled=competency_enabled,
     operational_currency_runtime=operational_currency_runtime,
 )))
-publication_service = create_publication_service(PublicationDependencies(
+publication_service = create_publication_service(create_publication_dependencies(
     db=db,
-    Assignment=Assignment,
-    RosterPublication=RosterPublication,
-    Staff=Staff,
-    Requirement=Requirement,
-    RosterRuleVersion=RosterRuleVersion,
-    FatigueReport=FatigueReport,
-    OperationalPosition=OperationalPosition,
-    PositionRequirement=PositionRequirement,
-    BreakPlan=BreakPlan,
-    Unit=Unit,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     current_unit_id=_current_unit_id,
     now=utcnow,
     month_add=_month_add,
