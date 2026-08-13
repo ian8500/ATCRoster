@@ -58,6 +58,17 @@ class PrincipalBoundaryDependencies:
     abort: Callable[[int], None]
 
 
+def create_principal_boundary_dependencies(
+    *, saas_models: Any, **services: Any
+) -> PrincipalBoundaryDependencies:
+    """Bind principal-boundary records in the security domain."""
+    return PrincipalBoundaryDependencies(
+        UnitMembership=saas_models.UnitMembership,
+        MfaCredential=saas_models.MfaCredential,
+        **services,
+    )
+
+
 def enforce_principal_boundaries(
     user: Any,
     session: Any,

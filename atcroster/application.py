@@ -323,7 +323,7 @@ from atcroster.security.headers import (
     register_security_headers,
 )
 from atcroster.security import (
-    PrincipalBoundaryDependencies,
+    create_principal_boundary_dependencies,
     create_admin_required,
     create_roster_edit_required,
     register_principal_boundaries,
@@ -608,9 +608,8 @@ register_tenant_session_events(
 
 _enforce_principal_boundaries = register_principal_boundaries(
     app,
-    PrincipalBoundaryDependencies(
-        UnitMembership=UnitMembership,
-        MfaCredential=MfaCredential,
+    create_principal_boundary_dependencies(
+        saas_models=SaaS,
         deployment_environment=DEPLOYMENT_ENV,
         logout_user=logout_user,
         redirect=redirect,
