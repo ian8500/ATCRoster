@@ -3184,6 +3184,24 @@ def test_audit_evidence_cannot_be_modified_or_deleted_through_the_orm(client):
         assert db.session.get(ChangeLog, audit_id) is not None
 
 
+def test_sms_audit_only_allows_provider_delivery_status_updates(client):
+    login(client)
+    with app.app.app_context():
+        audit = app.SmsAudit(
+            unit_id=1, sent_by_staff_id=1, sent_by_name="Admin Test",
+            sender_number="+447700900123", recipient_number="+447700900124",
+            recipient_label="Duty desk", message_content="Original",
+        )
+        db.session.add(audit)
+        db.session.commit()
+        audit.delivery_status = "delivered"
+        db.session.commit()
+        audit.message_content = "Tampered"
+        with pytest.raises(PermissionError, match="append-only"):
+            db.session.commit()
+        db.session.rollback()
+
+
 def test_business_change_and_audit_evidence_roll_back_atomically(client):
     login(client)
     with app.app.app_context():
@@ -3309,6 +3327,7 @@ def test_unit_messages_permission_boundary(client):
     wm_client = app.app.test_client()
     login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
+    assert wm_client.get("/admin/sms-audit").status_code == 403
 
 
 def test_unit_messages_recipient_order_and_default(client):
@@ -3428,7 +3447,31 @@ def test_sms_audit_is_unit_admin_only(client):
     wm_client = app.app.test_client()
     login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
-    assert wm_client.get("/admin/sms-audit").status_code == 403
+
+
+def test_messagemedia_delivery_webhook_requires_token_and_updates_audit(client, monkeypatch):
+    with app.app.app_context():
+        audit = app.SmsAudit(
+            unit_id=1, sent_by_staff_id=1, sent_by_name="Admin Test",
+            sender_number="+447700900123", recipient_number="+447700900124",
+            recipient_label="Duty desk", message_type="operational",
+            message_content="Update", provider_message_id="delivery-test",
+        )
+        db.session.add(audit)
+        db.session.commit()
+        audit_id = audit.id
+
+    monkeypatch.setenv("MESSAGEMEDIA_WEBHOOK_TOKEN", "webhook-test-token")
+    forbidden = client.post("/webhooks/messagemedia/delivery", json={"id": "delivery-test"})
+    assert forbidden.status_code == 403
+    accepted = client.post(
+        "/webhooks/messagemedia/delivery",
+        json={"id": "delivery-test", "status": "delivered"},
+        headers={"X-ATCRoster-Webhook-Token": "webhook-test-token"},
+    )
+    assert accepted.status_code == 204
+    with app.app.app_context():
+        assert db.session.get(app.SmsAudit, audit_id).delivery_status == "delivered"
 
 
 def test_users_can_delete_only_their_own_read_notifications(client):

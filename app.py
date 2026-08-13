@@ -31,7 +31,7 @@ from flask_login import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.exceptions import HTTPException, SecurityError
-from sqlalchemy import text
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.hybrid import hybrid_property
 from rate_limiting import (
@@ -130,6 +130,8 @@ from atcroster.notifications import (
     SmsAuditService,
     OvertimeSmsService,
     default_overtime_sms_body,
+    SmsAdministrationDependencies,
+    create_sms_administration_blueprint,
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
@@ -1604,6 +1606,16 @@ def _stamp_operational_writes(session_obj, _flush_context, _instances):
         if isinstance(record, APPEND_ONLY_AUDIT_MODELS) and session_obj.is_modified(
             record, include_collections=False
         ):
+            # Provider delivery is external lifecycle metadata, not historical
+            # evidence. SmsAudit content remains immutable; only this one field
+            # may be updated when MessageMedia posts a signed delivery report.
+            if isinstance(record, SmsAudit):
+                changed = {
+                    attribute.key for attribute in sa_inspect(record).attrs
+                    if attribute.history.has_changes()
+                }
+                if changed == {"delivery_status"}:
+                    continue
             raise PermissionError("Audit evidence is append-only")
     for record in session_obj.deleted:
         if isinstance(record, APPEND_ONLY_AUDIT_MODELS):
@@ -7158,63 +7170,6 @@ def unit_messages():
     )
 
 
-@app.route("/admin/sms-audit")
-@login_required
-@admin_required
-def admin_sms_audit():
-    rows = SmsAudit.query.order_by(
-        SmsAudit.sent_at.desc(), SmsAudit.id.desc()
-    ).limit(1000).all()
-    try:
-        registrations = SmsSenderRegistration.query.filter_by(
-            unit_id=_current_unit_id(), provider="messagemedia"
-        ).order_by(SmsSenderRegistration.verification_requested_at.desc()).all()
-    except ProgrammingError:
-        db.session.rollback()
-        registrations = []
-    return render_template("admin_sms_audit.html", rows=rows, registrations=registrations)
-
-
-@app.post("/admin/sms-senders/<int:registration_id>/confirm")
-@login_required
-@admin_required
-def confirm_sms_sender(registration_id):
-    _validate_csrf()
-    row = SmsSenderRegistration.query.filter_by(
-        id=registration_id, unit_id=_current_unit_id(), provider="messagemedia"
-    ).first_or_404()
-    expiry = request.form.get("expires_at", "").strip()
-    try:
-        expires_at = datetime.strptime(expiry, "%Y-%m-%d") if expiry else utcnow() + timedelta(days=365)
-    except ValueError:
-        flash("Enter a valid verification expiry date.", "error")
-        return redirect(url_for("admin_sms_audit"))
-    row.status = "verified"
-    row.verified_at = utcnow()
-    row.expires_at = expires_at
-    row.provider_identifier = (request.form.get("provider_identifier") or row.number).strip()[:120]
-    db.session.commit()
-    flash("Sinch sender verification recorded.", "ok")
-    return redirect(url_for("admin_sms_audit"))
-
-
-@app.post("/webhooks/messagemedia/delivery")
-def messagemedia_delivery_webhook():
-    """Accept configured MessageMedia delivery reports without storing secrets."""
-    expected = os.getenv("MESSAGEMEDIA_WEBHOOK_TOKEN", "")
-    supplied = request.headers.get("X-ATCRoster-Webhook-Token", "")
-    if not expected or not secrets.compare_digest(expected, supplied):
-        abort(403)
-    payload = request.get_json(silent=True) or request.form.to_dict()
-    message_id = str(payload.get("id") or payload.get("message_id") or payload.get("mtId") or "")
-    status = str(payload.get("status") or payload.get("statusCode") or "submitted").lower()[:30]
-    if message_id:
-        row = SmsAudit.query.filter_by(provider="messagemedia", provider_message_id=message_id).first()
-        if row:
-            row.delivery_status = status
-            db.session.commit()
-    return Response(status=204)
-
 # ===== Leave Report (HTML + CSV) =====
 # (unchanged core; monthly AL-only kept to endpoints)
 
@@ -10465,6 +10420,17 @@ app.register_blueprint(create_notification_blueprint(NotificationDependencies(
     utcnow=utcnow,
     validate_csrf=_validate_csrf,
 )))
+app.register_blueprint(create_sms_administration_blueprint(
+    SmsAdministrationDependencies(
+        db=db,
+        SmsAudit=SmsAudit,
+        SmsSenderRegistration=SmsSenderRegistration,
+        current_unit_id=_current_unit_id,
+        is_admin_user=is_admin_user,
+        validate_csrf=_validate_csrf,
+        utcnow=utcnow,
+    )
+))
 app.register_blueprint(create_module_blueprint(ModuleDependencies(
     FeatureFlag=FeatureFlag,
     briefing_enabled=briefing_enabled,

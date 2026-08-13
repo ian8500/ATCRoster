@@ -31,6 +31,7 @@
 | Unit-scoped SMS configuration selection | `atcroster/notifications/configuration.py` |
 | Successful SMS delivery audit persistence | `atcroster/notifications/audit.py` |
 | Overtime SMS delivery orchestration | `atcroster/notifications/overtime.py` |
+| SMS audit administration and delivery webhook | `atcroster/notifications/admin.py` |
 
 ## Safe stopping boundary
 
