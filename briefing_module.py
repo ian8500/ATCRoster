@@ -20,7 +20,7 @@ from flask import (
 from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
 
-from app import db, utcnow
+from atcroster.application import db, utcnow
 from briefing_storage import (
     BriefingStorageError, configured_briefing_storage,
 )
@@ -135,7 +135,7 @@ class BriefingAssuranceRun(db.Model):
 
 def _app_models():
     # Imported lazily to avoid a circular import while app.py registers models.
-    import app as roster_app
+    from atcroster import application as roster_app
     return roster_app
 
 

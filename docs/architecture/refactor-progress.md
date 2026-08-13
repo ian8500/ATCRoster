@@ -30,6 +30,7 @@
 | Live Position kiosk accounts | `atcroster/accounts/kiosk.py` |
 | Operational currency configuration | `atcroster/live_position/currency.py` |
 | Manual TOIL adjustments | `atcroster/administration/toil.py` |
+| Application composition root | `atcroster/application.py` |
 | Permission summary and change-log routes | `atcroster/admin_utilities.py` |
 | SMS normalization and provider delivery | `atcroster/notifications/sms.py` |
 | Account email delivery and address validation | `atcroster/notifications/email.py` |
@@ -88,10 +89,9 @@ edges to model-backed services still defined in `app.py`; they avoid circular
 imports while preserving startup order. A clean-process import test detects new
 circular-import failures.
 
-The main residual circular-dependency risk is the high number of model and
-helper globals still consumed when existing blueprints are registered near the
-end of `app.py`. In particular, `briefing_module` imports `db` and `utcnow`
-from `app`, so importing that module before the canonical `wsgi -> app` startup
-order fails. The clean-process test verifies every module in production startup
-order and records this direct-import limitation. Future domain extractions
-should replace these edges with small, domain-specific dependency objects.
+The public `app.py` module is a small compatibility entrypoint. Application
+composition and legacy model compatibility live in `atcroster.application`, so
+WSGI, workers, scripts, and existing integrations retain the stable `app`
+import while new code can depend on domain modules directly. `briefing_module`
+now imports the composition module explicitly, avoiding a reverse dependency
+on the public compatibility entrypoint.
