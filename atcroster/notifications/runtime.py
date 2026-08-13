@@ -14,7 +14,6 @@ from .sms import (
     messagemedia_credentials,
     normalise_sms_number,
     normalise_uk_mobile,
-    send_via_messagemedia,
 )
 
 
@@ -28,6 +27,7 @@ class NotificationRuntimeDependencies:
     sms_audit: Any
     overtime_sms: Any
     flash: Callable[[str, str], None]
+    sms_sender: Callable[..., tuple[bool, str]]
 
 
 class NotificationRuntime:
@@ -67,7 +67,8 @@ class NotificationRuntime:
     def admin_emails(self, unit_id: int) -> list[str]:
         return self.dependencies.admin_emails(unit_id)
 
-    send_sms = staticmethod(send_via_messagemedia)
+    def send_sms(self, *args: Any, **kwargs: Any) -> tuple[bool, str]:
+        return self.dependencies.sms_sender(*args, **kwargs)
 
     def record_sms(self, **values: Any) -> None:
         self.dependencies.sms_audit.record(**values)

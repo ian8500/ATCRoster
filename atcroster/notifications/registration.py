@@ -24,11 +24,7 @@ class NotificationRegistrationDependencies:
     validate_csrf: Callable[[], None]
     is_admin_user: Callable[[Any], bool]
     can_send_unit_messages: Callable[[Any], bool]
-    sms_configuration: Any
-    normalise_sms_number: Callable[[str | None], str]
-    send_sms: Callable[..., tuple[bool, str]]
-    record_sms_audit: Callable[..., None]
-    flash_sms_result: Callable[..., None]
+    notifications: Any
 
 
 def register_notification_blueprints(
@@ -55,8 +51,5 @@ def register_notification_blueprints(
         current_unit_id=deps.current_unit_id, utcnow=deps.now,
         can_send_unit_messages=deps.can_send_unit_messages,
         validate_csrf=deps.validate_csrf,
-        sms_configuration=deps.sms_configuration,
-        normalise_sms_number=deps.normalise_sms_number,
-        send_sms=deps.send_sms, record_sms_audit=deps.record_sms_audit,
-        flash_sms_result=deps.flash_sms_result,
+        notifications=deps.notifications,
     )))

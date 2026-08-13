@@ -782,6 +782,7 @@ notification_runtime = NotificationRuntime(NotificationRuntimeDependencies(
     sms_audit=sms_audit_service,
     overtime_sms=overtime_sms_service,
     flash=flash,
+    sms_sender=module_callback(__name__, "_send_sms_via_messagemedia"),
 ))
 _messagemedia_credentials = notification_runtime.credentials
 _normalise_sms_number = notification_runtime.normalise_number
@@ -2059,11 +2060,7 @@ register_notification_blueprints(app, NotificationRegistrationDependencies(
     validate_csrf=_validate_csrf,
     is_admin_user=is_admin_user,
     can_send_unit_messages=can_send_unit_messages,
-    sms_configuration=sms_configuration,
-    normalise_sms_number=_normalise_sms_number,
-    send_sms=module_callback(__name__, "_send_sms_via_messagemedia"),
-    record_sms_audit=_record_sms_audit,
-    flash_sms_result=_flash_sms_result,
+    notifications=notification_runtime,
 ))
 app.register_blueprint(create_module_blueprint(ModuleDependencies(
     FeatureFlag=FeatureFlag,
