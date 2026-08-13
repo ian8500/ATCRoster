@@ -196,3 +196,95 @@ def roster_findings_matrix(
                 visible[finding_day] = messages
         result[person.id] = visible
     return result
+
+
+def findings_for_range(
+    staff,
+    days,
+    *,
+    lookback_days,
+    segments_for_staff,
+    fatigue_rule_config,
+    configured_findings,
+):
+    if not days:
+        return {}
+    ordered = sorted(days)
+    start = ordered[0] - timedelta(days=lookback_days)
+    findings = configured_findings(
+        segments_for_staff(staff, start, ordered[-1]),
+        fatigue_rule_config(staff.unit_id),
+        datetime.combine(start, time.min),
+    )
+    target = set(ordered)
+    return {
+        day: messages
+        for day, messages in findings.items()
+        if day in target and messages
+    }
+
+
+def visible_working_findings(
+    staff, days, codes_by_day, unit_id, *, range_findings, get_shift
+):
+    findings = range_findings(staff, days)
+    return {
+        day: messages
+        for day, messages in findings.items()
+        if (shift := get_shift(codes_by_day.get(day), unit_id or staff.unit_id))
+        and shift.is_active
+        and shift.is_working
+    }
+
+
+def proposed_plan_findings(
+    staff,
+    day,
+    code,
+    proposed_codes,
+    *,
+    get_shift,
+    is_working,
+    segments_for_staff,
+    fatigue_rule_config,
+    configured_findings,
+    span,
+    is_early_start,
+    is_night_duty,
+    is_morning_duty,
+):
+    shift = get_shift(code, staff.unit_id)
+    if not is_working(shift):
+        return []
+    start_day = min([day, *proposed_codes], default=day) - timedelta(days=30)
+    end_day = max([day, *proposed_codes], default=day)
+    proposed_days = set(proposed_codes) | {day}
+    segments = [
+        segment
+        for segment in segments_for_staff(staff, start_day, end_day)
+        if segment["day"] not in proposed_days
+    ]
+    config = fatigue_rule_config(staff.unit_id)
+    definitions = config["definitions"]
+    for proposed_day, proposed_code in {**proposed_codes, day: code}.items():
+        proposed_shift = get_shift(proposed_code, staff.unit_id)
+        start, end = span(proposed_day, proposed_shift)
+        if not start:
+            continue
+        early, pre0600 = is_early_start(start, definitions)
+        segments.append(
+            {
+                "day": proposed_day,
+                "start": start,
+                "end": end,
+                "mins": int((end - start).total_seconds() // 60),
+                "night": is_night_duty(start, end, definitions),
+                "early": early,
+                "early_pre0600": pre0600,
+                "morning": is_morning_duty(start),
+            }
+        )
+    segments.sort(key=lambda item: item["start"])
+    return configured_findings(
+        segments, config, datetime.combine(start_day, time.min)
+    ).get(day, [])

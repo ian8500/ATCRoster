@@ -191,6 +191,9 @@ from atcroster.fatigue import (
     configured_findings as configured_fatigue_findings,
     new_findings_for_proposed_assignment,
     roster_findings_matrix,
+    findings_for_range,
+    visible_working_findings,
+    proposed_plan_findings,
     segments_from_assignments,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
@@ -1843,21 +1846,7 @@ def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
 
 
 def fatigue_flags_for_range(staff: Staff, day_list, lookback_days=30):
-    if not day_list:
-        return {}
-    day_list = sorted(day_list)
-    start_lb = day_list[0] - timedelta(days=lookback_days)
-    end_day = day_list[-1]
-    segs = _segments_for_staff(staff, start_lb, end_day)
-    config = _fatigue_rule_config(staff.unit_id)
-    all_flags = _configured_fatigue_findings(
-        segs, config, datetime.combine(start_lb, time.min)
-    )
-    target_set = set(day_list)
-    return {
-        d: findings for d, findings in all_flags.items()
-        if d in target_set and findings
-    }
+    return findings_for_range(staff, day_list, lookback_days=lookback_days, segments_for_staff=_segments_for_staff, fatigue_rule_config=_fatigue_rule_config, configured_findings=_configured_fatigue_findings)
 
 
 def roster_fatigue_flags_for_range(
@@ -1867,19 +1856,7 @@ def roster_fatigue_flags_for_range(
     unit_id: int | None = None,
 ) -> dict[date, list[str]]:
     """Expose fatigue warnings only on active working-duty roster cells."""
-    resolved_unit_id = int(unit_id or staff.unit_id)
-    findings = fatigue_flags_for_range(staff, day_list)
-    return {
-        finding_day: messages
-        for finding_day, messages in findings.items()
-        if (
-            (shift := get_shift(
-                code_by_day.get(finding_day), resolved_unit_id
-            ))
-            and shift.is_active
-            and shift.is_working
-        )
-    }
+    return visible_working_findings(staff, day_list, code_by_day, int(unit_id or staff.unit_id), range_findings=fatigue_flags_for_range, get_shift=get_shift)
 
 
 def roster_fatigue_flags_matrix(
@@ -1934,41 +1911,7 @@ def would_trigger_fatigue_with_plan(
     code: str,
     proposed_codes: dict[date, str],
 ):
-    """Evaluate a candidate together with earlier in-memory proposal duties."""
-    shift = get_shift(code, staff.unit_id)
-    if not _is_working(shift):
-        return []
-    start_day = min([day, *proposed_codes], default=day) - timedelta(days=30)
-    end_day = max([day, *proposed_codes], default=day)
-    proposed_days = set(proposed_codes) | {day}
-    segments = [
-        segment
-        for segment in _segments_for_staff(staff, start_day, end_day)
-        if segment["day"] not in proposed_days
-    ]
-    config = _fatigue_rule_config(staff.unit_id)
-    definitions = config["definitions"]
-    for proposed_day, proposed_code in {**proposed_codes, day: code}.items():
-        proposed_shift = get_shift(proposed_code, staff.unit_id)
-        start_dt, end_dt = _span(proposed_day, proposed_shift)
-        if not start_dt:
-            continue
-        early, pre0600 = _is_early_start(start_dt, definitions)
-        segments.append({
-            "day": proposed_day,
-            "start": start_dt,
-            "end": end_dt,
-            "mins": int((end_dt - start_dt).total_seconds() // 60),
-            "night": _is_night_duty(start_dt, end_dt, definitions),
-            "early": early,
-            "early_pre0600": pre0600,
-            "morning": _is_morning_duty(start_dt),
-        })
-    segments.sort(key=lambda item: item["start"])
-    findings = _configured_fatigue_findings(
-        segments, config, datetime.combine(start_day, time.min)
-    )
-    return findings.get(day, [])
+    return proposed_plan_findings(staff, day, code, proposed_codes, get_shift=get_shift, is_working=_is_working, segments_for_staff=_segments_for_staff, fatigue_rule_config=_fatigue_rule_config, configured_findings=_configured_fatigue_findings, span=_span, is_early_start=_is_early_start, is_night_duty=_is_night_duty, is_morning_duty=_is_morning_duty)
 
 
 def _year_month_iter(start_date: date, end_date: date):

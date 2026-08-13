@@ -5,6 +5,9 @@ from .analysis import (
     configured_findings,
     new_findings_for_proposed_assignment,
     roster_findings_matrix,
+    findings_for_range,
+    visible_working_findings,
+    proposed_plan_findings,
     segments_from_assignments,
 )
 
@@ -13,5 +16,8 @@ __all__ = (
     "configured_findings",
     "new_findings_for_proposed_assignment",
     "roster_findings_matrix",
+    "findings_for_range",
+    "visible_working_findings",
+    "proposed_plan_findings",
     "segments_from_assignments",
 )
