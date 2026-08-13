@@ -128,6 +128,7 @@ from atcroster.roster import (
     is_working_with_prefix as roster_code_is_working_with_prefix,
     set_assignment_code,
 )
+from atcroster.roster.shifts import save_counter_mapping
 from atcroster.compression import register_response_compression
 from access_policy import (
     has_permission,
@@ -3411,21 +3412,16 @@ def admin():
             return redirect(url_for("admin") + "#roster-setup")
 
         if form == "counter_mapping":
-            mapping = {}
-            for shift in ShiftType.query.filter_by(
-                unit_id=_current_unit_id()
-            ).all():
-                group = (
-                    request.form.get(f"counter_group_{shift.id}") or ""
-                ).strip().upper()
-                if group not in {"", "M", "D", "A", "N"}:
-                    abort(400, "Invalid roster counter group.")
-                mapping[shift.code.upper()] = group
-            _save_roster_setting(
-                "shift_counter_map",
-                json.dumps(mapping, sort_keys=True),
-            )
-            db.session.commit()
+            try:
+                save_counter_mapping(
+                    request.form,
+                    db=db,
+                    ShiftType=ShiftType,
+                    unit_id=_current_unit_id(),
+                    save_setting=_save_roster_setting,
+                )
+            except ValueError as exc:
+                abort(400, str(exc))
             flash("Shift counter mapping saved.", "ok")
             return redirect(url_for("admin") + "#shifts")
 
