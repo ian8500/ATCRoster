@@ -261,6 +261,14 @@ from atcroster.roster.assignments import (
     set_absence_override,
     set_generated_assignment,
 )
+from atcroster.roster.annotations import (
+    annotation_config as find_annotation_config,
+    annotation_groups as group_annotations,
+    annotation_types as list_annotation_types,
+    build_annotation_snapshot,
+    codes_for_tag as find_codes_for_tag,
+    tags_for as annotation_config_tags,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -1153,34 +1161,7 @@ def shift_counter_group_for_day(
 
 @lru_cache(maxsize=128)
 def _annotation_snapshot(unit_id: int) -> dict[str, object]:
-    rows = (AnnotationType.query
-            .filter(AnnotationType.unit_id == unit_id)
-            .order_by(AnnotationType.code)
-            .all())
-    items = []
-    for row in rows:
-        tags = tuple(sorted({
-            t.strip().lower() for t in (row.tags or "").split(",") if t.strip()
-        }))
-        suffixes = "".join(sorted({c for c in (row.suffixes or "").upper()}))
-        items.append({
-            "id": row.id,
-            "code": (row.code or "").upper(),
-            "label": row.label or row.code.upper(),
-            "category": row.category or "Other",
-            "colour": row.colour or "#6c757d",
-            "description": row.description or "",
-            "allow_suffix": bool(row.allow_suffix),
-            "suffixes": suffixes,
-            "toil_half_days": int(row.toil_half_days or 0),
-            "tags": tags,
-            "note_required": bool(row.note_required),
-            "admin_only": bool(row.admin_only),
-            "is_active": bool(row.is_active),
-            "sort_order": row.sort_order if row.sort_order is not None else 0,
-        })
-    by_code = {item["code"]: item for item in items}
-    return {"items": items, "by_code": by_code}
+    return build_annotation_snapshot(AnnotationType, unit_id)
 
 
 def refresh_annotation_cache() -> None:
@@ -1190,48 +1171,30 @@ def refresh_annotation_cache() -> None:
 def get_annotation_types(
     active_only: bool = True, unit_id: int | None = None
 ) -> list[dict[str, object]]:
-    snap = _annotation_snapshot(int(unit_id or _current_unit_id() or 1))
-    items = snap["items"]
-    if active_only:
-        items = [item for item in items if item["is_active"]]
-    return items
+    return list_annotation_types(
+        _annotation_snapshot(int(unit_id or _current_unit_id() or 1)),
+        active_only,
+    )
 
 
 def get_annotation_config(
     code: str | None, unit_id: int | None = None
 ) -> dict[str, object] | None:
-    if not code:
-        return None
-    return _annotation_snapshot(
-        int(unit_id or _current_unit_id() or 1)
-    )["by_code"].get(code.strip().upper())
+    return find_annotation_config(
+        _annotation_snapshot(int(unit_id or _current_unit_id() or 1)), code
+    )
 
 
 def get_annotation_groups() -> OrderedDict[str, list[dict[str, object]]]:
-    groups: OrderedDict[str, list[dict[str, object]]] = OrderedDict()
-    for item in get_annotation_types(active_only=True):
-        groups.setdefault(item["category"], []).append(item)
-    return groups
+    return group_annotations(get_annotation_types(active_only=True))
 
 
 def annotation_tags_for(code: str | None) -> set[str]:
-    info = get_annotation_config(code)
-    if not info:
-        return set()
-    tags = info.get("tags") or ()
-    return {t for t in tags}
+    return annotation_config_tags(get_annotation_config(code))
 
 
 def annotation_codes_for_tag(tag: str, active_only: bool = True) -> list[str]:
-    needle = (tag or "").lower().strip()
-    if not needle:
-        return []
-    codes = []
-    for item in get_annotation_types(active_only=active_only):
-        tags = {t for t in (item.get("tags") or ())}
-        if needle in tags:
-            codes.append(item["code"])
-    return codes
+    return find_codes_for_tag(get_annotation_types(active_only=active_only), tag)
 
 
 def _parse_codes_input(raw: str) -> list[str]:
