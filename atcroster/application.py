@@ -1769,13 +1769,11 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     validate_csrf=_validate_csrf,
     parse_year_month=parse_ym,
     current_unit_id=_current_unit_id,
-    month_has_data=month_has_data,
-    ensure_month_requirement=ensure_month_requirement,
-    generate_month=generate_month,
+    roster_month_service=roster_month_service,
+    assignment_runtime=assignment_runtime,
     utcnow=utcnow,
     log_change=log_change,
     consume_rate_limit=_consume_rate_limit,
-    month_range=month_range,
     requirements_for_day=requirements_for_day,
     staff_is_countable_on=staff_is_countable_on,
     operational_capability_matrix=get_operational_capability_matrix,
@@ -1802,7 +1800,6 @@ app.register_blueprint(create_roster_blueprint(RosterDependencies(
     RosterProposalAssignment=RosterProposalAssignment,
     roster_proposal_service=roster_proposal_service,
     get_annotation_groups=get_annotation_groups,
-    lock_roster_month=_lock_roster_month,
 )))
 app.register_blueprint(create_absence_requests_blueprint(
     AbsenceRequestDependencies(

@@ -46,13 +46,11 @@ class RosterDependencies:
     validate_csrf: Callable[[], None]
     parse_year_month: Callable[[str], tuple[int, int]]
     current_unit_id: Callable[[], int]
-    month_has_data: Callable[[int, int], bool]
-    ensure_month_requirement: Callable[[int, int], Any]
-    generate_month: Callable[[int, int], None]
+    roster_month_service: Any
+    assignment_runtime: Any
     utcnow: Callable[[], Any]
     log_change: Callable[..., None]
     consume_rate_limit: Callable[..., bool]
-    month_range: Callable[[int, int], tuple[date, list[date]]]
     requirements_for_day: Callable[..., dict[str, int]]
     staff_is_countable_on: Callable[[Any, date], bool]
     operational_capability_matrix: Callable[[list[Any], list[date]], dict]
@@ -76,7 +74,6 @@ class RosterDependencies:
     roster_month_cache: Any
     metrics: Any
     get_annotation_groups: Callable[[], list]
-    lock_roster_month: Callable[[int, int, int], Any]
     RosterProposal: Any = None
     RosterProposalAssignment: Any = None
     roster_proposal_service: Any = None
@@ -213,13 +210,13 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         dependencies.validate_csrf()
         year, month = dependencies.parse_year_month(ym)
         unit_id = dependencies.current_unit_id()
-        if not dependencies.month_has_data(year, month):
-            dependencies.ensure_month_requirement(year, month)
-            dependencies.generate_month(year, month)
+        if not dependencies.roster_month_service.has_data(year, month):
+            dependencies.assignment_runtime.ensure_month_requirement(year, month)
+            dependencies.assignment_runtime.generate_month(year, month)
         # Serialise roster writes before evaluating publication eligibility so
         # the validated assignments are the same assignments we snapshot.
-        dependencies.lock_roster_month(unit_id, year, month)
-        month_start, month_days = dependencies.month_range(year, month)
+        dependencies.roster_month_service.lock(unit_id, year, month)
+        month_start, month_days = dependencies.roster_month_service.range(year, month)
         validation = dependencies.roster_validation.validate_range(
             unit_id, month_start, month_days[-1]
         )
@@ -338,7 +335,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         dependencies.validate_csrf()
         year, month = dependencies.parse_year_month(ym)
         unit_id = dependencies.current_unit_id()
-        dependencies.lock_roster_month(unit_id, year, month)
+        dependencies.roster_month_service.lock(unit_id, year, month)
         publication = dependencies.publication_service.active_publication(year, month)
         if not publication:
             flash("This roster is already in Draft.", "info")
@@ -390,7 +387,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         ):
             abort(429)
         year, month = dependencies.parse_year_month(ym)
-        start, days = dependencies.month_range(year, month)
+        start, days = dependencies.roster_month_service.range(year, month)
         staff = (
             dependencies.Staff.query.outerjoin(
                 dependencies.Watch,
@@ -530,9 +527,9 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
     def roster_month(ym):
         year, month = dependencies.parse_year_month(ym)
         unit_id = dependencies.current_unit_id()
-        if not dependencies.month_has_data(year, month):
-            dependencies.ensure_month_requirement(year, month)
-            dependencies.generate_month(year, month)
+        if not dependencies.roster_month_service.has_data(year, month):
+            dependencies.assignment_runtime.ensure_month_requirement(year, month)
+            dependencies.assignment_runtime.generate_month(year, month)
 
         days, staff, assignment_tuples, requirement = dependencies.load_month_roster(
             unit_id, year, month
@@ -810,7 +807,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 )
                 if group:
                     counts[group] += 1
-            requirement = dependencies.ensure_month_requirement(year, month)
+            requirement = dependencies.assignment_runtime.ensure_month_requirement(year, month)
             special = dependencies.SpecialRequirement.query.filter_by(
                 unit_id=unit_id, day=duty_day
             ).first()
@@ -834,7 +831,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 + (counts["N"] if night_active else 0),
             }
 
-        dependencies.lock_roster_month(unit_id, year, month)
+        dependencies.roster_month_service.lock(unit_id, year, month)
         person = dependencies.Staff.query.filter_by(
             id=staff_id, unit_id=unit_id
         ).first_or_404()
