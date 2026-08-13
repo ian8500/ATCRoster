@@ -9,6 +9,25 @@ from typing import Callable
 from .sms import messagemedia_credentials, normalise_sms_number, normalise_uk_mobile
 
 
+def validate_sms_settings(
+    senders: list[dict[str, str]], destinations: list[dict[str, str]],
+    sender_errors: list[str], destination_errors: list[str],
+    default_sender: str, default_destination: str,
+) -> str | None:
+    """Return the user-safe validation error for unit SMS configuration."""
+    if sender_errors or destination_errors:
+        invalid = ", ".join(
+            [f"sender {item}" for item in sender_errors]
+            + [f"destination {item}" for item in destination_errors]
+        )
+        return f"Use international numbers such as +447700900123. Check {invalid}."
+    if default_sender and default_sender not in {item["number"] for item in senders}:
+        return "The default sender must be in the sender list."
+    if default_destination and default_destination not in {item["number"] for item in destinations}:
+        return "The default operational number must be in its list."
+    return None
+
+
 @dataclass(frozen=True)
 class SmsConfigurationService:
     settings_snapshot: Callable[[int], dict[str, str]]

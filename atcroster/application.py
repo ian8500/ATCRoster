@@ -187,6 +187,7 @@ from atcroster.notifications import (
     MessagingDependencies,
     create_messaging_blueprint,
 )
+from atcroster.notifications.configuration import validate_sms_settings
 from atcroster.roster.publication import (
     PublicationDependencies,
     create_publication_service,
@@ -3325,7 +3326,11 @@ def admin():
             )
             allowed_senders = {item["number"] for item in senders}
             allowed_destinations = {item["number"] for item in destinations}
-            if sender_errors or destination_errors:
+            sms_settings_error = validate_sms_settings(
+                senders, destinations, sender_errors, destination_errors,
+                default_sender, default_destination,
+            )
+            if sms_settings_error and (sender_errors or destination_errors):
                 invalid = ", ".join(
                     [f"sender {item}" for item in sender_errors]
                     + [f"destination {item}" for item in destination_errors]
