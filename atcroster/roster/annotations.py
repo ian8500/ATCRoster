@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from functools import lru_cache
 from typing import Any, Callable
 
 
@@ -100,3 +101,48 @@ def parse_annotation(
             if suffix in set(item["suffixes"]):
                 return {"type": code, "suffix": suffix}
     return None
+
+
+class AnnotationCatalogue:
+    """Tenant-scoped cached access to the configured annotation catalogue."""
+
+    def __init__(self, AnnotationType: Any, current_unit_id: Callable[[], int]):
+        self.AnnotationType = AnnotationType
+        self.current_unit_id = current_unit_id
+
+    def _unit_id(self, unit_id: int | None = None) -> int:
+        return int(unit_id or self.current_unit_id() or 1)
+
+    @lru_cache(maxsize=128)
+    def snapshot(self, unit_id: int) -> dict[str, Any]:
+        return build_annotation_snapshot(self.AnnotationType, unit_id)
+
+    def refresh(self) -> None:
+        self.snapshot.cache_clear()
+
+    def types(
+        self, active_only: bool = True, unit_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        return annotation_types(self.snapshot(self._unit_id(unit_id)), active_only)
+
+    def config(
+        self, code: str | None, unit_id: int | None = None
+    ) -> dict[str, Any] | None:
+        return annotation_config(self.snapshot(self._unit_id(unit_id)), code)
+
+    def groups(self) -> OrderedDict[str, list[dict[str, Any]]]:
+        return annotation_groups(self.types(active_only=True))
+
+    def tags_for(self, code: str | None) -> set[str]:
+        return tags_for(self.config(code))
+
+    def codes_for_tag(self, tag: str, active_only: bool = True) -> list[str]:
+        return codes_for_tag(self.types(active_only=active_only), tag)
+
+    def parse(self, value: str) -> dict[str, str | None] | None:
+        return parse_annotation(
+            value,
+            get_annotation_config=self.config,
+            annotation_snapshot=self.snapshot,
+            current_unit_id=self.current_unit_id,
+        )

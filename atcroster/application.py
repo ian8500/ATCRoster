@@ -1,7 +1,6 @@
 """Application assembly and legacy compatibility implementation."""
 
 from functools import wraps
-from collections import OrderedDict
 from typing import Any, Optional, Tuple
 from flask import request, redirect, url_for, flash, abort, session, g
 import os
@@ -105,7 +104,7 @@ from atcroster.roster.defaults import (
 from atcroster.roster import (
     invalidate_month_for_day, is_month_locked as roster_period_is_locked,
     lock_date_for_month as roster_period_lock_date, memoize,
-    month_add as roster_period_add, parse_annotation as parse_roster_annotation,
+    month_add as roster_period_add,
     month_has_data as roster_month_has_data,
     lock_roster_month as lock_roster_period,
     shift_groups_snapshot,
@@ -256,14 +255,7 @@ from atcroster.roster.assignments import (
     set_absence_override,
     set_generated_assignment,
 )
-from atcroster.roster.annotations import (
-    annotation_config as find_annotation_config,
-    annotation_groups as group_annotations,
-    annotation_types as list_annotation_types,
-    build_annotation_snapshot,
-    codes_for_tag as find_codes_for_tag,
-    tags_for as annotation_config_tags,
-)
+from atcroster.roster.annotations import AnnotationCatalogue
 from atcroster.roster.settings import (
     decode_counter_map,
     load_absence_types,
@@ -1030,42 +1022,14 @@ def shift_counter_group_for_day(
     )
 
 
-@lru_cache(maxsize=128)
-def _annotation_snapshot(unit_id: int) -> dict[str, object]:
-    return build_annotation_snapshot(AnnotationType, unit_id)
-
-
-def refresh_annotation_cache() -> None:
-    _annotation_snapshot.cache_clear()
-
-
-def get_annotation_types(
-    active_only: bool = True, unit_id: int | None = None
-) -> list[dict[str, object]]:
-    return list_annotation_types(
-        _annotation_snapshot(int(unit_id or _current_unit_id() or 1)),
-        active_only,
-    )
-
-
-def get_annotation_config(
-    code: str | None, unit_id: int | None = None
-) -> dict[str, object] | None:
-    return find_annotation_config(
-        _annotation_snapshot(int(unit_id or _current_unit_id() or 1)), code
-    )
-
-
-def get_annotation_groups() -> OrderedDict[str, list[dict[str, object]]]:
-    return group_annotations(get_annotation_types(active_only=True))
-
-
-def annotation_tags_for(code: str | None) -> set[str]:
-    return annotation_config_tags(get_annotation_config(code))
-
-
-def annotation_codes_for_tag(tag: str, active_only: bool = True) -> list[str]:
-    return find_codes_for_tag(get_annotation_types(active_only=active_only), tag)
+annotation_catalogue = AnnotationCatalogue(AnnotationType, _current_unit_id)
+_annotation_snapshot = annotation_catalogue.snapshot
+refresh_annotation_cache = annotation_catalogue.refresh
+get_annotation_types = annotation_catalogue.types
+get_annotation_config = annotation_catalogue.config
+get_annotation_groups = annotation_catalogue.groups
+annotation_tags_for = annotation_catalogue.tags_for
+annotation_codes_for_tag = annotation_catalogue.codes_for_tag
 
 
 def _parse_codes_input(raw: str) -> list[str]:
@@ -1882,12 +1846,7 @@ def _normalise_phone_number(val: str | None) -> str:
 
 
 def parse_annotation(s: str):
-    return parse_roster_annotation(
-        s,
-        get_annotation_config=get_annotation_config,
-        annotation_snapshot=_annotation_snapshot,
-        current_unit_id=_current_unit_id,
-    )
+    return annotation_catalogue.parse(s)
 
 
 def _context_month_for_date(d: date | None) -> str | None:
