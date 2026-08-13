@@ -282,14 +282,9 @@ from atcroster.platform import (
     LegacyBootstrapService,
     PLATFORM_FEATURE_FLAGS,
     PLATFORM_MODULE_FLAGS,
-    WorkerHealthDependencies,
-    create_worker_health_blueprint,
     load_worker_health_snapshot,
     operational_routes_ready,
-)
-from atcroster.platform.admin import (
-    create_platform_admin_dependencies,
-    create_platform_admin_blueprint,
+    register_platform_blueprints,
 )
 from atcroster.security.csrf import register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
@@ -1687,22 +1682,22 @@ app.register_blueprint(create_admin_utility_blueprint(create_admin_utility_depen
     operational_models=_operational_models,
     is_admin_user=is_admin_user,
 )))
-app.register_blueprint(create_worker_health_blueprint(WorkerHealthDependencies(
-    application_module=sys.modules[__name__],
-    metrics=_operational_metrics,
-    worker_health_snapshot=load_worker_health_snapshot,
-)))
-app.register_blueprint(create_platform_admin_blueprint(create_platform_admin_dependencies(
+register_platform_blueprints(
+    app,
     db=db,
     operational_models=_operational_models,
     saas_models=SaaS,
-    now=utcnow,
-    validate_csrf=_validate_csrf,
-    consume_rate_limit=_consume_rate_limit,
-    security_event=_security_event,
-    feature_flags=PLATFORM_FEATURE_FLAGS,
-    module_feature_flags=PLATFORM_MODULE_FLAGS,
-)))
+    application_module=sys.modules[__name__],
+    services=SimpleNamespace(
+        metrics=_operational_metrics,
+        worker_health_snapshot=load_worker_health_snapshot,
+        now=utcnow, validate_csrf=_validate_csrf,
+        consume_rate_limit=_consume_rate_limit,
+        security_event=_security_event,
+        feature_flags=PLATFORM_FEATURE_FLAGS,
+        module_feature_flags=PLATFORM_MODULE_FLAGS,
+    ),
+)
 app.register_blueprint(briefing_blueprint)
 
 register_operations_routes(
