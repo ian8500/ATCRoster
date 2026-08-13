@@ -1,7 +1,7 @@
 """Application assembly and legacy compatibility implementation."""
 
 from functools import wraps
-from collections import defaultdict, OrderedDict
+from collections import OrderedDict
 from typing import Any, Optional, Tuple
 from flask import render_template, request, redirect, url_for, flash, abort, session, g
 import os
@@ -190,6 +190,7 @@ from atcroster.fatigue import (
     assignment_is_fatigue_safe,
     configured_findings as configured_fatigue_findings,
     new_findings_for_proposed_assignment,
+    roster_findings_matrix,
     segments_from_assignments,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
@@ -1885,44 +1886,17 @@ def roster_fatigue_flags_matrix(
     staff: list[Staff], day_list: list[date],
     code_by_staff: dict[int, dict[date, str]], unit_id: int,
 ) -> dict[int, dict[date, list[str]]]:
-    """Calculate every displayed person's fatigue flags from one duty query."""
-    if not staff or not day_list:
-        return {}
-    ordered_days = sorted(day_list)
-    start_lb = ordered_days[0] - timedelta(days=30)
-    end_day = ordered_days[-1]
-    staff_ids = [person.id for person in staff if person.id is not None]
-    assignments = Assignment.query.filter(
-        Assignment.unit_id == unit_id,
-        Assignment.staff_id.in_(staff_ids or [0]),
-        Assignment.day >= start_lb,
-        Assignment.day <= end_day,
-    ).order_by(Assignment.staff_id, Assignment.day).all()
-    assignments_by_staff: dict[int, list[Assignment]] = defaultdict(list)
-    for assignment in assignments:
-        assignments_by_staff[assignment.staff_id].append(assignment)
-    config = _fatigue_rule_config(unit_id)
-    target_days = set(ordered_days)
-    result: dict[int, dict[date, list[str]]] = {}
-    for person in staff:
-        segments = _segments_from_assignments(
-            person, assignments_by_staff.get(person.id, ()), config["definitions"]
-        )
-        findings = _configured_fatigue_findings(
-            segments, config, datetime.combine(start_lb, time.min)
-        )
-        visible = {}
-        for finding_day, messages in findings.items():
-            shift = get_shift(
-                code_by_staff.get(person.id, {}).get(finding_day), unit_id
-            )
-            if (
-                finding_day in target_days and messages and shift
-                and shift.is_active and shift.is_working
-            ):
-                visible[finding_day] = messages
-        result[person.id] = visible
-    return result
+    return roster_findings_matrix(
+        staff,
+        day_list,
+        code_by_staff,
+        unit_id,
+        Assignment=Assignment,
+        segments_from_assignments=_segments_from_assignments,
+        fatigue_rule_config=_fatigue_rule_config,
+        configured_findings=_configured_fatigue_findings,
+        get_shift=get_shift,
+    )
 
 
 def would_trigger_fatigue(staff: Staff, day: date, code: str):

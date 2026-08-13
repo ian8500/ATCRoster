@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, time, timedelta
 from typing import Any, Callable
+from collections import defaultdict
 
 
 def segments_from_assignments(
@@ -133,4 +134,65 @@ def new_findings_for_proposed_assignment(
         new_findings = sorted(set(findings) - set(baseline.get(finding_day, [])))
         if new_findings:
             result[finding_day] = new_findings
+    return result
+
+
+def roster_findings_matrix(
+    staff: list[Any],
+    days: list[Any],
+    codes_by_staff: dict[int, dict[Any, str]],
+    unit_id: int,
+    *,
+    Assignment: Any,
+    segments_from_assignments: Callable[..., list[dict[str, Any]]],
+    fatigue_rule_config: Callable[[int], dict[str, Any]],
+    configured_findings: Callable[..., dict[Any, list[str]]],
+    get_shift: Callable[..., Any],
+) -> dict[int, dict[Any, list[str]]]:
+    """Calculate displayed fatigue findings using one assignment query."""
+    if not staff or not days:
+        return {}
+    ordered_days = sorted(days)
+    start = ordered_days[0] - timedelta(days=30)
+    end = ordered_days[-1]
+    staff_ids = [person.id for person in staff if person.id is not None]
+    assignments = (
+        Assignment.query.filter(
+            Assignment.unit_id == unit_id,
+            Assignment.staff_id.in_(staff_ids or [0]),
+            Assignment.day >= start,
+            Assignment.day <= end,
+        )
+        .order_by(Assignment.staff_id, Assignment.day)
+        .all()
+    )
+    assignments_by_staff = defaultdict(list)
+    for assignment in assignments:
+        assignments_by_staff[assignment.staff_id].append(assignment)
+    config = fatigue_rule_config(unit_id)
+    target_days = set(ordered_days)
+    result = {}
+    for person in staff:
+        segments = segments_from_assignments(
+            person,
+            assignments_by_staff.get(person.id, ()),
+            config["definitions"],
+        )
+        findings = configured_findings(
+            segments, config, datetime.combine(start, time.min)
+        )
+        visible = {}
+        for finding_day, messages in findings.items():
+            shift = get_shift(
+                codes_by_staff.get(person.id, {}).get(finding_day), unit_id
+            )
+            if (
+                finding_day in target_days
+                and messages
+                and shift
+                and shift.is_active
+                and shift.is_working
+            ):
+                visible[finding_day] = messages
+        result[person.id] = visible
     return result
