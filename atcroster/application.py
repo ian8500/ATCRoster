@@ -275,7 +275,7 @@ from atcroster.administration.staff_edit import (
 )
 from atcroster.home import create_home_blueprint, create_home_dependencies
 from atcroster.navigation import (
-    NavigationContextDependencies,
+    create_navigation_context_dependencies,
     register_navigation_context,
 )
 from atcroster.requests import (
@@ -1105,15 +1105,11 @@ _clamp_prev_next = partial(clamp_request_navigation, minimum_month=MIN_MONTH)
 
 inject_perms = register_navigation_context(
     app,
-    NavigationContextDependencies(
+    create_navigation_context_dependencies(
         db=db,
-        Unit=Unit,
-        Staff=Staff,
-        ShiftRequest=ShiftRequest,
-        FeatureFlag=FeatureFlag,
-        Notification=Notification,
-        BriefingDelivery=BriefingDelivery,
-        BriefingItem=BriefingItem,
+        operational_models=_operational_models,
+        saas_models=SaaS,
+        briefing_models=_briefing,
         is_admin_user=is_admin_user,
         is_editor_user=is_editor_user,
         briefing_enabled=briefing_enabled,

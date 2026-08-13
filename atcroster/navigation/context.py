@@ -30,6 +30,24 @@ class NavigationContextDependencies:
     briefing_local_now: Callable[[int], Any]
 
 
+def create_navigation_context_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any,
+    briefing_models: Any, **services: Any
+) -> NavigationContextDependencies:
+    """Bind template navigation records at the navigation boundary."""
+    return NavigationContextDependencies(
+        db=db,
+        Unit=operational_models.Unit,
+        Staff=operational_models.Staff,
+        ShiftRequest=operational_models.ShiftRequest,
+        FeatureFlag=saas_models.FeatureFlag,
+        Notification=operational_models.Notification,
+        BriefingDelivery=briefing_models.BriefingDelivery,
+        BriefingItem=briefing_models.BriefingItem,
+        **services,
+    )
+
+
 def build_navigation_context(
     user: Any,
     endpoint: str | None,
