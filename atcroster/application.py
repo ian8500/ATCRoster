@@ -373,6 +373,7 @@ from atcroster.security.headers import (
     SecurityHeaderDependencies,
     register_security_headers,
 )
+from atcroster.security import PrincipalBoundaryDependencies, enforce_principal_boundaries
 from atcroster.security.sessions import (
     SessionLifecycle,
     SessionLifecycleDependencies,
@@ -560,65 +561,21 @@ _bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
 
 @app.before_request
 def _enforce_principal_boundaries():
-    if (
-        current_user.is_authenticated
-        and getattr(current_user, "role", "") == "superadmin"
-    ):
-        if not session.get("_platform_mfa_verified"):
-            logout_user()
-            session.clear()
-            return redirect(url_for("login"))
-        allowed_platform_endpoints = {
-            "platform_admin", "logout", "password_change",
-            "platform_worker_health",
-            "internal_metrics", "internal_health",
-            "static", "favicon", "health_live", "health_ready",
-        }
-        if request.endpoint == "index":
-            return redirect(url_for("platform_admin"))
-        if request.endpoint not in allowed_platform_endpoints:
-            abort(403)
-    if (
-        current_user.is_authenticated
-        and getattr(current_user, "role", "") == "position_monitor"
-    ):
-        allowed_kiosk_endpoints = {
-            "live_position.kiosk_hmi", "live_position.live_state",
-            "live_position.controllers", "live_position.open_position",
-            "live_position.live_events",
-            "live_position.close_position",
-            "live_position.logon", "live_position.logoff",
-            "live_position.handover", "live_position.add_participant",
-            "live_position.remove_participant",
-            "logout", "static", "favicon", "health_live", "health_ready",
-        }
-        if request.endpoint not in allowed_kiosk_endpoints:
-            if request.method == "GET":
-                return redirect(url_for("live_position.kiosk_hmi"))
-            abort(403)
-    if (
-        current_user.is_authenticated
-        and getattr(current_user, "role", "") != "superadmin"
-        and getattr(current_user, "role", "") != "position_monitor"
-        and (
-            DEPLOYMENT_ENV == "production"
-            or UnitMembership.query.filter_by(
-                person_id=current_user.id,
-                unit_id=getattr(current_user, "unit_id", 0),
-                role="UnitAdmin",
-                status="active",
-            ).first() is not None
-        )
-        and request.endpoint not in {
-            "mfa_setup", "logout", "static", "favicon",
-            "health_live", "health_ready",
-        }
-    ):
-        credential = MfaCredential.query.filter_by(
-            person_id=current_user.id, enabled=True
-        ).first()
-        if not credential:
-            return redirect(url_for("mfa_setup"))
+    return enforce_principal_boundaries(
+        current_user,
+        session,
+        request.endpoint,
+        request.method,
+        PrincipalBoundaryDependencies(
+            UnitMembership=UnitMembership,
+            MfaCredential=MfaCredential,
+            deployment_environment=DEPLOYMENT_ENV,
+            logout_user=logout_user,
+            redirect=redirect,
+            url_for=url_for,
+            abort=abort,
+        ),
+    )
 
 
 _security_headers = register_security_headers(
