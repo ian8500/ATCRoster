@@ -229,6 +229,10 @@ from atcroster.roster.bootstrap import (
 from atcroster.roster.reference_data import (
     bootstrap_reference_data as bootstrap_roster_reference_data,
 )
+from atcroster.roster.fairness import (
+    FairnessDependencies,
+    FairnessReportService,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -3180,104 +3184,22 @@ def _compute_metrics_range(
 
 
 def _compute_fairness_range(start_day: date, end_day: date):
-    unit_id = _current_unit_id()
-    people = Staff.query.filter_by(unit_id=unit_id, is_operational=True, membership_status="active").order_by(Staff.name).all()
-    shifts = {shift.code.upper(): shift for shift in ShiftType.query.filter_by(unit_id=unit_id).all()}
-    assignments = Assignment.query.filter(Assignment.unit_id == unit_id, Assignment.day >= start_day, Assignment.day <= end_day).all()
-    days = [start_day + timedelta(days=offset) for offset in range((end_day - start_day).days + 1)]
-    eligibility_context = work_pattern_service.build_eligibility_context(
-        unit_id, [person.id for person in people], start_day, end_day
-    )
-    expected_minutes = {}
-    eligible_nights = {}
-    eligible_early = {}
-    for person in people:
-        expected = 0.0
-        night_possible = early_possible = False
-        for day in days:
-            resolution = work_pattern_service.get_pattern_day_from_context(
-                person.id, day, eligibility_context
-            )
-            if resolution:
-                contracted = (
-                    resolution.assignment.contracted_minutes_override
-                    if resolution.assignment.contracted_minutes_override is not None
-                    else resolution.pattern.contracted_minutes_per_cycle
-                )
-                expected += contracted / max(1, resolution.pattern.cycle_length_days)
-            code = (code_from_pattern(person, day) or "").upper()
-            shift = shifts.get(code)
-            if shift and shift.is_working:
-                if not resolution:
-                    expected += shift_duration_minutes(shift)
-                night_possible = night_possible or code == "N"
-                early_possible = early_possible or bool(shift.start_time and shift.start_time < time(8))
-        night_shift = next((shift for shift in shifts.values() if shift.code.upper() == "N"), None)
-        if night_shift and all(
-            not work_pattern_service.is_staff_eligible_for_shift(
-                person.id, day, night_shift.id, context=eligibility_context
-            ).eligible
-            for day in days
-        ):
-            night_possible = False
-        expected_minutes[person.id] = int(round(expected))
-        eligible_nights[person.id] = night_possible
-        eligible_early[person.id] = early_possible
-    fairness_rows = []
-    assignment_ids = defaultdict(list)
-    for assignment in assignments:
-        shift = shifts.get((assignment.code or "").upper())
-        if not shift or not shift.is_working:
-            continue
-        fairness_rows.append(FairnessAssignment(assignment.staff_id, assignment.day, shift.code, shift_duration_minutes(shift), shift.start_time, assignment.source or "", bool(shift.start_time and shift.end_time and shift.start_time >= time(18) and shift.end_time <= time(10))))
-        assignment_ids[assignment.staff_id].append(assignment.id)
-    manual_changes = {
-        staff_id: ChangeLog.query.filter(ChangeLog.unit_id == unit_id, ChangeLog.entity_type == "Assignment", ChangeLog.entity_id.in_(ids)).count()
-        for staff_id, ids in assignment_ids.items()
-    }
-    people_by_id = {person.id: person for person in people}
-    holidays = {
-        holiday.day for holiday in BankHoliday.query.filter(
-            BankHoliday.unit_id == unit_id,
-            BankHoliday.is_active.is_(True),
-            BankHoliday.day >= start_day,
-            BankHoliday.day <= end_day,
-        ).all()
-    }
-
-    def expected_code(staff_id, day):
-        resolution = work_pattern_service.get_pattern_day_from_context(
-            staff_id, day, eligibility_context
+    return FairnessReportService(
+        FairnessDependencies(
+            Assignment=Assignment,
+            BankHoliday=BankHoliday,
+            ChangeLog=ChangeLog,
+            ShiftType=ShiftType,
+            Staff=Staff,
+            FairnessAssignment=FairnessAssignment,
+            FairnessStaff=FairnessStaff,
+            current_unit_id=_current_unit_id,
+            work_pattern_service=work_pattern_service,
+            code_from_pattern=code_from_pattern,
+            shift_duration_minutes=shift_duration_minutes,
+            calculate_fairness=calculate_fairness,
         )
-        if resolution and resolution.pattern_day.day_type != "FIXED_SHIFT":
-            return None
-        return code_from_pattern(people_by_id[staff_id], day)
-
-    def preference_breach(staff_id, day, code):
-        shift = shifts.get(code.upper())
-        return bool(
-            shift and work_pattern_service.is_staff_eligible_for_shift(
-                staff_id, day, shift.id, context=eligibility_context
-            ).soft_penalty
-        )
-
-    metrics = calculate_fairness(
-        [FairnessStaff(person.id, person.name, expected_minutes[person.id], eligible_nights[person.id], eligible_early[person.id]) for person in people],
-        fairness_rows,
-        expected_code_for=expected_code,
-        preference_breach_for=preference_breach,
-        bank_holidays=holidays,
-        manual_change_counts=manual_changes,
-    )
-    totals = {
-        "actual_minutes": sum(row.actual_minutes for row in metrics),
-        "target_minutes": sum(row.target_minutes for row in metrics),
-        "nights": sum(row.night_count for row in metrics),
-        "weekends": sum(row.weekend_count for row in metrics),
-        "earlies": sum(row.early_count for row in metrics),
-        "overtime_minutes": sum(row.overtime_minutes for row in metrics),
-    }
-    return metrics, totals
+    ).compute(start_day, end_day)
 
 
 def _fy_start_for(d: date) -> date:
