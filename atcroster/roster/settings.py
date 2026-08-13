@@ -142,3 +142,46 @@ def decode_counter_map(raw: str | None) -> dict[str, str]:
         for code, group in values.items()
         if str(group).upper() in {"", "M", "D", "A", "N"}
     }
+
+
+def parse_codes_input(raw: str) -> list[str]:
+    return normalise_codes(re.split(r"[\s,]+", raw or ""))
+
+
+def save_code_setting(
+    key: str,
+    values: list[str],
+    *,
+    unit_id: int,
+    db: Any,
+    RosterSetting: Any,
+    refresh_cache: Callable[[], None],
+) -> None:
+    save_setting(
+        key,
+        json.dumps(normalise_codes(values)),
+        unit_id=unit_id,
+        db=db,
+        RosterSetting=RosterSetting,
+        refresh_cache=refresh_cache,
+    )
+    db.session.commit()
+
+
+def save_absence_catalogue(
+    items: list[dict[str, object]],
+    *,
+    unit_id: int,
+    db: Any,
+    RosterSetting: Any,
+    refresh_cache: Callable[[], None],
+) -> None:
+    save_setting(
+        "absence_types",
+        json.dumps(items, separators=(",", ":")),
+        unit_id=unit_id,
+        db=db,
+        RosterSetting=RosterSetting,
+        refresh_cache=refresh_cache,
+    )
+    db.session.commit()

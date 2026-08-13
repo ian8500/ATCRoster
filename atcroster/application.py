@@ -5,7 +5,6 @@ from collections import defaultdict, OrderedDict
 from typing import Any, Optional, Tuple
 from flask import render_template, request, redirect, url_for, flash, abort, session, g
 import os
-import re
 import sys
 from functools import lru_cache
 from datetime import date, datetime, time, timedelta
@@ -277,8 +276,11 @@ from atcroster.roster.settings import (
     load_absence_types,
     load_code_setting,
     normalise_codes as normalise_roster_codes,
+    parse_codes_input as parse_roster_codes_input,
     prune_code_settings,
     save_setting as persist_roster_setting,
+    save_absence_catalogue,
+    save_code_setting,
 )
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
@@ -1001,11 +1003,13 @@ def get_absence_types(
 
 
 def _save_absence_types(items: list[dict[str, object]]) -> None:
-    _save_roster_setting(
-        "absence_types", json.dumps(items, separators=(",", ":"))
+    return save_absence_catalogue(
+        items,
+        unit_id=int(_current_unit_id() or 1),
+        db=db,
+        RosterSetting=RosterSetting,
+        refresh_cache=refresh_roster_settings_cache,
     )
-    db.session.commit()
-    refresh_roster_settings_cache()
 
 
 def get_banned_roster_codes() -> set[str]:
@@ -1133,21 +1137,18 @@ def annotation_codes_for_tag(tag: str, active_only: bool = True) -> list[str]:
 
 
 def _parse_codes_input(raw: str) -> list[str]:
-    tokens = re.split(r"[\s,]+", raw or "")
-    return _normalise_codes(tokens)
+    return parse_roster_codes_input(raw)
 
 
 def _save_codes_setting(key: str, values: list[str]) -> None:
-    payload = json.dumps(_normalise_codes(values))
-    unit_id = int(_current_unit_id() or 1)
-    row = RosterSetting.query.filter_by(unit_id=unit_id, key=key).first()
-    if not row:
-        row = RosterSetting(unit_id=unit_id, key=key, value=payload)
-        db.session.add(row)
-    else:
-        row.value = payload
-    db.session.commit()
-    refresh_roster_settings_cache()
+    return save_code_setting(
+        key,
+        values,
+        unit_id=int(_current_unit_id() or 1),
+        db=db,
+        RosterSetting=RosterSetting,
+        refresh_cache=refresh_roster_settings_cache,
+    )
 
 
 def _prune_roster_code_settings(unit_id: int) -> int:
