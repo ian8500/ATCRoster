@@ -167,8 +167,8 @@ class ToilService:
     def apply_annotation_delta(
         self,
         staff: Any,
-        old_annotation: str,
-        new_annotation: str,
+        old_annot: str,
+        new_annot: str,
         *,
         actor_id: int,
         transaction_key: str | None = None,
@@ -176,8 +176,8 @@ class ToilService:
     ) -> None:
         return apply_annotation_toil_delta(
             staff,
-            old_annotation,
-            new_annotation,
+            old_annot,
+            new_annot,
             actor_id=actor_id,
             parse_annotation=self.dependencies.parse_annotation,
             accrual_half_days=self.accrual_half_days,

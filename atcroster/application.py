@@ -309,9 +309,8 @@ from atcroster.navigation import (
     build_navigation_context,
 )
 from atcroster.requests import (
-    add_request_audit,
-    add_requester_notification,
-    load_unit_request_rules,
+    RequestWorkflowDependencies,
+    RequestWorkflowService,
 )
 from atcroster.accounts import (
     KioskAccountDependencies,
@@ -2117,55 +2116,27 @@ def _group_consecutive_days(days_set):
 # -------------------- Request Sheets (shift requests) --------------------
 
 
-def _unit_request_rules(unit_id: int | None = None) -> tuple[int, int]:
-    return load_unit_request_rules(
-        unit_id,
-        db=db,
-        Unit=Unit,
-        current_unit_id=_current_unit_id,
-        normalise_rules=normalise_request_rules,
-    )
-
-
-def _lock_date_for_target_month(y: int, m: int, unit_id: int | None = None):
-    _, lock_day = _unit_request_rules(unit_id)
-    return request_lock_date(y, m, lock_day)
-
-
-def _is_month_locked(y: int, m: int, today: date | None = None, unit_id: int | None = None):
-    _, lock_day = _unit_request_rules(unit_id)
-    return request_month_is_locked(y, m, lock_day, today)
-
-
-def _add_months(first: date, count: int) -> date:
-    return add_request_months(first, count)
-
-
-def _request_date_bounds(today: date, unit_id: int) -> tuple[date, date]:
-    months, _ = _unit_request_rules(unit_id)
-    return request_date_bounds(today, months)
-
-
-def _request_audit(req: ShiftRequest, actor_id: int, transition: str,
-                   old_value: object, new_value: object, reason: str = "") -> None:
-    return add_request_audit(
-        req,
-        actor_id,
-        transition,
-        old_value,
-        new_value,
-        reason,
-        db=db,
-        RequestAudit=RequestAudit,
-    )
-
-
-def _notify_requester(req: ShiftRequest) -> None:
-    return add_requester_notification(req, db=db, Notification=Notification)
-
-
-def _safe_request_admin_month(raw_value: str | None, fallback: date) -> str:
-    return safe_admin_month(raw_value, fallback)
+request_workflow_service = RequestWorkflowService(RequestWorkflowDependencies(
+    db=db,
+    Unit=Unit,
+    RequestAudit=RequestAudit,
+    Notification=Notification,
+    current_unit_id=_current_unit_id,
+    normalise_rules=normalise_request_rules,
+    lock_date=request_lock_date,
+    month_is_locked=request_month_is_locked,
+    add_months=add_request_months,
+    date_bounds=request_date_bounds,
+    safe_admin_month=safe_admin_month,
+))
+_unit_request_rules = request_workflow_service.unit_rules
+_lock_date_for_target_month = request_workflow_service.lock_date_for_month
+_is_month_locked = request_workflow_service.is_month_locked
+_add_months = request_workflow_service.add_months
+_request_date_bounds = request_workflow_service.request_date_bounds
+_request_audit = request_workflow_service.add_audit
+_notify_requester = request_workflow_service.notify_requester
+_safe_request_admin_month = request_workflow_service.safe_admin_month
 
 
 def staff_has_qualification(

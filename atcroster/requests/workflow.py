@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any, Callable
 
 
@@ -78,3 +79,88 @@ def add_requester_notification(
             ),
         )
     )
+
+
+@dataclass(frozen=True)
+class RequestWorkflowDependencies:
+    db: Any
+    Unit: Any
+    RequestAudit: Any
+    Notification: Any
+    current_unit_id: Callable[[], int]
+    normalise_rules: Callable[[Any, Any], tuple[int, int]]
+    lock_date: Callable[[int, int, int], Any]
+    month_is_locked: Callable[[int, int, int, Any], bool]
+    add_months: Callable[[Any, int], Any]
+    date_bounds: Callable[[Any, int], tuple[Any, Any]]
+    safe_admin_month: Callable[[str | None, Any], str]
+
+
+class RequestWorkflowService:
+    """Own request-window policy, audit, and requester notifications."""
+
+    def __init__(self, dependencies: RequestWorkflowDependencies):
+        self.dependencies = dependencies
+
+    def unit_rules(self, unit_id: int | None = None) -> tuple[int, int]:
+        deps = self.dependencies
+        return load_unit_request_rules(
+            unit_id,
+            db=deps.db,
+            Unit=deps.Unit,
+            current_unit_id=deps.current_unit_id,
+            normalise_rules=deps.normalise_rules,
+        )
+
+    def lock_date_for_month(self, year: int, month: int, unit_id: int | None = None):
+        _, lock_day = self.unit_rules(unit_id)
+        return self.dependencies.lock_date(year, month, lock_day)
+
+    def is_month_locked(
+        self,
+        year: int,
+        month: int,
+        today: Any = None,
+        unit_id: int | None = None,
+    ) -> bool:
+        _, lock_day = self.unit_rules(unit_id)
+        return self.dependencies.month_is_locked(year, month, lock_day, today)
+
+    def add_months(self, first: Any, count: int):
+        return self.dependencies.add_months(first, count)
+
+    def request_date_bounds(self, today: Any, unit_id: int) -> tuple[Any, Any]:
+        months, _ = self.unit_rules(unit_id)
+        return self.dependencies.date_bounds(today, months)
+
+    def add_audit(
+        self,
+        request_record: Any,
+        actor_id: int,
+        transition: str,
+        old_value: object,
+        new_value: object,
+        reason: str = "",
+    ) -> None:
+        deps = self.dependencies
+        return add_request_audit(
+            request_record,
+            actor_id,
+            transition,
+            old_value,
+            new_value,
+            reason,
+            db=deps.db,
+            RequestAudit=deps.RequestAudit,
+        )
+
+    def notify_requester(self, request_record: Any) -> None:
+        deps = self.dependencies
+        return add_requester_notification(
+            request_record,
+            db=deps.db,
+            Notification=deps.Notification,
+        )
+
+    def safe_admin_month(self, raw_value: str | None, fallback: Any) -> str:
+        return self.dependencies.safe_admin_month(raw_value, fallback)
