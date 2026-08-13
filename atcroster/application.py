@@ -59,11 +59,9 @@ from absence_requests import (
     safe_admin_month,
 )
 from fatigue_compliance import (
-    FatigueComplianceDependencies,
     FatigueRuleConfigDependencies,
     FatigueRuleConfigService,
     compliance_month,
-    create_fatigue_compliance_blueprint,
 )
 from work_pattern_service import WorkPatternDependencies, WorkPatternService
 from roster_population_service import (
@@ -148,8 +146,8 @@ from atcroster.qualifications import (
     ComplianceRuntimeDependencies,
     OperationalCurrencyRuntime,
     OperationalCurrencyRuntimeDependencies,
-    QualificationDependencies,
-    create_qualification_blueprint,
+    QualificationRegistrationDependencies,
+    register_qualification_blueprints,
     classify_qualification_impact,
     has_other_valid_ue,
     record_roster_impact_for_qualification,
@@ -301,10 +299,6 @@ from atcroster.platform import (
 from atcroster.platform.admin import (
     PlatformAdminDependencies,
     create_platform_admin_blueprint,
-)
-from atcroster.live_position import (
-    OperationalCurrencyDependencies,
-    create_operational_currency_blueprint,
 )
 from atcroster.security.csrf import register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
@@ -1903,8 +1897,9 @@ register_auth_blueprints(app, AuthRegistrationDependencies(
     current_auth_stamp=_current_auth_stamp,
     totp_qr_data_uri=_totp_qr_data_uri,
 ))
-app.register_blueprint(create_qualification_blueprint(QualificationDependencies(
+register_qualification_blueprints(app, QualificationRegistrationDependencies(
     db=db,
+    Unit=Unit,
     Staff=Staff,
     QualificationType=QualificationType,
     PersonQualification=PersonQualification,
@@ -1917,7 +1912,14 @@ app.register_blueprint(create_qualification_blueprint(QualificationDependencies(
     qualification_impact_type=_qualification_impact_type,
     person_has_other_valid_ue=_person_has_other_valid_ue,
     record_roster_impact=record_roster_impact,
-)))
+    validate_csrf=_validate_csrf,
+    load_rule_config=_fatigue_rule_config,
+    save_rule_config=_save_fatigue_rule_config,
+    live_position_enabled=live_position_enabled,
+    currency_requirement=_operational_currency_requirement,
+    save_currency_requirement=_save_operational_currency_requirement,
+    currency_shortfalls=_operational_currency_shortfalls,
+))
 app.register_blueprint(create_reports_blueprint(ReportsDependencies(
     Assignment=Assignment,
     Staff=Staff,
@@ -2086,17 +2088,6 @@ app.register_blueprint(create_training_blueprint(TrainingDependencies(
     record_qualification_roster_impact=record_qualification_roster_impact,
     TrainingObjective=TrainingObjective,
 )))
-app.register_blueprint(create_fatigue_compliance_blueprint(
-    FatigueComplianceDependencies(
-        db=db,
-        Unit=Unit,
-        is_admin_user=is_admin_user,
-        current_unit_id=_current_unit_id,
-        validate_csrf=_validate_csrf,
-        load_rule_config=_fatigue_rule_config,
-        save_rule_config=_save_fatigue_rule_config,
-    )
-))
 app.register_blueprint(create_operations_blueprint(OperationsDependencies(
     db=db,
     OperationalPosition=OperationalPosition,
@@ -2322,18 +2313,6 @@ register_account_blueprints(app, AccountRegistrationDependencies(
     get_shift=get_shift,
     shift_duration_minutes=shift_duration_minutes,
     live_position_enabled=live_position_enabled,
-))
-app.register_blueprint(create_operational_currency_blueprint(
-    OperationalCurrencyDependencies(
-        db=db,
-        current_unit_id=_current_unit_id,
-        is_admin_user=is_admin_user,
-        live_position_enabled=live_position_enabled,
-        currency_requirement=_operational_currency_requirement,
-        save_currency_requirement=_save_operational_currency_requirement,
-        currency_shortfalls=_operational_currency_shortfalls,
-        validate_csrf=_validate_csrf,
-    )
 ))
 app.register_blueprint(create_toil_administration_blueprint(
     ToilAdministrationDependencies(
