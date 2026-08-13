@@ -7,6 +7,7 @@ from .lifecycle import record_successful_login
 from .password import PasswordDependencies, create_password_blueprint
 from .recovery import active_recovery_from_digest
 from .recovery_blueprint import RecoveryRequestDependencies, create_recovery_request_blueprint
+from .registration import AccountRegistrationDependencies, register_account_blueprints
 
 __all__ = (
     "KioskAccountDependencies",
@@ -20,4 +21,6 @@ __all__ = (
     "active_recovery_from_digest",
     "RecoveryRequestDependencies",
     "create_recovery_request_blueprint",
+    "AccountRegistrationDependencies",
+    "register_account_blueprints",
 )

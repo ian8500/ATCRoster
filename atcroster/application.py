@@ -280,29 +280,13 @@ from atcroster.requests import (
     RequestWorkflowService,
 )
 from atcroster.accounts import (
-    KioskAccountDependencies,
-    PasswordDependencies,
-    create_kiosk_account_blueprint,
-    create_password_blueprint,
+    AccountRegistrationDependencies,
+    register_account_blueprints,
     active_recovery_from_digest,
     platform_support_emails,
     normalise_phone_number,
     record_successful_login,
     unit_admin_emails,
-    RecoveryRequestDependencies,
-    create_recovery_request_blueprint,
-)
-from atcroster.accounts.unit_accounts import (
-    UnitAccountsDependencies,
-    create_unit_accounts_blueprint,
-)
-from atcroster.accounts.invitations import (
-    InvitationAcceptanceDependencies,
-    create_invitation_acceptance_blueprint,
-)
-from atcroster.accounts.profile import (
-    StaffProfileDependencies,
-    create_staff_profile_blueprint,
 )
 from atcroster.accounts.signup import (
     SignupSaga,
@@ -2334,14 +2318,23 @@ app.register_blueprint(create_home_blueprint(HomeDependencies(
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
 )))
-app.register_blueprint(create_recovery_request_blueprint(RecoveryRequestDependencies(
+register_account_blueprints(app, AccountRegistrationDependencies(
     db=db,
-    PlatformIdentity=PlatformIdentity,
-    UnitMembership=UnitMembership,
-    RecoveryRequest=RecoveryRequest,
     Unit=Unit,
     Staff=Staff,
+    PlatformIdentity=PlatformIdentity,
+    UnitMembership=UnitMembership,
+    SecureInvitation=SecureInvitation,
+    RecoveryRequest=RecoveryRequest,
     DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+    SmsSenderRegistration=SmsSenderRegistration,
+    MfaCredential=MfaCredential,
+    Assignment=Assignment,
+    Notification=Notification,
+    deployment_environment=DEPLOYMENT_ENV,
+    current_unit_id=_current_unit_id,
+    is_admin_user=is_admin_user,
+    is_editor_user=is_editor_user,
     validate_csrf=_validate_csrf,
     consume_rate_limit=_consume_rate_limit,
     valid_email=_valid_email,
@@ -2351,84 +2344,20 @@ app.register_blueprint(create_recovery_request_blueprint(RecoveryRequestDependen
     send_email=_send_account_email,
     now=utcnow,
     active_recovery=_active_recovery_from_digest,
-    is_admin_user=is_admin_user,
     bind_authenticated_unit=bind_authenticated_unit,
     generate_password_hash=generate_password_hash,
-)))
-app.register_blueprint(create_unit_accounts_blueprint(UnitAccountsDependencies(
-    db=db,
-    Unit=Unit,
-    Staff=Staff,
-    PlatformIdentity=PlatformIdentity,
-    UnitMembership=UnitMembership,
-    SecureInvitation=SecureInvitation,
-    current_unit_id=_current_unit_id,
-    is_admin_user=is_admin_user,
-    validate_csrf=_validate_csrf,
-    normalized_login=_normalized_login,
-    now=utcnow,
     tenant_get=tenant_get,
-)))
-app.register_blueprint(create_invitation_acceptance_blueprint(
-    InvitationAcceptanceDependencies(
-        db=db,
-        SecureInvitation=SecureInvitation,
-        Unit=Unit,
-        DatabaseRoutingMetadata=DatabaseRoutingMetadata,
-        Staff=Staff,
-        deployment_environment=DEPLOYMENT_ENV,
-        consume_rate_limit=_consume_rate_limit,
-        now=utcnow,
-        bind_authenticated_unit=bind_authenticated_unit,
-        validate_csrf=_validate_csrf,
-        valid_email=_valid_email,
-        run_signup=_run_invitation_signup,
-        signup_error=SignupWorkflowError,
-    )
-))
-app.register_blueprint(create_staff_profile_blueprint(StaffProfileDependencies(
-    db=db,
-    Staff=Staff,
-    UnitMembership=UnitMembership,
-    PlatformIdentity=PlatformIdentity,
-    SmsSenderRegistration=SmsSenderRegistration,
-    MfaCredential=MfaCredential,
-    Assignment=Assignment,
-    Notification=Notification,
-    current_unit_id=_current_unit_id,
-    is_editor_user=is_editor_user,
-    validate_csrf=_validate_csrf,
+    run_signup=_run_invitation_signup,
+    signup_error=SignupWorkflowError,
     normalise_uk_mobile=_normalise_uk_mobile,
-    valid_email=_valid_email,
     normalise_phone=_normalise_phone_number,
-    now=utcnow,
     qr_data_uri=_totp_qr_data_uri,
     absence_types=get_absence_types,
     month_range=month_range,
     get_shift=get_shift,
     shift_duration_minutes=shift_duration_minutes,
-)))
-app.register_blueprint(create_password_blueprint(PasswordDependencies(
-    db=db,
-    Staff=Staff,
-    PlatformIdentity=PlatformIdentity,
-    tenant_get=tenant_get,
-    validate_csrf=_validate_csrf,
-    generate_password_hash=generate_password_hash,
-)))
-app.register_blueprint(create_kiosk_account_blueprint(KioskAccountDependencies(
-    db=db,
-    Unit=Unit,
-    Staff=Staff,
-    UnitMembership=UnitMembership,
-    SecureInvitation=SecureInvitation,
-    current_unit_id=_current_unit_id,
     live_position_enabled=live_position_enabled,
-    tenant_get=tenant_get,
-    utcnow=utcnow,
-    validate_csrf=_validate_csrf,
-    is_admin_user=is_admin_user,
-)))
+))
 app.register_blueprint(create_operational_currency_blueprint(
     OperationalCurrencyDependencies(
         db=db,
