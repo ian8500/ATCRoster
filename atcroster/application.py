@@ -165,6 +165,7 @@ from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_bluepr
 from atcroster.qualifications import (
     QualificationDependencies,
     create_qualification_blueprint,
+    staff_has_qualification as qualification_status_for_staff,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
@@ -5659,34 +5660,14 @@ def _safe_request_admin_month(raw_value: str | None, fallback: date) -> str:
 def staff_has_qualification(
     staff: Staff, qualification_code: str, duty_date: date
 ) -> bool:
-    """Evaluate authoritative, tenant-scoped competence on the duty date."""
-    code = (qualification_code or "").strip().upper()
-    if not code:
-        return True
-    unit_id = int(getattr(staff, "unit_id", 0) or 0)
-    try:
-        context_unit_id = authenticated_unit_id()
-    except RuntimeError:
-        return False
-    if not unit_id or unit_id != context_unit_id:
-        return False
-    qualification_type = QualificationType.query.filter_by(
-        unit_id=unit_id, code=code, is_active=True
-    ).first()
-    if not qualification_type:
-        return False
-    record = PersonQualification.query.filter_by(
-        unit_id=unit_id,
-        person_id=staff.id,
-        qualification_type_id=qualification_type.id,
-    ).first()
-    if not record or record.status != "valid":
-        return False
-    if record.valid_from and record.valid_from > duty_date:
-        return False
-    if qualification_type.expiry_required:
-        return bool(record.expires_on and record.expires_on >= duty_date)
-    return not record.expires_on or record.expires_on >= duty_date
+    return qualification_status_for_staff(
+        staff,
+        qualification_code,
+        duty_date,
+        QualificationType=QualificationType,
+        PersonQualification=PersonQualification,
+        authenticated_unit_id=authenticated_unit_id,
+    )
 
 
 def _staff_has_shift_qualification(
