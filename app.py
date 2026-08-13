@@ -122,6 +122,10 @@ from atcroster.notifications import (
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
+from atcroster.administration import (
+    AdministrationDependencies,
+    create_administration_blueprint,
+)
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -4724,17 +4728,6 @@ def inject_perms():
             )[:120],
         },
     }
-
-
-@app.get("/administration")
-@login_required
-@admin_required
-def administration_home():
-    """Shared administration, separate from module-specific configuration."""
-    return render_template(
-        "administration_home.html",
-        show_live_position=live_position_enabled(current_user.unit_id),
-    )
 
 
 @app.route("/administration/kiosk-accounts", methods=["GET", "POST"])
@@ -10645,6 +10638,10 @@ app.register_blueprint(create_calendar_feed_blueprint(CalendarFeedDependencies(
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
     validate_csrf=_validate_csrf,
+)))
+app.register_blueprint(create_administration_blueprint(AdministrationDependencies(
+    is_admin_user=is_admin_user,
+    live_position_enabled=live_position_enabled,
 )))
 app.register_blueprint(briefing_blueprint)
 
