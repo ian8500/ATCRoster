@@ -169,6 +169,7 @@ from atcroster.accounts import (
     create_kiosk_account_blueprint,
     create_password_blueprint,
     active_recovery_from_digest,
+    record_successful_login,
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
@@ -7959,20 +7960,14 @@ def _central_security_event(
 
 
 def _record_successful_login(user: Staff) -> None:
-    now = utcnow()
-    identity = PlatformIdentity.query.filter_by(
-        username=user.username
-    ).first()
-    if identity:
-        identity.last_active_at = now
-    unit = db.session.get(Unit, user.unit_id)
-    if unit:
-        unit.last_active_at = now
-    if user.role != "superadmin":
-        db.session.add(AggregateUsageEvent(
-            unit_id=user.unit_id, event_type="login", count=1,
-        ))
-    db.session.commit()
+    record_successful_login(
+        db=db,
+        PlatformIdentity=PlatformIdentity,
+        Unit=Unit,
+        AggregateUsageEvent=AggregateUsageEvent,
+        user=user,
+        now=utcnow,
+    )
 
 
 def _active_recovery_from_digest(
