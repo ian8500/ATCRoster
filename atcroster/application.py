@@ -4,7 +4,6 @@ from functools import wraps
 from calendar import monthrange
 from collections import defaultdict, Counter, OrderedDict
 from typing import Any, Optional, Tuple
-from urllib import parse as urllib_parse
 from flask import render_template, request, redirect, url_for, flash, abort, session, g
 import os
 import re
@@ -135,6 +134,7 @@ from atcroster.auth import (
     decrypt_secret,
     matching_totp_step,
     consume_rate_limit,
+    canonical_login_redirect,
     credential_for_auth_stamp,
     privacy_rate_limit_key,
     record_security_event,
@@ -457,54 +457,13 @@ _security_headers = register_security_headers(
 register_response_compression(app)
 
 
-_LOGIN_NEXT_ENDPOINTS = {
-    "/": "index",
-    "/modules": "module_home",
-    "/briefing/": "briefing.home",
-    "/training/": "training_home",
-    "/competency/": "competency_home",
-    "/admin": "admin",
-    "/administration": "administration_home",
-    "/administration/kiosk-accounts": "kiosk_accounts",
-    "/leave": "leave",
-    "/messages": "unit_messages",
-    "/overtime": "overtime",
-    "/platform/admin": "platform_admin",
-    "/reports": "reports_index",
-    "/reports/leave-year": "report_leave_year",
-    "/reports/sickness": "report_sickness",
-    "/requests": "requests_page",
-    "/unit/accounts": "unit_accounts",
-}
-
-
 def _canonical_login_redirect(
     target: str | None,
     *,
     default_endpoint: str = "index",
     user_id: int | None = None,
 ) -> str:
-    """Return only a URL generated from an explicitly permitted app route."""
-    if not target:
-        return url_for(default_endpoint)
-    parsed = urllib_parse.urlsplit(target)
-    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
-        return url_for(default_endpoint)
-    endpoint = _LOGIN_NEXT_ENDPOINTS.get(parsed.path)
-    if endpoint:
-        return url_for(endpoint)
-    roster_match = re.fullmatch(r"/roster/(\d{4}-\d{2})", parsed.path)
-    if roster_match:
-        return url_for("roster_month", ym=roster_match.group(1))
-    leave_report_match = re.fullmatch(
-        r"/reports/leave/(\d{4}-\d{2})", parsed.path
-    )
-    if leave_report_match:
-        return url_for("report_leave", ym=leave_report_match.group(1))
-    profile_match = re.fullmatch(r"/staff/(\d+)", parsed.path)
-    if profile_match and user_id and int(profile_match.group(1)) == user_id:
-        return url_for("staff_profile", sid=user_id)
-    return url_for(default_endpoint)
+    return canonical_login_redirect(target, url_for=url_for, default_endpoint=default_endpoint, user_id=user_id)
 
 
 def _airport_login_endpoint(user) -> str:
