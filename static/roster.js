@@ -75,6 +75,7 @@ const shiftOptions = document.getElementById('roster-shift-options');
 const shiftDialog = document.getElementById('roster-shift-dialog');
 const shiftForm = shiftDialog?.querySelector('[data-roster-shift-form]');
 const shiftSelect = shiftDialog?.querySelector('[data-roster-shift-select]');
+const shiftSubmit = shiftForm?.querySelector('button[type="submit"]');
 const shiftVersion = shiftDialog?.querySelector('[data-roster-shift-version]');
 const shiftTitle = shiftDialog?.querySelector('[data-roster-shift-title]');
 let activeShift;
@@ -120,7 +121,13 @@ shiftForm?.addEventListener('submit', async (event) => {
     cell?.classList.toggle('training', Boolean(payload.is_training)); cell?.classList.remove('request-applied'); cell?.querySelector('.request-applied-marker')?.remove();
     updateDaySummary(payload.day, payload.day_summary); showStatus('Saved'); closeShiftEditor();
   } catch (error) { showStatus(error.message || 'The roster change could not be saved.', true); }
-  finally { shiftSelect.disabled = false; shiftForm.dataset.saving = '0'; shiftForm.classList.remove('is-saving'); }
+  finally {
+    shiftSelect.disabled = false;
+    // The generic form-progress handler disables submit controls. Restore this
+    // async editor's control after every response so a retry/edit is possible.
+    if (shiftSubmit) { shiftSubmit.disabled = false; shiftSubmit.removeAttribute('aria-disabled'); }
+    shiftForm.dataset.saving = '0'; shiftForm.classList.remove('is-saving');
+  }
 });
 
 const annotationDialog = document.getElementById('roster-annotation-dialog');

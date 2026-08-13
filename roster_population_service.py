@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Callable, Iterable
 
+from sqlalchemy.exc import IntegrityError
+
 from roster_horizon import get_unit_automatic_recalculation_start
 
 
@@ -303,13 +305,25 @@ class DeterministicRosterPopulationService:
                 if dry_run:
                     continue
                 if not existing:
-                    existing = dep.Assignment(
-                        unit_id=unit.id,
-                        staff_id=person.id,
-                        day=duty_day,
-                        code=code,
-                    )
-                    dep.db.session.add(existing)
+                    # A workforce reconciliation can run alongside an editor
+                    # save.  Keep the unique assignment key authoritative and
+                    # reuse the row created by the competing transaction.
+                    try:
+                        with dep.db.session.begin_nested():
+                            existing = dep.Assignment(
+                                unit_id=unit.id,
+                                staff_id=person.id,
+                                day=duty_day,
+                                code=code,
+                            )
+                            dep.db.session.add(existing)
+                            dep.db.session.flush()
+                    except IntegrityError:
+                        existing = dep.Assignment.query.filter_by(
+                            unit_id=unit.id,
+                            staff_id=person.id,
+                            day=duty_day,
+                        ).with_for_update().one()
                     existing_by_key[(person.id, duty_day)] = existing
                 existing.set_generated_baseline(
                     code,

@@ -730,6 +730,13 @@ if (
         with app.app_context():
             db.session.rollback()
 
+
+@app.teardown_request
+def rollback_failed_database_request(exception):
+    """Never carry a failed transaction into the next request on this session."""
+    if exception is not None:
+        db.session.rollback()
+
 # -------------------- Login --------------------
 
 @login_manager.user_loader

@@ -377,7 +377,9 @@
 </div>
 
 <script nonce="{{ csp_nonce() }}">
-  const rosterReadinessIssues = {{ readiness_issues|tojson }};
+  // Detail remains server-authoritative; the compact client shell avoids
+  // duplicating the whole month's issue payload into the roster HTML.
+  const rosterReadinessIssues = {};
   const editableRosterCells = () => [...document.querySelectorAll('.cell.editable')]
     .filter((cell) => cell.querySelector('[data-roster-cell-action] select:not(:disabled), [data-roster-shift-open]:not(:disabled)'));
 </script>

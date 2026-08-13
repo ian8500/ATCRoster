@@ -1253,6 +1253,65 @@ def test_roster_shift_can_be_saved_without_a_page_reload(client):
             db.session.commit()
 
 
+def test_repeated_roster_edit_reuses_assignment_and_roster_reloads(client):
+    """An editor retry must update one canonical assignment, never insert a duplicate."""
+    login(client)
+    duty_day = date(2025, 4, 4)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=admin.id, day=duty_day
+        ).one()
+        original = {
+            column: getattr(assignment, column)
+            for column in (
+                "code", "generated_code", "override_code", "override_type",
+                "override_reason", "override_by_user_id", "override_at",
+                "source", "note", "version",
+            )
+        }
+        staff_id = admin.id
+        version = assignment.version
+
+    try:
+        endpoint = f"/assign/{staff_id}/2025-04/{duty_day.isoformat()}"
+        headers = {
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        first = client.post(
+            endpoint,
+            data={"_csrf_token": csrf(client), "code": "D", "assignment_version": version},
+            headers=headers,
+        )
+        assert first.status_code == 200
+        second = client.post(
+            endpoint,
+            data={
+                "_csrf_token": csrf(client),
+                "code": "M",
+                "assignment_version": first.get_json()["version"],
+            },
+            headers=headers,
+        )
+        assert second.status_code == 200
+        assert client.get("/roster/2025-04").status_code == 200
+        with app.app.app_context():
+            rows = Assignment.query.filter_by(
+                unit_id=1, staff_id=staff_id, day=duty_day
+            ).all()
+            assert len(rows) == 1
+            assert rows[0].effective_code == "M"
+    finally:
+        with app.app.app_context():
+            assignment = Assignment.query.filter_by(
+                unit_id=1, staff_id=staff_id, day=duty_day
+            ).one()
+            for column, value in original.items():
+                setattr(assignment, column, value)
+            db.session.commit()
+
+
 def test_roster_editor_can_clear_override_to_reveal_generated_baseline(client):
     login(client)
     duty_day = date(2025, 4, 4)

@@ -43,6 +43,13 @@ test("roster editor supports async save, validation feedback and concurrency rec
   await page.locator("[data-roster-shift-select]").selectOption("M");
   await page.getByRole("button", { name: /save shift/i }).click();
   await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
+  await cell.locator("[data-roster-shift-open]").click();
+  await page.locator("[data-roster-shift-select]").selectOption("A");
+  await expect(page.getByRole("button", { name: /save shift/i })).toBeEnabled();
+  await page.getByRole("button", { name: /save shift/i }).click();
+  await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
+  await page.reload();
+  await expect(cell.locator("[data-roster-shift-open]")).toBeVisible();
 });
 
 test("roster editor retains accessible decision controls", async ({ page }) => {

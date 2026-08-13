@@ -6,6 +6,8 @@ from datetime import date
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from sqlalchemy.exc import IntegrityError
+
 
 @dataclass(frozen=True)
 class AssignmentRefreshDependencies:
@@ -39,12 +41,9 @@ def set_generated_assignment(
     source: str = "auto",
     note: str = "",
 ):
-    assignment = dependencies.Assignment.query.filter_by(
-        staff_id=staff.id, day=day
-    ).first()
-    if assignment is None:
-        assignment = dependencies.Assignment(staff=staff, day=day, code=code)
-        dependencies.db.session.add(assignment)
+    assignment = _assignment_for_staff_day(
+        staff, day, code=code, dependencies=dependencies
+    )
     assignment.set_generated_baseline(
         code, generation_version="legacy-pattern-compat-v1"
     )
@@ -62,12 +61,9 @@ def set_absence_override(
     dependencies: AssignmentRefreshDependencies,
     note: str = "",
 ):
-    assignment = dependencies.Assignment.query.filter_by(
-        staff_id=staff.id, day=day
-    ).first()
-    if assignment is None:
-        assignment = dependencies.Assignment(staff=staff, day=day, code=code)
-        dependencies.db.session.add(assignment)
+    assignment = _assignment_for_staff_day(
+        staff, day, code=code, dependencies=dependencies
+    )
     assignment.set_editor_override(
         code,
         reason=note or "System-managed absence",
@@ -85,7 +81,7 @@ def refresh_pattern_day(
 ):
     """Apply pattern and leave overlays while preserving explicit edits."""
     assignment = dependencies.Assignment.query.filter_by(
-        staff_id=staff.id, day=day
+        unit_id=staff.unit_id, staff_id=staff.id, day=day
     ).first()
     previous_code = assignment.effective_code if assignment else None
     if (
@@ -245,6 +241,34 @@ def assignment_for_day(db: Any, Assignment: Any, staff_id: int, day: date) -> An
     if assignment is None:
         assignment = Assignment(staff_id=staff_id, day=day)
         db.session.add(assignment)
+    return assignment
+
+
+def _assignment_for_staff_day(
+    staff: Any, day: date, *, code: str,
+    dependencies: AssignmentRefreshDependencies,
+) -> Any:
+    """Return the canonical assignment row, recovering safely from a race.
+
+    Reconciliation and population may run alongside an editor request.  The
+    database uniqueness constraint remains authoritative; a nested transaction
+    lets us recover an insert race without poisoning the outer request session.
+    """
+    query = dependencies.Assignment.query.filter_by(
+        unit_id=staff.unit_id, staff_id=staff.id, day=day
+    )
+    assignment = query.first()
+    if assignment is not None:
+        return assignment
+    try:
+        with dependencies.db.session.begin_nested():
+            assignment = dependencies.Assignment(
+                unit_id=staff.unit_id, staff=staff, day=day, code=code
+            )
+            dependencies.db.session.add(assignment)
+            dependencies.db.session.flush()
+    except IntegrityError:
+        assignment = query.with_for_update().one()
     return assignment
 
 
