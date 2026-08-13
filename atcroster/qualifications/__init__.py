@@ -9,6 +9,14 @@ from .currency import (
     minutes_between,
     operational_currency_shortfalls,
 )
+from .history import (
+    classify_qualification_impact,
+    has_other_valid_ue,
+    qualification_snapshot,
+    record_qualification_history,
+    record_roster_impact_for_qualification,
+    sync_legacy_roster_profile,
+)
 
 __all__ = (
     "QualificationDependencies",
@@ -18,5 +26,11 @@ __all__ = (
     "load_currency_requirement",
     "minutes_between",
     "operational_currency_shortfalls",
+    "classify_qualification_impact",
+    "has_other_valid_ue",
+    "qualification_snapshot",
+    "record_qualification_history",
+    "record_roster_impact_for_qualification",
+    "sync_legacy_roster_profile",
     "staff_has_qualification",
 )

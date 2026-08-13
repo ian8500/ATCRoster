@@ -165,11 +165,17 @@ from atcroster.qualifications import (
     QualificationDependencies,
     create_qualification_blueprint,
     currency_window,
+    classify_qualification_impact,
+    has_other_valid_ue,
     load_currency_requirement,
     monthly_compliance_findings,
     minutes_between as calculate_minutes_between,
     operational_currency_shortfalls,
+    qualification_snapshot,
+    record_qualification_history as add_qualification_history,
+    record_roster_impact_for_qualification,
     staff_has_qualification as qualification_status_for_staff,
+    sync_legacy_roster_profile,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
@@ -1822,35 +1828,17 @@ def _qualification_impact_type(
     new_valid_from: date | None,
     new_expires_on: date | None,
 ) -> tuple[RosterImpactEventType | None, date]:
-    """Classify a qualification transition and its true effective date."""
-    code = (code or "").strip().upper()
-    today = date.today()
-    old_valid = old_status == "valid"
-    new_valid = new_status == "valid"
-    effective = new_valid_from or new_expires_on or old_expires_on or today
-    if code == "MEDICAL":
-        if new_valid and not old_valid:
-            return RosterImpactEventType.MEDICAL_RESTORED, effective
-        if old_valid and not new_valid:
-            return RosterImpactEventType.MEDICAL_EXPIRED, effective
-        if new_valid and new_expires_on != old_expires_on:
-            return RosterImpactEventType.MEDICAL_RESTORED, effective
-    if code in {"OJTI"} and new_valid and not old_valid:
-        return RosterImpactEventType.OJTI_ACHIEVED, effective
-    if code in {"ASSESSOR", "ASSR"} and new_valid and not old_valid:
-        return RosterImpactEventType.ASSESSOR_ACHIEVED, effective
-    if code in {"ADI", "APS", "MET", "UE"}:
-        if old_valid and new_status == "suspended":
-            return RosterImpactEventType.UE_SUSPENDED, effective
-        if old_valid and not new_valid:
-            return RosterImpactEventType.UE_EXPIRED, effective
-        if new_valid and not old_valid:
-            if old_status == "suspended":
-                return RosterImpactEventType.UE_RESTORED, effective
-            return RosterImpactEventType.FIRST_UE_ACHIEVED, effective
-        if new_valid and new_expires_on != old_expires_on:
-            return RosterImpactEventType.ADDITIONAL_UE_ACHIEVED, effective
-    return None, effective
+    return classify_qualification_impact(
+        code,
+        old_status,
+        old_valid_from,
+        old_expires_on,
+        new_status,
+        new_valid_from,
+        new_expires_on,
+        impact_types=RosterImpactEventType,
+        today=date.today(),
+    )
 
 
 def _person_has_other_valid_ue(
@@ -1859,24 +1847,15 @@ def _person_has_other_valid_ue(
     excluded_type_id: int,
     on_date: date,
 ) -> bool:
-    return db.session.query(PersonQualification.id).join(
-        QualificationType,
-        QualificationType.id == PersonQualification.qualification_type_id,
-    ).filter(
-        PersonQualification.unit_id == unit_id,
-        PersonQualification.person_id == person_id,
-        PersonQualification.qualification_type_id != excluded_type_id,
-        PersonQualification.status == "valid",
-        QualificationType.code.in_(("ADI", "APS", "MET", "UE")),
-        db.or_(
-            PersonQualification.valid_from.is_(None),
-            PersonQualification.valid_from <= on_date,
-        ),
-        db.or_(
-            PersonQualification.expires_on.is_(None),
-            PersonQualification.expires_on >= on_date,
-        ),
-    ).first() is not None
+    return has_other_valid_ue(
+        unit_id,
+        person_id,
+        excluded_type_id,
+        on_date,
+        db=db,
+        PersonQualification=PersonQualification,
+        QualificationType=QualificationType,
+    )
 
 
 def record_qualification_roster_impact(
@@ -1889,25 +1868,19 @@ def record_qualification_roster_impact(
     *,
     reason="Qualification changed.",
 ):
-    impact_type, impact_date = _qualification_impact_type(
-        qtype.code, old_status, old_valid_from, old_expires_on,
-        record.status if record else None,
-        record.valid_from if record else None,
-        record.expires_on if record else None,
+    return record_roster_impact_for_qualification(
+        person,
+        qtype,
+        old_status,
+        old_valid_from,
+        old_expires_on,
+        record,
+        impact_types=RosterImpactEventType,
+        today=date.today(),
+        has_other_ue=_person_has_other_valid_ue,
+        record_roster_impact=record_roster_impact,
+        reason=reason,
     )
-    if (
-        impact_type == RosterImpactEventType.FIRST_UE_ACHIEVED
-        and _person_has_other_valid_ue(
-            person.unit_id, person.id, qtype.id, impact_date
-        )
-    ):
-        impact_type = RosterImpactEventType.ADDITIONAL_UE_ACHIEVED
-    if impact_type:
-        record_roster_impact(
-            impact_type, impact_date, staff_ids=[person.id],
-            rebuild_baseline=False, reason=reason,
-        )
-    return impact_type
 
 
 def _cycle_day_for(staff: Staff, d: date) -> int | None:
@@ -3074,39 +3047,25 @@ def _run_invitation_signup(
 
 
 def _qualification_snapshot(record: PersonQualification) -> dict:
-    return {
-        "person_id": record.person_id,
-        "qualification_type_id": record.qualification_type_id,
-        "issued_on": record.issued_on,
-        "valid_from": record.valid_from,
-        "expires_on": record.expires_on,
-        "status": record.status,
-    }
+    return qualification_snapshot(record)
 
 
 def _record_qualification_history(
     record: PersonQualification, action: str
 ) -> None:
-    db.session.add(PersonQualificationHistory(
-        unit_id=record.unit_id,
-        person_qualification_id=record.id,
+    return add_qualification_history(
+        record,
+        action,
+        db=db,
+        PersonQualificationHistory=PersonQualificationHistory,
         actor_id=current_user.id,
-        action=action,
-        snapshot_json=json.dumps(
-            _qualification_snapshot(record), default=str, sort_keys=True
-        ),
-    ))
+    )
 
 
 def _sync_qualification_to_roster_profile(
     person: Staff, qtype: QualificationType, expires_on: date | None
 ) -> None:
-    legacy_field = {
-        "MEDICAL": "medical_expiry", "ADI": "tower_ue_expiry",
-        "APS": "radar_ue_expiry", "MET": "met_ue_expiry",
-    }.get(qtype.code)
-    if legacy_field:
-        setattr(person, legacy_field, expires_on)
+    return sync_legacy_roster_profile(person, qtype, expires_on)
 
 
 
