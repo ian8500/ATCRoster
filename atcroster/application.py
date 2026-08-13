@@ -104,18 +104,12 @@ from atcroster.roster import (
     counter_group_for_day as resolve_shift_counter_group_for_day,
     expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
-    is_sunday as roster_date_is_sunday,
     parse_year_month as parse_roster_year_month,
     duration_minutes as roster_shift_duration_minutes,
     ensure_month_requirement as ensure_roster_month_requirement,
     requirements_for_day as resolve_roster_requirements_for_day,
-    cell_is_protected,
-    assignment_for_day,
-    is_non_working as roster_code_is_non_working,
-    normalize_code as normalize_roster_code,
-    is_working_with_prefix as roster_code_is_working_with_prefix,
-    set_assignment_code,
 )
+from atcroster.roster.editing import RosterEditingDependencies, RosterEditingRuntime
 from atcroster.roster.shifts import save_counter_mapping
 from atcroster.roster.requirements import (
     delete_special_requirement,
@@ -166,10 +160,9 @@ from atcroster.qualifications import (
     staff_is_countable as qualification_staff_is_countable,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
-from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
+from atcroster.workforce import effective_watch as resolve_effective_watch, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.workforce.joiners import JoinerDependencies, create_joiner
 from atcroster.fatigue import (
-    assignment_is_fatigue_safe,
     configured_findings as configured_fatigue_findings,
     new_findings_for_proposed_assignment,
     roster_findings_matrix,
@@ -1766,62 +1759,30 @@ def is_month_locked(y: int, m: int, today: Optional[date] = None) -> bool:
     return roster_period_is_locked(y, m, today, roster_month_is_locked)
 
 
-def _assignment(staff_id: int, d: date) -> "Assignment":
-    return assignment_for_day(db, Assignment, staff_id, d)
-
-
-def _cell_is_protected(a: "Assignment") -> bool:
-    return cell_is_protected(a)
-
-
-def _set_code(a: "Assignment", code: str, source: str, note: str = "", ctx_month: Optional[str] = None):
-    return set_assignment_code(a, code, source, note, _invalidate_month_cache_for_day, log_change)
-
-
-def _has_leave_or_sick(staff_id: int, d: date) -> bool:
-    return has_leave_or_sickness(Leave, Sickness, staff_id, d)
-
-
-def _fatigue_ok(staff: "Staff", day: date, code: str) -> bool:
-    return assignment_is_fatigue_safe(staff, day, code, would_trigger_fatigue)
-
-# Back-compat shim so all AI code can call the same name
-
-
-def _passes_fatigue_for(staff: "Staff", day: date, code: str) -> bool:
-    return _fatigue_ok(staff, day, code)
-
-
-def _weekday_is_sun(d: date) -> bool:
-    return roster_date_is_sunday(d)
-
-# ---------- Shift code helpers ----------
-
-
-def _normalize_code(code) -> str:
-    return normalize_roster_code(code)
-
-
-def _is_non_working(code: str) -> bool:
-    return roster_code_is_non_working(code, get_non_working_codes)
-
-
-def _is_working_code_prefix(code: str, prefix: str) -> bool:
-    return roster_code_is_working_with_prefix(
-        code, prefix, get_non_working_codes, get_shift,
-    )
-
-
-def _is_working_day_code(code: str) -> bool:
-    return _is_working_code_prefix(code, "D")
-
-
-def _is_working_m_code(code: str) -> bool:
-    return _is_working_code_prefix(code, "M")
-
-
-def _is_working_n_code(code: str) -> bool:
-    return _is_working_code_prefix(code, "N")
+roster_editing_runtime = RosterEditingRuntime(RosterEditingDependencies(
+    db=db,
+    Assignment=Assignment,
+    Leave=Leave,
+    Sickness=Sickness,
+    invalidate_month_for_day=_invalidate_month_cache_for_day,
+    log_change=log_change,
+    would_trigger_fatigue=would_trigger_fatigue,
+    non_working_codes=get_non_working_codes,
+    get_shift=get_shift,
+))
+_assignment = roster_editing_runtime.assignment
+_cell_is_protected = roster_editing_runtime.cell_is_protected
+_set_code = roster_editing_runtime.set_code
+_has_leave_or_sick = roster_editing_runtime.has_leave_or_sickness
+_fatigue_ok = roster_editing_runtime.fatigue_ok
+_passes_fatigue_for = roster_editing_runtime.fatigue_ok
+_weekday_is_sun = roster_editing_runtime.weekday_is_sunday
+_normalize_code = roster_editing_runtime.normalize_code
+_is_non_working = roster_editing_runtime.code_is_non_working
+_is_working_code_prefix = roster_editing_runtime.working_code_prefix
+_is_working_day_code = roster_editing_runtime.working_day_code
+_is_working_m_code = roster_editing_runtime.working_morning_code
+_is_working_n_code = roster_editing_runtime.working_night_code
 
 def admin_required(f):
     @wraps(f)
