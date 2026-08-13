@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from flask import Flask, request, session
+from flask_login import current_user
+
 PLATFORM_ENDPOINTS = frozenset(
     {
         "platform_admin",
@@ -98,3 +101,23 @@ def enforce_principal_boundaries(
         if not credential:
             return deps.redirect(deps.url_for("mfa_setup"))
     return None
+
+
+def register_principal_boundaries(
+    app: Flask,
+    dependencies: PrincipalBoundaryDependencies,
+) -> Callable[[], Any]:
+    """Register role and MFA enforcement on the application request boundary."""
+
+    def enforce_request_boundaries():
+        return enforce_principal_boundaries(
+            current_user,
+            session,
+            request.endpoint,
+            request.method,
+            dependencies,
+        )
+
+    enforce_request_boundaries.__name__ = "_enforce_principal_boundaries"
+    app.before_request(enforce_request_boundaries)
+    return enforce_request_boundaries

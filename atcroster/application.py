@@ -405,7 +405,7 @@ from atcroster.security.headers import (
     SecurityHeaderDependencies,
     register_security_headers,
 )
-from atcroster.security import PrincipalBoundaryDependencies, enforce_principal_boundaries
+from atcroster.security import PrincipalBoundaryDependencies, register_principal_boundaries
 from atcroster.security.sessions import (
     SessionLifecycle,
     SessionLifecycleDependencies,
@@ -594,25 +594,6 @@ _bind_tenant_context, _reset_tenant_context = register_tenant_hooks(
         reset_platform_control=reset_platform_control,
     ),
 )
-
-
-@app.before_request
-def _enforce_principal_boundaries():
-    return enforce_principal_boundaries(
-        current_user,
-        session,
-        request.endpoint,
-        request.method,
-        PrincipalBoundaryDependencies(
-            UnitMembership=UnitMembership,
-            MfaCredential=MfaCredential,
-            deployment_environment=DEPLOYMENT_ENV,
-            logout_user=logout_user,
-            redirect=redirect,
-            url_for=url_for,
-            abort=abort,
-        ),
-    )
 
 
 _security_headers = register_security_headers(
@@ -931,6 +912,19 @@ register_tenant_session_events(
     invalidate_touched_units=invalidate_touched_units,
     discard_touched_units=discard_touched_units,
     invalidate_unit=roster_month_cache.invalidate_unit,
+)
+
+_enforce_principal_boundaries = register_principal_boundaries(
+    app,
+    PrincipalBoundaryDependencies(
+        UnitMembership=UnitMembership,
+        MfaCredential=MfaCredential,
+        deployment_environment=DEPLOYMENT_ENV,
+        logout_user=logout_user,
+        redirect=redirect,
+        url_for=url_for,
+        abort=abort,
+    ),
 )
 
 # -------------------- Reference data helpers --------------------
