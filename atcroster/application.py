@@ -125,6 +125,7 @@ from atcroster.roster import (
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     cell_is_protected,
     assignment_for_day,
+    set_assignment_code,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -3066,30 +3067,7 @@ def _cell_is_protected(a: "Assignment") -> bool:
 
 
 def _set_code(a: "Assignment", code: str, source: str, note: str = "", ctx_month: Optional[str] = None):
-    old = a.effective_code
-    if old == code and a.source == source:
-        return a
-
-    a.set_editor_override(
-        code,
-        reason=note or "Allocation proposal",
-        override_type="ALLOCATION",
-    )
-    a.annotation = None
-    a.source = source
-
-    # Invalidate month cache for this day
-    _invalidate_month_cache_for_day(a.day)
-
-    try:
-        # log using day; function computes month string internally
-        log_change("Assignment", a.id, "code", old,
-                   code, note=note, context_day=a.day)
-    except Exception:
-        # don’t break generator if logging fails
-        pass
-
-    return a
+    return set_assignment_code(a, code, source, note, _invalidate_month_cache_for_day, log_change)
 
 
 def _has_leave_or_sick(staff_id: int, d: date) -> bool:
