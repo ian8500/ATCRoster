@@ -39,7 +39,7 @@ CSRF is enforced globally for every explicit unsafe method. Authentication and r
 
 | URL | Endpoint | Methods | Authentication | Role/permission | Tenant scope | CSRF | Template/response | Owner/dependencies |
 |---|---|---|---|---|---|---|---|---|
-| / | `index` | GET | Anonymous or token-bound | Public/token workflow policy | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `app` + registered dependencies |
+| / | `index` | GET | Authenticated account | Onboarding redirect policy | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `atcroster.home` + injected dependencies |
 | /__can | `__can` | GET | Authenticated account | Endpoint/domain permission | Verified active unit | Not applicable (safe method) | JSON/redirect/response | `app` + registered dependencies |
 | /admin | `admin` | GET, POST | Authenticated account | Admin/editor action policy | Verified active unit | Global default-deny | admin.html | `app` + registered dependencies |
 | /admin/change-log | `change_log_page` | GET | Authenticated account | Admin/editor action policy | Verified active unit | Not applicable (safe method) | change_log.html | `app` + registered dependencies |

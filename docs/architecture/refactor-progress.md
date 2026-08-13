@@ -25,6 +25,7 @@
 | Module launcher | `atcroster/modules/blueprint.py` |
 | Calendar subscription feed | `atcroster/calendar_feed.py` |
 | Administration landing | `atcroster/administration/blueprint.py` |
+| Authenticated home redirect | `atcroster/home.py` |
 
 ## Safe stopping boundary
 

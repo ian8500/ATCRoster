@@ -126,6 +126,7 @@ from atcroster.administration import (
     AdministrationDependencies,
     create_administration_blueprint,
 )
+from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -4358,19 +4359,6 @@ def password_change():
     return render_template("password.html")
 
 # -------------------- Main / Roster --------------------
-
-
-@app.route("/")
-@login_required
-def index():
-    if is_admin_user(current_user):
-        unit = db.session.get(Unit, _current_unit_id())
-        if unit and int(unit.onboarding_step or 0) < 100:
-            return redirect(url_for("unit_onboarding"))
-    today = date.today()
-    return redirect(
-        url_for("roster_month", ym=f"{today.year}-{today.month:02d}")
-    )
 
 
 def _roster_snapshot(year: int, month: int) -> dict:
@@ -10642,6 +10630,12 @@ app.register_blueprint(create_calendar_feed_blueprint(CalendarFeedDependencies(
 app.register_blueprint(create_administration_blueprint(AdministrationDependencies(
     is_admin_user=is_admin_user,
     live_position_enabled=live_position_enabled,
+)))
+app.register_blueprint(create_home_blueprint(HomeDependencies(
+    db=db,
+    Unit=Unit,
+    current_unit_id=_current_unit_id,
+    is_admin_user=is_admin_user,
 )))
 app.register_blueprint(briefing_blueprint)
 
