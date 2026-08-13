@@ -296,8 +296,8 @@ from atcroster.accounts import (
 )
 from atcroster.accounts.signup import (
     SignupSaga,
-    SignupSagaDependencies,
     SignupWorkflowError,
+    create_signup_saga_dependencies,
 )
 from atcroster.admin_utilities import (
     create_admin_utility_blueprint,
@@ -1278,16 +1278,10 @@ _compute_overtime_candidates = _overtime_candidate_service.compute
 
 # >>> Admin can respond to a specific request
 
-signup_saga = SignupSaga(SignupSagaDependencies(
+signup_saga = SignupSaga(create_signup_saga_dependencies(
     db=db,
-    ShiftType=ShiftType,
-    SignupWorkflow=SignupWorkflow,
-    PlatformIdentity=PlatformIdentity,
-    Staff=Staff,
-    UnitMembership=UnitMembership,
-    Unit=Unit,
-    SecureInvitation=SecureInvitation,
-    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     now=utcnow,
     valid_email=_valid_email,
     password_hash=generate_password_hash,

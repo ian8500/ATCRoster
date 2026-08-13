@@ -30,6 +30,24 @@ class SignupSagaDependencies:
     password_hash: Callable[[str], str]
 
 
+def create_signup_saga_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> SignupSagaDependencies:
+    """Bind invitation-signup records inside the accounts domain."""
+    return SignupSagaDependencies(
+        db=db,
+        ShiftType=operational_models.ShiftType,
+        SignupWorkflow=saas_models.SignupWorkflow,
+        PlatformIdentity=saas_models.PlatformIdentity,
+        Staff=operational_models.Staff,
+        UnitMembership=saas_models.UnitMembership,
+        Unit=operational_models.Unit,
+        SecureInvitation=saas_models.SecureInvitation,
+        DatabaseRoutingMetadata=saas_models.DatabaseRoutingMetadata,
+        **services,
+    )
+
+
 class SignupSaga:
     """Bound invitation-signup workflow with explicit cross-database dependencies."""
 
