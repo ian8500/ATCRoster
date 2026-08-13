@@ -119,6 +119,9 @@ from atcroster.public import public_blueprint
 from atcroster.notifications import (
     NotificationDependencies,
     create_notification_blueprint,
+    normalise_sms_number,
+    normalise_uk_mobile,
+    send_via_messagemedia,
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
@@ -538,29 +541,16 @@ def _invalidate_month_cache_for_day(d: date):
 
 
 def _messagemedia_credentials() -> tuple[str, str, str]:
-    return (
-        os.getenv("MESSAGEMEDIA_API_KEY", ""),
-        os.getenv("MESSAGEMEDIA_API_SECRET", ""),
-        os.getenv("MESSAGEMEDIA_FALLBACK_SENDER", ""),
-    )
+    from atcroster.notifications.sms import messagemedia_credentials
+    return messagemedia_credentials()
 
 
 def _normalise_sms_number(value: str | None) -> str:
-    """Return an E.164 number, accepting harmless display punctuation."""
-    candidate = re.sub(r"[\s().-]+", "", value or "")
-    return candidate if re.fullmatch(r"\+[1-9]\d{7,14}", candidate) else ""
+    return normalise_sms_number(value)
 
 
 def _normalise_uk_mobile(value: str | None) -> str:
-    """Normalise UK mobile input to E.164; only UK mobile numbers are valid senders."""
-    candidate = re.sub(r"[\s().-]+", "", value or "")
-    if candidate.startswith("0044"):
-        candidate = "+44" + candidate[4:]
-    elif candidate.startswith("44") and len(candidate) == 12:
-        candidate = "+" + candidate
-    elif candidate.startswith("07") and len(candidate) == 11:
-        candidate = "+44" + candidate[1:]
-    return candidate if re.fullmatch(r"\+447\d{9}", candidate) else ""
+    return normalise_uk_mobile(value)
 
 
 def _sms_number_options(key: str, unit_id: int | None = None) -> list[dict[str, str]]:
@@ -701,40 +691,7 @@ def _unit_admin_emails(unit_id: int) -> list[str]:
 def _send_sms_via_messagemedia(
     to_number: str, body: str, from_number: str | None = None,
 ) -> tuple[bool, str]:
-    """Send via Sinch MessageMedia's documented REST messages endpoint."""
-    api_key, api_secret, fallback = _messagemedia_credentials()
-    sender = _normalise_sms_number(from_number or fallback)
-    recipient = _normalise_sms_number(to_number)
-    if not (api_key and api_secret and sender):
-        return False, "Sinch MessageMedia credentials or fallback sender are not configured."
-    if not recipient:
-        return False, "Missing or invalid destination number."
-    payload = json.dumps({"messages": [{
-        "content": body, "source_number": sender,
-        "destination_number": recipient, "delivery_report": True,
-    }]}).encode("utf-8")
-    req = urllib_request.Request(
-        "https://api.messagemedia.com/v1/messages", data=payload, method="POST"
-    )
-    token = base64.b64encode(f"{api_key}:{api_secret}".encode("utf-8")).decode("ascii")
-    req.add_header("Authorization", f"Basic {token}")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("Accept", "application/json")
-    try:
-        with urllib_request.urlopen(req, timeout=10) as resp:  # nosec B310 - fixed provider API origin
-            parsed = json.loads(resp.read().decode("utf-8") or "{}")
-            message = (parsed.get("messages") or [{}])[0]
-            return True, str(message.get("message_id") or message.get("id") or "submitted")
-    except urllib_error.HTTPError as err:
-        try:
-            detail = err.read().decode("utf-8")[:300]
-        except Exception:
-            detail = str(err)
-        return False, f"{err.code}: {detail}"
-    except urllib_error.URLError as err:
-        return False, str(getattr(err, "reason", err))
-    except Exception as exc:
-        return False, str(exc)
+    return send_via_messagemedia(to_number, body, from_number)
 
 
 def _send_sms(to_number: str, body: str, from_number: str | None = None) -> tuple[bool, str]:

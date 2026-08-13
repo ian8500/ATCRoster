@@ -26,6 +26,7 @@
 | Calendar subscription feed | `atcroster/calendar_feed.py` |
 | Administration landing | `atcroster/administration/blueprint.py` |
 | Authenticated home redirect | `atcroster/home.py` |
+| SMS normalization and provider delivery | `atcroster/notifications/sms.py` |
 
 ## Safe stopping boundary
 
