@@ -360,6 +360,17 @@ class AllocationRuntimeDependencies:
     set_code: Callable[..., Any]
 
 
+def create_allocation_runtime_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> AllocationRuntimeDependencies:
+    """Bind allocation mutations to operational assignment records."""
+    return AllocationRuntimeDependencies(
+        db=db,
+        Assignment=operational_models.Assignment,
+        **services,
+    )
+
+
 class AllocationRuntime:
     """Own the database mutation workflow for filling day-duty shortfalls."""
 

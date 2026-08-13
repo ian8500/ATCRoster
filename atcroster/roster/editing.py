@@ -35,6 +35,19 @@ class RosterEditingDependencies:
     get_shift: Callable[[str], Any]
 
 
+def create_roster_editing_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> RosterEditingDependencies:
+    """Bind roster-editing records within the roster domain."""
+    return RosterEditingDependencies(
+        db=db,
+        Assignment=operational_models.Assignment,
+        Leave=operational_models.Leave,
+        Sickness=operational_models.Sickness,
+        **services,
+    )
+
+
 class RosterEditingRuntime:
     """Own assignment mutation guards and shift-code editing policy."""
 

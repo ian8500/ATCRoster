@@ -98,7 +98,10 @@ from atcroster.roster import (
     create_roster_month_service,
     ShiftLookupService,
 )
-from atcroster.roster.editing import RosterEditingDependencies, RosterEditingRuntime
+from atcroster.roster.editing import (
+    RosterEditingRuntime,
+    create_roster_editing_dependencies,
+)
 from atcroster.roster.shifts import save_counter_mapping
 from atcroster.roster.requirements import (
     delete_special_requirement,
@@ -215,7 +218,7 @@ from atcroster.roster.assignments import (
     create_assignment_refresh_dependencies,
     create_assignment_runtime_dependencies,
     AllocationRuntime,
-    AllocationRuntimeDependencies,
+    create_allocation_runtime_dependencies,
 )
 from atcroster.roster.annotations import AnnotationCatalogue
 from atcroster.roster.settings import RosterSettingsCatalogue
@@ -1062,11 +1065,9 @@ is_month_locked = partial(
     roster_period_is_locked, roster_month_is_locked=roster_month_is_locked
 )
 
-roster_editing_runtime = RosterEditingRuntime(RosterEditingDependencies(
+roster_editing_runtime = RosterEditingRuntime(create_roster_editing_dependencies(
     db=db,
-    Assignment=Assignment,
-    Leave=Leave,
-    Sickness=Sickness,
+    operational_models=_operational_models,
     invalidate_month_for_day=_invalidate_month_cache_for_day,
     log_change=log_change,
     would_trigger_fatigue=would_trigger_fatigue,
@@ -1087,9 +1088,9 @@ _is_working_day_code = roster_editing_runtime.working_day_code
 _is_working_m_code = roster_editing_runtime.working_morning_code
 _is_working_n_code = roster_editing_runtime.working_night_code
 
-allocation_runtime = AllocationRuntime(AllocationRuntimeDependencies(
+allocation_runtime = AllocationRuntime(create_allocation_runtime_dependencies(
     db=db,
-    Assignment=Assignment,
+    operational_models=_operational_models,
     is_working_day_code=_is_working_day_code,
     has_leave_or_sickness=_has_leave_or_sick,
     passes_fatigue=_passes_fatigue_for,
