@@ -26,6 +26,20 @@ class MonthRosterLoadDependencies:
     log_exception: Callable[..., None]
 
 
+def create_month_roster_load_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> MonthRosterLoadDependencies:
+    """Bind month-roster loading records inside the roster domain."""
+    return MonthRosterLoadDependencies(
+        db=db,
+        Assignment=operational_models.Assignment,
+        Requirement=operational_models.Requirement,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        **services,
+    )
+
+
 def load_month_roster(
     unit_id: int,
     year: int,

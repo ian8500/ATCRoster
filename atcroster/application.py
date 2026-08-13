@@ -210,7 +210,7 @@ from atcroster.roster.reference_data import (
     bootstrap_reference_data as bootstrap_roster_reference_data,
 )
 from atcroster.roster.month_view import (
-    MonthRosterLoadDependencies,
+    create_month_roster_load_dependencies,
     load_month_roster,
 )
 from atcroster.roster.assignments import (
@@ -795,12 +795,9 @@ def _load_month_roster_core(unit_id: int, y: int, m: int):
         unit_id,
         y,
         m,
-        MonthRosterLoadDependencies(
+        create_month_roster_load_dependencies(
             db=db,
-            Assignment=Assignment,
-            Requirement=Requirement,
-            Staff=Staff,
-            Watch=Watch,
+            operational_models=_operational_models,
             ensure_month_requirement=ensure_month_requirement,
             log_exception=app.logger.exception,
         ),
