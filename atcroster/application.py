@@ -235,8 +235,7 @@ from atcroster.modules import (
     create_module_dependencies,
 )
 from atcroster.calendar_feed import (
-    create_calendar_feed_blueprint,
-    create_calendar_feed_dependencies,
+    register_calendar_feed_blueprint,
 )
 from atcroster.administration import (
     ToilService,
@@ -1590,14 +1589,15 @@ app.register_blueprint(create_module_blueprint(create_module_dependencies(
     competency_enabled=competency_enabled,
     is_admin_user=is_admin_user,
 )))
-app.register_blueprint(create_calendar_feed_blueprint(create_calendar_feed_dependencies(
+register_calendar_feed_blueprint(
+    app,
     get_shift=get_shift,
     db=db,
     operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
     validate_csrf=_validate_csrf,
-)))
+)
 register_administration_blueprints(
     app,
     db=db,

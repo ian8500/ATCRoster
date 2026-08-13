@@ -100,3 +100,14 @@ def create_calendar_feed_blueprint(dependencies: CalendarFeedDependencies) -> Bl
         state.app.add_url_rule("/staff/<int:sid>/calendar-token", "calendar_token_create", calendar_token_create, methods=("POST",))
 
     return blueprint
+
+
+def register_calendar_feed_blueprint(
+    app: Any, *, db: Any, operational_models: Any, **services: Any
+) -> None:
+    """Register calendar routes from calendar-owned dependencies."""
+    app.register_blueprint(create_calendar_feed_blueprint(
+        create_calendar_feed_dependencies(
+            db=db, operational_models=operational_models, **services
+        )
+    ))
