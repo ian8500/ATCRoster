@@ -132,12 +132,13 @@ from atcroster.reports import ReportingRuntime, ReportingRuntimeDependencies
 from atcroster.auth import (
     AuthRuntime,
     AuthRuntimeDependencies,
+    AuthRegistrationDependencies,
+    register_auth_blueprints,
     load_identity,
     canonical_login_redirect,
     airport_login_endpoint,
     complete_platform_login,
 )
-from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_blueprint
 from atcroster.qualifications import (
     QualificationRuntime,
     QualificationRuntimeDependencies,
@@ -328,7 +329,6 @@ from atcroster.tenancy_writes import (
 )
 from atcroster.briefing_bootstrap import load_briefing_module
 from migrations.fresh_schema import CONTROL_TABLES
-from auth_blueprint import AuthDependencies, create_auth_blueprint
 from absence_requests_blueprint import (
     AbsenceRequestDependencies,
     create_absence_requests_blueprint,
@@ -1873,7 +1873,7 @@ app.register_blueprint(create_handover_blueprint(HandoverDependencies(
     live_position_enabled=live_position_enabled,
 )))
 
-app.register_blueprint(create_auth_blueprint(AuthDependencies(
+register_auth_blueprints(app, AuthRegistrationDependencies(
     db=db,
     PlatformIdentity=PlatformIdentity,
     UnitMembership=UnitMembership,
@@ -1882,6 +1882,7 @@ app.register_blueprint(create_auth_blueprint(AuthDependencies(
     Unit=Unit,
     PlatformMfaCredential=PlatformMfaCredential,
     MfaCredential=MfaCredential,
+    deployment_environment=DEPLOYMENT_ENV,
     validate_csrf=_validate_csrf,
     normalized_login=_normalized_login,
     login_rate_key=_login_rate_key,
@@ -1894,31 +1895,14 @@ app.register_blueprint(create_auth_blueprint(AuthDependencies(
     airport_login_endpoint=_airport_login_endpoint,
     initialize_authenticated_session=_initialize_authenticated_session,
     record_successful_login=_record_successful_login,
-)))
-app.register_blueprint(create_mfa_blueprint(MfaRouteDependencies(
-    db=db,
-    PlatformIdentity=PlatformIdentity,
-    PlatformMfaCredential=PlatformMfaCredential,
-    Staff=Staff,
-    MfaCredential=MfaCredential,
-    DatabaseRoutingMetadata=DatabaseRoutingMetadata,
-    deployment_environment=DEPLOYMENT_ENV,
-    validate_csrf=_validate_csrf,
-    consume_rate_limit=_consume_rate_limit,
     decrypt_secret=_decrypt_mfa_secret,
     matching_totp_step=_matching_totp_step,
     encrypt_field=_encrypt_field,
     now=utcnow,
-    central_security_event=_central_security_event,
-    bind_authenticated_unit=bind_authenticated_unit,
-    initialize_authenticated_session=_initialize_authenticated_session,
-    security_event=_security_event,
-    record_successful_login=_record_successful_login,
-    canonical_login_redirect=_canonical_login_redirect,
     current_unit_id=_current_unit_id,
     current_auth_stamp=_current_auth_stamp,
     totp_qr_data_uri=_totp_qr_data_uri,
-)))
+))
 app.register_blueprint(create_qualification_blueprint(QualificationDependencies(
     db=db,
     Staff=Staff,
