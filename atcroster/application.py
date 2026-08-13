@@ -4,7 +4,6 @@ from functools import wraps
 from calendar import monthrange
 from collections import defaultdict, Counter, OrderedDict
 from typing import Any, Optional, Tuple
-import base64
 from urllib import parse as urllib_parse
 from flask import render_template, request, redirect, url_for, flash, abort, session, g
 import os
@@ -132,6 +131,7 @@ from access_policy import (
 )
 from atcroster import create_app, get_runtime_settings
 from atcroster.clock import utcnow
+from atcroster.auth import decrypt_secret, matching_totp_step, totp_qr_data_uri
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -8203,21 +8203,11 @@ def complete_account_recovery(token):
 
 
 def _decrypt_mfa_secret(credential) -> str:
-    try:
-        return _decrypt_field(credential.encrypted_secret)
-    except ValueError as exc:
-        raise RuntimeError("MFA credential cannot be decrypted.") from exc
+    return decrypt_secret(credential, _decrypt_field)
 
 
 def _matching_totp_step(secret: str, code: str) -> int | None:
-    totp = pyotp.TOTP(secret)
-    now = utcnow()
-    for offset in (-1, 0, 1):
-        candidate_time = now + timedelta(seconds=offset * 30)
-        candidate = totp.at(candidate_time)
-        if secrets.compare_digest(candidate, code):
-            return int(candidate_time.timestamp() // 30)
-    return None
+    return matching_totp_step(secret, code, utcnow)
 
 
 def _pending_platform_login():
@@ -8252,21 +8242,7 @@ def _complete_platform_login(identity, user, recovery_used=False):
 
 
 def _totp_qr_data_uri(provisioning_uri: str) -> str:
-    """Render a TOTP URI locally so MFA secrets never leave the application."""
-    import qrcode
-    import qrcode.image.svg
-
-    qr_buffer = io.BytesIO()
-    qrcode.make(
-        provisioning_uri,
-        image_factory=qrcode.image.svg.SvgPathImage,
-        box_size=8,
-        border=4,
-    ).save(qr_buffer)
-    return (
-        "data:image/svg+xml;base64,"
-        + base64.b64encode(qr_buffer.getvalue()).decode("ascii")
-    )
+    return totp_qr_data_uri(provisioning_uri)
 
 
 @app.route("/login/platform-mfa/setup", methods=["GET", "POST"])
