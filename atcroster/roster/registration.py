@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from roster_blueprint import create_roster_blueprint, create_roster_dependencies
+from atcroster.cli_roster import create_roster_cli, create_roster_cli_dependencies
 
 from .overtime import create_overtime_blueprint, create_overtime_dependencies
 
@@ -56,4 +57,18 @@ def register_roster_blueprints(
         can_send_messages=services.can_send_messages, send_sms=services.send_sms,
         default_sms_body=services.default_sms_body,
         sms_configured=services.sms_configured,
+    )))
+
+
+def register_roster_cli(
+    app: Any, *, db: Any, operational_models: Any,
+    roster_impact_event_type: Any, services: Any,
+) -> None:
+    """Attach roster maintenance commands from roster-owned dependencies."""
+    app.cli.add_command(create_roster_cli(create_roster_cli_dependencies(
+        db=db, operational_models=operational_models,
+        roster_impact_event_type=roster_impact_event_type,
+        add_months=services.add_months,
+        roster_period_service=services.roster_period_service,
+        roster_impact_service=services.roster_impact_service,
     )))

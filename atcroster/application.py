@@ -99,6 +99,7 @@ from atcroster.roster import (
     create_roster_month_service,
     create_shift_lookup_service,
     register_roster_blueprints,
+    register_roster_cli,
 )
 from atcroster.roster.editing import (
     RosterEditingRuntime,
@@ -229,7 +230,6 @@ from atcroster.roster.impacts import (
     create_roster_impact_runtime_dependencies,
 )
 from atcroster.cli import CliDependencies, create_cli_commands
-from atcroster.cli_roster import create_roster_cli, create_roster_cli_dependencies
 from atcroster.modules import (
     ModuleAvailability,
     create_module_blueprint,
@@ -1714,14 +1714,17 @@ register_operations_routes(
     ),
 )
 
-app.cli.add_command(create_roster_cli(create_roster_cli_dependencies(
+register_roster_cli(
+    app,
     db=db,
     operational_models=_operational_models,
     roster_impact_event_type=RosterImpactEventType,
-    add_months=add_months,
-    roster_period_service=roster_period_service,
-    roster_impact_service=roster_impact_service,
-)))
+    services=SimpleNamespace(
+        add_months=add_months,
+        roster_period_service=roster_period_service,
+        roster_impact_service=roster_impact_service,
+    ),
+)
 
 # -------------------- WSGI entry point --------------------
 # Compatibility alias for WSGI servers that import ``application``.
