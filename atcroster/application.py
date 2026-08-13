@@ -213,8 +213,8 @@ from atcroster.roster.month_view import (
 )
 from atcroster.roster.assignments import (
     AssignmentRuntime,
-    AssignmentRuntimeDependencies,
-    AssignmentRefreshDependencies,
+    create_assignment_refresh_dependencies,
+    create_assignment_runtime_dependencies,
     AllocationRuntime,
     AllocationRuntimeDependencies,
 )
@@ -929,18 +929,16 @@ record_qualification_roster_impact = roster_impact_runtime.record_qualification
 
 _cycle_day_for = pattern_runtime.cycle_day
 
-assignment_runtime = AssignmentRuntime(AssignmentRuntimeDependencies(
-    refresh=AssignmentRefreshDependencies(
+assignment_runtime = AssignmentRuntime(create_assignment_runtime_dependencies(
+    operational_models=_operational_models,
+    refresh=create_assignment_refresh_dependencies(
         db=db,
-        Assignment=Assignment,
-        Staff=Staff,
+        operational_models=_operational_models,
         code_from_pattern=code_from_pattern,
         day_leave_for=day_leave_for,
         get_shift=get_shift,
         absence_types=get_absence_types,
     ),
-    Requirement=Requirement,
-    SpecialRequirement=SpecialRequirement,
     month_range=month_days,
     shift_minutes=shift_minutes,
     daily_requirements=daily_requirements,

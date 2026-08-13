@@ -18,6 +18,18 @@ class AssignmentRefreshDependencies:
     absence_types: Callable[..., list[dict[str, Any]]]
 
 
+def create_assignment_refresh_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> AssignmentRefreshDependencies:
+    """Bind assignment refresh records at the roster boundary."""
+    return AssignmentRefreshDependencies(
+        db=db,
+        Assignment=operational_models.Assignment,
+        Staff=operational_models.Staff,
+        **services,
+    )
+
+
 def set_generated_assignment(
     staff: Any,
     day: date,
@@ -247,6 +259,19 @@ class AssignmentRuntimeDependencies:
     ensure_month_requirement: Callable[..., Any]
     requirements_for_day: Callable[..., dict[str, int]]
     iter_year_months: Callable[[date, date], Any]
+
+
+def create_assignment_runtime_dependencies(
+    *, operational_models: Any, refresh: AssignmentRefreshDependencies,
+    **services: Any
+) -> AssignmentRuntimeDependencies:
+    """Bind assignment-runtime requirement records in the roster domain."""
+    return AssignmentRuntimeDependencies(
+        refresh=refresh,
+        Requirement=operational_models.Requirement,
+        SpecialRequirement=operational_models.SpecialRequirement,
+        **services,
+    )
 
 
 class AssignmentRuntime:
