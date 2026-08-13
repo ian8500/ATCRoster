@@ -129,6 +129,11 @@ from atcroster.roster import (
     set_assignment_code,
 )
 from atcroster.roster.shifts import save_counter_mapping
+from atcroster.roster.requirements import (
+    delete_special_requirement,
+    save_monthly_requirements,
+    save_special_requirement,
+)
 from atcroster.compression import register_response_compression
 from access_policy import (
     has_permission,
@@ -3638,104 +3643,42 @@ def admin():
 
         # Save requirements grid (includes req_d)
         if form == "req":
-            yms = request.form.getlist("ym")
-            field_names = [
-                f"req_{prefix}{code}"
-                for prefix in ("", "sat_", "sun_")
-                for code in ("m", "d", "a", "n")
-            ]
-            values = {
-                field: request.form.getlist(field)
-                for field in field_names
-            }
-            for i in range(len(yms)):
-                y, m = [int(x) for x in yms[i].split("-")]
-                r = Requirement.query.filter_by(year=y, month=m).first()
-                if not r:
-                    r = Requirement(year=y, month=m)
-                    db.session.add(r)
-                for field in field_names:
-                    try:
-                        value = int(values[field][i] or 0)
-                    except (ValueError, IndexError):
-                        abort(400, f"Invalid staffing value for {field}.")
-                    setattr(r, field, max(0, value))
-            if yms:
-                periods = sorted(
-                    (int(value.split("-")[0]), int(value.split("-")[1]))
-                    for value in yms
+            try:
+                save_monthly_requirements(
+                    request.form,
+                    db=db,
+                    Requirement=Requirement,
+                    impact_type=RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
+                    record_roster_impact=record_roster_impact,
                 )
-                start_year, start_month = periods[0]
-                end_year, end_month = periods[-1]
-                record_roster_impact(
-                    RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
-                    date(start_year, start_month, 1),
-                    effective_to=date(
-                        end_year, end_month,
-                        monthrange(end_year, end_month)[1],
-                    ),
-                    rebuild_baseline=False,
-                    reason="Monthly staffing requirements changed.",
-                )
-            db.session.commit()
+            except ValueError as exc:
+                abort(400, str(exc))
             flash("Requirements saved.", "ok")
             return redirect(url_for("admin") + "#requirements")
 
         if form == "special_requirement":
             try:
-                selected_day = date.fromisoformat(
-                    request.form.get("special_day") or ""
+                message = save_special_requirement(
+                    request.form,
+                    db=db,
+                    SpecialRequirement=SpecialRequirement,
+                    impact_type=RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
+                    record_roster_impact=record_roster_impact,
                 )
-            except ValueError:
-                flash("Choose a valid date for the special requirement.", "error")
-                return redirect(url_for("admin") + "#requirements")
-            label = (request.form.get("special_label") or "").strip()[:80]
-            if not label:
-                flash(
-                    "Describe the reason, for example Christmas Day.",
-                    "error",
-                )
-                return redirect(url_for("admin") + "#requirements")
-            row = SpecialRequirement.query.filter_by(day=selected_day).first()
-            if not row:
-                row = SpecialRequirement(day=selected_day)
-                db.session.add(row)
-            row.label = label
-            for code in ("m", "d", "a", "n"):
-                try:
-                    value = int(
-                        request.form.get(f"special_req_{code}") or 0
-                    )
-                except ValueError:
-                    abort(400, "Special staffing values must be numbers.")
-                setattr(row, f"req_{code}", max(0, value))
-            record_roster_impact(
-                RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
-                selected_day, effective_to=selected_day,
-                rebuild_baseline=False,
-                reason=f"Special staffing requirement changed: {label}.",
-            )
-            db.session.commit()
-            flash(
-                f"Special requirements saved for "
-                f"{selected_day.strftime('%d %B %Y')}.",
-                "ok",
-            )
+            except ValueError as exc:
+                flash(str(exc), "error")
+            else:
+                flash(message, "ok")
             return redirect(url_for("admin") + "#requirements")
 
         if form == "special_requirement_delete":
-            row = SpecialRequirement.query.filter_by(
-                id=int(request.form.get("special_requirement_id") or 0)
-            ).first_or_404()
-            removed_day = row.day
-            db.session.delete(row)
-            record_roster_impact(
-                RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
-                removed_day, effective_to=removed_day,
-                rebuild_baseline=False,
-                reason="Special staffing requirement removed.",
+            delete_special_requirement(
+                int(request.form.get("special_requirement_id") or 0),
+                db=db,
+                SpecialRequirement=SpecialRequirement,
+                impact_type=RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
+                record_roster_impact=record_roster_impact,
             )
-            db.session.commit()
             flash("Special requirement removed.", "ok")
             return redirect(url_for("admin") + "#requirements")
 
