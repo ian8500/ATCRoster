@@ -1192,8 +1192,6 @@ _configured_fatigue_findings = fatigue_runtime.configured_findings
 _segments_for_staff = fatigue_runtime.segments_for_staff
 fatigue_flags_for_range = fatigue_runtime.findings_for_range
 roster_fatigue_flags_matrix = fatigue_runtime.findings_matrix
-
-
 def would_trigger_fatigue(staff: Staff, day: date, code: str):
     return would_trigger_fatigue_with_plan(staff, day, code, {})
 
@@ -1234,16 +1232,7 @@ def would_trigger_fatigue_with_plan(
     )
 
 
-def would_create_new_fatigue_issues(
-    staff: Staff,
-    proposed_day: date,
-    proposed_code: str,
-    lookback_days: int = 30,
-    lookahead_days: int = 14,
-):
-    return fatigue_runtime.new_findings(
-        staff, proposed_day, proposed_code, lookback_days, lookahead_days
-    )
+would_create_new_fatigue_issues = fatigue_runtime.new_findings
 
 
 _compliance_month = compliance_month
