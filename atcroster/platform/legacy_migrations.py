@@ -5,7 +5,82 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
+
+
+def upgrade_tenant_foundation(*, db: Any, Unit: Any) -> None:
+    """Idempotently add tenant ownership to legacy desktop databases."""
+    inspector = inspect(db.engine)
+    if "unit" not in inspector.get_table_names():
+        db.create_all()
+        inspector = inspect(db.engine)
+    if Unit.query.count() == 0:
+        db.session.add(Unit(id=1, code="FIRST", name="First airport unit"))
+        db.session.commit()
+
+    additions = {
+        "staff": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "membership_status": "VARCHAR(20) NOT NULL DEFAULT 'active'",
+            "permissions_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+        "watch": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "requirement": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "leave": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "sickness": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "ai_rule_set": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "change_log": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "staff_watch_history": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "shift_type": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "is_active": "BOOLEAN NOT NULL DEFAULT 1",
+            "is_requestable": "BOOLEAN NOT NULL DEFAULT 0",
+            "required_qualification": "VARCHAR(40) NOT NULL DEFAULT ''",
+        },
+        "assignment": {"unit_id": "INTEGER NOT NULL DEFAULT 1"},
+        "shift_request": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "requester_comment": "VARCHAR(500) NOT NULL DEFAULT ''",
+            "created_at": "DATETIME",
+            "updated_at": "DATETIME",
+            "fulfilled_at": "DATETIME",
+            "cancelled_at": "DATETIME",
+            "resulting_assignment_id": "INTEGER",
+        },
+        "annotation_type": {
+            "unit_id": "INTEGER NOT NULL DEFAULT 1",
+            "colour": "VARCHAR(20) NOT NULL DEFAULT '#6c757d'",
+            "description": "TEXT NOT NULL DEFAULT ''",
+            "note_required": "BOOLEAN NOT NULL DEFAULT 0",
+            "admin_only": "BOOLEAN NOT NULL DEFAULT 0",
+            "has_been_used": "BOOLEAN NOT NULL DEFAULT 0",
+        },
+    }
+    tables = set(inspector.get_table_names())
+    for table_name, columns in additions.items():
+        if table_name not in tables:
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table_name)}
+        for name, definition in columns.items():
+            if name not in existing:
+                db.session.execute(
+                    text(f'ALTER TABLE "{table_name}" ADD COLUMN "{name}" {definition}')
+                )
+        db.session.execute(
+            text(
+                f'CREATE INDEX IF NOT EXISTS "ix_{table_name}_unit_id" '
+                f'ON "{table_name}" ("unit_id")'
+            )
+        )
+    if "shift_request" in tables:
+        db.session.execute(
+            text(
+                "UPDATE shift_request SET "
+                "created_at = COALESCE(created_at, submitted_at), "
+                "updated_at = COALESCE(updated_at, submitted_at)"
+            )
+        )
+    db.session.commit()
 
 
 def execute_session_ddl(*, db: Any, statement: str) -> None:

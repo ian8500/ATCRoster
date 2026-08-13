@@ -7,6 +7,7 @@ from .legacy_migrations import (
     add_performance_indexes,
     add_role_and_calendar_token,
     add_unique_assignment_key,
+    upgrade_tenant_foundation,
 )
 
 __all__ = (
@@ -16,5 +17,6 @@ __all__ = (
     "add_performance_indexes",
     "add_role_and_calendar_token",
     "add_unique_assignment_key",
+    "upgrade_tenant_foundation",
     "create_worker_health_blueprint",
 )
