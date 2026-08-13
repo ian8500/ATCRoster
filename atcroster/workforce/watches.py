@@ -39,3 +39,14 @@ def watch_id_for_staff_on(db: Any, StaffWatchHistory: Any, Staff: Any, unit_id: 
         return history.watch_id
     staff = Staff.query.filter_by(id=staff_id, unit_id=unit_id).first()
     return staff.watch_id if staff else None
+
+
+def effective_watch(db: Any, StaffWatchHistory: Any, staff: Any, on_date: date) -> Any:
+    """Return the watch that applies on a date, including historical moves."""
+    move = StaffWatchHistory.query.filter(
+        StaffWatchHistory.unit_id == staff.unit_id,
+        StaffWatchHistory.staff_id == staff.id,
+        StaffWatchHistory.effective_date <= on_date,
+        db.or_(StaffWatchHistory.effective_to.is_(None), StaffWatchHistory.effective_to >= on_date),
+    ).order_by(StaffWatchHistory.effective_date.desc(), StaffWatchHistory.id.desc()).first()
+    return move.watch if move else staff.watch

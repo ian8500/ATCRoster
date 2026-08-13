@@ -152,7 +152,7 @@ from atcroster.auth import (
     totp_qr_data_uri,
 )
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
-from atcroster.workforce import watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
+from atcroster.workforce import effective_watch as resolve_effective_watch, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -1681,20 +1681,7 @@ def _validated_pattern(raw_value: str | None) -> list[str]:
 
 
 def _effective_watch(staff: Staff, on_date: date) -> Watch | None:
-    move = (
-        StaffWatchHistory.query.filter(
-            StaffWatchHistory.unit_id == staff.unit_id,
-            StaffWatchHistory.staff_id == staff.id,
-            StaffWatchHistory.effective_date <= on_date,
-            db.or_(StaffWatchHistory.effective_to.is_(None), StaffWatchHistory.effective_to >= on_date),
-        )
-        .order_by(
-            StaffWatchHistory.effective_date.desc(),
-            StaffWatchHistory.id.desc(),
-        )
-        .first()
-    )
-    return move.watch if move else staff.watch
+    return resolve_effective_watch(db, StaffWatchHistory, staff, on_date)
 
 
 def _unit_pattern_context(unit_id: int) -> tuple[list[str], date]:
