@@ -305,7 +305,7 @@ from atcroster.tenancy_writes import (
     invalidate_touched_units,
     tenant_get as tenant_scoped_get,
 )
-from atcroster.briefing_bootstrap import load_briefing_module
+from atcroster.briefing_bootstrap import BriefingDependencies, load_briefing_module
 from migrations.fresh_schema import CONTROL_TABLES
 from reports_blueprint import create_reports_blueprint, create_reports_dependencies
 from atcroster.training import register_training_blueprint
@@ -1494,6 +1494,16 @@ publication_service = create_publication_service(create_publication_dependencies
 ))
 _roster_snapshot = publication_service.snapshot
 _active_roster_publication = publication_service.active_publication
+_briefing.configure_dependencies(BriefingDependencies(
+    FeatureFlag=FeatureFlag,
+    Unit=Unit,
+    Staff=Staff,
+    Watch=Watch,
+    ShiftType=ShiftType,
+    Assignment=Assignment,
+    PlatformIdentity=PlatformIdentity,
+    active_roster_publication=_active_roster_publication,
+))
 register_roster_blueprints(
     app,
     db=db,

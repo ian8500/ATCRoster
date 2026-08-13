@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.session import Session as FlaskSqlAlchemySession
 
@@ -35,6 +37,20 @@ OPERATIONAL_TABLE_NAMES = frozenset({
 # module is imported.  Declaring its eventual type keeps model declarations
 # honest without forcing every model attribute through an optional guard.
 db: SQLAlchemy
+_unit_membership_model: Any | None = None
+
+
+def register_unit_membership_model(model: Any) -> None:
+    """Register the control-plane membership model for legacy user IDs."""
+    global _unit_membership_model
+    _unit_membership_model = model
+
+
+def unit_membership_model() -> Any:
+    """Return the single canonical membership model after app assembly."""
+    if _unit_membership_model is None:
+        raise RuntimeError("UnitMembership model has not been registered.")
+    return _unit_membership_model
 
 
 def create_tenant_database(app, deployment_environment: str) -> SQLAlchemy:

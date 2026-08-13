@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from atcroster.extensions import register_unit_membership_model
+
 
 def register_saas_models(db, utcnow):
     class PlatformIdentity(db.Model):
@@ -91,6 +93,8 @@ def register_saas_models(db, utcnow):
         __table_args__ = (
             db.UniqueConstraint("identity_id", "unit_id", name="uq_membership_identity_unit"),
         )
+
+    register_unit_membership_model(UnitMembership)
 
     class SecureInvitation(db.Model):
         __tablename__ = "secure_invitation"

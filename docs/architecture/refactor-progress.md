@@ -40,6 +40,11 @@
 | SMS audit administration and delivery webhook | `atcroster/notifications/admin.py` |
 | Unit messaging route | `atcroster/notifications/messaging.py` |
 | Platform provisioning worker health | `atcroster/platform/worker_health.py` |
+| Administration route registration | `atcroster/administration/registration.py` |
+| Roster and overtime route/CLI registration | `atcroster/roster/registration.py` |
+| Request route registration | `atcroster/requests/registration.py` |
+| Platform route and operations registration | `atcroster/platform/registration.py` |
+| Notification and training route registration | `atcroster/notifications/registration.py`, `atcroster/training/registration.py` |
 
 ## Safe stopping boundary
 
@@ -69,8 +74,7 @@ without changing the legacy import surface.
    reducing the composition root toward the preferred target.
 2. Continue replacing oversized registration dependency objects with smaller feature
    contracts where a shared dependency has a natural owner.
-3. Keep moving feature-local policy helpers to their domain packages.
-4. Maintain and extend the legacy application export contract before removing any
+3. Maintain and extend the legacy application export contract before removing any
    remaining aliases.
 
 ## Temporary compatibility and import state
@@ -91,6 +95,7 @@ the contract alongside a deliberate integration migration.
 The public `app.py` module is a small compatibility entrypoint. Application
 composition and legacy model compatibility live in `atcroster.application`, so
 WSGI, workers, scripts, and existing integrations retain the stable `app`
-import while new code can depend on domain modules directly. `briefing_module`
-now imports the composition module explicitly, avoiding a reverse dependency
-on the public compatibility entrypoint.
+import while new code can depend on domain modules directly. Optional briefing
+receives its cross-domain collaborators through an explicit composition-time
+contract; it no longer imports the composition root. This boundary is enforced
+by `tests/test_application_compatibility.py`.

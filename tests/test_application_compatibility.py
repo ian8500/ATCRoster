@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import app
 
 
@@ -44,3 +47,26 @@ def test_public_application_compatibility_exports_are_available():
 
     assert app.application is app.app
     assert "special_requirement" in app.OPERATIONAL_TABLE_NAMES
+
+
+def test_production_modules_do_not_import_the_composition_root():
+    """Domains must receive collaborators explicitly, never via ``app``."""
+    repository = Path(__file__).resolve().parents[1]
+    production_sources = [
+        *repository.glob("atcroster/**/*.py"),
+        repository / "briefing_module.py",
+    ]
+    offenders = [
+        str(source.relative_to(repository))
+        for source in production_sources
+        if source.name != "application.py"
+        and any(
+            (isinstance(node, ast.ImportFrom) and node.module in {"app", "atcroster.application"})
+            or (
+                isinstance(node, ast.Import)
+                and any(alias.name in {"app", "atcroster.application"} for alias in node.names)
+            )
+            for node in ast.walk(ast.parse(source.read_text()))
+        )
+    ]
+    assert offenders == []

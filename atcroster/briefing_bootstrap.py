@@ -2,7 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any, Callable
 from types import SimpleNamespace
+
+
+@dataclass(frozen=True)
+class BriefingDependencies:
+    """Cross-domain collaborators used by the optional briefing module."""
+
+    FeatureFlag: Any
+    Unit: Any
+    Staff: Any
+    Watch: Any
+    ShiftType: Any
+    Assignment: Any
+    PlatformIdentity: Any
+    active_roster_publication: Callable[[int, int], Any]
 
 
 def load_briefing_module() -> SimpleNamespace:
@@ -16,6 +32,7 @@ def load_briefing_module() -> SimpleNamespace:
         briefing_blueprint,
         briefing_enabled,
         briefing_local_now,
+        configure_briefing_dependencies,
     )
 
     return SimpleNamespace(
@@ -27,4 +44,5 @@ def load_briefing_module() -> SimpleNamespace:
         blueprint=briefing_blueprint,
         enabled=briefing_enabled,
         local_now=briefing_local_now,
+        configure_dependencies=configure_briefing_dependencies,
     )

@@ -4,7 +4,7 @@ from flask_login import UserMixin
 from sqlalchemy.ext.hybrid import hybrid_property
 from werkzeug.security import check_password_hash
 
-from atcroster.extensions import db
+from atcroster.extensions import db, unit_membership_model
 from atcroster.clock import utcnow
 
 # -------------------- Models --------------------
@@ -90,7 +90,7 @@ class Staff(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
     def get_id(self) -> str:
-        from atcroster.application import UnitMembership
+        UnitMembership = unit_membership_model()
 
         membership = UnitMembership.query.filter_by(
             unit_id=self.unit_id,
