@@ -338,10 +338,9 @@ from atcroster.accounts.profile import (
     create_staff_profile_blueprint,
 )
 from atcroster.accounts.signup import (
+    SignupSaga,
     SignupSagaDependencies,
     SignupWorkflowError,
-    normalized_login,
-    run_invitation_signup,
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import (
@@ -2193,7 +2192,7 @@ _overtime_candidate_service = OvertimeCandidateService(
 
 
 
-_signup_saga_dependencies = SignupSagaDependencies(
+signup_saga = SignupSaga(SignupSagaDependencies(
     db=db,
     ShiftType=ShiftType,
     SignupWorkflow=SignupWorkflow,
@@ -2206,26 +2205,9 @@ _signup_saga_dependencies = SignupSagaDependencies(
     now=utcnow,
     valid_email=_valid_email,
     password_hash=generate_password_hash,
-)
-
-
-def _normalized_login(value: str) -> str:
-    return normalized_login(value)
-
-
-def _run_invitation_signup(
-    invitation, unit, name, username, password, email="", fail_after=None,
-):
-    return run_invitation_signup(
-        _signup_saga_dependencies,
-        invitation,
-        unit,
-        name,
-        username,
-        password,
-        email,
-        fail_after,
-    )
+))
+_normalized_login = signup_saga.normalized_login
+_run_invitation_signup = signup_saga.run
 
 
 

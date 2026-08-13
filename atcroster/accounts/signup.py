@@ -30,6 +30,38 @@ class SignupSagaDependencies:
     password_hash: Callable[[str], str]
 
 
+class SignupSaga:
+    """Bound invitation-signup workflow with explicit cross-database dependencies."""
+
+    def __init__(self, dependencies: SignupSagaDependencies):
+        self.dependencies = dependencies
+
+    @staticmethod
+    def normalized_login(value: str) -> str:
+        return normalized_login(value)
+
+    def run(
+        self,
+        invitation: Any,
+        unit: Any,
+        name: str,
+        username: str,
+        password: str,
+        email: str = "",
+        fail_after: str | None = None,
+    ):
+        return run_invitation_signup(
+            self.dependencies,
+            invitation,
+            unit,
+            name,
+            username,
+            password,
+            email,
+            fail_after,
+        )
+
+
 def normalized_login(value: str) -> str:
     return value.strip().casefold()
 
