@@ -143,7 +143,7 @@ from atcroster.auth import (
     reset_rate_limit,
     totp_qr_data_uri,
 )
-from atcroster.audit import record_central_security_event
+from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -3109,26 +3109,15 @@ def parse_annotation(s: str):
 
 
 def _context_month_for_date(d: date | None) -> str | None:
-    return None if not d else f"{d.year:04d}-{d.month:02d}"
+    return context_month_for_date(d)
 
 
 def log_change(entity_type: str, entity_id: int, field: str, old, new, note: str = "", context_day: date | None = None):
-    try:
-        entry = ChangeLog(
-            when=utcnow(),
-            who_user_id=getattr(current_user, "id", None),
-            entity_type=entity_type,
-            entity_id=entity_id,
-            field=field,
-            old_value=str(old) if old is not None else None,
-            new_value=str(new) if new is not None else None,
-            context_month=_context_month_for_date(context_day),
-            note=note or ""
-        )
-        db.session.add(entry)
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    record_change(
+        db=db, ChangeLog=ChangeLog, user=current_user, now=utcnow,
+        entity_type=entity_type, entity_id=entity_id, field=field,
+        old=old, new=new, note=note, context_day=context_day,
+    )
 
 # --- Month math (no dateutil) ---
 
