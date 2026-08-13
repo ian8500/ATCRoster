@@ -23,6 +23,7 @@
 | Tenant request hooks | `atcroster/tenancy_hooks.py` |
 | Notification inbox routes | `atcroster/notifications/blueprint.py` |
 | Module launcher | `atcroster/modules/blueprint.py` |
+| Calendar subscription feed | `atcroster/calendar_feed.py` |
 
 ## Safe stopping boundary
 

@@ -121,6 +121,7 @@ from atcroster.notifications import (
     create_notification_blueprint,
 )
 from atcroster.modules import ModuleDependencies, create_module_blueprint
+from atcroster.calendar_feed import CalendarFeedDependencies, create_calendar_feed_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -7394,76 +7395,6 @@ def messagemedia_delivery_webhook():
             db.session.commit()
     return Response(status=204)
 
-# -------------------- Calendar subscription --------------------
-
-
-def _calendar_window_today():
-    today = date.today()
-    cur_start = date(today.year, today.month, 1)
-    nxt_month = (today.month % 12) + 1
-    nxt_year = today.year + (1 if today.month == 12 else 0)
-    include_next = today.day >= 20
-    cur_end = (cur_start.replace(day=28) + timedelta(days=10)
-               ).replace(day=1) - timedelta(days=1)
-    nxt_end = (date(nxt_year, nxt_month, 1).replace(day=28) +
-               timedelta(days=10)).replace(day=1) - timedelta(days=1)
-    start = cur_start
-    end = nxt_end if include_next else cur_end
-    return start, end
-
-
-def _ical_escape(txt: str) -> str:
-    return (txt or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-
-
-@app.route("/calendar/<int:sid>/<token>.ics")
-def calendar_feed(sid, token):
-    # The unguessable token is the credential. Calendar clients are not
-    # logged in, so this public feed must not depend on session tenancy.
-    s = Staff.query.filter_by(id=sid, calendar_token=token).first_or_404()
-    if not s.calendar_token or token != s.calendar_token:
-        abort(403)
-
-    start, end = _calendar_window_today()
-    q = (Assignment.query
-         .filter(Assignment.staff_id == s.id,
-                 Assignment.day >= start,
-                 Assignment.day <= end)
-         .order_by(Assignment.day.asc()))
-
-    lines = []
-    lines.append("BEGIN:VCALENDAR")
-    lines.append("VERSION:2.0")
-    lines.append("PRODID:-//ATC Roster//EN")
-    lines.append("CALSCALE:GREGORIAN")
-    lines.append(f"X-WR-CALNAME:{_ical_escape(s.name)} Roster")
-
-    for a in q.all():
-        sh = get_shift(a.code, unit_id=s.unit_id)
-        uid = f"{s.id}-{a.day.isoformat()}-{a.code}@atcroster"
-        lines.append("BEGIN:VEVENT")
-        lines.append(f"UID:{uid}")
-        summary = f"{a.code}"
-        if a.annotation:
-            summary += f" ({a.annotation})"
-        lines.append(f"SUMMARY:{_ical_escape(summary)}")
-        if sh and sh.start_time and sh.end_time and sh.is_working:
-            dt0 = datetime.combine(a.day, sh.start_time)
-            dt1 = datetime.combine(a.day, sh.end_time)
-            if sh.end_time <= sh.start_time:
-                dt1 += timedelta(days=1)
-            lines.append(f"DTSTART:{dt0.strftime('%Y%m%dT%H%M%S')}")
-            lines.append(f"DTEND:{dt1.strftime('%Y%m%dT%H%M%S')}")
-        else:
-            lines.append(f"DTSTART;VALUE=DATE:{a.day.strftime('%Y%m%d')}")
-            lines.append(
-                f"DTEND;VALUE=DATE:{(a.day + timedelta(days=1)).strftime('%Y%m%d')}")
-        lines.append("END:VEVENT")
-
-    lines.append("END:VCALENDAR")
-    ics = "\r\n".join(lines).encode("utf-8")
-    return Response(ics, mimetype="text/calendar; charset=utf-8")
-
 # ===== Leave Report (HTML + CSV) =====
 # (unchanged core; monthly AL-only kept to endpoints)
 
@@ -10720,6 +10651,11 @@ app.register_blueprint(create_module_blueprint(ModuleDependencies(
     training_enabled=training_enabled,
     competency_enabled=competency_enabled,
     is_admin_user=is_admin_user,
+)))
+app.register_blueprint(create_calendar_feed_blueprint(CalendarFeedDependencies(
+    Staff=Staff,
+    Assignment=Assignment,
+    get_shift=get_shift,
 )))
 app.register_blueprint(briefing_blueprint)
 
