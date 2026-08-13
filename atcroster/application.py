@@ -141,7 +141,7 @@ from atcroster.auth import (
 from atcroster.qualifications import (
     QualificationRuntime,
     QualificationRuntimeDependencies,
-    EligibilityDependencies,
+    create_eligibility_dependencies,
     EligibilityService,
     ComplianceRuntime,
     create_compliance_runtime_dependencies,
@@ -641,11 +641,10 @@ get_banned_roster_codes = roster_settings_catalogue.get_banned_codes
 get_exclude_from_counters = roster_settings_catalogue.get_excluded_counter_codes
 get_non_working_codes = roster_settings_catalogue.get_non_working_codes
 
-eligibility_service = EligibilityService(EligibilityDependencies(
+eligibility_service = EligibilityService(create_eligibility_dependencies(
     db=db,
-    Staff=Staff,
-    QualificationType=QualificationType,
-    PersonQualification=PersonQualification,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     authenticated_unit_id=authenticated_unit_id,
 ))
 staff_is_countable_on = eligibility_service.is_countable

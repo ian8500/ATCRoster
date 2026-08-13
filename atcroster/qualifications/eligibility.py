@@ -24,6 +24,19 @@ class EligibilityDependencies:
     today: Callable[[], date] = date.today
 
 
+def create_eligibility_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> EligibilityDependencies:
+    """Bind eligibility records within the qualifications domain."""
+    return EligibilityDependencies(
+        db=db,
+        Staff=operational_models.Staff,
+        QualificationType=saas_models.QualificationType,
+        PersonQualification=saas_models.PersonQualification,
+        **services,
+    )
+
+
 class EligibilityService:
     """Own dated operational capability and tenant-scoped eligibility checks."""
 

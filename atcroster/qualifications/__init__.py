@@ -26,7 +26,11 @@ from .history import (
 )
 from .assurance import has_valid_endorsement, monthly_position_assurance
 from .runtime import QualificationRuntime, QualificationRuntimeDependencies
-from .eligibility import EligibilityDependencies, EligibilityService
+from .eligibility import (
+    EligibilityDependencies,
+    EligibilityService,
+    create_eligibility_dependencies,
+)
 from .access import may_view_training_profile
 from .registration import (
     QualificationRegistrationDependencies,
@@ -61,6 +65,7 @@ __all__ = (
     "QualificationRuntimeDependencies",
     "EligibilityDependencies",
     "EligibilityService",
+    "create_eligibility_dependencies",
     "may_view_training_profile",
     "QualificationRegistrationDependencies",
     "create_qualification_registration_dependencies",
