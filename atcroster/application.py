@@ -148,19 +148,12 @@ from access_policy import (
 from atcroster import create_app, get_runtime_settings
 from atcroster.clock import utcnow
 from atcroster.auth import (
-    decrypt_secret,
-    matching_totp_step,
+    AuthRuntime,
+    AuthRuntimeDependencies,
     load_identity,
-    consume_rate_limit,
     canonical_login_redirect,
     airport_login_endpoint,
-    credential_for_auth_stamp,
     complete_platform_login,
-    privacy_rate_limit_key,
-    pending_platform_login,
-    record_security_event,
-    reset_rate_limit,
-    totp_qr_data_uri,
 )
 from atcroster.auth.mfa_blueprint import MfaRouteDependencies, create_mfa_blueprint
 from atcroster.qualifications import (
@@ -2525,47 +2518,27 @@ def _position_assurance(year: int, month: int) -> list[dict]:
 LOGIN_RATE_WINDOW = timedelta(minutes=15)
 LOGIN_RATE_LIMIT = 10
 
-
-def _login_rate_key(username: str) -> str:
-    return privacy_rate_limit_key(
-        str(app.config["SECRET_KEY"]), "login", request.remote_addr or "unknown",
-        username.lower(), privacy_key,
-    )
-
-
-def _consume_rate_limit(
-    scope: str, subject: object, limit: int = LOGIN_RATE_LIMIT,
-    window: timedelta = LOGIN_RATE_WINDOW, fail_closed: bool = True,
-) -> bool:
-    return consume_rate_limit(
-        limiter=_rate_limiter,
-        key=privacy_rate_limit_key(str(app.config["SECRET_KEY"]), scope, request.remote_addr or "unknown", subject, privacy_key),
-        limit=limit, window=window, unavailable=LimiterUnavailable,
-        security_event=_security_event, scope=scope, fail_closed=fail_closed,
-    )
-
-
-def _reset_rate_limit(scope: str, subject: object) -> None:
-    reset_rate_limit(
-        limiter=_rate_limiter,
-        key=privacy_rate_limit_key(str(app.config["SECRET_KEY"]), scope, request.remote_addr or "unknown", subject, privacy_key),
-        unavailable=LimiterUnavailable, security_event=_security_event, scope=scope,
-    )
-
-
-def _security_event(event: str, **safe_fields) -> None:
-    record_security_event(
-        metrics=_operational_metrics,
-        logger=app.logger,
-        request_id=getattr(g, "request_id", ""),
-        structured_event=structured_event,
-        event=event,
-        **safe_fields,
-    )
-
-
-def _credential_for_auth_stamp(user):
-    return credential_for_auth_stamp(user, PlatformMfaCredential, MfaCredential)
+_auth_runtime = AuthRuntime(AuthRuntimeDependencies(
+    app=app,
+    db=db,
+    limiter=_rate_limiter,
+    metrics=_operational_metrics,
+    privacy_key=privacy_key,
+    limiter_unavailable=LimiterUnavailable,
+    structured_event=structured_event,
+    PlatformIdentity=PlatformIdentity,
+    PlatformMfaCredential=PlatformMfaCredential,
+    MfaCredential=MfaCredential,
+    RecoveryRequest=RecoveryRequest,
+    decrypt_field=_decrypt_field,
+    now=utcnow,
+    active_recovery_from_digest=active_recovery_from_digest,
+))
+_login_rate_key = _auth_runtime.login_rate_key
+_consume_rate_limit = _auth_runtime.consume_rate_limit
+_reset_rate_limit = _auth_runtime.reset_rate_limit
+_security_event = _auth_runtime.security_event
+_credential_for_auth_stamp = _auth_runtime.credential_for_auth_stamp
 
 
 _session_lifecycle = SessionLifecycle(
@@ -2605,25 +2578,10 @@ def _record_successful_login(user: Staff) -> None:
     )
 
 
-def _active_recovery_from_digest(
-    field_name: str, raw_token: str, expected_state: str
-):
-    return active_recovery_from_digest(
-        RecoveryRequest, field_name, raw_token, expected_state, utcnow
-    )
-
-def _decrypt_mfa_secret(credential) -> str:
-    return decrypt_secret(credential, _decrypt_field)
-
-
-def _matching_totp_step(secret: str, code: str) -> int | None:
-    return matching_totp_step(secret, code, utcnow)
-
-
-def _pending_platform_login():
-    return pending_platform_login(
-        session, db=db, PlatformIdentity=PlatformIdentity
-    )
+_active_recovery_from_digest = _auth_runtime.active_recovery
+_decrypt_mfa_secret = _auth_runtime.decrypt_mfa_secret
+_matching_totp_step = _auth_runtime.matching_totp_step
+_pending_platform_login = _auth_runtime.pending_platform_login
 
 
 def _complete_platform_login(identity, user, recovery_used=False):
@@ -2642,8 +2600,7 @@ def _complete_platform_login(identity, user, recovery_used=False):
     )
 
 
-def _totp_qr_data_uri(provisioning_uri: str) -> str:
-    return totp_qr_data_uri(provisioning_uri)
+_totp_qr_data_uri = _auth_runtime.totp_qr_data_uri
 
 
 for cli_command in create_cli_commands(CliDependencies(

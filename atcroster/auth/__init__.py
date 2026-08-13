@@ -7,12 +7,22 @@ from .sessions import credential_for_auth_stamp
 from .redirects import airport_login_endpoint, canonical_login_redirect
 from .platform_login import complete_platform_login, pending_platform_login
 from .identity_loader import load_identity
+from .runtime import AuthRuntime, AuthRuntimeDependencies
 
 __all__ = (
-    "airport_login_endpoint", "canonical_login_redirect", "consume_rate_limit", "credential_for_auth_stamp", "decrypt_secret", "matching_totp_step",
-    "privacy_rate_limit_key", "record_security_event", "reset_rate_limit",
+    "airport_login_endpoint",
+    "canonical_login_redirect",
+    "consume_rate_limit",
+    "credential_for_auth_stamp",
+    "decrypt_secret",
+    "matching_totp_step",
+    "privacy_rate_limit_key",
+    "record_security_event",
+    "reset_rate_limit",
     "totp_qr_data_uri",
     "complete_platform_login",
     "pending_platform_login",
     "load_identity",
+    "AuthRuntime",
+    "AuthRuntimeDependencies",
 )
