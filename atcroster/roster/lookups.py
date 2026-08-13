@@ -37,3 +37,13 @@ class ShiftLookupService:
     @lru_cache(maxsize=128)
     def groups(self, unit_id: int) -> tuple[list[Any], list[Any], list[Any]]:
         return shift_groups_snapshot(self.ShiftType, unit_id, self.banned_codes)
+
+
+def create_shift_lookup_service(
+    *, operational_models: Any, **services: Any
+) -> ShiftLookupService:
+    """Bind shift catalogue records inside the roster domain."""
+    return ShiftLookupService(
+        ShiftType=operational_models.ShiftType,
+        **services,
+    )

@@ -96,7 +96,7 @@ from atcroster.roster import (
     PatternRuntime,
     create_pattern_runtime_dependencies,
     create_roster_month_service,
-    ShiftLookupService,
+    create_shift_lookup_service,
 )
 from atcroster.roster.editing import (
     RosterEditingRuntime,
@@ -824,8 +824,8 @@ can_override_roster_conflicts = may_override_roster_conflicts
 tenant_get = partial(tenant_scoped_get, current_unit_id=_current_unit_id)
 roster_edit_required = create_roster_edit_required(current_user, can_edit_roster)
 
-shift_lookup_service = ShiftLookupService(
-    ShiftType=ShiftType,
+shift_lookup_service = create_shift_lookup_service(
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     banned_codes=get_banned_roster_codes,
 )
