@@ -6,4 +6,4 @@ claims in `../docs/product-truth-matrix.md` and
 
 Before publishing, replace the contact email and capture the approved real
 screens listed in the website product specification. Do not add unsupported
-claims about compliance, safety, security, availability or pilot status.
+claims about compliance, safety, security or availability.

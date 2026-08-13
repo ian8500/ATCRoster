@@ -21,10 +21,11 @@ guarantees unless separately evidenced for a particular customer deployment.
 
 ## ATCRoster proposition
 
-ATCRoster brings ATCO roster planning, controlled publication and operational
-position visibility into a tenant-isolated web application. It is suitable for
-controlled customer pilots subject to local configuration, validation and the
-external assurance activities described in the README.
+ATCRoster brings ATCO roster planning, controlled publication, operational
+position visibility and controlled briefing into a tenant-isolated web
+application. It is ready for market engagement and controlled deployment,
+subject to local configuration, validation and the external assurance
+activities described in the README.
 
 ## ATCO Roster page
 
@@ -49,7 +50,8 @@ be confirmed.
 
 ## Supporting capabilities
 
-Only claim: qualifications, training/competency, briefing, handover,
+Only claim: qualifications, training/competency, controlled briefing and
+acknowledgement, handover,
 notifications, account/MFA workflows, reporting, audit and tenant-separated
 operational data. Provider integrations should be described as configurable,
 not guaranteed.
@@ -64,10 +66,10 @@ authorisation. Do not use absolute claims such as “completely secure.”
 
 ## Product status
 
-Use: “ATCRoster is being prepared for controlled commercial pilots.” A pilot
-requires airport configuration validation, operational acceptance, production
-infrastructure verification, backup/restore rehearsal, independent security
-testing and any applicable safety/privacy assessment.
+Use: “ATCRoster is ready for market engagement and controlled deployment.” A
+customer deployment requires airport configuration validation, operational
+acceptance, production infrastructure verification, backup/restore rehearsal,
+independent security testing and any applicable safety/privacy assessment.
 
 ## Screenshots to capture from real seeded/demo data
 
