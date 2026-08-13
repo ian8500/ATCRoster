@@ -120,6 +120,7 @@ from atcroster.notifications import (
     NotificationDependencies,
     create_notification_blueprint,
 )
+from atcroster.modules import ModuleDependencies, create_module_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -4722,24 +4723,6 @@ def inject_perms():
             )[:120],
         },
     }
-
-
-@app.get("/modules")
-@login_required
-def module_home():
-    """Select between subscribed airport modules after authentication."""
-    if current_user.role == "superadmin":
-        return redirect(url_for("platform_admin"))
-    return render_template(
-        "module_home.html",
-        show_briefing=briefing_enabled(current_user.unit_id),
-        show_training=training_enabled(current_user.unit_id),
-        show_competency=competency_enabled(current_user.unit_id),
-        show_handover=FeatureFlag.query.filter_by(
-            unit_id=current_user.unit_id, key="handover_module", enabled=True
-        ).first() is not None,
-        show_administration=is_admin_user(current_user),
-    )
 
 
 @app.get("/administration")
@@ -10730,6 +10713,13 @@ app.register_blueprint(create_notification_blueprint(NotificationDependencies(
     current_unit_id=_current_unit_id,
     utcnow=utcnow,
     validate_csrf=_validate_csrf,
+)))
+app.register_blueprint(create_module_blueprint(ModuleDependencies(
+    FeatureFlag=FeatureFlag,
+    briefing_enabled=briefing_enabled,
+    training_enabled=training_enabled,
+    competency_enabled=competency_enabled,
+    is_admin_user=is_admin_user,
 )))
 app.register_blueprint(briefing_blueprint)
 

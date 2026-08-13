@@ -22,6 +22,7 @@
 | Session lifecycle | `atcroster/security/sessions.py` |
 | Tenant request hooks | `atcroster/tenancy_hooks.py` |
 | Notification inbox routes | `atcroster/notifications/blueprint.py` |
+| Module launcher | `atcroster/modules/blueprint.py` |
 
 ## Safe stopping boundary
 
