@@ -132,6 +132,7 @@ from access_policy import (
 from atcroster import create_app, get_runtime_settings
 from atcroster.clock import utcnow
 from atcroster.auth import decrypt_secret, matching_totp_step, totp_qr_data_uri
+from atcroster.audit import record_central_security_event
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -7952,11 +7953,15 @@ def _central_security_event(
     event_type: str, outcome: str, identity_id: int | None = None,
     principal: str = "", detail: str = "",
 ) -> None:
-    db.session.add(CentralSecurityAudit(
-        identity_id=identity_id, event_type=event_type[:80],
-        outcome=outcome[:20], principal_digest=principal[:32],
-        safe_detail=detail[:200],
-    ))
+    record_central_security_event(
+        db,
+        CentralSecurityAudit,
+        event_type,
+        outcome,
+        identity_id,
+        principal,
+        detail,
+    )
 
 
 def _record_successful_login(user: Staff) -> None:
