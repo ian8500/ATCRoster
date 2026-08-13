@@ -44,10 +44,10 @@
 ## Safe stopping boundary
 
 `app.py` is now a small public compatibility entrypoint. The active
-composition root is `atcroster/application.py`; it is approximately 2,300
-lines and still exceeds the hard 2,000-line target. The remaining work is to
-move feature registration and the few root-owned policies into their existing
-domain packages without changing the legacy import surface.
+composition root is `atcroster/application.py`; it is now below the hard
+2,000-line target. The remaining work is to move feature-area registration
+into its existing domain packages, aiming for the preferred 1,500-line target
+without changing the legacy import surface.
 
 ## Verification at this boundary
 
@@ -65,13 +65,12 @@ domain packages without changing the legacy import surface.
 
 ## Remaining domains, in recommended order
 
-1. Move roster and absence-request registration into their existing packages,
-   reducing the composition root below the hard target.
-2. Replace oversized registration dependency objects with smaller feature
+1. Move administration and account registration into their existing packages,
+   reducing the composition root toward the preferred target.
+2. Continue replacing oversized registration dependency objects with smaller feature
    contracts where a shared dependency has a natural owner.
-3. Move the remaining root policy helpers (fatigue adapters, staff-profile
-   authorisation, and admin-action assembly) to their domain packages.
-4. Publish and test the legacy application export contract before removing any
+3. Keep moving feature-local policy helpers to their domain packages.
+4. Maintain and extend the legacy application export contract before removing any
    remaining aliases.
 
 ## Temporary compatibility and import state
