@@ -5,7 +5,7 @@ from flask import redirect, url_for, flash, abort, session, g
 import json as _json
 import os
 import sys
-from functools import lru_cache, partial
+from functools import partial
 from datetime import date, timedelta
 
 from flask_login import (
@@ -89,7 +89,6 @@ from atcroster.roster import (
     invalidate_month_for_day, is_month_locked as roster_period_is_locked,
     lock_date_for_month as roster_period_lock_date, memoize,
     month_add as roster_period_add,
-    shift_groups_snapshot,
     ShiftCounterService,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
     parse_year_month as parse_roster_year_month,
@@ -98,6 +97,7 @@ from atcroster.roster import (
     PatternRuntime,
     PatternRuntimeDependencies,
     RosterMonthService,
+    ShiftLookupService,
 )
 from atcroster.roster.editing import RosterEditingDependencies, RosterEditingRuntime
 from atcroster.roster.shifts import save_counter_mapping
@@ -816,17 +816,6 @@ if (
         with app.app_context():
             db.session.rollback()
 
-# Cached shift lookup (define after models so ShiftType exists when called)
-
-
-@lru_cache(maxsize=256)
-def _shift_by_code(unit_id: int, code: str):
-    return ShiftType.query.filter_by(unit_id=unit_id, code=code).first()
-
-
-def refresh_shift_cache():
-    _shift_by_code.cache_clear()
-
 # -------------------- Login --------------------
 
 
@@ -891,16 +880,15 @@ tenant_get = partial(tenant_scoped_get, current_unit_id=_current_unit_id)
 roster_edit_required = create_roster_edit_required(current_user, can_edit_roster)
 
 
-def get_shift(code: str, unit_id: int | None = None):
-    # hot path → use cached lookup
-    return _shift_by_code(
-        int(unit_id or _current_unit_id() or 1), (code or "").upper()
-    )
-
-
-@lru_cache(maxsize=128)
-def _shift_groups_snapshot(unit_id: int):
-    return shift_groups_snapshot(ShiftType, unit_id, get_banned_roster_codes)
+shift_lookup_service = ShiftLookupService(
+    ShiftType=ShiftType,
+    current_unit_id=_current_unit_id,
+    banned_codes=get_banned_roster_codes,
+)
+_shift_by_code = shift_lookup_service.by_code
+refresh_shift_cache = shift_lookup_service.refresh
+get_shift = shift_lookup_service.get
+_shift_groups_snapshot = shift_lookup_service.groups
 
 
 roster_settings_catalogue.set_secondary_cache_clear(
