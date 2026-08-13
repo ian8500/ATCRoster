@@ -114,7 +114,7 @@ from atcroster.roster.defaults import (
     MIN_MONTH,
     OPERATIONAL_CURRENCY_SETTING_KEY,
 )
-from atcroster.roster import invalidate_month_for_day, memoize
+from atcroster.roster import invalidate_month_for_day, memoize, parse_annotation as parse_roster_annotation
 from atcroster.compression import register_response_compression
 from access_policy import (
     has_permission,
@@ -3105,26 +3105,12 @@ def _normalise_phone_number(val: str | None) -> str:
 
 
 def parse_annotation(s: str):
-    """Return {'type':'A6','suffix':'M'} or {'type':'EXTL'}, else None."""
-    if not s:
-        return None
-    value = s.strip().upper()
-    info = get_annotation_config(value)
-    if info:
-        return {"type": info["code"], "suffix": None}
-
-    snap = _annotation_snapshot(int(_current_unit_id() or 1))["items"]
-    for item in snap:
-        if not item["allow_suffix"]:
-            continue
-        code = item["code"]
-        if not code:
-            continue
-        if value.startswith(code) and len(value) == len(code) + 1:
-            suffix = value[len(code):]
-            if suffix and suffix in set(item["suffixes"]):
-                return {"type": code, "suffix": suffix}
-    return None
+    return parse_roster_annotation(
+        s,
+        get_annotation_config=get_annotation_config,
+        annotation_snapshot=_annotation_snapshot,
+        current_unit_id=_current_unit_id,
+    )
 
 
 def _context_month_for_date(d: date | None) -> str | None:
