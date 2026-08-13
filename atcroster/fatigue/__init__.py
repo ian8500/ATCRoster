@@ -12,6 +12,7 @@ from .analysis import (
     segments_from_assignments,
 )
 from .runtime import FatigueRuntime, FatigueRuntimeDependencies
+from .compatibility import FatigueCompatibilityService
 
 __all__ = (
     "assignment_is_fatigue_safe",
@@ -25,4 +26,5 @@ __all__ = (
     "segments_from_assignments",
     "FatigueRuntime",
     "FatigueRuntimeDependencies",
+    "FatigueCompatibilityService",
 )

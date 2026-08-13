@@ -161,8 +161,7 @@ from atcroster.workforce.joiners import JoinerDependencies, create_joiner
 from atcroster.fatigue import (
     FatigueRuntime,
     FatigueRuntimeDependencies,
-    proposed_plan_findings,
-    visible_working_findings,
+    FatigueCompatibilityService,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import (
@@ -1129,47 +1128,21 @@ fatigue_flags_for_range = fatigue_runtime.findings_for_range
 roster_fatigue_flags_matrix = fatigue_runtime.findings_matrix
 
 
-def roster_fatigue_flags_for_range(
-    staff: Any,
-    day_list,
-    code_by_day: dict[date, str],
-    unit_id: int | None = None,
-) -> dict[date, list[str]]:
-    """Compatibility adapter retaining patchable legacy finding hooks."""
-    return visible_working_findings(
-        staff,
-        day_list,
-        code_by_day,
-        int(unit_id or staff.unit_id),
-        range_findings=fatigue_flags_for_range,
-        get_shift=get_shift,
-    )
-
-
-def would_trigger_fatigue_with_plan(
-    staff: Any, day: date, code: str, proposed_codes: dict[date, str]
-):
-    """Compatibility adapter retaining patchable legacy fatigue hooks."""
-    return proposed_plan_findings(
-        staff,
-        day,
-        code,
-        proposed_codes,
-        get_shift=get_shift,
-        is_working=_is_working,
-        segments_for_staff=_segments_for_staff,
-        fatigue_rule_config=_fatigue_rule_config,
-        configured_findings=_configured_fatigue_findings,
-        span=_span,
-        is_early_start=_is_early_start,
-        is_night_duty=_is_night_duty,
-        is_morning_duty=_is_morning_duty,
-    )
-
-
-def would_trigger_fatigue(staff: Any, day: date, code: str):
-    """Legacy three-argument fatigue check."""
-    return would_trigger_fatigue_with_plan(staff, day, code, {})
+fatigue_compatibility_service = FatigueCompatibilityService(
+    range_findings=module_callback(__name__, "fatigue_flags_for_range"),
+    get_shift=module_callback(__name__, "get_shift"),
+    is_working=module_callback(__name__, "_is_working"),
+    segments_for_staff=module_callback(__name__, "_segments_for_staff"),
+    fatigue_rule_config=module_callback(__name__, "_fatigue_rule_config"),
+    configured_findings=module_callback(__name__, "_configured_fatigue_findings"),
+    span=module_callback(__name__, "_span"),
+    is_early_start=module_callback(__name__, "_is_early_start"),
+    is_night_duty=module_callback(__name__, "_is_night_duty"),
+    is_morning_duty=module_callback(__name__, "_is_morning_duty"),
+)
+roster_fatigue_flags_for_range = fatigue_compatibility_service.roster_findings
+would_trigger_fatigue_with_plan = fatigue_compatibility_service.proposed_findings
+would_trigger_fatigue = fatigue_compatibility_service.would_trigger
 
 
 would_create_new_fatigue_issues = fatigue_runtime.new_findings
