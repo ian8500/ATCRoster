@@ -114,6 +114,7 @@ from atcroster.roster.defaults import (
     MIN_MONTH,
     OPERATIONAL_CURRENCY_SETTING_KEY,
 )
+from atcroster.roster import invalidate_month_for_day, memoize
 from atcroster.compression import register_response_compression
 from access_policy import (
     has_permission,
@@ -485,24 +486,13 @@ if Cache is not None:
 
 
 def _memoize(seconds=60):
-    def wrap(fn):
-        if _cache:
-            return _cache.memoize(timeout=seconds)(fn)
-        return fn
-    return wrap
+    return memoize(_cache, seconds)
 
 
 def _invalidate_month_cache_for_day(d: date):
-    if _cache and d:
-        try:
-            _cache.delete_memoized(
-                _load_month_roster_fast,
-                int(_current_unit_id() or 1),
-                d.year,
-                d.month,
-            )
-        except Exception:
-            pass
+    invalidate_month_for_day(
+        _cache, _load_month_roster_fast, _current_unit_id(), d,
+    )
 
 
 def _messagemedia_credentials() -> tuple[str, str, str]:
