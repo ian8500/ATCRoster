@@ -150,6 +150,7 @@ from atcroster.clock import utcnow
 from atcroster.auth import (
     decrypt_secret,
     matching_totp_step,
+    load_identity,
     consume_rate_limit,
     canonical_login_redirect,
     airport_login_endpoint,
@@ -1448,42 +1449,19 @@ def refresh_shift_cache():
 
 @login_manager.user_loader
 def load_user(user_id):
-    value = str(user_id or "")
-    if value.startswith("membership:"):
-        try:
-            membership_id = int(value.split(":", 1)[1])
-        except ValueError:
-            return None
-        membership = db.session.get(UnitMembership, membership_id)
-        if not membership or membership.status != "active":
-            return None
-        routing = db.session.get(
-            DatabaseRoutingMetadata, membership.unit_id
-        )
-        if DEPLOYMENT_ENV == "production" and not routing:
-            return None
-        token = bind_authenticated_unit(
-            membership.unit_id,
-            routing.secret_name if routing else None,
-        )
-        g.tenant_context_token = token
-        return db.session.get(Staff, membership.person_id)
-    if value.startswith("platform-identity:"):
-        try:
-            return db.session.get(
-                PlatformIdentity, int(value.split(":", 1)[1])
-            )
-        except ValueError:
-            return None
-    if value.startswith("legacy:") and DEPLOYMENT_ENV != "production":
-        try:
-            _, raw_unit_id, raw_person_id = value.split(":", 2)
-            token = bind_authenticated_unit(int(raw_unit_id))
-            g.tenant_context_token = token
-            return db.session.get(Staff, int(raw_person_id))
-        except ValueError:
-            return None
-    return None
+    return load_identity(
+        user_id,
+        db=db,
+        UnitMembership=UnitMembership,
+        DatabaseRoutingMetadata=DatabaseRoutingMetadata,
+        PlatformIdentity=PlatformIdentity,
+        Staff=Staff,
+        deployment_environment=DEPLOYMENT_ENV,
+        bind_authenticated_unit=bind_authenticated_unit,
+        remember_tenant_token=lambda token: setattr(
+            g, "tenant_context_token", token
+        ),
+    )
 
 # --------- Fast month loader & cache (uses functions defined later but safe) ----------
 
