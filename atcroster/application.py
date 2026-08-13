@@ -1146,8 +1146,6 @@ _configured_fatigue_findings = fatigue_runtime.configured_findings
 _segments_for_staff = fatigue_runtime.segments_for_staff
 fatigue_flags_for_range = fatigue_runtime.findings_for_range
 roster_fatigue_flags_matrix = fatigue_runtime.findings_matrix
-def would_trigger_fatigue(staff: Staff, day: date, code: str):
-    return would_trigger_fatigue_with_plan(staff, day, code, {})
 
 
 def roster_fatigue_flags_for_range(
@@ -1156,6 +1154,7 @@ def roster_fatigue_flags_for_range(
     code_by_day: dict[date, str],
     unit_id: int | None = None,
 ) -> dict[date, list[str]]:
+    """Compatibility adapter retaining patchable legacy finding hooks."""
     return visible_working_findings(
         staff,
         day_list,
@@ -1169,6 +1168,7 @@ def roster_fatigue_flags_for_range(
 def would_trigger_fatigue_with_plan(
     staff: Staff, day: date, code: str, proposed_codes: dict[date, str]
 ):
+    """Compatibility adapter retaining patchable legacy fatigue hooks."""
     return proposed_plan_findings(
         staff,
         day,
@@ -1184,6 +1184,11 @@ def would_trigger_fatigue_with_plan(
         is_night_duty=_is_night_duty,
         is_morning_duty=_is_morning_duty,
     )
+
+
+def would_trigger_fatigue(staff: Staff, day: date, code: str):
+    """Legacy three-argument fatigue check."""
+    return would_trigger_fatigue_with_plan(staff, day, code, {})
 
 
 would_create_new_fatigue_issues = fatigue_runtime.new_findings
