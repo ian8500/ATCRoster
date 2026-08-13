@@ -27,6 +27,7 @@
 | Administration landing | `atcroster/administration/blueprint.py` |
 | Authenticated home redirect | `atcroster/home.py` |
 | Password change | `atcroster/accounts/password.py` |
+| Permission summary and change-log routes | `atcroster/admin_utilities.py` |
 | SMS normalization and provider delivery | `atcroster/notifications/sms.py` |
 | Account email delivery and address validation | `atcroster/notifications/email.py` |
 | Unit-scoped SMS configuration selection | `atcroster/notifications/configuration.py` |

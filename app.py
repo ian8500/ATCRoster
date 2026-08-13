@@ -143,6 +143,7 @@ from atcroster.administration import (
 )
 from atcroster.home import HomeDependencies, create_home_blueprint
 from atcroster.accounts import PasswordDependencies, create_password_blueprint
+from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.security.csrf import csrf_token, register_csrf_protection
 from atcroster.security.encryption import FieldEncryptionService
 from atcroster.security.headers import (
@@ -4636,23 +4637,6 @@ def kiosk_accounts():
 
 
 
-@app.route("/__can")
-@login_required
-def __can():
-    # replicate the same logic the roster uses
-    can_edit = (
-        is_admin_user(current_user) or
-        bool(getattr(current_user, "is_wm", False)) or
-        bool(getattr(current_user, "is_dwm", False))
-    )
-    return {
-        "is_admin_user": is_admin_user(current_user),
-        "is_wm": bool(getattr(current_user, "is_wm", False)),
-        "is_dwm": bool(getattr(current_user, "is_dwm", False)),
-        "final_can_edit": can_edit,
-    }
-
-
 # -------------------- Admin --------------------
 
 
@@ -6209,28 +6193,6 @@ def admin_watch_move_delete(hid):
                note=f"effective {old_eff.isoformat()}")
     flash("Watch move deleted.", "ok")
     return redirect(url_for("admin_staff_edit", sid=sid))
-
-
-@app.route("/admin/change-log")
-@login_required
-@admin_required
-def change_log_page():
-    ...
-
-    ym = request.args.get("ym", "").strip() or None
-    et = request.args.get("entity_type", "").strip() or None
-    who = request.args.get("who", "").strip() or None
-
-    q = ChangeLog.query.order_by(ChangeLog.when.desc())
-    if ym:
-        q = q.filter(ChangeLog.context_month == ym)
-    if et:
-        q = q.filter(ChangeLog.entity_type == et)
-    if who and who.isdigit():
-        q = q.filter(ChangeLog.who_user_id == int(who))
-
-    rows = q.limit(500).all()
-    return render_template("change_log.html", rows=rows, ym=ym, entity_type=et, who=who)
 
 
 # -------------------- Leave / Sickness / TOIL --------------------
@@ -10233,6 +10195,10 @@ app.register_blueprint(create_password_blueprint(PasswordDependencies(
     tenant_get=tenant_get,
     validate_csrf=_validate_csrf,
     generate_password_hash=generate_password_hash,
+)))
+app.register_blueprint(create_admin_utility_blueprint(AdminUtilityDependencies(
+    ChangeLog=ChangeLog,
+    is_admin_user=is_admin_user,
 )))
 app.register_blueprint(briefing_blueprint)
 
