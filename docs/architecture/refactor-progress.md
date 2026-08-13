@@ -49,10 +49,12 @@
 ## Safe stopping boundary
 
 `app.py` is now a small public compatibility entrypoint. The active
-composition root is `atcroster/application.py`; it is now below the hard
-2,000-line target. The remaining work is to move feature-area registration
-into its existing domain packages, aiming for the preferred 1,500-line target
-without changing the legacy import surface.
+composition root is `atcroster/application.py` (1,722 lines), below the hard
+2,000-line target. Its remaining size is predominantly explicit construction
+and thin legacy exports, rather than route or domain implementation. The
+preferred 1,500-line target remains a conservative follow-up only where an
+existing domain can own a coherent registration contract without obscuring
+the assembly flow or changing the legacy import surface.
 
 ## Verification at this boundary
 
