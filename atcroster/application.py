@@ -182,6 +182,7 @@ from atcroster.accounts import (
     create_password_blueprint,
     active_recovery_from_digest,
     platform_support_emails,
+    normalise_phone_number,
     record_successful_login,
     unit_admin_emails,
 )
@@ -3095,13 +3096,7 @@ def _parse_date(val: str):
 
 
 def _normalise_phone_number(val: str | None) -> str:
-    """Tidy phone numbers for SMS sending (keep digits and leading +)."""
-    if not val:
-        return ""
-    cleaned = re.sub(r"[^0-9+]+", "", val.strip())
-    if cleaned.startswith("00") and not cleaned.startswith("000"):
-        cleaned = "+" + cleaned[2:]
-    return cleaned
+    return normalise_phone_number(val)
 
 
 def parse_annotation(s: str):
