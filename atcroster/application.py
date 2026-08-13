@@ -120,6 +120,7 @@ from atcroster.roster import (
     month_add as roster_period_add, parse_annotation as parse_roster_annotation,
     month_has_data as roster_month_has_data,
     lock_roster_month as lock_roster_period,
+    shift_groups_snapshot,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -1663,18 +1664,7 @@ def get_shift(code: str, unit_id: int | None = None):
 
 @lru_cache(maxsize=128)
 def _shift_groups_snapshot(unit_id: int):
-    all_shifts = ShiftType.query.filter_by(
-        unit_id=unit_id
-    ).order_by(ShiftType.code).all()
-    banned = get_banned_roster_codes()
-    allowed = [sh for sh in all_shifts if sh.code not in banned]
-    working = sorted(
-        [sh for sh in allowed if sh.is_working and not sh.is_training], key=lambda s: s.code)
-    training = sorted(
-        [sh for sh in allowed if sh.is_training], key=lambda s: s.code)
-    nonwork = sorted(
-        [sh for sh in allowed if not sh.is_working and not sh.is_training], key=lambda s: s.code)
-    return working, training, nonwork
+    return shift_groups_snapshot(ShiftType, unit_id, get_banned_roster_codes)
 
 
 PATTERN_CODES = ("M", "A", "D", "N", "OPS", "OFF")
