@@ -256,17 +256,7 @@ from atcroster.roster.assignments import (
     set_generated_assignment,
 )
 from atcroster.roster.annotations import AnnotationCatalogue
-from atcroster.roster.settings import (
-    decode_counter_map,
-    load_absence_types,
-    load_code_setting,
-    normalise_codes as normalise_roster_codes,
-    parse_codes_input as parse_roster_codes_input,
-    prune_code_settings,
-    save_setting as persist_roster_setting,
-    save_absence_catalogue,
-    save_code_setting,
-)
+from atcroster.roster.settings import RosterSettingsCatalogue
 from atcroster.roster.patterns import (
     code_for_day as resolve_pattern_code,
     leave_code_for,
@@ -876,76 +866,28 @@ _enforce_principal_boundaries = register_principal_boundaries(
 # -------------------- Reference data helpers --------------------
 
 
-def _normalise_codes(values: list[str] | tuple[str, ...]) -> list[str]:
-    return normalise_roster_codes(values)
-
-
-@lru_cache(maxsize=128)
-def _roster_settings_snapshot(unit_id: int) -> dict[str, str]:
-    rows = RosterSetting.query.filter_by(unit_id=unit_id).all()
-    return {row.key: row.value for row in rows}
-
-
-def refresh_roster_settings_cache() -> None:
-    _roster_settings_snapshot.cache_clear()
-    try:
-        _shift_groups_snapshot.cache_clear()
-    except NameError:
-        pass
-
-
-def _load_codes_setting(
-    key: str, default: list[str], unit_id: int | None = None
-) -> set[str]:
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    return load_code_setting(
-        key,
-        default,
-        resolved_unit_id,
-        settings_snapshot=_roster_settings_snapshot,
-        db=db,
-        ShiftType=ShiftType,
-    )
-
-
-def get_working_codes() -> set[str]:
-    return _load_codes_setting("working_codes", DEFAULT_WORKING_CODES)
-
-
-def get_absence_types(
-    category: str | None = None,
-    active_only: bool = True,
-    unit_id: int | None = None,
-) -> list[dict[str, object]]:
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    return load_absence_types(
-        _roster_settings_snapshot(resolved_unit_id).get("absence_types"),
-        DEFAULT_ABSENCE_TYPES,
-        category=category,
-        active_only=active_only,
-    )
-
-
-def _save_absence_types(items: list[dict[str, object]]) -> None:
-    return save_absence_catalogue(
-        items,
-        unit_id=int(_current_unit_id() or 1),
-        db=db,
-        RosterSetting=RosterSetting,
-        refresh_cache=refresh_roster_settings_cache,
-    )
-
-
-def get_banned_roster_codes() -> set[str]:
-    return _load_codes_setting("banned_codes", DEFAULT_BANNED_ROSTER_CODES)
-
-
-def get_exclude_from_counters() -> set[str]:
-    return _load_codes_setting("exclude_from_counters", DEFAULT_EXCLUDE_FROM_COUNTERS)
-
-
-def get_non_working_codes() -> set[str]:
-    return _load_codes_setting("non_working_codes", DEFAULT_NON_WORKING_CODES)
+roster_settings_catalogue = RosterSettingsCatalogue(
+    db=db,
+    RosterSetting=RosterSetting,
+    ShiftType=ShiftType,
+    current_unit_id=_current_unit_id,
+    defaults=DEFAULT_ROSTER_SETTINGS,
+    absence_defaults=DEFAULT_ABSENCE_TYPES,
+    working_codes=DEFAULT_WORKING_CODES,
+    banned_codes=DEFAULT_BANNED_ROSTER_CODES,
+    excluded_codes=DEFAULT_EXCLUDE_FROM_COUNTERS,
+    non_working_codes=DEFAULT_NON_WORKING_CODES,
+)
+_normalise_codes = roster_settings_catalogue.normalise
+_roster_settings_snapshot = roster_settings_catalogue.snapshot
+refresh_roster_settings_cache = roster_settings_catalogue.refresh
+_load_codes_setting = roster_settings_catalogue.load_codes
+get_working_codes = roster_settings_catalogue.get_working_codes
+get_absence_types = roster_settings_catalogue.get_absence_types
+_save_absence_types = roster_settings_catalogue.save_absence_types
+get_banned_roster_codes = roster_settings_catalogue.get_banned_codes
+get_exclude_from_counters = roster_settings_catalogue.get_excluded_counter_codes
+get_non_working_codes = roster_settings_catalogue.get_non_working_codes
 
 
 def staff_is_countable_on(person: Staff, on_date: date) -> bool:
@@ -971,12 +913,7 @@ def get_operational_capability_matrix(staff: list[Staff], days: list[date]):
     return operational_capability_service().get_capability_matrix(staff, days)
 
 
-def get_shift_counter_map(unit_id: int | None = None) -> dict[str, str]:
-    resolved_unit_id = int(unit_id or _current_unit_id() or 1)
-    raw = _roster_settings_snapshot(resolved_unit_id).get(
-        "shift_counter_map", "{}"
-    )
-    return decode_counter_map(raw)
+get_shift_counter_map = roster_settings_catalogue.get_shift_counter_map
 
 
 sms_configuration = SmsConfigurationService(
@@ -1032,42 +969,10 @@ annotation_tags_for = annotation_catalogue.tags_for
 annotation_codes_for_tag = annotation_catalogue.codes_for_tag
 
 
-def _parse_codes_input(raw: str) -> list[str]:
-    return parse_roster_codes_input(raw)
-
-
-def _save_codes_setting(key: str, values: list[str]) -> None:
-    return save_code_setting(
-        key,
-        values,
-        unit_id=int(_current_unit_id() or 1),
-        db=db,
-        RosterSetting=RosterSetting,
-        refresh_cache=refresh_roster_settings_cache,
-    )
-
-
-def _prune_roster_code_settings(unit_id: int) -> int:
-    return prune_code_settings(
-        unit_id,
-        db=db,
-        ShiftType=ShiftType,
-        RosterSetting=RosterSetting,
-        setting_keys=DEFAULT_ROSTER_SETTINGS,
-        refresh_cache=refresh_roster_settings_cache,
-    )
-
-
-def _save_roster_setting(key: str, value: str) -> None:
-    unit_id = int(_current_unit_id() or 1)
-    return persist_roster_setting(
-        key,
-        value,
-        unit_id=unit_id,
-        db=db,
-        RosterSetting=RosterSetting,
-        refresh_cache=refresh_roster_settings_cache,
-    )
+_parse_codes_input = roster_settings_catalogue.parse_codes_input
+_save_codes_setting = roster_settings_catalogue.save_codes_setting
+_prune_roster_code_settings = roster_settings_catalogue.prune_code_settings
+_save_roster_setting = roster_settings_catalogue.save_setting
 
 
 def _operational_currency_requirement(unit_id: int | None = None) -> dict[str, Any]:
@@ -1331,6 +1236,11 @@ def get_shift(code: str, unit_id: int | None = None):
 @lru_cache(maxsize=128)
 def _shift_groups_snapshot(unit_id: int):
     return shift_groups_snapshot(ShiftType, unit_id, get_banned_roster_codes)
+
+
+roster_settings_catalogue.set_secondary_cache_clear(
+    _shift_groups_snapshot.cache_clear
+)
 
 
 PATTERN_CODES = ("M", "A", "D", "N", "OPS", "OFF")
