@@ -122,6 +122,7 @@ from atcroster.roster import (
     lock_roster_month as lock_roster_period,
     shift_groups_snapshot,
     expand as expand_roster_pattern, validate as validate_roster_pattern,
+    parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -3008,24 +3009,11 @@ def _allocate_days_for_date(
 
 
 def _parse_hhmm(val: str):
-    val = (val or "").strip()
-    if not val:
-        return None
-    try:
-        hh, mm = val.split(":")
-        return time(int(hh), int(mm))
-    except Exception:
-        return None
+    return parse_roster_hhmm(val)
 
 
 def _parse_date(val: str):
-    val = (val or "").strip()
-    if not val:
-        return None
-    try:
-        return date.fromisoformat(val)
-    except Exception:
-        return None
+    return parse_roster_date(val)
 
 
 def _normalise_phone_number(val: str | None) -> str:
