@@ -140,7 +140,7 @@ from atcroster.auth import (
 )
 from atcroster.qualifications import (
     QualificationRuntime,
-    QualificationRuntimeDependencies,
+    create_qualification_runtime_dependencies,
     create_eligibility_dependencies,
     EligibilityService,
     ComplianceRuntime,
@@ -1295,13 +1295,10 @@ signup_saga = SignupSaga(SignupSagaDependencies(
 _normalized_login = signup_saga.normalized_login
 _run_invitation_signup = signup_saga.run
 
-qualification_runtime = QualificationRuntime(QualificationRuntimeDependencies(
+qualification_runtime = QualificationRuntime(create_qualification_runtime_dependencies(
     db=db,
-    PersonQualificationHistory=PersonQualificationHistory,
-    PositionEndorsement=PositionEndorsement,
-    Assignment=Assignment,
-    OperationalPosition=OperationalPosition,
-    PositionRequirement=PositionRequirement,
+    operational_models=_operational_models,
+    saas_models=SaaS,
     current_user=lambda: current_user,
     month_range=month_range,
 ))

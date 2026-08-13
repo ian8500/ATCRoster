@@ -25,6 +25,21 @@ class QualificationRuntimeDependencies:
     month_range: Callable[..., tuple[Any, list[Any]]]
 
 
+def create_qualification_runtime_dependencies(
+    *, db: Any, operational_models: Any, saas_models: Any, **services: Any
+) -> QualificationRuntimeDependencies:
+    """Bind qualification runtime records in the qualifications domain."""
+    return QualificationRuntimeDependencies(
+        db=db,
+        PersonQualificationHistory=saas_models.PersonQualificationHistory,
+        PositionEndorsement=saas_models.PositionEndorsement,
+        Assignment=operational_models.Assignment,
+        OperationalPosition=saas_models.OperationalPosition,
+        PositionRequirement=saas_models.PositionRequirement,
+        **services,
+    )
+
+
 class QualificationRuntime:
     """Own qualification history and position-assurance model interactions."""
 

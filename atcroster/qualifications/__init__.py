@@ -26,7 +26,11 @@ from .history import (
     sync_legacy_roster_profile,
 )
 from .assurance import has_valid_endorsement, monthly_position_assurance
-from .runtime import QualificationRuntime, QualificationRuntimeDependencies
+from .runtime import (
+    QualificationRuntime,
+    QualificationRuntimeDependencies,
+    create_qualification_runtime_dependencies,
+)
 from .eligibility import (
     EligibilityDependencies,
     EligibilityService,
@@ -65,6 +69,7 @@ __all__ = (
     "staff_is_countable",
     "QualificationRuntime",
     "QualificationRuntimeDependencies",
+    "create_qualification_runtime_dependencies",
     "EligibilityDependencies",
     "EligibilityService",
     "create_eligibility_dependencies",
