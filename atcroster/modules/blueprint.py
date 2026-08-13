@@ -47,3 +47,10 @@ def create_module_blueprint(dependencies: ModuleDependencies) -> Blueprint:
         state.app.add_url_rule("/modules", "module_home", module_home, methods=("GET",))
 
     return blueprint
+
+
+def register_module_blueprint(app: Any, *, saas_models: Any, **services: Any) -> None:
+    """Register the module launcher from module-owned dependencies."""
+    app.register_blueprint(create_module_blueprint(
+        create_module_dependencies(saas_models=saas_models, **services)
+    ))

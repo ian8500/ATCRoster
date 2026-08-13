@@ -231,8 +231,7 @@ from atcroster.roster.impacts import (
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.modules import (
     ModuleAvailability,
-    create_module_blueprint,
-    create_module_dependencies,
+    register_module_blueprint,
 )
 from atcroster.calendar_feed import (
     register_calendar_feed_blueprint,
@@ -1582,13 +1581,14 @@ register_notification_blueprints(app, create_notification_registration_dependenc
     can_send_unit_messages=can_send_unit_messages,
     notifications=notification_runtime,
 ))
-app.register_blueprint(create_module_blueprint(create_module_dependencies(
+register_module_blueprint(
+    app,
     saas_models=SaaS,
     briefing_enabled=briefing_enabled,
     training_enabled=training_enabled,
     competency_enabled=competency_enabled,
     is_admin_user=is_admin_user,
-)))
+)
 register_calendar_feed_blueprint(
     app,
     get_shift=get_shift,
