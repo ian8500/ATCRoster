@@ -11,6 +11,7 @@ from .analysis import (
     segments_for_staff as load_staff_segments,
     segments_from_assignments,
 )
+from .runtime import FatigueRuntime, FatigueRuntimeDependencies
 
 __all__ = (
     "assignment_is_fatigue_safe",
@@ -22,4 +23,6 @@ __all__ = (
     "proposed_plan_findings",
     "load_staff_segments",
     "segments_from_assignments",
+    "FatigueRuntime",
+    "FatigueRuntimeDependencies",
 )

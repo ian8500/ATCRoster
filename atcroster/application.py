@@ -162,14 +162,10 @@ from atcroster.audit import context_month_for_date, record_central_security_even
 from atcroster.workforce import effective_watch as resolve_effective_watch, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.workforce.joiners import JoinerDependencies, create_joiner
 from atcroster.fatigue import (
-    configured_findings as configured_fatigue_findings,
-    new_findings_for_proposed_assignment,
-    roster_findings_matrix,
-    findings_for_range,
-    visible_working_findings,
+    FatigueRuntime,
+    FatigueRuntimeDependencies,
     proposed_plan_findings,
-    load_staff_segments,
-    segments_from_assignments,
+    visible_working_findings,
 )
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
@@ -180,7 +176,7 @@ from atcroster.notifications import (
     normalise_sms_number,
     normalise_uk_mobile,
     parse_sms_number_lines,
-    send_via_clicksend,
+    send_via_messagemedia,
     email_service_configured,
     send_account_email,
     valid_email,
@@ -557,6 +553,11 @@ def _invalidate_month_cache_for_day(d: date):
     )
 
 
+def _messagemedia_credentials() -> tuple[str, str, str]:
+    from atcroster.notifications.sms import messagemedia_credentials
+    return messagemedia_credentials()
+
+
 def _normalise_sms_number(value: str | None) -> str:
     return normalise_sms_number(value)
 
@@ -611,14 +612,14 @@ def _unit_admin_emails(unit_id: int) -> list[str]:
     return unit_admin_emails(db, PlatformIdentity, UnitMembership, unit_id)
 
 
-def _send_sms_via_clicksend(
+def _send_sms_via_messagemedia(
     to_number: str, body: str, from_number: str | None = None,
 ) -> tuple[bool, str]:
-    return send_via_clicksend(to_number, body, from_number)
+    return send_via_messagemedia(to_number, body, from_number)
 
 
 def _send_sms(to_number: str, body: str, from_number: str | None = None) -> tuple[bool, str]:
-    return _send_sms_via_clicksend(to_number, body, from_number)
+    return _send_sms_via_messagemedia(to_number, body, from_number)
 
 
 def _record_sms_audit(
@@ -1454,45 +1455,27 @@ _save_fatigue_rule_config = _fatigue_rule_config_service.save
 
 
 
-def _segments_from_assignments(staff: Staff, assignments, definitions):
-    return segments_from_assignments(
-        staff,
-        assignments,
-        definitions,
-        get_shift=get_shift,
-        is_working=_is_working,
-        span=_span,
-        is_night_duty=_is_night_duty,
-        is_early_start=_is_early_start,
-        is_morning_duty=_is_morning_duty,
-    )
+fatigue_runtime = FatigueRuntime(FatigueRuntimeDependencies(
+    Assignment=Assignment,
+    get_shift=get_shift,
+    is_working=_is_working,
+    span=_span,
+    is_night_duty=_is_night_duty,
+    is_early_start=_is_early_start,
+    is_morning_duty=_is_morning_duty,
+    analyze_segments=_analyze_segments,
+    custom_fatigue_flags=_custom_fatigue_flags,
+    fatigue_rule_config=_fatigue_rule_config,
+))
+_segments_from_assignments = fatigue_runtime.segments_from_assignments
+_configured_fatigue_findings = fatigue_runtime.configured_findings
+_segments_for_staff = fatigue_runtime.segments_for_staff
+fatigue_flags_for_range = fatigue_runtime.findings_for_range
+roster_fatigue_flags_matrix = fatigue_runtime.findings_matrix
 
 
-def _configured_fatigue_findings(segments, config, observation_start):
-    return configured_fatigue_findings(
-        segments,
-        config,
-        observation_start,
-        analyze_segments=_analyze_segments,
-        custom_fatigue_flags=_custom_fatigue_flags,
-    )
-
-
-def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
-    return load_staff_segments(
-        staff,
-        start_day,
-        end_day,
-        Assignment=Assignment,
-        fatigue_rule_config=_fatigue_rule_config,
-        build_segments=_segments_from_assignments,
-    )
-
-
-
-
-def fatigue_flags_for_range(staff: Staff, day_list, lookback_days=30):
-    return findings_for_range(staff, day_list, lookback_days=lookback_days, segments_for_staff=_segments_for_staff, fatigue_rule_config=_fatigue_rule_config, configured_findings=_configured_fatigue_findings)
+def would_trigger_fatigue(staff: Staff, day: date, code: str):
+    return would_trigger_fatigue_with_plan(staff, day, code, {})
 
 
 def roster_fatigue_flags_for_range(
@@ -1501,33 +1484,24 @@ def roster_fatigue_flags_for_range(
     code_by_day: dict[date, str],
     unit_id: int | None = None,
 ) -> dict[date, list[str]]:
-    """Expose fatigue warnings only on active working-duty roster cells."""
-    return visible_working_findings(staff, day_list, code_by_day, int(unit_id or staff.unit_id), range_findings=fatigue_flags_for_range, get_shift=get_shift)
-
-
-def roster_fatigue_flags_matrix(
-    staff: list[Staff], day_list: list[date],
-    code_by_staff: dict[int, dict[date, str]], unit_id: int,
-) -> dict[int, dict[date, list[str]]]:
-    return roster_findings_matrix(
+    return visible_working_findings(
         staff,
         day_list,
-        code_by_staff,
-        unit_id,
-        Assignment=Assignment,
-        segments_from_assignments=_segments_from_assignments,
-        fatigue_rule_config=_fatigue_rule_config,
-        configured_findings=_configured_fatigue_findings,
+        code_by_day,
+        int(unit_id or staff.unit_id),
+        range_findings=fatigue_flags_for_range,
         get_shift=get_shift,
     )
 
 
-def would_trigger_fatigue(staff: Staff, day: date, code: str):
+def would_trigger_fatigue_with_plan(
+    staff: Staff, day: date, code: str, proposed_codes: dict[date, str]
+):
     return proposed_plan_findings(
         staff,
         day,
         code,
-        {},
+        proposed_codes,
         get_shift=get_shift,
         is_working=_is_working,
         segments_for_staff=_segments_for_staff,
@@ -1538,15 +1512,6 @@ def would_trigger_fatigue(staff: Staff, day: date, code: str):
         is_night_duty=_is_night_duty,
         is_morning_duty=_is_morning_duty,
     )
-
-
-def would_trigger_fatigue_with_plan(
-    staff: Staff,
-    day: date,
-    code: str,
-    proposed_codes: dict[date, str],
-):
-    return proposed_plan_findings(staff, day, code, proposed_codes, get_shift=get_shift, is_working=_is_working, segments_for_staff=_segments_for_staff, fatigue_rule_config=_fatigue_rule_config, configured_findings=_configured_fatigue_findings, span=_span, is_early_start=_is_early_start, is_night_duty=_is_night_duty, is_morning_duty=_is_morning_duty)
 
 
 def _year_month_iter(start_date: date, end_date: date):
@@ -1580,21 +1545,8 @@ def would_create_new_fatigue_issues(
     lookback_days: int = 30,
     lookahead_days: int = 14,
 ):
-    return new_findings_for_proposed_assignment(
-        staff,
-        proposed_day,
-        proposed_code,
-        lookback_days=lookback_days,
-        lookahead_days=lookahead_days,
-        get_shift=get_shift,
-        is_working=_is_working,
-        segments_for_staff=_segments_for_staff,
-        fatigue_rule_config=_fatigue_rule_config,
-        configured_fatigue_findings=_configured_fatigue_findings,
-        span=_span,
-        is_early_start=_is_early_start,
-        is_night_duty=_is_night_duty,
-        is_morning_duty=_is_morning_duty,
+    return fatigue_runtime.new_findings(
+        staff, proposed_day, proposed_code, lookback_days, lookahead_days
     )
 
 
@@ -2606,17 +2558,13 @@ app.register_blueprint(create_notification_blueprint(NotificationDependencies(
 )))
 app.register_blueprint(create_sms_administration_blueprint(
     SmsAdministrationDependencies(
+        db=db,
         SmsAudit=SmsAudit,
+        SmsSenderRegistration=SmsSenderRegistration,
         current_unit_id=_current_unit_id,
         is_admin_user=is_admin_user,
         validate_csrf=_validate_csrf,
-        consume_rate_limit=lambda scope, subject, limit, window_seconds: _consume_rate_limit(
-            scope, subject, limit=limit, window=timedelta(seconds=window_seconds)
-        ),
-        configuration=sms_configuration,
-        normalise_sms_number=_normalise_sms_number,
-        send_sms=_send_sms,
-        record_sms_audit=_record_sms_audit,
+        utcnow=utcnow,
     )
 ))
 app.register_blueprint(create_messaging_blueprint(MessagingDependencies(
@@ -2624,6 +2572,7 @@ app.register_blueprint(create_messaging_blueprint(MessagingDependencies(
     Staff=Staff,
     Watch=Watch,
     Assignment=Assignment,
+    SmsSenderRegistration=SmsSenderRegistration,
     current_unit_id=_current_unit_id,
     utcnow=utcnow,
     can_send_unit_messages=can_send_unit_messages,
