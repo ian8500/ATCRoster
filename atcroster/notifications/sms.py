@@ -36,6 +36,27 @@ def normalise_uk_mobile(value: str | None) -> str:
     return candidate if re.fullmatch(r"\+447\d{9}", candidate) else ""
 
 
+def parse_sms_number_lines(raw: str) -> tuple[list[dict[str, str]], list[str]]:
+    """Parse one ``label | +number`` or plain E.164 number per line."""
+    result: list[dict[str, str]] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for line_number, raw_line in enumerate((raw or "").splitlines(), 1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        label, separator, number_value = line.partition("|")
+        if not separator:
+            number_value, label = label, ""
+        number = normalise_sms_number(number_value)
+        if not number:
+            errors.append(f"line {line_number}")
+        elif number not in seen:
+            seen.add(number)
+            result.append({"number": number, "label": label.strip()[:80] or number})
+    return result, errors
+
+
 def send_via_messagemedia(
     to_number: str, body: str, from_number: str | None = None,
 ) -> tuple[bool, str]:
