@@ -30,7 +30,7 @@ prints unit IDs and revision results but never URLs or secret values.
 ## Platform MFA
 
 `PlatformMfaCredential` is control-plane only. TOTP seeds are encrypted with
-`ATCROSTER_FIELD_ENCRYPTION_KEY`; recovery codes are stored as SHA-256 digests
+`ATCROSTER_FIELD_ENCRYPTION_KEY`; legacy recovery-code digest columns are retained only for migration compatibility and are not used
 and removed after one use. Password success creates only a pre-authentication
 session. A fresh authenticated session is created after MFA verification.
 Login, enrolment, verification, recovery and reset create non-sensitive

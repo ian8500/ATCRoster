@@ -59,6 +59,7 @@ class AccountRegistrationDependencies:
     get_shift: Callable[..., Any]
     shift_duration_minutes: Callable[[Any], int]
     live_position_enabled: Callable[[int], bool]
+    central_security_event: Callable[..., None]
 
 
 def create_account_registration_dependencies(
@@ -108,6 +109,7 @@ def register_account_runtime_blueprints(
         get_shift=services.get_shift,
         shift_duration_minutes=services.shift_duration_minutes,
         live_position_enabled=services.live_position_enabled,
+        central_security_event=services.central_security_event,
     ))
 
 
@@ -133,9 +135,12 @@ def register_account_blueprints(app: Any, deps: AccountRegistrationDependencies)
         db=deps.db, Unit=deps.Unit, Staff=deps.Staff,
         PlatformIdentity=deps.PlatformIdentity, UnitMembership=deps.UnitMembership,
         SecureInvitation=deps.SecureInvitation,
+        MfaCredential=deps.MfaCredential,
         current_unit_id=deps.current_unit_id, is_admin_user=deps.is_admin_user,
         validate_csrf=deps.validate_csrf, normalized_login=deps.normalized_login,
         now=deps.now, tenant_get=deps.tenant_get,
+        consume_rate_limit=deps.consume_rate_limit,
+        central_security_event=deps.central_security_event,
     )))
     app.register_blueprint(create_invitation_acceptance_blueprint(
         InvitationAcceptanceDependencies(

@@ -23,7 +23,6 @@ def complete_platform_login(
     identity: Any,
     user: Any,
     *,
-    recovery_used: bool,
     session: Any,
     db: Any,
     login_user: Callable[[Any], None],
@@ -40,7 +39,7 @@ def complete_platform_login(
     initialize_session(user, platform_mfa=True)
     identity.last_active_at = now()
     security_event(
-        "platform_recovery_code_used" if recovery_used else "platform_mfa_verified",
+        "platform_mfa_verified",
         "success",
         identity.id,
         hashlib.sha256(identity.username.lower().encode()).hexdigest()[:16],

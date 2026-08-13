@@ -42,7 +42,7 @@ def _login_platform_with_mfa(client, username, password):
         "/login/platform-mfa/setup",
         data={"_csrf_token": token, "code": pyotp.TOTP(secret).now()},
     )
-    assert enrolled.status_code == 200
+    assert enrolled.status_code == 302
     challenge = client.get("/login/platform-mfa")
     assert challenge.status_code == 200
     with client.session_transaction() as session:
@@ -190,7 +190,7 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
         follow_redirects=True,
     )
     assert enrolled.status_code == 200
-    assert b"Save your recovery codes" in enrolled.data
+    assert b"Save your recovery codes" not in enrolled.data
     unit_token = _csrf(unit_client, "/unit/accounts")
     with app.app.app_context():
         db.session.add(

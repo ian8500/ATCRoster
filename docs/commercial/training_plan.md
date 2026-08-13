@@ -24,7 +24,7 @@ and explain account-protection duties.
 ## Platform Super Admin — 90 minutes, restricted
 
 Airport metadata/provisioning, database secret prerequisites, one-time
-invitations, account limits, health/migration state, MFA recovery, tenant
+invitations, account limits, health/migration state, administrator-controlled MFA reset and re-enrolment, tenant
 privacy boundary and deletion/exit controls. No operational impersonation.
 
 ## Records

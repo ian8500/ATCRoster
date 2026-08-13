@@ -27,7 +27,7 @@ The production platform now includes:
 - controller fatigue reports and manager review;
 - governed, versioned rostering-system rules;
 - controlled publication, assurance declarations and acknowledgements;
-- encrypted TOTP MFA and one-time recovery codes;
+- encrypted TOTP MFA with administrator-controlled reset and forced re-enrolment;
 - production startup validation, readiness/liveness endpoints and request IDs;
 - Docker/Compose packaging and GitHub CI.
 

@@ -58,7 +58,7 @@
   </section>
 
   <table class="table">
-    <thead><tr><th>Account reference</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
+    <thead><tr><th>Account reference</th><th>Role</th><th>Status</th><th>MFA</th><th>Action</th></tr></thead>
     <tbody>
     {% for membership in memberships %}
       <tr>
@@ -66,7 +66,19 @@
         <td>{{ account_person.name if account_person else '#' ~ membership.id }}{% if account_person %}<small class="d-block">{{ account_person.staff_no }}</small>{% endif %}</td>
         <td>{{ membership.role }}</td>
         <td>{{ membership.status }}</td>
+        {% set credential = mfa_by_person.get(membership.person_id) %}
+        <td>{% if credential and credential.enabled and not credential.reset_required %}MFA active{% elif credential and credential.reset_required %}Re-enrolment required{% else %}MFA enrolment required{% endif %}</td>
         <td>
+          {% if membership.status == "active" and membership.person_id != current_user.id %}
+          <form method="post" class="mb-2" data-confirm="Reset this user's MFA? Their current authenticator will stop working and they must enrol again after their next password login.">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="reset_mfa">
+            <input type="hidden" name="membership_id" value="{{ membership.id }}">
+            <label class="visually-hidden" for="mfa-reset-reason-{{ membership.id }}">Reason for MFA reset</label>
+            <input id="mfa-reset-reason-{{ membership.id }}" name="reason" required minlength="5" maxlength="200" placeholder="Reason for MFA reset">
+            <button class="btn btn-sm" type="submit">Reset MFA</button>
+          </form>
+          {% endif %}
           {% if membership.status == "active" and membership.person_id != current_user.id %}
           <form method="post"
                 data-confirm="Deactivate this account? The user will no longer be able to sign in.">

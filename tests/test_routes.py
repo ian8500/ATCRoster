@@ -3115,6 +3115,121 @@ def test_mfa_challenge_completes_login(client):
     assert "/roster/" in roster_landing.headers["Location"]
 
 
+def test_unit_admin_mfa_reset_forces_fresh_enrolment_and_revokes_sessions(client):
+    target_client = app.app.test_client()
+    login(client)
+    with app.app.app_context():
+        target = Staff.query.filter_by(username="staff_test").one()
+        app.db.session.add(app.MfaCredential(
+            unit_id=1, person_id=target.id,
+            encrypted_secret=app._encrypt_field(pyotp.random_base32()),
+            enabled=True, enrolled_at=app.utcnow(),
+        ))
+        app.db.session.commit()
+    login_as(target_client, "staff_test")
+    with app.app.app_context():
+        target = Staff.query.filter_by(username="staff_test").one()
+        membership = app.UnitMembership.query.filter_by(
+            unit_id=1, person_id=target.id, status="active"
+        ).one()
+
+    reset = client.post(
+        "/unit/accounts",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "reset_mfa",
+            "membership_id": membership.id,
+            "reason": "Authenticator device was replaced.",
+        },
+        follow_redirects=False,
+    )
+    assert reset.status_code == 302
+    assert target_client.get("/", follow_redirects=False).headers["Location"].endswith("/login")
+
+    password_step = target_client.post(
+        "/login",
+        data={"_csrf_token": csrf(target_client), "username": "staff_test", "password": "password123"},
+        follow_redirects=False,
+    )
+    assert password_step.headers["Location"].endswith("/security/mfa")
+    assert target_client.get("/requests", follow_redirects=False).status_code == 302
+    setup = target_client.get("/security/mfa")
+    assert b"reset by an administrator" in setup.data
+    with target_client.session_transaction() as browser_session:
+        pending = browser_session["_pending_mfa_secret"]
+        token = browser_session["_csrf_token"]
+    enrolled = target_client.post(
+        "/security/mfa",
+        data={"_csrf_token": token, "code": pyotp.TOTP(pending).now()},
+        follow_redirects=False,
+    )
+    assert enrolled.status_code == 302
+    assert target_client.get("/requests", follow_redirects=False).status_code == 200
+    with app.app.app_context():
+        credential = app.MfaCredential.query.filter_by(person_id=target.id).one()
+        assert credential.enabled and not credential.reset_required
+        assert credential.recovery_codes_digest == "[]"
+        assert app.CentralSecurityAudit.query.filter_by(event_type="airport_mfa_reset").count() >= 1
+
+
+def test_mfa_reset_blocks_self_cross_unit_and_csrf(client):
+    login(client)
+    with app.app.app_context():
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        own = app.UnitMembership.query.filter_by(unit_id=1, person_id=admin.id).one()
+        other_identity = app.PlatformIdentity(
+            public_id="test-cross-unit-reset",
+            username="cross-unit-reset-test",
+            password_hash=admin.password_hash,
+        )
+        app.db.session.add(other_identity)
+        app.db.session.flush()
+        other = app.UnitMembership(
+            identity_id=other_identity.id,
+            unit_id=3,
+            person_id=999999,
+            role="StaffUser",
+            status="active",
+        )
+        app.db.session.add(other)
+        platform_target = Staff(
+            unit_id=1, username="superadmin-reset-target", name="Platform target",
+            staff_no="SUP-RESET", role="superadmin", is_operational=False,
+        )
+        platform_target.set_password("password123")
+        app.db.session.add(platform_target)
+        app.db.session.flush()
+        platform_identity = app.PlatformIdentity(
+            public_id="platform-reset-target",
+            username=platform_target.username,
+            password_hash=platform_target.password_hash,
+        )
+        app.db.session.add(platform_identity)
+        app.db.session.flush()
+        platform_membership = app.UnitMembership(
+            identity_id=platform_identity.id, unit_id=1, person_id=platform_target.id,
+            role="SuperAdmin", status="active",
+        )
+        app.db.session.add(platform_membership)
+        app.db.session.commit()
+    assert client.post("/unit/accounts", data={"action": "reset_mfa", "membership_id": own.id, "reason": "valid reason"}).status_code == 400
+    forbidden = client.post(
+        "/unit/accounts",
+        data={"_csrf_token": csrf(client), "action": "reset_mfa", "membership_id": own.id, "reason": "valid reason"},
+    )
+    assert forbidden.status_code == 403
+    cross_unit = client.post(
+        "/unit/accounts",
+        data={"_csrf_token": csrf(client), "action": "reset_mfa", "membership_id": other.id, "reason": "valid reason"},
+    )
+    assert cross_unit.status_code == 404
+    platform = client.post(
+        "/unit/accounts",
+        data={"_csrf_token": csrf(client), "action": "reset_mfa", "membership_id": platform_membership.id, "reason": "valid reason"},
+    )
+    assert platform.status_code == 403
+
+
 def test_continuous_activity_cannot_extend_absolute_session(client):
     login(client)
     with client.session_transaction() as session:

@@ -210,7 +210,7 @@ def create_auth_blueprint(dependencies: AuthDependencies) -> Blueprint:
                     dependencies.record_successful_login(user)
                     return redirect(url_for(dependencies.airport_login_endpoint(user)))
                 credential = dependencies.MfaCredential.query.filter_by(
-                    person_id=user.id, enabled=True
+                    person_id=user.id, enabled=True, reset_required=False
                 ).first()
                 if credential:
                     session["_mfa_user_id"] = user.id
@@ -222,22 +222,22 @@ def create_auth_blueprint(dependencies: AuthDependencies) -> Blueprint:
                         user_id=user.id,
                     )
                     return redirect(url_for("mfa_challenge"))
-                login_user(user)
-                dependencies.initialize_authenticated_session(user)
+                # Do not create an authenticated application session until the
+                # user has completed MFA enrolment.
+                session["_mfa_user_id"] = user.id
+                session["_mfa_unit_id"] = user.unit_id
+                session["_mfa_rate_key"] = rate_key
+                session["_mfa_next"] = dependencies.canonical_login_redirect(
+                    request.args.get("next"),
+                    default_endpoint=dependencies.airport_login_endpoint(user),
+                    user_id=user.id,
+                )
                 dependencies.security_event(
-                    "login_succeeded",
+                    "mfa_reenrolment_required",
                     principal=rate_key[-16:],
                     unit_id=user.unit_id,
                 )
-                dependencies.record_successful_login(user)
-                flash("Logged in successfully", "ok")
-                return redirect(
-                    dependencies.canonical_login_redirect(
-                        request.args.get("next"),
-                        default_endpoint=dependencies.airport_login_endpoint(user),
-                        user_id=user.id,
-                    )
-                )
+                return redirect(url_for("mfa_setup"))
             if identity:
                 dependencies.central_security_event(
                     "platform_login_failed",

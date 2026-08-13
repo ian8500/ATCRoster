@@ -71,9 +71,9 @@ values in the manifest rather than fixed dates.
 | A04 | Submit an invalid username and password. | Generic invalid-credentials message; no account details disclosed. | |
 | A05 | Sign in as the LBA Staff User from the manifest. | Roster opens and the header clearly says Leeds Bradford Airport and `LBA`. | |
 | A06 | Sign out, then use the Back button. | Protected content is not usable; navigation returns to login. | |
-| A07 | Sign in as the LBA Unit Admin and open `/security/mfa`. Enrol an authenticator and save the recovery codes. | Setup succeeds and the recovery codes are shown once. | |
+| A07 | Sign in as the LBA Unit Admin and open `/security/mfa`. Enrol an authenticator using the QR code and a valid six-digit TOTP. | Setup succeeds without displaying recovery codes. | |
 | A08 | Sign out and sign in again using the authenticator code. | MFA challenge succeeds and the code cannot be replayed. | |
-| A09 | Sign out and use one recovery code. Repeat with the same recovery code. | First use succeeds; second use is rejected. | |
+| A09 | As a second Unit Admin, reset an ordinary same-unit account’s MFA from People & access and give a reason. | Existing MFA is revoked; the target is forced through QR-code enrolment after their next password login; their previous session no longer works. | |
 | A10 | Resize to a narrow/mobile viewport and navigate the main pages. | Header, airport context, navigation and forms remain readable without hiding critical actions. | |
 | A11 | At a narrow viewport, open and close Menu; press Escape while it is open. | Menu is keyboard accessible, closes on Escape and returns focus to its button. | |
 | A12 | Tab from the top of a page and activate “Skip to main content”. | Focus moves directly to the page content. | |

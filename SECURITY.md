@@ -19,7 +19,7 @@ copying operational personnel data into the report.
   parameter.
 - Operational models are tenant-filtered and cross-airport writes are rejected.
 - Passwords are stored using Werkzeug password hashing.
-- TOTP MFA is supported with secrets encrypted using a deployment Fernet key;
+- TOTP MFA is supported with secrets encrypted using a deployment Fernet key. User-held recovery codes are not issued; authorised administrators reset MFA and require fresh enrolment;
   production forces unenrolled users through MFA setup.
 - Privileged and sensitive write routes use CSRF tokens.
 - Browser-facing unsafe methods (`POST`, `PUT`, `PATCH`, and `DELETE`) are

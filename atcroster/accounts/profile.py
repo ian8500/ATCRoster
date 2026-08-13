@@ -152,13 +152,11 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
         mfa_secret = ""
         mfa_provisioning_uri = ""
         mfa_qr_data_uri = ""
-        mfa_recovery_codes = []
         if s.id == current_user.id:
             credential = MfaCredential.query.filter_by(
                 person_id=current_user.id
             ).first()
             mfa_enabled = bool(credential and credential.enabled)
-            mfa_recovery_codes = session.pop("_new_mfa_recovery_codes", [])
             if not mfa_enabled:
                 mfa_secret = session.get("_pending_mfa_secret")
                 if not mfa_secret:
@@ -271,7 +269,6 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
             mfa_secret=mfa_secret,
             mfa_provisioning_uri=mfa_provisioning_uri,
             mfa_qr_data_uri=mfa_qr_data_uri,
-            mfa_recovery_codes=mfa_recovery_codes,
             sms_sender_registrations=sms_sender_registrations,
         )
 

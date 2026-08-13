@@ -28,7 +28,7 @@
   <button type="button" class="admin-section-tab" data-profile-section="calendar" aria-controls="profile-calendar" aria-selected="false"><i class="fa-regular fa-calendar"></i><span>Calendar</span></button>
   {% if staff.id == current_user.id %}
   <button type="button" class="admin-section-tab" data-profile-section="security" aria-controls="profile-security" aria-selected="false"><i class="fa-solid fa-key"></i><span>Security</span></button>
-  {% if not mfa_enabled or mfa_recovery_codes %}
+  {% if not mfa_enabled %}
   <button type="button" class="admin-section-tab" data-profile-section="mfa" aria-controls="profile-mfa" aria-selected="false"><i class="fa-solid fa-shield-halved"></i><span>MFA</span></button>
   {% endif %}
   {% endif %}
@@ -196,16 +196,12 @@
     </section>
   </section>
 
-  {% if not mfa_enabled or mfa_recovery_codes %}
+  {% if not mfa_enabled %}
   <section id="profile-mfa" class="profile-panel" data-profile-panel="mfa" hidden>
     <section class="card">
       <div class="card-hd">Multi-factor authentication</div>
       <div class="card-bd">
-        {% if mfa_recovery_codes %}
-          <h3>Save your recovery codes</h3>
-          <p>These codes are displayed once. Store them in an approved password manager.</p>
-          <div class="recovery-code-grid">{% for code in mfa_recovery_codes %}<code>{{ code }}</code>{% endfor %}</div>
-        {% elif mfa_enabled %}
+        {% if mfa_enabled %}
           <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> Multi-factor authentication is enabled.</p>
           <p>Contact an authorised administrator through the approved support process if access must be recovered.</p>
         {% else %}

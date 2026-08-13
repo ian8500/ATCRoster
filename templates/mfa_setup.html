@@ -3,16 +3,12 @@
 {% block content %}
 <div class="container container--narrow py-4">
   <section class="card"><div class="card-hd"><i class="fa-solid fa-shield-halved"></i> Multi-factor authentication</div><div class="card-bd">
-    {% if recovery_codes %}
-      <h2>Save your recovery codes</h2>
-      <p>These codes are displayed once. Store them in an approved password manager. Each code works only once.</p>
-      <div class="recovery-code-grid">{% for code in recovery_codes %}<code>{{ code }}</code>{% endfor %}</div>
-      <a class="btn btn-primary mt-3" href="{{ url_for('platform_mfa_challenge') if platform_enrolment else url_for('index') }}">I have stored the codes</a>
-    {% elif enabled %}
+    {% if enabled %}
       <p class="compliance-clear"><i class="fa-solid fa-circle-check"></i> Multi-factor authentication is enabled.</p>
       <p>Contact an authorised administrator through the approved support process if access must be recovered.</p>
     {% else %}
-      <h2>Protect your account</h2>
+      <h2>{% if reset_enrolment %}Set up MFA again{% else %}Protect your account{% endif %}</h2>
+      {% if reset_enrolment %}<p>Your MFA registration has been reset by an administrator. Set up your authenticator again to continue.</p>{% endif %}
       <ol class="compliance-workflow">
         <li>Open your authenticator app and choose <strong>Scan QR code</strong>.</li>
         <li>Scan the code below. If scanning is unavailable, enter the setup key manually.</li>

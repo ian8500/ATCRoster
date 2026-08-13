@@ -54,6 +54,10 @@ class SessionLifecycle:
         now = self._dependencies.now()
         session.permanent = True
         session["_session_nonce"] = secrets.token_urlsafe(24)
+        # MFA completion deliberately starts a fresh session. Issue a fresh
+        # CSRF token alongside it so the next authorised action is protected
+        # without retaining any pre-authentication session state.
+        session["_csrf_token"] = secrets.token_urlsafe(32)
         session["_session_started_at"] = now.isoformat()
         session["_last_seen_epoch"] = int(now.timestamp())
         session["_auth_stamp"] = self.auth_stamp(user)
