@@ -126,6 +126,7 @@ from atcroster.roster import (
     is_sunday as roster_date_is_sunday,
     parse_year_month as parse_roster_year_month,
     duration_minutes as roster_shift_duration_minutes,
+    ensure_month_requirement as ensure_roster_month_requirement,
     cell_is_protected,
     assignment_for_day,
     is_non_working as roster_code_is_non_working,
@@ -2061,22 +2062,7 @@ def shift_duration_minutes(shift: ShiftType):
 
 
 def ensure_month_requirement(year, month, default=(4, 4, 4, 2)):
-    r = Requirement.query.filter_by(year=year, month=month).first()
-    if not r:
-        if len(default) == 3:
-            dm, da, dn = default[0], default[1], default[2]
-            dd = 0
-        else:
-            dm, dd, da, dn = default
-        r = Requirement(
-            year=year, month=month,
-            req_m=dm, req_d=dd, req_a=da, req_n=dn,
-            req_sat_m=dm, req_sat_d=dd, req_sat_a=da, req_sat_n=dn,
-            req_sun_m=dm, req_sun_d=dd, req_sun_a=da, req_sun_n=dn,
-        )
-        db.session.add(r)
-        db.session.commit()
-    return r
+    return ensure_roster_month_requirement(db, Requirement, year, month, default)
 
 
 def requirements_for_day(
