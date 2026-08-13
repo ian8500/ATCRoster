@@ -271,7 +271,7 @@ from atcroster.administration.staff_edit import (
     StaffEditDependencies,
     create_staff_edit_blueprint,
 )
-from atcroster.home import HomeDependencies, create_home_blueprint
+from atcroster.home import create_home_blueprint, create_home_dependencies
 from atcroster.navigation import (
     NavigationContextDependencies,
     register_navigation_context,
@@ -297,7 +297,10 @@ from atcroster.accounts.signup import (
     SignupSagaDependencies,
     SignupWorkflowError,
 )
-from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
+from atcroster.admin_utilities import (
+    create_admin_utility_blueprint,
+    create_admin_utility_dependencies,
+)
 from atcroster.platform import (
     LegacyBootstrapService,
     PLATFORM_FEATURE_FLAGS,
@@ -1863,9 +1866,9 @@ app.register_blueprint(create_watch_move_blueprint(WatchMoveDependencies(
     record_roster_impact=record_roster_impact,
     log_change=log_change,
 )))
-app.register_blueprint(create_home_blueprint(HomeDependencies(
+app.register_blueprint(create_home_blueprint(create_home_dependencies(
     db=db,
-    Unit=Unit,
+    operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
 )))
@@ -1910,8 +1913,8 @@ app.register_blueprint(create_toil_administration_blueprint(
         record_toil_transaction=_record_toil_transaction,
     )
 ))
-app.register_blueprint(create_admin_utility_blueprint(AdminUtilityDependencies(
-    ChangeLog=ChangeLog,
+app.register_blueprint(create_admin_utility_blueprint(create_admin_utility_dependencies(
+    operational_models=_operational_models,
     is_admin_user=is_admin_user,
 )))
 app.register_blueprint(create_worker_health_blueprint(WorkerHealthDependencies(

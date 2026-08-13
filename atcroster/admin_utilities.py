@@ -15,6 +15,13 @@ class AdminUtilityDependencies:
     is_admin_user: Callable[[Any], bool]
 
 
+def create_admin_utility_dependencies(
+    *, operational_models: Any, **services: Any
+) -> AdminUtilityDependencies:
+    """Bind administration utility routes to the audit model registry."""
+    return AdminUtilityDependencies(ChangeLog=operational_models.ChangeLog, **services)
+
+
 def create_admin_utility_blueprint(dependencies: AdminUtilityDependencies) -> Blueprint:
     blueprint = Blueprint("admin_utilities", __name__)
 

@@ -18,6 +18,13 @@ class HomeDependencies:
     is_admin_user: Callable[[Any], bool]
 
 
+def create_home_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> HomeDependencies:
+    """Bind the home route to the canonical operational unit model."""
+    return HomeDependencies(db=db, Unit=operational_models.Unit, **services)
+
+
 def create_home_blueprint(dependencies: HomeDependencies) -> Blueprint:
     """Create the root redirect with the established onboarding gate."""
     blueprint = Blueprint("home", __name__)
