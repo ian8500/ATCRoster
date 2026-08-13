@@ -127,6 +127,7 @@ from atcroster.roster import (
     parse_year_month as parse_roster_year_month,
     duration_minutes as roster_shift_duration_minutes,
     ensure_month_requirement as ensure_roster_month_requirement,
+    requirements_for_day as resolve_roster_requirements_for_day,
     cell_is_protected,
     assignment_for_day,
     is_non_working as roster_code_is_non_working,
@@ -2070,7 +2071,7 @@ def requirements_for_day(
     day: date,
     special: SpecialRequirement | None = None,
 ) -> dict[str, int]:
-    return daily_requirements(requirement, day, special)
+    return resolve_roster_requirements_for_day(requirement, day, special, daily_requirements)
 
 # Idempotent month generation that preserves manual entries
 

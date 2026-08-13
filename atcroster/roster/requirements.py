@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import date
+from typing import Any, Callable
 
 
 def ensure_month_requirement(db: Any, Requirement: Any, year: int, month: int, default: tuple[int, ...] = (4, 4, 4, 2)) -> Any:
@@ -23,3 +24,8 @@ def ensure_month_requirement(db: Any, Requirement: Any, year: int, month: int, d
     db.session.add(requirement)
     db.session.commit()
     return requirement
+
+
+def requirements_for_day(requirement: Any, day: date, special: Any, daily_requirements: Callable[[Any, date, Any], dict[str, int]]) -> dict[str, int]:
+    """Resolve standard and special staffing requirements for a calendar day."""
+    return daily_requirements(requirement, day, special)
