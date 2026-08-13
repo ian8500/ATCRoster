@@ -326,6 +326,7 @@ from atcroster.security.sessions import (
 )
 from atcroster.tenancy_hooks import TenantHookDependencies, register_tenant_hooks
 from atcroster.tenancy_writes import (
+    current_unit_id as resolve_current_unit_id,
     discard_touched_units,
     enforce_operational_writes,
     invalidate_touched_units,
@@ -418,9 +419,7 @@ _decrypt_field = _field_encryption.decrypt
 _asset_version, _asset_url = register_template_helpers(app)
 
 
-def _current_unit_id() -> int:
-    """Derive tenancy from the authenticated membership, never request data."""
-    return int(getattr(current_user, "unit_id", 0) or 0)
+_current_unit_id = partial(resolve_current_unit_id, current_user)
 
 
 @app.before_request

@@ -14,6 +14,11 @@ def tenant_get(
     ).first()
 
 
+def current_unit_id(user: Any) -> int:
+    """Derive tenancy from the authenticated membership, never request data."""
+    return int(getattr(user, "unit_id", 0) or 0)
+
+
 def enforce_operational_writes(
     session: Any,
     *,
