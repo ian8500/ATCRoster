@@ -21,6 +21,17 @@ class FatigueRuleConfigDependencies:
     current_unit_id: Callable[[], int]
 
 
+def create_fatigue_rule_config_dependencies(
+    *, db: Any, operational_models: Any, **services: Any
+) -> FatigueRuleConfigDependencies:
+    """Bind fatigue configuration records at the fatigue-policy boundary."""
+    return FatigueRuleConfigDependencies(
+        db=db,
+        RosterSetting=operational_models.RosterSetting,
+        **services,
+    )
+
+
 class FatigueRuleConfigService:
     """Load and persist airport-scoped fatigue rule configuration."""
 

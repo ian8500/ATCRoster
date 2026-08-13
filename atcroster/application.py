@@ -59,8 +59,8 @@ from absence_requests import (
     safe_admin_month,
 )
 from fatigue_compliance import (
-    FatigueRuleConfigDependencies,
     FatigueRuleConfigService,
+    create_fatigue_rule_config_dependencies,
     compliance_month,
 )
 from roster_population_service import (
@@ -954,9 +954,9 @@ month_range = roster_month_service.range
 parse_ym = roster_month_service.parse
 
 _fatigue_rule_config_service = FatigueRuleConfigService(
-    FatigueRuleConfigDependencies(
+    create_fatigue_rule_config_dependencies(
         db=db,
-        RosterSetting=RosterSetting,
+        operational_models=_operational_models,
         current_unit_id=_current_unit_id,
     )
 )
