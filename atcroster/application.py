@@ -123,6 +123,7 @@ from atcroster.roster import (
     shift_groups_snapshot,
     expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
+    is_sunday as roster_date_is_sunday,
     cell_is_protected,
     assignment_for_day,
     is_non_working as roster_code_is_non_working,
@@ -3089,7 +3090,7 @@ def _passes_fatigue_for(staff: "Staff", day: date, code: str) -> bool:
 
 
 def _weekday_is_sun(d: date) -> bool:
-    return d.weekday() == 6  # Monday=0 ... Sunday=6
+    return roster_date_is_sunday(d)
 
 # ---------- Shift code helpers ----------
 

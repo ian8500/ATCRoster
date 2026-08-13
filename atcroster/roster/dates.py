@@ -26,3 +26,8 @@ def parse_iso_date(value: str | None) -> date | None:
         return date.fromisoformat(value)
     except ValueError:
         return None
+
+
+def is_sunday(value: date) -> bool:
+    """Return whether a roster calendar date falls on Sunday."""
+    return value.weekday() == 6
