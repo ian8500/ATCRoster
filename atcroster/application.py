@@ -250,6 +250,10 @@ from atcroster.administration import (
     create_toil_administration_blueprint,
     seed_toil_balances,
 )
+from atcroster.administration.actions import (
+    AdminActionDependencies,
+    dispatch_admin_action,
+)
 from atcroster.administration.onboarding import (
     OnboardingDependencies,
     create_onboarding_blueprint,
@@ -2769,6 +2773,54 @@ def inject_perms():
 # -------------------- Admin --------------------
 
 
+def _admin_action_dependencies():
+    return AdminActionDependencies(
+        db=db,
+        Watch=Watch,
+        Staff=Staff,
+        WorkPattern=WorkPattern,
+        StaffWatchHistory=StaffWatchHistory,
+        StaffPatternAssignment=StaffPatternAssignment,
+        QualificationType=QualificationType,
+        PersonQualification=PersonQualification,
+        ShiftType=ShiftType,
+        Requirement=Requirement,
+        SpecialRequirement=SpecialRequirement,
+        RosterImpactEventType=RosterImpactEventType,
+        JoinerDependencies=JoinerDependencies,
+        WatchConfigurationDependencies=WatchConfigurationDependencies,
+        ShiftConfigurationDependencies=ShiftConfigurationDependencies,
+        current_unit_id=_current_unit_id,
+        validate_csrf=_validate_csrf,
+        update_absence_types=update_absence_types,
+        get_absence_types=get_absence_types,
+        save_absence_types=_save_absence_types,
+        save_sms_settings=save_sms_settings,
+        parse_sms_number_lines=_parse_sms_number_lines,
+        save_roster_setting=_save_roster_setting,
+        update_unit_roster_setup=update_unit_roster_setup,
+        validate_pattern=_validated_pattern,
+        parse_date=_parse_date,
+        record_roster_impact=record_roster_impact,
+        update_watch_configuration=update_watch_configuration,
+        save_counter_mapping=save_counter_mapping,
+        create_joiner=create_joiner,
+        work_pattern_service=work_pattern_service,
+        record_qualification_history=_record_qualification_history,
+        sync_qualification=_sync_qualification_to_roster_profile,
+        now=utcnow,
+        update_shift_definition=update_shift_definition,
+        parse_hhmm=_parse_hhmm,
+        prune_roster_code_settings=_prune_roster_code_settings,
+        refresh_shift_cache=refresh_shift_cache,
+        clear_shift_groups_cache=_shift_groups_snapshot.cache_clear,
+        save_monthly_requirements=save_monthly_requirements,
+        save_special_requirement=save_special_requirement,
+        delete_special_requirement=delete_special_requirement,
+        seed_toil_balances=seed_toil_balances,
+    )
+
+
 @app.route("/admin", methods=["GET", "POST"])
 @login_required
 @admin_required
@@ -2776,168 +2828,11 @@ def admin():
 
     if request.method == "POST":
         form = request.form.get("form", "")
-
-        if form in {"absence_type_add", "absence_type_delete"}:
-            _validate_csrf()
-            message, category = update_absence_types(
-                form, request.form, load=get_absence_types, save=_save_absence_types
-            )
-            flash(message, category)
-            return redirect(url_for("admin") + "#leave-types")
-
-        if form == "sms_settings":
-            _validate_csrf()
-            error = save_sms_settings(
-                request.form,
-                db=db,
-                parse_number_lines=_parse_sms_number_lines,
-                save_setting=_save_roster_setting,
-            )
-            flash(error or "SMS numbers saved for this airport.", "error" if error else "ok")
-            return redirect(url_for("admin") + "#sms")
-
-        if form == "unit_roster_setup":
-            message, category = update_unit_roster_setup(
-                request.form,
-                db=db,
-                validate_pattern=_validated_pattern,
-                parse_date=_parse_date,
-                save_setting=_save_roster_setting,
-                record_roster_impact=record_roster_impact,
-                impact_type=RosterImpactEventType.WATCH_PATTERN_CHANGE,
-            )
-            flash(message, category)
-            return redirect(url_for("admin") + "#roster-setup")
-
-        if form in {"watch_new", "watch_edit", "watch_delete"}:
-            message, category = update_watch_configuration(
-                form,
-                request.form,
-                WatchConfigurationDependencies(
-                    db=db,
-                    Watch=Watch,
-                    Staff=Staff,
-                    StaffWatchHistory=StaffWatchHistory,
-                    RosterImpactEventType=RosterImpactEventType,
-                    current_unit_id=_current_unit_id,
-                    validate_pattern=_validated_pattern,
-                    parse_date=_parse_date,
-                    record_roster_impact=record_roster_impact,
-                ),
-            )
-            flash(message, category)
-            return redirect(url_for("admin") + "#roster-setup")
-
-        if form == "counter_mapping":
-            try:
-                save_counter_mapping(
-                    request.form,
-                    db=db,
-                    ShiftType=ShiftType,
-                    unit_id=_current_unit_id(),
-                    save_setting=_save_roster_setting,
-                )
-            except ValueError as exc:
-                abort(400, str(exc))
-            flash("Shift counter mapping saved.", "ok")
-            return redirect(url_for("admin") + "#shifts")
-
-        # Create staff
-        if form == "staff_new":
-            response = create_joiner(
-                request.form,
-                JoinerDependencies(
-                    db=db,
-                    Staff=Staff,
-                    WorkPattern=WorkPattern,
-                    StaffWatchHistory=StaffWatchHistory,
-                    StaffPatternAssignment=StaffPatternAssignment,
-                    QualificationType=QualificationType,
-                    PersonQualification=PersonQualification,
-                    RosterImpactEventType=RosterImpactEventType,
-                    current_unit_id=_current_unit_id,
-                    parse_date=_parse_date,
-                    work_pattern_service=work_pattern_service,
-                    record_qualification_history=_record_qualification_history,
-                    sync_qualification=_sync_qualification_to_roster_profile,
-                    record_roster_impact=record_roster_impact,
-                    now=utcnow,
-                ),
-            )
-            if response is not None:
-                return response
-
-        # Create / edit / delete shifts
-        if form in {"shift_new", "shift_edit", "shift_delete"}:
-            message, category = update_shift_definition(
-                form,
-                request.form,
-                ShiftConfigurationDependencies(
-                    db=db,
-                    ShiftType=ShiftType,
-                    QualificationType=QualificationType,
-                    RosterImpactEventType=RosterImpactEventType,
-                    current_unit_id=_current_unit_id,
-                    parse_hhmm=_parse_hhmm,
-                    record_roster_impact=record_roster_impact,
-                    prune_roster_code_settings=_prune_roster_code_settings,
-                    refresh_shift_cache=refresh_shift_cache,
-                    clear_shift_groups_cache=_shift_groups_snapshot.cache_clear,
-                ),
-            )
-            flash(message, category)
-            if category == "ok":
-                return redirect(url_for("admin"))
-
-        # Save requirements grid (includes req_d)
-        if form == "req":
-            try:
-                save_monthly_requirements(
-                    request.form,
-                    db=db,
-                    Requirement=Requirement,
-                    impact_type=RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
-                    record_roster_impact=record_roster_impact,
-                )
-            except ValueError as exc:
-                abort(400, str(exc))
-            flash("Requirements saved.", "ok")
-            return redirect(url_for("admin") + "#requirements")
-
-        if form == "special_requirement":
-            try:
-                message = save_special_requirement(
-                    request.form,
-                    db=db,
-                    SpecialRequirement=SpecialRequirement,
-                    impact_type=RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
-                    record_roster_impact=record_roster_impact,
-                )
-            except ValueError as exc:
-                flash(str(exc), "error")
-            else:
-                flash(message, "ok")
-            return redirect(url_for("admin") + "#requirements")
-
-        if form == "special_requirement_delete":
-            delete_special_requirement(
-                int(request.form.get("special_requirement_id") or 0),
-                db=db,
-                SpecialRequirement=SpecialRequirement,
-                impact_type=RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
-                record_roster_impact=record_roster_impact,
-            )
-            flash("Special requirement removed.", "ok")
-            return redirect(url_for("admin") + "#requirements")
-
-        # (Legacy) Bulk TOIL seed still accepted server-side, but you won't use it in UI.
-        if form == "toil_seed":
-            updated, errors = seed_toil_balances(
-                request.form.get("toil_seed_lines") or "", db=db, Staff=Staff
-            )
-            flash(
-                f"TOIL balances updated: {updated} staff; {errors} error(s).", "ok" if errors == 0 else "error")
-            return redirect(url_for("admin"))
+        response = dispatch_admin_action(
+            form, request.form, _admin_action_dependencies()
+        )
+        if response is not None:
+            return response
 
     return render_template(
         "admin.html",
