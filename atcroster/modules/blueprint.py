@@ -18,6 +18,11 @@ class ModuleDependencies:
     is_admin_user: Callable[[Any], bool]
 
 
+def create_module_dependencies(*, saas_models: Any, **services: Any) -> ModuleDependencies:
+    """Bind module-launcher routes to canonical SaaS models."""
+    return ModuleDependencies(FeatureFlag=saas_models.FeatureFlag, **services)
+
+
 def create_module_blueprint(dependencies: ModuleDependencies) -> Blueprint:
     """Create the legacy endpoint-compatible module launcher."""
     blueprint = Blueprint("modules", __name__)
