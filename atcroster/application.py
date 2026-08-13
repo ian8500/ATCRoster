@@ -179,7 +179,9 @@ from atcroster.accounts import (
     create_kiosk_account_blueprint,
     create_password_blueprint,
     active_recovery_from_digest,
+    platform_support_emails,
     record_successful_login,
+    unit_admin_emails,
 )
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import WorkerHealthDependencies, create_worker_health_blueprint
@@ -594,33 +596,15 @@ def _valid_email(value: str) -> str:
 
 
 def _platform_support_emails() -> list[str]:
-    configured = _valid_email(os.getenv("ATCROSTER_SUPPORT_EMAIL", ""))
-    rows = PlatformIdentity.query.filter(
-        PlatformIdentity.public_id.like("platform-%"),
-        PlatformIdentity.email != "",
-    ).all()
-    return list(dict.fromkeys(
-        [address for address in [configured, *(row.email for row in rows)]
-         if address]
-    ))
+    return platform_support_emails(
+        PlatformIdentity,
+        os.getenv("ATCROSTER_SUPPORT_EMAIL", ""),
+        _valid_email,
+    )
 
 
 def _unit_admin_emails(unit_id: int) -> list[str]:
-    rows = (
-        db.session.query(PlatformIdentity)
-        .join(
-            UnitMembership,
-            UnitMembership.identity_id == PlatformIdentity.id,
-        )
-        .filter(
-            UnitMembership.unit_id == unit_id,
-            UnitMembership.status == "active",
-            UnitMembership.role == "UnitAdmin",
-            PlatformIdentity.email != "",
-        )
-        .all()
-    )
-    return list(dict.fromkeys(row.email for row in rows if row.email))
+    return unit_admin_emails(db, PlatformIdentity, UnitMembership, unit_id)
 
 
 def _send_sms_via_messagemedia(
