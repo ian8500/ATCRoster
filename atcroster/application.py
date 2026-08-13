@@ -242,6 +242,13 @@ from atcroster.roster.month_view import (
     MonthRosterLoadDependencies,
     load_month_roster,
 )
+from atcroster.roster.assignments import (
+    AssignmentRefreshDependencies,
+    generate_assignment_range,
+    refresh_pattern_day,
+    set_absence_override,
+    set_generated_assignment,
+)
 from atcroster.cli import CliDependencies, create_cli_commands
 from atcroster.cli_roster import RosterCliDependencies, create_roster_cli
 from atcroster.modules import ModuleDependencies, create_module_blueprint
@@ -1909,91 +1916,43 @@ def _cycle_day_for(staff: Staff, d: date) -> int | None:
     return ((d - anchor).days % len(pat)) + 1
 
 
-def set_assignment(staff: Staff, d: date, code: str, source="auto", note=""):
-    a = Assignment.query.filter_by(staff_id=staff.id, day=d).first()
-    if not a:
-        a = Assignment(staff=staff, day=d, code=code)
-        db.session.add(a)
-    a.set_generated_baseline(
-        code,
-        generation_version="legacy-pattern-compat-v1",
+def _assignment_refresh_dependencies():
+    return AssignmentRefreshDependencies(
+        db=db,
+        Assignment=Assignment,
+        Staff=Staff,
+        code_from_pattern=code_from_pattern,
+        day_leave_for=day_leave_for,
+        get_shift=get_shift,
+        absence_types=get_absence_types,
     )
-    if a.override_code is None:
-        a.source = source
-        a.note = note
-    return a
+
+
+def set_assignment(staff: Staff, d: date, code: str, source="auto", note=""):
+    return set_generated_assignment(
+        staff,
+        d,
+        code,
+        dependencies=_assignment_refresh_dependencies(),
+        source=source,
+        note=note,
+    )
 
 
 def overwrite_assignment(staff: Staff, d: date, code: str, note: str = ""):
-    """Apply a system-managed absence overlay without losing the baseline."""
-    a = Assignment.query.filter_by(staff_id=staff.id, day=d).first()
-    if not a:
-        a = Assignment(staff=staff, day=d, code=code)
-        db.session.add(a)
-    a.set_editor_override(
+    return set_absence_override(
+        staff,
+        d,
         code,
-        reason=note or "System-managed absence",
-        override_type="SYSTEM_ABSENCE",
+        dependencies=_assignment_refresh_dependencies(),
+        note=note,
     )
-    a.source = "leave"
-    a.note = note or a.note
-    return a
 
 # Respect manual edits & only clear annotations when auto changes the code
 
 
 def refresh_day_from_pattern_and_leave(staff: Staff, d: date):
-    """
-    Recompute a single day based on pattern + leave overlay rules.
-    - Preserve explicit sickness (SC/SSC) and TOIL use (TOU8/TOUI).
-    - Do NOT clear annotations unless the auto logic changes the code.
-    """
-    existing = Assignment.query.filter_by(staff_id=staff.id, day=d).first()
-    prev_code = existing.effective_code if existing else None
-
-    # Do not touch manual or AI-written cells (leave/sick handled earlier)
-    if existing and (existing.code or "").strip() and existing.source in ("manual", "ai"):
-        return
-
-    # Keep explicit sickness & TOIL-use exactly as entered.
-    sickness_codes = {
-        item["code"] for item in get_absence_types(
-            "sickness", active_only=False, unit_id=staff.unit_id
-        )
-    }
-    if existing and existing.code in sickness_codes | {"TOU8", "TOUI"}:
-        return existing
-
-    pat_code = code_from_pattern(staff, d)
-    lv = day_leave_for(staff, d)
-
-    if lv == "AL":
-        # AL overlays only on working pattern days
-        pat_shift = get_shift(pat_code)
-        if pat_shift and pat_shift.is_working:
-            a = overwrite_assignment(staff, d, "AL", note="leave")
-            a.annotation = ""  # leave days shouldn't carry OT/EXT flags
-            return a
-        # If pattern is non-working, just write pattern
-        a = set_assignment(staff, d, pat_code, source="auto", note="pattern")
-        if prev_code is None or (prev_code != a.code and a.source != "manual"):
-            a.annotation = ""
-        return a
-
-    if lv:
-        a = overwrite_assignment(staff, d, lv, note="leave")
-        a.annotation = ""
-        return a
-
-    # No leave: (re)write pattern but preserve annotations unless code changes
-    if existing and existing.override_type in {
-        "MIGRATED_ABSENCE", "SYSTEM_ABSENCE"
-    }:
-        existing.clear_editor_override()
-    a = set_assignment(staff, d, pat_code, source="auto", note="pattern")
-    if prev_code is None or (prev_code != a.code and a.source != "manual"):
-        a.annotation = ""
-    return a
+    return refresh_pattern_day(staff, d, _assignment_refresh_dependencies())
 
 
 def shift_duration_minutes(shift: ShiftType):
@@ -2263,19 +2222,23 @@ def _year_month_iter(start_date: date, end_date: date):
 
 
 def generate_range(start_day: date, end_day: date):
-    """
-    Ensure requirements and (re)build each month from start_day's month through
-    end_day's month (inclusive). Safe to re-run; respects manual/protected codes.
-    """
-    for y, m in _year_month_iter(start_day, end_day):
-        ensure_month_requirement(y, m)
-        generate_month(y, m)
+    return generate_assignment_range(
+        start_day,
+        end_day,
+        iter_year_months=_year_month_iter,
+        ensure_month_requirement=ensure_month_requirement,
+        generate_month=generate_month,
+    )
 
 
 def ensure_assignments_for_range(start_day: date, end_day: date):
-    for y, m in _year_month_iter(start_day, end_day):
-        ensure_month_requirement(y, m)
-        generate_month(y, m)
+    return generate_assignment_range(
+        start_day,
+        end_day,
+        iter_year_months=_year_month_iter,
+        ensure_month_requirement=ensure_month_requirement,
+        generate_month=generate_month,
+    )
 
 
 def would_create_new_fatigue_issues(
