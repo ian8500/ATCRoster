@@ -1,11 +1,17 @@
 # ATCRoster
 
-ATCRoster is a roster planning and workforce-compliance application for airport
-air traffic control units. It supports day-to-day roster editing, shift
-requests, fatigue checks, qualifications, annotations and TOIL, reporting,
-scenario planning, and versioned publication. Airport operational data is
-tenant-bound; the platform administration area exposes account and service
-aggregates only.
+ATCRoster is a modular Flask application for airport air traffic control units.
+Its two flagship modules are **ATCO Roster**, for controlled workforce planning
+and roster publication, and **Position Monitor**, an operational HMI for live
+position state, controller roles and configured time monitoring. Airport
+operational data is tenant-bound; platform administration exposes account and
+service aggregates only.
+
+ATCRoster is being prepared for controlled commercial pilots. It supports
+airport-configured fatigue and qualification findings to inform decisions; it
+does not claim to guarantee regulatory compliance, operational safety or error
+free rostering. The verified feature record is in
+[the product truth matrix](docs/product-truth-matrix.md).
 
 ## Contents
 
@@ -26,6 +32,8 @@ aggregates only.
 15. [Backup, restore, and recovery](#backup-restore-and-recovery)
 16. [Testing](#testing)
 17. [Troubleshooting](#troubleshooting)
+18. [Position Monitor](#position-monitor)
+19. [Architecture and product status](#architecture-and-product-status)
 
 ## Roles and privacy
 
@@ -45,6 +53,7 @@ support, contracting, and billing records.
 | `RosterEditor` | Roster editing and permitted annotation application. Cannot edit annotation definitions. |
 | `WatchManager` | Explicitly granted watch and annotation actions only. |
 | `StaffUser` | Their own roster, requests, notifications, and permitted self-service functions. |
+| `PositionMonitor` | Dedicated kiosk account limited to the Position Monitor operational workflow. |
 | `ReadOnlyAuditor` | Product target only; not currently provisionable. Do not offer until its read-only route/export contract is implemented and tested. |
 
 An operational `Person` does not need a login. Authentication belongs to a
@@ -799,6 +808,54 @@ exists. Approval and reset links are single-use and expire automatically.
 
 Do not log secrets, passwords, MFA seeds, request comments, medical details,
 or database URLs. Review operational audit access as personnel data.
+
+## Position Monitor
+
+**Position Monitor** is ATCRoster's live operational position HMI. Dedicated
+Position Monitor kiosk accounts can open and close configured positions, log
+controllers on and off, hand over a position, and add or remove OJTI and
+assessor participants. Those accounts are restricted to the monitor workflow;
+they cannot browse the ordinary roster or administration areas.
+
+Administrators configure position groups, positions, permitted supporting
+roles, currency categories and a default maximum position duration. A 24-hour,
+day-of-week allowance matrix can vary the duration by operational time. The
+active session records the applicable allowance, so the displayed elapsed and
+remaining time remains explainable if configuration changes later.
+
+The board shows closed, vacant, operational, training and assessment states;
+the primary controller and any named OJTI/assessor; elapsed and remaining time;
+and clear text labels in addition to semantic colour. Current medical and
+unit-endorsement data, plus configured OJTI/assessor authority, are checked at
+the server before logon. Lifecycle and handover events are auditable.
+
+Live state is delivered by authenticated server-sent events with a polling
+fallback. If a state refresh cannot be confirmed, the HMI visibly marks the
+board as degraded and warns that the displayed state may be stale. Operators
+must not rely on an unconfirmed display. Validate local supervision,
+endorsement, position-time and handover procedures during pilot acceptance.
+
+## Architecture and product status
+
+`app.py` is a small WSGI compatibility entrypoint. Application assembly lives
+in `atcroster/application.py`; domain packages own their routes and services.
+The production design uses PostgreSQL, Redis-backed production services, a
+control-plane database and physically separate operational databases per
+airport. Authenticated memberships select tenant context; request parameters
+do not select an airport database. Alembic is the schema authority.
+
+Implemented controls include tenant-scoped ORM enforcement, CSRF protection,
+MFA/account recovery workflows, rate limits, session lifecycle controls,
+security headers and append-only audit evidence. These are specific controls,
+not a claim of independent security assurance. Before a customer pilot, carry
+out production infrastructure validation, backup/restore rehearsal,
+independent authenticated security testing, local safety/privacy assessment,
+load testing and customer operational acceptance.
+
+The public-website copy source of truth is
+[the website product specification](docs/website-product-specification.md).
+It includes a claims register and real-screen capture list; no public website
+source is held in this repository.
 
 ## Backup, restore, and recovery
 

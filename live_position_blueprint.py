@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, time as datetime_time, timedelta, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone, tzinfo
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -167,7 +167,7 @@ def create_live_position_blueprint(
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=timezone.utc)
         try:
-            local_timezone = ZoneInfo(
+            local_timezone: tzinfo = ZoneInfo(
                 getattr(unit, "timezone", "Europe/London") or "Europe/London"
             )
         except ZoneInfoNotFoundError:
