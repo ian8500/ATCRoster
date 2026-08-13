@@ -43,3 +43,12 @@ def create_home_blueprint(dependencies: HomeDependencies) -> Blueprint:
         state.app.add_url_rule("/", "index", index, methods=("GET",))
 
     return blueprint
+
+
+def register_home_blueprint(
+    app: Any, *, db: Any, operational_models: Any, **services: Any
+) -> None:
+    """Register the home route from home-domain dependencies."""
+    app.register_blueprint(create_home_blueprint(
+        create_home_dependencies(db=db, operational_models=operational_models, **services)
+    ))

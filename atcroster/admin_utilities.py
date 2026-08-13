@@ -59,3 +59,14 @@ def create_admin_utility_blueprint(dependencies: AdminUtilityDependencies) -> Bl
         state.app.add_url_rule("/admin/change-log", "change_log_page", change_log_page, methods=("GET",))
 
     return blueprint
+
+
+def register_admin_utility_blueprint(
+    app: Any, *, operational_models: Any, **services: Any
+) -> None:
+    """Register small administration utilities at their ownership boundary."""
+    app.register_blueprint(create_admin_utility_blueprint(
+        create_admin_utility_dependencies(
+            operational_models=operational_models, **services
+        )
+    ))

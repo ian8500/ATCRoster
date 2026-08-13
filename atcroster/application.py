@@ -246,7 +246,7 @@ from atcroster.administration import (
     seed_toil_balances,
 )
 from atcroster.administration.absence_types import update_absence_types
-from atcroster.home import create_home_blueprint, create_home_dependencies
+from atcroster.home import register_home_blueprint
 from atcroster.navigation import (
     create_navigation_context_dependencies,
     register_navigation_context,
@@ -274,8 +274,7 @@ from atcroster.accounts.signup import (
     create_signup_saga_dependencies,
 )
 from atcroster.admin_utilities import (
-    create_admin_utility_blueprint,
-    create_admin_utility_dependencies,
+    register_admin_utility_blueprint,
 )
 from atcroster.platform import (
     LegacyBootstrapService,
@@ -1641,12 +1640,13 @@ register_administration_blueprints(
         record_toil_transaction=_record_toil_transaction,
     ),
 )
-app.register_blueprint(create_home_blueprint(create_home_dependencies(
+register_home_blueprint(
+    app,
     db=db,
     operational_models=_operational_models,
     current_unit_id=_current_unit_id,
     is_admin_user=is_admin_user,
-)))
+)
 register_account_blueprints(app, create_account_registration_dependencies(
     db=db,
     operational_models=_operational_models,
@@ -1678,10 +1678,11 @@ register_account_blueprints(app, create_account_registration_dependencies(
     shift_duration_minutes=shift_duration_minutes,
     live_position_enabled=live_position_enabled,
 ))
-app.register_blueprint(create_admin_utility_blueprint(create_admin_utility_dependencies(
+register_admin_utility_blueprint(
+    app,
     operational_models=_operational_models,
     is_admin_user=is_admin_user,
-)))
+)
 register_platform_blueprints(
     app,
     db=db,
