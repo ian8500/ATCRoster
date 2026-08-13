@@ -274,6 +274,8 @@ from atcroster.navigation import (
     register_navigation_context,
 )
 from atcroster.requests import (
+    REQUEST_STATUSES,
+    REQUEST_TRANSITIONS,
     RequestWorkflowDependencies,
     RequestWorkflowService,
     clamp_request_navigation,
@@ -295,6 +297,8 @@ from atcroster.accounts.signup import (
 from atcroster.admin_utilities import AdminUtilityDependencies, create_admin_utility_blueprint
 from atcroster.platform import (
     LegacyBootstrapService,
+    PLATFORM_FEATURE_FLAGS,
+    PLATFORM_MODULE_FLAGS,
     WorkerHealthDependencies,
     create_worker_health_blueprint,
     load_worker_health_snapshot,
@@ -415,29 +419,6 @@ _encrypt_field = _field_encryption.encrypt
 _decrypt_field = _field_encryption.decrypt
 
 _asset_version, _asset_url = register_template_helpers(app)
-
-
-REQUEST_STATUSES = frozenset({"pending", "approved", "rejected", "fulfilled", "cancelled"})
-REQUEST_TRANSITIONS = {
-    "pending": frozenset({"approved", "rejected", "cancelled"}),
-    "approved": frozenset({"rejected", "cancelled"}),
-    "rejected": frozenset(),
-    "cancelled": frozenset(),
-    "fulfilled": frozenset(),
-}
-PLATFORM_FEATURE_FLAGS = frozenset({
-    "advanced_coverage", "scenario_planning", "calendar_exports",
-    "fatigue_reporting", "custom_branding", "briefing_module",
-    "training_module", "competency_module", "live_position_monitoring",
-    "handover_module",
-})
-
-# The platform feature registry also contains supporting capabilities. Keep
-# Super Admin's product controls focused on the modules an airport can launch.
-PLATFORM_MODULE_FLAGS = frozenset({
-    "briefing_module", "training_module", "competency_module",
-    "live_position_monitoring", "handover_module",
-})
 
 
 def _current_unit_id() -> int:

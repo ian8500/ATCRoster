@@ -1,6 +1,7 @@
 """Platform-level administration routes."""
 
 from .bootstrap import LegacyBootstrapService
+from .features import PLATFORM_FEATURE_FLAGS, PLATFORM_MODULE_FLAGS
 from .worker_health import (
     WorkerHealthDependencies,
     create_worker_health_blueprint,
@@ -22,6 +23,8 @@ from .legacy_migrations import (
 __all__ = (
     "WorkerHealthDependencies",
     "LegacyBootstrapService",
+    "PLATFORM_FEATURE_FLAGS",
+    "PLATFORM_MODULE_FLAGS",
     "add_assignment_annotation",
     "add_columns_if_missing",
     "add_performance_indexes",

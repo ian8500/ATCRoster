@@ -8,6 +8,7 @@ from .workflow import (
     clamp_request_navigation,
     load_unit_request_rules,
 )
+from .policy import REQUEST_STATUSES, REQUEST_TRANSITIONS
 
 __all__ = (
     "add_request_audit",
@@ -16,4 +17,6 @@ __all__ = (
     "load_unit_request_rules",
     "RequestWorkflowDependencies",
     "RequestWorkflowService",
+    "REQUEST_STATUSES",
+    "REQUEST_TRANSITIONS",
 )
