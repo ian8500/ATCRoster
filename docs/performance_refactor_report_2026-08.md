@@ -22,8 +22,8 @@ locally, so SQL count, HTML byte, gzip byte, DOM-node and render-time percentage
 claims are intentionally not reported.
 
 The production import path was also checked three times against the supported
-SQLite smoke configuration after lazy-loading QR rendering: 0.47s, 0.48s and
-0.47s. This is a repeatable sanity check, not a before/after performance claim,
+SQLite smoke configuration after lazy-loading QR rendering: 0.51s, 0.49s and
+0.49s. This is a repeatable sanity check, not a before/after performance claim,
 because the earlier baseline could not use the same local database configuration.
 
 ## Monthly roster
@@ -49,9 +49,10 @@ caching. Dynamic authenticated pages continue to use `no-store, private`.
 
 ## Architecture and safety
 
-`app.py` was 10,847 lines at the start of this work and remains the production
-bootstrap compatibility boundary. The new view service does not create another
-Flask or SQLAlchemy instance and has no dependency on `app.py` globals.
+`app.py` remains the production bootstrap compatibility boundary, but the
+notification inbox, module launcher, administration landing and calendar
+subscription/token routes now own their route behavior in injected-dependency
+modules. None creates another Flask or SQLAlchemy instance.
 
 ## Validation and residual issues
 
@@ -91,8 +92,8 @@ the healthy deployment.
 
 1. Run a seeded PostgreSQL/Redis benchmark on `main` and this branch and add
    stable query-count/HTML-size regression tests.
-2. Move the remaining roster-specific inline CSS and JavaScript into versioned
-   static assets after visual browser regression coverage is in place.
+2. Add browser-based visual and interaction coverage for the shared roster
+   editor before further presentation changes.
 3. Continue extracting authoritative month data loading from `roster_blueprint`
    into the roster domain without moving publication eligibility out of its
    transaction boundary.
