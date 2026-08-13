@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 from scripts.migrate_all_databases import (
     _canonical_database_url,
@@ -402,7 +402,7 @@ class ProvisioningWorker:
         with application.db.engine.connect() as connection:
             acquired = bool(
                 connection.execute(
-                    application.text("SELECT pg_try_advisory_lock(:key)"),
+                    text("SELECT pg_try_advisory_lock(:key)"),
                     {"key": int(unit_id)},
                 ).scalar()
             )
@@ -411,7 +411,7 @@ class ProvisioningWorker:
             finally:
                 if acquired:
                     connection.execute(
-                        application.text("SELECT pg_advisory_unlock(:key)"),
+                        text("SELECT pg_advisory_unlock(:key)"),
                         {"key": int(unit_id)},
                     )
 
