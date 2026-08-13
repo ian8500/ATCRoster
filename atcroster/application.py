@@ -123,6 +123,7 @@ from atcroster.roster import (
     shift_groups_snapshot,
     expand as expand_roster_pattern, validate as validate_roster_pattern,
     parse_hhmm as parse_roster_hhmm, parse_iso_date as parse_roster_date,
+    cell_is_protected,
 )
 from atcroster.compression import register_response_compression
 from access_policy import (
@@ -3055,9 +3056,6 @@ def is_month_locked(y: int, m: int, today: Optional[date] = None) -> bool:
     return roster_period_is_locked(y, m, today, roster_month_is_locked)
 
 
-# Source protection: we never overwrite these
-LOCKED_SOURCES = {"manual", "leave", "sickness"}
-
 def _assignment(staff_id: int, d: date) -> "Assignment":
     a = Assignment.query.filter_by(staff_id=staff_id, day=d).first()
     if not a:
@@ -3067,7 +3065,7 @@ def _assignment(staff_id: int, d: date) -> "Assignment":
 
 
 def _cell_is_protected(a: "Assignment") -> bool:
-    return bool(a.effective_code and a.source in LOCKED_SOURCES)
+    return cell_is_protected(a)
 
 
 def _set_code(a: "Assignment", code: str, source: str, note: str = "", ctx_month: Optional[str] = None):
