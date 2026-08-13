@@ -171,7 +171,11 @@ from atcroster.qualifications import (
 from atcroster.audit import context_month_for_date, record_central_security_event, record_change
 from atcroster.workforce import effective_watch as resolve_effective_watch, has_leave_or_sickness, watch_id_for_staff_on as resolve_watch_id, watch_ids_for_staff_on as resolve_watch_ids
 from atcroster.workforce.joiners import JoinerDependencies, create_joiner
-from atcroster.fatigue import assignment_is_fatigue_safe
+from atcroster.fatigue import (
+    assignment_is_fatigue_safe,
+    configured_findings as configured_fatigue_findings,
+    segments_from_assignments,
+)
 from atcroster.errors import ErrorHandlerDependencies, register_error_handlers
 from atcroster.extensions import create_tenant_database
 from atcroster.public import public_blueprint
@@ -2202,63 +2206,27 @@ _save_fatigue_rule_config = _fatigue_rule_config_service.save
 
 
 def _segments_from_assignments(staff: Staff, assignments, definitions):
-    segs = []
-    for a in assignments:
-        code = (a.effective_code or "").upper()
-
-        # SC/SSC are sickness days – treat as REST for fatigue (do not create duty segments)
-        if code in ("SC", "SSC"):
-            continue
-
-        sh = get_shift(code, staff.unit_id) if code else None
-        if not _is_working(sh):
-            continue
-
-        sdt, edt = _span(a.day, sh)
-        if not sdt:
-            continue
-
-        night = _is_night_duty(sdt, edt, definitions)
-        is_early, is_pre0600 = _is_early_start(sdt, definitions)
-        is_morning = _is_morning_duty(sdt)
-        segs.append({
-            "day": a.day,
-            "start": sdt,
-            "end": edt,
-            "mins": int((edt - sdt).total_seconds() // 60),
-            "night": night,
-            "early": is_early,
-            "early_pre0600": is_pre0600,
-            "morning": is_morning,
-        })
-    return segs
+    return segments_from_assignments(
+        staff,
+        assignments,
+        definitions,
+        get_shift=get_shift,
+        is_working=_is_working,
+        span=_span,
+        is_night_duty=_is_night_duty,
+        is_early_start=_is_early_start,
+        is_morning_duty=_is_morning_duty,
+    )
 
 
 def _configured_fatigue_findings(segments, config, observation_start):
-    """Run system and local rules from one airport-scoped configuration."""
-    findings = _analyze_segments(
-        segments, config, observation_start=observation_start
+    return configured_fatigue_findings(
+        segments,
+        config,
+        observation_start,
+        analyze_segments=_analyze_segments,
+        custom_fatigue_flags=_custom_fatigue_flags,
     )
-    enabled_system = {
-        code for code, rule in config["system"].items() if rule["enabled"]
-    }
-    filtered = {
-        finding_day: [
-            message for message in messages
-            if not (match := re.search(r"\b(D\d{2})\b", message))
-            or match.group(1) in enabled_system
-        ]
-        for finding_day, messages in findings.items()
-    }
-    for finding_day, messages in _custom_fatigue_flags(
-        segments, config["custom"]
-    ).items():
-        filtered.setdefault(finding_day, []).extend(messages)
-    return {
-        finding_day: messages
-        for finding_day, messages in filtered.items()
-        if messages
-    }
 
 
 def _segments_for_staff(staff: Staff, start_day: date, end_day: date):
