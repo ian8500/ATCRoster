@@ -5,6 +5,7 @@ from .status import staff_has_qualification, staff_is_countable
 from .compliance import (
     ComplianceRuntime,
     ComplianceRuntimeDependencies,
+    create_compliance_runtime_dependencies,
     monthly_compliance_findings,
 )
 from .currency import (
@@ -39,6 +40,7 @@ __all__ = (
     "monthly_compliance_findings",
     "ComplianceRuntime",
     "ComplianceRuntimeDependencies",
+    "create_compliance_runtime_dependencies",
     "currency_window",
     "OperationalCurrencyRuntime",
     "OperationalCurrencyRuntimeDependencies",

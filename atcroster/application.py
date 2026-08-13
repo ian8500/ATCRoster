@@ -141,7 +141,7 @@ from atcroster.qualifications import (
     EligibilityDependencies,
     EligibilityService,
     ComplianceRuntime,
-    ComplianceRuntimeDependencies,
+    create_compliance_runtime_dependencies,
     OperationalCurrencyRuntime,
     OperationalCurrencyRuntimeDependencies,
     create_qualification_registration_dependencies,
@@ -1004,10 +1004,8 @@ would_trigger_fatigue = fatigue_compatibility_service.would_trigger
 would_create_new_fatigue_issues = fatigue_runtime.new_findings
 
 _compliance_month = compliance_month
-compliance_runtime = ComplianceRuntime(ComplianceRuntimeDependencies(
-        Assignment=Assignment,
-        Staff=Staff,
-        Watch=Watch,
+compliance_runtime = ComplianceRuntime(create_compliance_runtime_dependencies(
+        operational_models=_operational_models,
         month_range=month_range,
         fatigue_rule_config=_fatigue_rule_config,
         fatigue_flags_for_range=fatigue_flags_for_range,

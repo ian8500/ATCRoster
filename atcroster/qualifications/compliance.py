@@ -18,6 +18,18 @@ class ComplianceRuntimeDependencies:
     fatigue_flags_for_range: Callable[[Any, list[Any]], dict[Any, list[str]]]
 
 
+def create_compliance_runtime_dependencies(
+    *, operational_models: Any, **services: Any
+) -> ComplianceRuntimeDependencies:
+    """Bind compliance reporting to operational roster records."""
+    return ComplianceRuntimeDependencies(
+        Assignment=operational_models.Assignment,
+        Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
+        **services,
+    )
+
+
 class ComplianceRuntime:
     """Own monthly qualification and fatigue-compliance report assembly."""
 
