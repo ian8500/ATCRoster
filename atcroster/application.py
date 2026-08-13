@@ -258,6 +258,7 @@ from atcroster.requests import (
     RequestWorkflowService,
     create_request_workflow_dependencies,
     clamp_request_navigation,
+    register_request_blueprints,
 )
 from atcroster.accounts import (
     create_account_registration_dependencies,
@@ -316,10 +317,6 @@ from atcroster.tenancy_writes import (
 )
 from atcroster.briefing_bootstrap import load_briefing_module
 from migrations.fresh_schema import CONTROL_TABLES
-from absence_requests_blueprint import (
-    create_absence_request_dependencies,
-    create_absence_requests_blueprint,
-)
 from reports_blueprint import create_reports_blueprint, create_reports_dependencies
 from training_blueprint import create_training_blueprint, create_training_dependencies
 from roster_period_service import (
@@ -1545,32 +1542,25 @@ register_roster_blueprints(
         sms_configured=_sms_service_configured,
     ),
 )
-app.register_blueprint(create_absence_requests_blueprint(
-    create_absence_request_dependencies(
-        db=db,
-        operational_models=_operational_models,
-        is_admin_user=is_admin_user,
-        parse_year_month=parse_ym,
-        month_range=month_range,
-        clamp_prev_next=_clamp_prev_next,
-        validate_csrf=_validate_csrf,
-        get_absence_types=get_absence_types,
-        save_absence_types=_save_absence_types,
-        tenant_get=tenant_get,
+register_request_blueprints(
+    app, db=db, operational_models=_operational_models,
+    services=SimpleNamespace(
+        is_admin_user=is_admin_user, parse_year_month=parse_ym,
+        month_range=month_range, clamp_prev_next=_clamp_prev_next,
+        validate_csrf=_validate_csrf, get_absence_types=get_absence_types,
+        save_absence_types=_save_absence_types, tenant_get=tenant_get,
         current_unit_id=_current_unit_id,
-        refresh_day_from_pattern_and_leave=refresh_day_from_pattern_and_leave,
+        refresh_day=refresh_day_from_pattern_and_leave,
         group_sickness_instances=_group_sickness_instances,
-        workflow=request_workflow_service,
-        utcnow=utcnow,
-        request_statuses=REQUEST_STATUSES,
-        request_transitions=REQUEST_TRANSITIONS,
-        would_create_new_fatigue_issues=would_create_new_fatigue_issues,
+        workflow=request_workflow_service, now=utcnow,
+        request_statuses=REQUEST_STATUSES, request_transitions=REQUEST_TRANSITIONS,
+        new_fatigue_issues=would_create_new_fatigue_issues,
         staff_has_shift_qualification=_staff_has_shift_qualification,
-        can_override_roster_conflicts=can_override_roster_conflicts,
+        can_override_conflicts=can_override_roster_conflicts,
         lock_roster_month=_lock_roster_month,
         record_toil_transaction=_record_toil_transaction,
-    )
-))
+    ),
+)
 app.register_blueprint(create_training_blueprint(create_training_dependencies(
     db=db,
     operational_models=_operational_models,

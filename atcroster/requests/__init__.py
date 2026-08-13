@@ -10,6 +10,7 @@ from .workflow import (
     load_unit_request_rules,
 )
 from .policy import REQUEST_STATUSES, REQUEST_TRANSITIONS
+from .registration import register_request_blueprints
 
 __all__ = (
     "add_request_audit",
@@ -21,4 +22,5 @@ __all__ = (
     "create_request_workflow_dependencies",
     "REQUEST_STATUSES",
     "REQUEST_TRANSITIONS",
+    "register_request_blueprints",
 )
