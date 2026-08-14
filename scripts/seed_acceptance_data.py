@@ -283,6 +283,7 @@ def main() -> None:
                 ))
                 for qual_code in ("MED", "ADI"):
                     expires = args.as_of + timedelta(days=400 + person_index)
+
                     if qual_code == "MED" and person_index == 2:
                         expires = args.as_of + timedelta(days=20)
                     roster.db.session.add(roster.PersonQualification(
@@ -300,6 +301,38 @@ def main() -> None:
                         expires_on=args.as_of + timedelta(days=500),
                         status="valid",
                     ))
+
+            # A kiosk is a deliberately least-privilege operational display
+            # identity. Keeping it in the acceptance fixture makes the live
+            # Position Monitor journey reproducible without granting an ATCO
+            # or administrator broader access for HMI testing.
+            kiosk = roster.Staff(
+                unit_id=unit.id,
+                username=f"{code.lower()}.kiosk",
+                name=f"{code} Position Monitor",
+                staff_no=f"{code}-KIOSK",
+                role="position_monitor",
+                membership_status="active",
+                is_operational=False,
+            )
+            kiosk.set_password(PASSWORD)
+            roster.db.session.add(kiosk)
+            roster.db.session.flush()
+            kiosk_identity = roster.PlatformIdentity(
+                public_id=f"acceptance-{code.lower()}-kiosk",
+                username=kiosk.username,
+                password_hash=kiosk.password_hash,
+            )
+            roster.db.session.add(kiosk_identity)
+            roster.db.session.flush()
+            roster.db.session.add(roster.UnitMembership(
+                identity_id=kiosk_identity.id,
+                unit_id=unit.id,
+                person_id=kiosk.id,
+                role="StaffUser",
+                status="active",
+                activated_at=roster.utcnow(),
+            ))
 
             positions = []
             for position_code, label in (
@@ -528,7 +561,10 @@ def main() -> None:
                 migration_version="20260724_02",
                 storage_bytes=2_000_000 + airport_index * 500_000,
             ))
-            for feature in ("operational_assurance", "scenario_planning", "sms_notifications"):
+            for feature in (
+                "operational_assurance", "scenario_planning", "live_position_monitoring",
+                "sms_notifications",
+            ):
                 roster.db.session.add(roster.FeatureFlag(
                     unit_id=unit.id,
                     key=feature,
@@ -581,6 +617,12 @@ def main() -> None:
                     "airport": name,
                     "role": "Duty Watch Manager",
                     "username": people[5].username,
+                    "password": PASSWORD,
+                },
+                {
+                    "airport": name,
+                    "role": "Position Monitor kiosk",
+                    "username": kiosk.username,
                     "password": PASSWORD,
                 },
             ])
