@@ -159,12 +159,20 @@ def create_publication_service(
 
     def _publication_preflight(year: int, month: int) -> dict:
         _, days = month_range(year, month)
-        staff = Staff.query.filter_by(is_operational=True).order_by(Staff.name).all()
+        unit_id = _current_unit_id()
+        staff = (
+            Staff.query.filter_by(unit_id=unit_id, is_operational=True)
+            .order_by(Staff.name)
+            .all()
+        )
         assignments = Assignment.query.filter(
+            Assignment.unit_id == unit_id,
             Assignment.day >= days[0], Assignment.day <= days[-1]
         ).all()
         assignment_map = {(row.staff_id, row.day): row for row in assignments}
-        requirement = Requirement.query.filter_by(year=year, month=month).first()
+        requirement = Requirement.query.filter_by(
+            unit_id=unit_id, year=year, month=month
+        ).first()
         counts: dict[date, Counter[str]] = {day: Counter() for day in days}
         qualification_gaps = []
         unassigned = []
@@ -198,7 +206,7 @@ def create_publication_service(
                     and staff_is_countable_on(person, day)
                 ):
                     group = shift_counter_group_for_day(
-                        assignment.code, day, _current_unit_id()
+                        assignment.code, day, unit_id
                     )
                     if group:
                         counts[day][group] += 1
@@ -208,7 +216,7 @@ def create_publication_service(
             for group in ("M", "D", "A", "N"):
                 needed = (
                     0
-                    if group == "N" and not _night_active_on(_current_unit_id(), day)
+                    if group == "N" and not _night_active_on(unit_id, day)
                     else int(getattr(requirement, f"req_{group.lower()}", 0) or 0)
                 )
                 available = counts[day][group]
@@ -228,6 +236,7 @@ def create_publication_service(
         position_shortfalls = [row for row in position_rows if row["shortfall"]]
         approved_rule = (
             RosterRuleVersion.query.filter(
+                RosterRuleVersion.unit_id == unit_id,
                 RosterRuleVersion.state == "approved",
                 db.or_(
                     RosterRuleVersion.effective_from.is_(None),
@@ -238,15 +247,19 @@ def create_publication_service(
             .first()
         )
         critical_reports = FatigueReport.query.filter(
+            FatigueReport.unit_id == unit_id,
             FatigueReport.duty_day >= days[0],
             FatigueReport.duty_day <= days[-1],
             FatigueReport.severity.in_(("high", "unfit")),
             FatigueReport.status != "closed",
         ).all()
         configuration_blocks = []
-        if not OperationalPosition.query.filter_by(is_active=True).first():
+        if not OperationalPosition.query.filter_by(
+            unit_id=unit_id, is_active=True
+        ).first():
             configuration_blocks.append("No active operational positions configured.")
         if not PositionRequirement.query.filter(
+            PositionRequirement.unit_id == unit_id,
             PositionRequirement.day >= days[0],
             PositionRequirement.day <= days[-1],
         ).first():
@@ -258,6 +271,7 @@ def create_publication_service(
                 "No approved rostering rule version governs the month."
             )
         if not BreakPlan.query.filter(
+            BreakPlan.unit_id == unit_id,
             BreakPlan.day >= days[0], BreakPlan.day <= days[-1]
         ).first():
             configuration_blocks.append(
