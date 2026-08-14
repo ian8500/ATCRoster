@@ -1,8 +1,26 @@
 import json
+from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
 from scripts.database_backup import connection_environment, load_metadata, sha256_file
+
+
+@pytest.mark.parametrize(
+    "script", ["backup_databases.py", "restore_database.py", "verify_backup.py"]
+)
+def test_backup_commands_run_directly_from_repository_root(script):
+    repository_root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, f"scripts/{script}", "--help"],
+        cwd=repository_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_connection_credentials_are_kept_out_of_process_arguments():
