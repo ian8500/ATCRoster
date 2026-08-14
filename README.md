@@ -7,10 +7,10 @@ position state, controller roles and configured time monitoring. Airport
 operational data is tenant-bound; platform administration exposes account and
 service aggregates only.
 
-ATCRoster is being prepared for controlled commercial pilots. It supports
-airport-configured fatigue and qualification findings to inform decisions; it
-does not claim to guarantee regulatory compliance, operational safety or error
-free rostering. The verified feature record is in
+ATCRoster is ready for market engagement and controlled deployment. It
+supports airport-configured fatigue and qualification findings to inform
+decisions; it does not claim to guarantee regulatory compliance, operational
+safety or error-free rostering. The verified feature record is in
 [the product truth matrix](docs/product-truth-matrix.md).
 
 ## Contents
@@ -854,8 +854,8 @@ load testing and customer operational acceptance.
 
 The public-website copy source of truth is
 [the website product specification](docs/website-product-specification.md).
-It includes a claims register and real-screen capture list; no public website
-source is held in this repository.
+It includes a claims register and real-screen capture list. The corresponding
+static website source is held in [`marketing-site/`](marketing-site/).
 
 ## Backup, restore, and recovery
 

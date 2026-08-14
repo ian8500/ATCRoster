@@ -1,8 +1,8 @@
 # ATCRoster website product specification
 
-No public website source is present in this repository. This specification is
-the source of truth for customer-facing ATCRoster copy and must be kept aligned
-with `docs/product-truth-matrix.md` and the README.
+The repository contains the static public-site source in `marketing-site/`.
+This specification is the canonical record for customer-facing ATCRoster copy;
+the site, `docs/product-truth-matrix.md` and the README must remain aligned.
 
 ## Naming
 
