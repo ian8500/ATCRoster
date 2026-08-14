@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
+from atcroster.clock import as_naive_utc
 from atcroster.qualifications.currency import (
-    as_naive_utc,
     currency_window,
     load_currency_requirement,
 )

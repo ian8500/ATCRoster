@@ -724,6 +724,7 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
         )
         app.db.session.add(session_row)
         app.db.session.flush()
+        session_id = session_row.id
         app.db.session.add(
             app.PositionSessionParticipant(
                 unit_id=1,
@@ -782,6 +783,15 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     )
     assert legacy.status_code == 308
     assert legacy.headers["Location"].endswith(f"/reports/operational-activity?{query}")
+
+    # PostgreSQL DateTime columns return naive values while the application
+    # clock is timezone-aware. An open session must still render safely.
+    with app.app.app_context():
+        open_session = app.db.session.get(app.PositionSession, session_id)
+        open_session.ended_at = None
+        app.db.session.commit()
+    open_report = client.get(f"/reports/operational-activity?{query}")
+    assert open_report.status_code == 200
 
 
 def test_admin_can_configure_currency_category_and_position(live_position_data):

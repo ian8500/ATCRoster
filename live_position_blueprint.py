@@ -23,6 +23,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 
+from atcroster.clock import as_naive_utc
 from live_position_service import (
     LivePositionConflict,
     LivePositionModels,
@@ -413,7 +414,7 @@ def create_live_position_blueprint(
 
         range_start = datetime.combine(start_day, datetime_time.min)
         range_end = datetime.combine(end_day + timedelta(days=1), datetime_time.min)
-        now = dependencies.utcnow()
+        now = as_naive_utc(dependencies.utcnow())
         sessions = dependencies.PositionSession.query.filter(
             dependencies.PositionSession.unit_id == unit_id,
             dependencies.PositionSession.is_void.is_(False),
@@ -481,8 +482,14 @@ def create_live_position_blueprint(
             position = positions_by_id.get(session_row.position_id)
             if not position:
                 continue
-            session_start = max(session_row.started_at, range_start)
-            session_end = min(session_row.ended_at or now, range_end)
+            session_started_at = as_naive_utc(session_row.started_at)
+            session_ended_at = (
+                as_naive_utc(session_row.ended_at)
+                if session_row.ended_at
+                else now
+            )
+            session_start = max(session_started_at, range_start)
+            session_end = min(session_ended_at, range_end)
             if session_end <= session_start:
                 continue
             participants = participants_by_session.get(session_row.id, [])
@@ -502,12 +509,17 @@ def create_live_position_blueprint(
                         "assessor": [],
                     }
                     for participant in participants:
-                        participant_end = participant.ended_at or now
+                        participant_start = as_naive_utc(participant.started_at)
+                        participant_end = (
+                            as_naive_utc(participant.ended_at)
+                            if participant.ended_at
+                            else now
+                        )
                         if (
-                            participant.started_at < day_end
+                            participant_start < day_end
                             and participant_end > day_start
                         ):
-                            interval = (participant.started_at, participant_end)
+                            interval = (participant_start, participant_end)
                             all_intervals.append(interval)
                             role = roles.get(participant.role_id)
                             role_code = (

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 from typing import Any, Callable, Mapping
+
+from atcroster.clock import as_naive_utc
 
 
 @dataclass(frozen=True)
@@ -149,13 +151,6 @@ def currency_window(requirement: Mapping[str, Any], today: date) -> tuple[date, 
 
 def minutes_between(start: datetime, end: datetime) -> int:
     return max(0, round((end - start).total_seconds() / 60))
-
-
-def as_naive_utc(value: datetime) -> datetime:
-    """Normalize database and application timestamps for safe comparison."""
-    if value.tzinfo is None:
-        return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def operational_currency_shortfalls(
