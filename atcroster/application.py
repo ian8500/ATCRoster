@@ -971,6 +971,7 @@ _compliance_month = compliance_month
 compliance_runtime = ComplianceRuntime(create_compliance_runtime_dependencies(
         operational_models=_operational_models,
         month_range=month_range,
+        current_unit_id=_current_unit_id,
         fatigue_rule_config=_fatigue_rule_config,
         fatigue_flags_for_range=fatigue_flags_for_range,
 ))
@@ -1261,6 +1262,7 @@ qualification_runtime = QualificationRuntime(create_qualification_runtime_depend
     operational_models=_operational_models,
     saas_models=SaaS,
     current_user=lambda: current_user,
+    current_unit_id=_current_unit_id,
     month_range=month_range,
 ))
 _qualification_snapshot = qualification_runtime.snapshot

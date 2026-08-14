@@ -10,9 +10,11 @@ def has_valid_endorsement(
     position_id: int,
     on_day: Any,
     *,
+    unit_id: int,
     PositionEndorsement: Any,
 ) -> bool:
     record = PositionEndorsement.query.filter_by(
+        unit_id=unit_id,
         person_id=person_id,
         position_id=position_id,
         status="valid",
@@ -31,6 +33,7 @@ def monthly_position_assurance(
     Assignment: Any,
     OperationalPosition: Any,
     PositionRequirement: Any,
+    unit_id: int,
     month_range: Callable[..., tuple[Any, list[Any]]],
     valid_endorsement: Callable[[int, int, Any], bool],
 ) -> list[dict[str, Any]]:
@@ -38,17 +41,21 @@ def monthly_position_assurance(
     _, days = month_range(year, month)
     requirements = (
         PositionRequirement.query.filter(
+            PositionRequirement.unit_id == unit_id,
             PositionRequirement.day >= days[0],
             PositionRequirement.day <= days[-1],
         )
         .order_by(PositionRequirement.day, PositionRequirement.shift_code)
         .all()
     )
-    positions = {row.id: row for row in OperationalPosition.query.all()}
+    positions = {
+        row.id: row
+        for row in OperationalPosition.query.filter_by(unit_id=unit_id).all()
+    }
     rows = []
     for requirement in requirements:
         assignments = Assignment.query.filter_by(
-            day=requirement.day, code=requirement.shift_code
+            unit_id=unit_id, day=requirement.day, code=requirement.shift_code
         ).all()
         eligible_count = sum(
             1
@@ -57,6 +64,7 @@ def monthly_position_assurance(
                 assignment.staff_id,
                 requirement.position_id,
                 requirement.day,
+                unit_id,
             )
         )
         target = requirement.required_count + requirement.contingency_count

@@ -22,6 +22,7 @@ class QualificationRuntimeDependencies:
     OperationalPosition: Any
     PositionRequirement: Any
     current_user: Callable[[], Any]
+    current_unit_id: Callable[[], int]
     month_range: Callable[..., tuple[Any, list[Any]]]
 
 
@@ -71,6 +72,7 @@ class QualificationRuntime:
             person_id,
             position_id,
             on_day,
+            unit_id=self.dependencies.current_unit_id(),
             PositionEndorsement=self.dependencies.PositionEndorsement,
         )
 
@@ -82,6 +84,7 @@ class QualificationRuntime:
             Assignment=deps.Assignment,
             OperationalPosition=deps.OperationalPosition,
             PositionRequirement=deps.PositionRequirement,
+            unit_id=deps.current_unit_id(),
             month_range=deps.month_range,
             valid_endorsement=self.valid_endorsement,
         )

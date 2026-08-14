@@ -13,6 +13,7 @@ class ComplianceRuntimeDependencies:
     Assignment: Any
     Staff: Any
     Watch: Any
+    current_unit_id: Callable[[], int]
     month_range: Callable[..., tuple[Any, list[Any]]]
     fatigue_rule_config: Callable[[], dict[str, Any]]
     fatigue_flags_for_range: Callable[[Any, list[Any]], dict[Any, list[str]]]
@@ -44,6 +45,7 @@ class ComplianceRuntime:
             Assignment=deps.Assignment,
             Staff=deps.Staff,
             Watch=deps.Watch,
+            unit_id=deps.current_unit_id(),
             month_range=deps.month_range,
             fatigue_rule_config=deps.fatigue_rule_config,
             fatigue_flags_for_range=deps.fatigue_flags_for_range,
@@ -57,6 +59,7 @@ def monthly_compliance_findings(
     Assignment: Any,
     Staff: Any,
     Watch: Any,
+    unit_id: int,
     month_range: Callable[..., tuple[Any, list[Any]]],
     fatigue_rule_config: Callable[[], dict[str, Any]],
     fatigue_flags_for_range: Callable[[Any, list[Any]], dict[Any, list[str]]],
@@ -64,7 +67,7 @@ def monthly_compliance_findings(
     """Build the staff-by-rule compliance report for a roster month."""
     _, days = month_range(year, month)
     people = (
-        Staff.query.filter_by(is_operational=True)
+        Staff.query.filter_by(unit_id=unit_id, is_operational=True)
         .outerjoin(Watch, Staff.watch_id == Watch.id)
         .order_by(Watch.order_index, Staff.name)
         .all()
@@ -79,7 +82,7 @@ def monthly_compliance_findings(
         flags = fatigue_flags_for_range(person, days)
         for finding_day, messages in sorted(flags.items()):
             assignment = Assignment.query.filter_by(
-                staff_id=person.id, day=finding_day
+                unit_id=unit_id, staff_id=person.id, day=finding_day
             ).first()
             for message in messages:
                 match = re.search(r"\b(D\d{2}|USR-[A-F0-9]+)\b", message)
