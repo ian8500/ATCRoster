@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 E2E_MFA_SECRET = "JBSWY3DPEHPK3PXP"
+E2E_MFA_USERNAMES = ("lba.admin", "lba.editor", "lba.atco01")
 
 # Python puts ``scripts/`` first when this file is launched directly. Ensure
 # the root-level WSGI compatibility module is importable in CI and locally.
@@ -36,17 +37,23 @@ def main() -> None:
     import app as roster
 
     with roster.app.app_context():
-        user = roster.Staff.query.filter_by(username="lba.admin").one()
-        roster.MfaCredential.query.filter_by(person_id=user.id).delete()
-        roster.db.session.add(
-            roster.MfaCredential(
-                unit_id=user.unit_id,
-                person_id=user.id,
-                encrypted_secret=roster._encrypt_field(E2E_MFA_SECRET),
-                enabled=True,
-                recovery_codes_digest="[]",
+        users = roster.Staff.query.filter(
+            roster.Staff.username.in_(E2E_MFA_USERNAMES)
+        ).all()
+        if len(users) != len(E2E_MFA_USERNAMES):
+            raise RuntimeError("The isolated acceptance fixture is missing a required MFA test user.")
+        for user in users:
+            roster.MfaCredential.query.filter_by(person_id=user.id).delete()
+            roster.db.session.add(
+                roster.MfaCredential(
+                    unit_id=user.unit_id,
+                    person_id=user.id,
+                    encrypted_secret=roster._encrypt_field(E2E_MFA_SECRET),
+                    enabled=True,
+                    reset_required=False,
+                    recovery_codes_digest="[]",
+                )
             )
-        )
         roster.db.session.commit()
     roster.app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")))
 

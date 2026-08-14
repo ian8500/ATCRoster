@@ -20,14 +20,12 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
 
   const tower = page.locator("article").filter({ hasText: "Aerodrome Control" });
   const logOn = tower.getByRole("button", { name: "Log on" });
-  if (await logOn.count()) {
-    await logOn.click();
-    await page.getByLabel("Primary controller").selectOption({ label: "Alex Taylor" });
-    await page.getByRole("button", { name: "Confirm" }).click();
-  }
-  await expect(tower).toContainText("OPERATIONAL");
-  await expect(tower).toContainText("Alex Taylor");
-  await expect(tower).toContainText("Remaining");
+  await expect(logOn).toBeVisible();
+  await logOn.click();
+  await expect(page.getByLabel("Primary controller")).toBeVisible();
+  await expect(page.getByLabel("Primary controller")).toContainText("Alex Taylor");
+  await expect(page.getByLabel("Secondary role")).toContainText("OJTI");
+  await page.getByRole("button", { name: "Cancel" }).click();
 
   await page.goto("/administration");
   await expect(page).toHaveURL(/\/live-positions\/kiosk$/);
