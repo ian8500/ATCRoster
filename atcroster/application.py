@@ -1952,6 +1952,7 @@ register_admin_utility_blueprint(
     app,
     operational_models=_operational_models,
     is_admin_user=is_admin_user,
+    current_unit_id=_current_unit_id,
 )
 register_platform_blueprints(
     app,

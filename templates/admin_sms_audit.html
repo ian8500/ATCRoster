@@ -25,7 +25,7 @@
         <thead>
           <tr>
             <th>Sent</th>
-            <th>Sent by</th>
+            <th>Logged-in account</th>
             <th>From</th>
             <th>To</th>
             <th>Type</th>
@@ -37,7 +37,11 @@
           {% for row in rows %}
           <tr>
             <td>{{ row.sent_at.strftime('%d/%m/%Y %H:%M') }}</td>
-            <td>{{ row.sent_by_name }}</td>
+            {% set actor = actors.get(row.sent_by_staff_id) %}
+            <td>
+              <strong>{{ row.sent_by_name }}</strong><br>
+              <small>{% if actor %}@{{ actor.username }} · account #{{ actor.id }}{% else %}Former account #{{ row.sent_by_staff_id }}{% endif %}</small>
+            </td>
             <td><span class="mono">{{ row.sender_number }}</span></td>
             <td>{{ row.recipient_label }}<br><small class="mono">{{ row.recipient_number }}</small></td>
             <td>{{ row.message_type.replace('_', ' ')|title }}</td>

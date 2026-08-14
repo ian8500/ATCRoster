@@ -21,8 +21,13 @@
           <input class="form-control" id="change-log-entity" type="text" name="entity_type" value="{{ entity_type or '' }}" placeholder="shift, leave…">
         </div>
         <div class="col-sm-6 col-lg-3">
-          <label class="form-label" for="change-log-user">User ID</label>
-          <input class="form-control" id="change-log-user" type="text" name="who" value="{{ who or '' }}" placeholder="123">
+          <label class="form-label" for="change-log-user">Logged-in account</label>
+          <select class="form-select" id="change-log-user" name="who">
+            <option value="">All accounts</option>
+            {% for actor in available_actors %}
+              <option value="{{ actor.id }}"{% if who == actor.id|string %} selected{% endif %}>{{ actor.name }} (@{{ actor.username }})</option>
+            {% endfor %}
+          </select>
         </div>
         <div class="col-auto">
           <button class="btn btn-primary" type="submit"><i class="fa-solid fa-search"></i> Apply filters</button>
@@ -39,7 +44,7 @@
           <thead>
             <tr>
               <th scope="col">When (UTC)</th>
-              <th scope="col">User</th>
+              <th scope="col">Logged-in account</th>
               <th scope="col">Entity</th>
               <th scope="col">Field</th>
               <th scope="col">Old → New</th>
@@ -52,7 +57,8 @@
               {% for r in rows %}
                 <tr>
                   <td>{{ r.when }}</td>
-                  <td>{{ r.who_user_id }}</td>
+                  {% set actor = actors.get(r.who_user_id) %}
+                  <td>{% if actor %}<strong>{{ actor.name }}</strong><br><small>@{{ actor.username }} · account #{{ actor.id }}</small>{% elif r.who_user_id %}Former account #{{ r.who_user_id }}{% else %}System process{% endif %}</td>
                   <td>{{ r.entity_type }} #{{ r.entity_id }}</td>
                   <td>{{ r.field }}</td>
                   <td><code>{{ r.old_value }}</code> → <code>{{ r.new_value }}</code></td>

@@ -77,26 +77,62 @@ def setup_database():
         db.drop_all()
         db.create_all()
 
-        db.session.add(Unit(
-            id=1, code="TST", name="Test Airport", active_user_limit=20,
-            onboarding_step=100,
-        ))
+        db.session.add(
+            Unit(
+                id=1,
+                code="TST",
+                name="Test Airport",
+                active_user_limit=20,
+                onboarding_step=100,
+            )
+        )
         watch_a = Watch(name="Watch A", order_index=1)
         watch_b = Watch(name="Watch B", order_index=2)
         db.session.add_all([watch_a, watch_b])
 
         shifts = [
-            ShiftType(code="M", name="Morning", start_time=time(7, 0), end_time=time(15, 0), is_working=True),
-            ShiftType(code="D", name="Day", start_time=time(9, 0), end_time=time(17, 0), is_working=True),
-            ShiftType(code="A", name="Afternoon", start_time=time(13, 0), end_time=time(21, 0), is_working=True),
-            ShiftType(code="N", name="Night", start_time=time(21, 0), end_time=time(5, 0), is_working=True),
-            ShiftType(code="OFF", name="Off", start_time=None, end_time=None, is_working=False),
+            ShiftType(
+                code="M",
+                name="Morning",
+                start_time=time(7, 0),
+                end_time=time(15, 0),
+                is_working=True,
+            ),
+            ShiftType(
+                code="D",
+                name="Day",
+                start_time=time(9, 0),
+                end_time=time(17, 0),
+                is_working=True,
+            ),
+            ShiftType(
+                code="A",
+                name="Afternoon",
+                start_time=time(13, 0),
+                end_time=time(21, 0),
+                is_working=True,
+            ),
+            ShiftType(
+                code="N",
+                name="Night",
+                start_time=time(21, 0),
+                end_time=time(5, 0),
+                is_working=True,
+            ),
+            ShiftType(
+                code="OFF", name="Off", start_time=None, end_time=None, is_working=False
+            ),
         ]
         db.session.add_all(shifts)
-        db.session.add(QualificationType(
-            unit_id=1, code="MEDICAL", label="Medical",
-            expiry_required=True, is_active=True,
-        ))
+        db.session.add(
+            QualificationType(
+                unit_id=1,
+                code="MEDICAL",
+                label="Medical",
+                expiry_required=True,
+                is_active=True,
+            )
+        )
         db.session.commit()
         refresh_shift_cache()
 
@@ -112,30 +148,53 @@ def setup_database():
         db.session.add(admin)
         role_users = [
             Staff(
-                unit_id=1, username="editor_test", name="Editor Test",
-                staff_no="ED-001", role="editor", watch=watch_a,
+                unit_id=1,
+                username="editor_test",
+                name="Editor Test",
+                staff_no="ED-001",
+                role="editor",
+                watch=watch_a,
                 is_operational=True,
             ),
             Staff(
-                unit_id=1, username="watch_manager_test", name="Watch Manager Test",
-                staff_no="WM-001", role="user", watch=watch_a,
-                is_wm=True, is_operational=True,
-                permissions_json=json.dumps({
-                    "edit_roster": True, "apply_annotations": True,
-                }),
-            ),
-            Staff(
-                unit_id=1, username="duty_watch_manager_test",
-                name="Duty Watch Manager Test", staff_no="DWM-001",
-                role="user", watch=watch_b, is_dwm=True,
+                unit_id=1,
+                username="watch_manager_test",
+                name="Watch Manager Test",
+                staff_no="WM-001",
+                role="user",
+                watch=watch_a,
+                is_wm=True,
                 is_operational=True,
-                permissions_json=json.dumps({
-                    "edit_roster": True, "apply_annotations": True,
-                }),
+                permissions_json=json.dumps(
+                    {
+                        "edit_roster": True,
+                        "apply_annotations": True,
+                    }
+                ),
             ),
             Staff(
-                unit_id=1, username="staff_test", name="Staff Test",
-                staff_no="USR-001", role="user", watch=watch_b,
+                unit_id=1,
+                username="duty_watch_manager_test",
+                name="Duty Watch Manager Test",
+                staff_no="DWM-001",
+                role="user",
+                watch=watch_b,
+                is_dwm=True,
+                is_operational=True,
+                permissions_json=json.dumps(
+                    {
+                        "edit_roster": True,
+                        "apply_annotations": True,
+                    }
+                ),
+            ),
+            Staff(
+                unit_id=1,
+                username="staff_test",
+                name="Staff Test",
+                staff_no="USR-001",
+                role="user",
+                watch=watch_b,
                 is_operational=True,
             ),
         ]
@@ -151,45 +210,61 @@ def setup_database():
             )
             db.session.add(identity)
             db.session.flush()
-            db.session.add(app.UnitMembership(
-                identity_id=identity.id,
-                unit_id=user.unit_id,
-                person_id=user.id,
-                role={
-                    "admin": "UnitAdmin",
-                    "editor": "RosterEditor",
-                }.get(user.role, "StaffUser"),
-                status="active",
-            ))
+            db.session.add(
+                app.UnitMembership(
+                    identity_id=identity.id,
+                    unit_id=user.unit_id,
+                    person_id=user.id,
+                    role={
+                        "admin": "UnitAdmin",
+                        "editor": "RosterEditor",
+                    }.get(user.role, "StaffUser"),
+                    status="active",
+                )
+            )
 
         control = Unit(
-            id=2, code="CTRL", name="Platform Control",
-            status="platform_control", active_user_limit=5,
+            id=2,
+            code="CTRL",
+            name="Platform Control",
+            status="platform_control",
+            active_user_limit=5,
         )
         other_unit = Unit(
-            id=3, code="OTH", name="Other Airport", active_user_limit=5,
+            id=3,
+            code="OTH",
+            name="Other Airport",
+            active_user_limit=5,
         )
         db.session.add_all([control, other_unit])
         db.session.flush()
         platform_user = Staff(
-            unit_id=control.id, username="platform_test",
-            name="Platform Test", staff_no="CTRL-001",
-            role="superadmin", is_operational=False,
+            unit_id=control.id,
+            username="platform_test",
+            name="Platform Test",
+            staff_no="CTRL-001",
+            role="superadmin",
+            is_operational=False,
         )
         platform_user.set_password("password123")
         other_user = Staff(
-            unit_id=other_unit.id, username="other_staff_test",
-            name="Other Airport Staff", staff_no="OTH-001",
-            role="user", is_operational=True,
+            unit_id=other_unit.id,
+            username="other_staff_test",
+            name="Other Airport Staff",
+            staff_no="OTH-001",
+            role="user",
+            is_operational=True,
         )
         other_user.set_password("password123")
         db.session.add_all([platform_user, other_user])
         db.session.flush()
-        db.session.add(app.PlatformIdentity(
-            public_id="platform-role-test",
-            username=platform_user.username,
-            password_hash=platform_user.password_hash,
-        ))
+        db.session.add(
+            app.PlatformIdentity(
+                public_id="platform-role-test",
+                username=platform_user.username,
+                password_hash=platform_user.password_hash,
+            )
+        )
         db.session.commit()
 
         ensure_month_requirement(2025, 4)
@@ -200,6 +275,7 @@ def setup_database():
     with app.app.app_context():
         db.session.remove()
         db.drop_all()
+
 
 @pytest.fixture()
 def client():
@@ -282,38 +358,50 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
     login(client)
     tomorrow = date.today() + timedelta(days=1)
     with app.app.app_context():
-        flag = app.FeatureFlag.query.filter_by(
-            unit_id=1, key="handover_module"
-        ).first()
+        flag = app.FeatureFlag.query.filter_by(unit_id=1, key="handover_module").first()
         if flag is None:
-            db.session.add(app.FeatureFlag(
-                unit_id=1, key="handover_module", enabled=True
-            ))
+            db.session.add(
+                app.FeatureFlag(unit_id=1, key="handover_module", enabled=True)
+            )
         else:
             flag.enabled = True
         shift = app.ShiftType.query.filter_by(unit_id=1, code="HND").first()
         if shift is None:
             shift = app.ShiftType(
-                unit_id=1, code="HND", name="Handover duty",
-                start_time=time(23, 59), end_time=time(7, 0),
-                is_working=True, is_active=True,
+                unit_id=1,
+                code="HND",
+                name="Handover duty",
+                start_time=time(23, 59),
+                end_time=time(7, 0),
+                is_working=True,
+                is_active=True,
             )
             db.session.add(shift)
         person = app.Staff.query.filter_by(
             unit_id=1, username=ADMIN_CREDENTIALS["username"]
         ).one()
-        db.session.add(app.Assignment(
-            unit_id=1, staff_id=person.id, day=tomorrow, code="HND",
-            source="manual",
-        ))
+        db.session.add(
+            app.Assignment(
+                unit_id=1,
+                staff_id=person.id,
+                day=tomorrow,
+                code="HND",
+                source="manual",
+            )
+        )
         field = app.HandoverField(
-            unit_id=1, section_name="Operational status",
-            label="Airfield status", field_type="select",
-            options_json='["Normal","Restricted"]', required=True,
+            unit_id=1,
+            section_name="Operational status",
+            label="Airfield status",
+            field_type="select",
+            options_json='["Normal","Restricted"]',
+            required=True,
             display_order=10,
         )
         equipment = app.HandoverEquipment(
-            unit_id=1, name="Primary radar", status="green",
+            unit_id=1,
+            name="Primary radar",
+            status="green",
             display_order=10,
         )
         db.session.add_all([field, equipment])
@@ -336,8 +424,10 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
     configured = client.post(
         "/handover/settings",
         data={
-            "_csrf_token": csrf(client), "action": "save_operational",
-            "metar_icao": "EGPF", "runway_options": "23\n05\n05/23",
+            "_csrf_token": csrf(client),
+            "action": "save_operational",
+            "metar_icao": "EGPF",
+            "runway_options": "23\n05\n05/23",
         },
         follow_redirects=True,
     )
@@ -347,8 +437,10 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
     updated = client.post(
         "/handover/edit",
         data={
-            "_csrf_token": csrf(client), f"field_{field_id}": "Restricted",
-            "runway_in_use": "23", f"equipment_status_{equipment_id}": "amber",
+            "_csrf_token": csrf(client),
+            f"field_{field_id}": "Restricted",
+            "runway_in_use": "23",
+            f"equipment_status_{equipment_id}": "amber",
             f"equipment_note_{equipment_id}": "Main channel degraded",
         },
         follow_redirects=True,
@@ -373,12 +465,14 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
     assert b'<option value="23" selected>' in retained.data
     assert b'<option value="Restricted" selected>' in retained.data
     assert b'value="23"' in retained.data
-    assert b'Main channel degraded' in retained.data
+    assert b"Main channel degraded" in retained.data
     client.post(
         "/handover/edit",
         data={
-            "_csrf_token": csrf(client), f"field_{field_id}": "Normal",
-            "runway_in_use": "05", f"equipment_status_{equipment_id}": "green",
+            "_csrf_token": csrf(client),
+            f"field_{field_id}": "Normal",
+            "runway_in_use": "05",
+            f"equipment_status_{equipment_id}": "green",
             f"equipment_note_{equipment_id}": "Serviceable",
         },
     )
@@ -389,23 +483,25 @@ def test_handover_module_configures_fields_and_snapshots_next_shift(client):
 def test_handover_settings_adds_managed_dropdown(client):
     login(client)
     with app.app.app_context():
-        flag = app.FeatureFlag.query.filter_by(
-            unit_id=1, key="handover_module"
-        ).first()
+        flag = app.FeatureFlag.query.filter_by(unit_id=1, key="handover_module").first()
         if flag is None:
-            db.session.add(app.FeatureFlag(
-                unit_id=1, key="handover_module", enabled=True
-            ))
+            db.session.add(
+                app.FeatureFlag(unit_id=1, key="handover_module", enabled=True)
+            )
         else:
             flag.enabled = True
         db.session.commit()
     response = client.post(
         "/handover/settings",
         data={
-            "_csrf_token": csrf(client), "action": "add",
-            "section_name": "Equipment", "label": "Radar service",
-            "field_type": "select", "options": "Normal\nDegraded\nUnavailable",
-            "help_text": "Select the current service state.", "required": "on",
+            "_csrf_token": csrf(client),
+            "action": "add",
+            "section_name": "Equipment",
+            "label": "Radar service",
+            "field_type": "select",
+            "options": "Normal\nDegraded\nUnavailable",
+            "help_text": "Select the current service state.",
+            "required": "on",
         },
         follow_redirects=True,
     )
@@ -416,9 +512,7 @@ def test_handover_settings_adds_managed_dropdown(client):
         field = app.HandoverField.query.filter_by(
             unit_id=1, label="Radar service"
         ).one()
-        assert json.loads(field.options_json) == [
-            "Normal", "Degraded", "Unavailable"
-        ]
+        assert json.loads(field.options_json) == ["Normal", "Degraded", "Unavailable"]
         assert field.required is True
 
 
@@ -492,9 +586,7 @@ def test_reports_hub_survives_mixed_currency_timestamp_types(client, monkeypatch
         ).first()
         if flag is None:
             db.session.add(
-                app.FeatureFlag(
-                    unit_id=1, key="live_position_monitoring", enabled=True
-                )
+                app.FeatureFlag(unit_id=1, key="live_position_monitoring", enabled=True)
             )
         else:
             flag.enabled = True
@@ -602,14 +694,26 @@ def test_leave_year_report_uses_selected_end_date_and_coloured_balances(client):
     later = client.get("/reports/leave-year?end_date=2027-05-25")
 
     assert early.status_code == 200
-    assert b'input id="leave-year-end" type="date" name="end_date" value="2027-05-10"' in early.data
+    assert (
+        b'input id="leave-year-end" type="date" name="end_date" value="2027-05-10"'
+        in early.data
+    )
     assert b"Entitlement and balances as of 2027-05-10." in early.data
-    assert f'data-staff-id="{person_id}" data-al-taken="1" data-leave-remaining="26"'.encode() in early.data
-    assert f'data-staff-id="{person_id}" data-al-taken="2" data-leave-remaining="25"'.encode() in later.data
+    assert (
+        f'data-staff-id="{person_id}" data-al-taken="1" data-leave-remaining="26"'.encode()
+        in early.data
+    )
+    assert (
+        f'data-staff-id="{person_id}" data-al-taken="2" data-leave-remaining="25"'.encode()
+        in later.data
+    )
     assert b"leave-year-col--remaining balance-positive" in early.data
     assert b"leave-year-col--toil-balance balance-positive" in early.data
     assert b'leave-year-col--taken">AL taken</th><th></th>' not in early.data
-    assert b'<td class="ta-right leave-year-col leave-year-col--taken">1</td>\n          <td></td>' not in early.data
+    assert (
+        b'<td class="ta-right leave-year-col leave-year-col--taken">1</td>\n          <td></td>'
+        not in early.data
+    )
     assert client.get("/reports/leave-year?end_date=not-a-date").status_code == 400
 
     with app.app.app_context():
@@ -632,9 +736,7 @@ def test_sickness_report_filters_by_watch(client):
         watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
         watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
         admin = Staff.query.filter_by(unit_id=1, username="admin_test").one()
-        dwm = Staff.query.filter_by(
-            unit_id=1, username="duty_watch_manager_test"
-        ).one()
+        dwm = Staff.query.filter_by(unit_id=1, username="duty_watch_manager_test").one()
         today = date.today()
         for person in (admin, dwm):
             assignment = Assignment.query.filter_by(
@@ -669,19 +771,11 @@ def test_sickness_report_filters_by_watch(client):
 def test_sickness_days_are_grouped_into_continuous_instances():
     person = SimpleNamespace(name="Test ATCO")
     rows = [
-        SimpleNamespace(
-            staff_id=7, staff=person, day=date(2025, 4, 1), code="SC"
-        ),
-        SimpleNamespace(
-            staff_id=7, staff=person, day=date(2025, 4, 2), code="SSC"
-        ),
-        SimpleNamespace(
-            staff_id=7, staff=person, day=date(2025, 4, 4), code="SC"
-        ),
+        SimpleNamespace(staff_id=7, staff=person, day=date(2025, 4, 1), code="SC"),
+        SimpleNamespace(staff_id=7, staff=person, day=date(2025, 4, 2), code="SSC"),
+        SimpleNamespace(staff_id=7, staff=person, day=date(2025, 4, 4), code="SC"),
     ]
-    instances = app._group_sickness_instances(
-        rows, date(2025, 4, 1), date(2025, 4, 30)
-    )
+    instances = app._group_sickness_instances(rows, date(2025, 4, 1), date(2025, 4, 30))
     assert len(instances) == 2
     assert instances[0]["duration"] == 2
     assert instances[0]["codes"] == ["SC", "SSC"]
@@ -719,7 +813,9 @@ def test_login_rejects_missing_and_invalid_csrf_tokens(client):
     ],
 )
 def test_login_returns_same_generic_error_for_unknown_and_wrong_credentials(
-    client, username, password,
+    client,
+    username,
+    password,
 ):
     client.get("/login")
     with client.session_transaction() as session:
@@ -739,9 +835,7 @@ def test_login_returns_same_generic_error_for_unknown_and_wrong_credentials(
 
 def test_login_preserves_password_whitespace_and_rotates_session(client):
     with app.app.app_context():
-        admin = Staff.query.filter_by(
-            username=ADMIN_CREDENTIALS["username"]
-        ).one()
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
         admin.set_password(" password with spaces ")
         identity = app.PlatformIdentity.query.filter_by(
             username=ADMIN_CREDENTIALS["username"]
@@ -768,9 +862,7 @@ def test_login_preserves_password_whitespace_and_rotates_session(client):
             assert "_user_id" in session
     finally:
         with app.app.app_context():
-            admin = Staff.query.filter_by(
-                username=ADMIN_CREDENTIALS["username"]
-            ).one()
+            admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
             admin.set_password(ADMIN_CREDENTIALS["password"])
             identity = app.PlatformIdentity.query.filter_by(
                 username=ADMIN_CREDENTIALS["username"]
@@ -790,9 +882,7 @@ def test_login_and_logout_require_valid_csrf_tokens(client):
 
     assert client.get("/logout").status_code == 405
     assert client.post("/logout").status_code == 400
-    assert client.post(
-        "/logout", data={"_csrf_token": "invalid"}
-    ).status_code == 400
+    assert client.post("/logout", data={"_csrf_token": "invalid"}).status_code == 400
 
     token = csrf(client)
     signed_out = client.post(
@@ -868,9 +958,7 @@ def test_recovery_approval_is_scoped_to_the_request_airport(client):
         recovery = app.RecoveryRequest(
             unit_id=3,
             identity_id=identity.id,
-            approval_token_digest=hashlib.sha256(
-                approval_token.encode()
-            ).hexdigest(),
+            approval_token_digest=hashlib.sha256(approval_token.encode()).hexdigest(),
             state="pending_approval",
             expires_at=app.utcnow() + timedelta(hours=1),
         )
@@ -907,13 +995,15 @@ def test_completed_recovery_updates_identity_and_tenant_password(client):
         )
         db.session.add(identity)
         db.session.flush()
-        db.session.add(app.UnitMembership(
-            identity_id=identity.id,
-            unit_id=1,
-            person_id=person.id,
-            role="StaffUser",
-            status="active",
-        ))
+        db.session.add(
+            app.UnitMembership(
+                identity_id=identity.id,
+                unit_id=1,
+                person_id=person.id,
+                role="StaffUser",
+                status="active",
+            )
+        )
         recovery = app.RecoveryRequest(
             unit_id=1,
             identity_id=identity.id,
@@ -970,9 +1060,7 @@ def test_completed_recovery_updates_identity_and_tenant_password(client):
     assert revoked.headers["Location"].endswith("/login")
     with app.app.app_context():
         recovery = db.session.get(app.RecoveryRequest, recovery_id)
-        membership = app.UnitMembership.query.filter_by(
-            identity_id=identity_id
-        ).one()
+        membership = app.UnitMembership.query.filter_by(identity_id=identity_id).one()
         credential = app.MfaCredential.query.filter_by(person_id=person_id).first()
         if credential:
             db.session.delete(credential)
@@ -986,9 +1074,9 @@ def test_completed_recovery_updates_identity_and_tenant_password(client):
 def test_user_can_update_own_profile_contact_details(client):
     login(client)
     with app.app.app_context():
-        staff_id = Staff.query.filter_by(
-            username=ADMIN_CREDENTIALS["username"]
-        ).one().id
+        staff_id = (
+            Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one().id
+        )
     response = client.post(
         f"/staff/{staff_id}",
         data={
@@ -1011,6 +1099,8 @@ def test_user_can_update_own_profile_contact_details(client):
         staff = db.session.get(Staff, staff_id)
         assert staff.email == "admin.profile@example.test"
         assert staff.phone_number == "+447700900123"
+
+
 def test_friendly_error_pages_preserve_status_codes(client):
     missing = client.get("/this-page-does-not-exist")
     assert missing.status_code == 404
@@ -1045,7 +1135,10 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"data-operational-clock" in response.data
     assert b"Secure session" in response.data
     assert b'<body class="app-body roster-page">' in response.data
-    assert b'data-assignment-url-template="/assign/__staff__/2025-04/__day__"' in response.data
+    assert (
+        b'data-assignment-url-template="/assign/__staff__/2025-04/__day__"'
+        in response.data
+    )
     assert b"data-action=" not in response.data
     # Shift selectors are direct in-cell controls, not per-cell forms.
     assert response.data.count(b"<form") < 20
@@ -1087,8 +1180,14 @@ def test_roster_renders_annual_leave_as_static_al_code(client):
         original = {
             column: getattr(assignment, column)
             for column in (
-                "code", "override_code", "override_type", "override_reason",
-                "override_by_user_id", "override_at", "source", "note",
+                "code",
+                "override_code",
+                "override_type",
+                "override_reason",
+                "override_by_user_id",
+                "override_at",
+                "source",
+                "note",
             )
         }
         assignment.set_editor_override(
@@ -1121,9 +1220,17 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
         original = {
             column: getattr(assignment, column)
             for column in (
-                "code", "override_code", "override_type", "override_reason",
-                "override_by_user_id", "override_at", "source", "note",
-                "annotation", "annotation_note", "version",
+                "code",
+                "override_code",
+                "override_type",
+                "override_reason",
+                "override_by_user_id",
+                "override_at",
+                "source",
+                "note",
+                "annotation",
+                "annotation_note",
+                "version",
             )
         }
         assignment.set_editor_override(
@@ -1133,9 +1240,7 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
         assignment.note = "annual leave"
         assignment.annotation = ""
         assignment.annotation_note = ""
-        soal_definition = AnnotationType.query.filter_by(
-            unit_id=1, code="SOAL"
-        ).first()
+        soal_definition = AnnotationType.query.filter_by(unit_id=1, code="SOAL").first()
         created_soal_definition = soal_definition is None
         if soal_definition is None:
             soal_definition = AnnotationType(
@@ -1285,7 +1390,6 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
     assert published.status_code == 200
     assert b"Published roster" in published.data
 
-
     assert b"Published " in published.data
     assert b"Draft roster" not in published.data
     with app.app.app_context():
@@ -1304,19 +1408,25 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
     assert b"Draft roster" in returned_to_draft.data
     assert b"returned to Draft" in returned_to_draft.data
     with app.app.app_context():
-        publication = app.RosterPublication.query.filter_by(
-            year=2025, month=4
-        ).order_by(app.RosterPublication.version.desc()).first()
+        publication = (
+            app.RosterPublication.query.filter_by(year=2025, month=4)
+            .order_by(app.RosterPublication.version.desc())
+            .first()
+        )
         assert publication.state == "withdrawn"
 
     client.post("/logout", data={"_csrf_token": csrf(client)})
     client.get("/login")
     with client.session_transaction() as sess:
         login_token = sess["_csrf_token"]
-    client.post("/login", data={
-        "_csrf_token": login_token,
-        "username": "staff_test", "password": "password123",
-    })
+    client.post(
+        "/login",
+        data={
+            "_csrf_token": login_token,
+            "username": "staff_test",
+            "password": "password123",
+        },
+    )
     finish_operational_login(client)
     denied = client.post(
         "/roster/2025-05/publish",
@@ -1337,10 +1447,14 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         client.get("/login")
         with client.session_transaction() as sess:
             login_token = sess["_csrf_token"]
-        client.post("/login", data={
-            "_csrf_token": login_token,
-            "username": username, "password": "password123",
-        })
+        client.post(
+            "/login",
+            data={
+                "_csrf_token": login_token,
+                "username": username,
+                "password": "password123",
+            },
+        )
         finish_operational_login(client)
         response = client.post(
             f"/roster/{ym}/publish",
@@ -1351,13 +1465,29 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
 
 def test_staff_acknowledges_the_current_published_roster_once(client):
     login(client)
-    assert client.post("/roster/2025-04/publish", data={"_csrf_token": csrf(client)}).status_code == 302
-    acknowledged = client.post("/roster/2025-04/acknowledge", data={"_csrf_token": csrf(client)}, follow_redirects=True)
+    assert (
+        client.post(
+            "/roster/2025-04/publish", data={"_csrf_token": csrf(client)}
+        ).status_code
+        == 302
+    )
+    acknowledged = client.post(
+        "/roster/2025-04/acknowledge",
+        data={"_csrf_token": csrf(client)},
+        follow_redirects=True,
+    )
     assert acknowledged.status_code == 200
     assert b"Roster acknowledgement recorded." in acknowledged.data
     with app.app.app_context():
-        publication = app.RosterPublication.query.filter_by(unit_id=1, year=2025, month=4, state="published").one()
-        assert app.RosterAcknowledgement.query.filter_by(unit_id=1, publication_id=publication.id, person_id=1).count() == 1
+        publication = app.RosterPublication.query.filter_by(
+            unit_id=1, year=2025, month=4, state="published"
+        ).one()
+        assert (
+            app.RosterAcknowledgement.query.filter_by(
+                unit_id=1, publication_id=publication.id, person_id=1
+            ).count()
+            == 1
+        )
 
 
 def test_republished_roster_requires_a_fresh_acknowledgement(client):
@@ -1365,54 +1495,87 @@ def test_republished_roster_requires_a_fresh_acknowledgement(client):
     publish_url = "/roster/2025-04/publish"
     acknowledge_url = "/roster/2025-04/acknowledge"
     with app.app.app_context():
-        publication = app.RosterPublication.query.filter_by(
-            unit_id=1, year=2025, month=4, state="published"
-        ).order_by(app.RosterPublication.version.desc()).first()
+        publication = (
+            app.RosterPublication.query.filter_by(
+                unit_id=1, year=2025, month=4, state="published"
+            )
+            .order_by(app.RosterPublication.version.desc())
+            .first()
+        )
     if publication is None:
-        assert client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code == 302
-    assert client.post(acknowledge_url, data={"_csrf_token": csrf(client)}).status_code == 302
+        assert (
+            client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code
+            == 302
+        )
+    assert (
+        client.post(acknowledge_url, data={"_csrf_token": csrf(client)}).status_code
+        == 302
+    )
     with app.app.app_context():
-        first_publication = app.RosterPublication.query.filter_by(
-            unit_id=1, year=2025, month=4, state="published"
-        ).order_by(app.RosterPublication.version.desc()).one()
+        first_publication = (
+            app.RosterPublication.query.filter_by(
+                unit_id=1, year=2025, month=4, state="published"
+            )
+            .order_by(app.RosterPublication.version.desc())
+            .one()
+        )
         assignment = app.Assignment.query.filter_by(
             unit_id=1, day=date(2025, 4, 1)
         ).first()
         assignment.code = "D" if assignment.code != "D" else "M"
         assignment.version += 1
         app.db.session.commit()
-    assert client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code == 302
+    assert (
+        client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code == 302
+    )
     with app.app.app_context():
         first_publication = app.db.session.get(
             app.RosterPublication, first_publication.id
         )
-        current_publication = app.RosterPublication.query.filter_by(
-            unit_id=1, year=2025, month=4, state="published"
-        ).order_by(app.RosterPublication.version.desc()).one()
+        current_publication = (
+            app.RosterPublication.query.filter_by(
+                unit_id=1, year=2025, month=4, state="published"
+            )
+            .order_by(app.RosterPublication.version.desc())
+            .one()
+        )
         assert first_publication.state == "superseded"
         assert current_publication.version == first_publication.version + 1
-        assert app.RosterAcknowledgement.query.filter_by(
-            unit_id=1, publication_id=current_publication.id, person_id=1
-        ).count() == 0
+        assert (
+            app.RosterAcknowledgement.query.filter_by(
+                unit_id=1, publication_id=current_publication.id, person_id=1
+            ).count()
+            == 0
+        )
     acknowledged = client.post(
         acknowledge_url, data={"_csrf_token": csrf(client)}, follow_redirects=True
     )
     assert b"Roster acknowledgement recorded." in acknowledged.data
     with app.app.app_context():
-        assert app.RosterAcknowledgement.query.filter_by(
-            unit_id=1, publication_id=current_publication.id, person_id=1
-        ).count() == 1
+        assert (
+            app.RosterAcknowledgement.query.filter_by(
+                unit_id=1, publication_id=current_publication.id, person_id=1
+            ).count()
+            == 1
+        )
 
 
 def test_stale_published_roster_cannot_be_acknowledged(client):
     login(client)
     publish_url = "/roster/2025-04/publish"
     with app.app.app_context():
-        publication = app.RosterPublication.query.filter_by(
-            unit_id=1, year=2025, month=4, state="published"
-        ).order_by(app.RosterPublication.version.desc()).first()
+        publication = (
+            app.RosterPublication.query.filter_by(
+                unit_id=1, year=2025, month=4, state="published"
+            )
+            .order_by(app.RosterPublication.version.desc())
+            .first()
+        )
     if publication is None:
-        assert client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code == 302
+        assert (
+            client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code
+            == 302
+        )
     with app.app.app_context():
         assignment = app.Assignment.query.filter_by(
             unit_id=1, day=date(2025, 4, 2)
@@ -1431,12 +1594,18 @@ def test_roster_editor_cannot_publish_or_withdraw_roster(client):
 
     response = client.get("/roster/2025-04")
     assert b"Publish roster" not in response.data
-    assert client.post(
-        "/roster/2025-04/publish", data={"_csrf_token": csrf(client)}
-    ).status_code == 403
-    assert client.post(
-        "/roster/2025-04/unpublish", data={"_csrf_token": csrf(client)}
-    ).status_code == 403
+    assert (
+        client.post(
+            "/roster/2025-04/publish", data={"_csrf_token": csrf(client)}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/roster/2025-04/unpublish", data={"_csrf_token": csrf(client)}
+        ).status_code
+        == 403
+    )
 
 
 def test_stale_roster_cell_version_is_rejected(client):
@@ -1479,6 +1648,11 @@ def test_stale_roster_cell_version_is_rejected(client):
             new_value="A",
         ).one()
     assert audit.context_month == "2025-04"
+    history = client.get("/admin/change-log?ym=2025-04&entity_type=Assignment")
+    assert history.status_code == 200
+    assert b"Logged-in account" in history.data
+    assert b"Admin Test" in history.data
+    assert b"@admin_test" in history.data
 
 
 def test_stale_async_roster_cell_version_has_a_structured_conflict(client):
@@ -1582,9 +1756,16 @@ def test_roster_shift_can_be_saved_without_a_page_reload(client):
         original = {
             column: getattr(assignment, column)
             for column in (
-                "code", "generated_code", "override_code", "override_type",
-                "override_reason", "override_by_user_id", "override_at",
-                "source", "note", "version",
+                "code",
+                "generated_code",
+                "override_code",
+                "override_type",
+                "override_reason",
+                "override_by_user_id",
+                "override_at",
+                "source",
+                "note",
+                "version",
             )
         }
         staff_id = admin.id
@@ -1611,7 +1792,11 @@ def test_roster_shift_can_be_saved_without_a_page_reload(client):
         assert payload["is_training"] is False
         assert payload["day"] == duty_day.isoformat()
         assert set(payload["day_summary"]) == {
-            "counts", "night_active", "rag", "required", "total",
+            "counts",
+            "night_active",
+            "rag",
+            "required",
+            "total",
         }
         assert len(payload["fatigue_updates"]) == 30
         assert payload["fatigue_updates"][0]["day"] == "2025-04-01"
@@ -1645,9 +1830,16 @@ def test_repeated_roster_edit_reuses_assignment_and_roster_reloads(client):
         original = {
             column: getattr(assignment, column)
             for column in (
-                "code", "generated_code", "override_code", "override_type",
-                "override_reason", "override_by_user_id", "override_at",
-                "source", "note", "version",
+                "code",
+                "generated_code",
+                "override_code",
+                "override_type",
+                "override_reason",
+                "override_by_user_id",
+                "override_at",
+                "source",
+                "note",
+                "version",
             )
         }
         staff_id = admin.id
@@ -1661,7 +1853,11 @@ def test_repeated_roster_edit_reuses_assignment_and_roster_reloads(client):
         }
         first = client.post(
             endpoint,
-            data={"_csrf_token": csrf(client), "code": "D", "assignment_version": version},
+            data={
+                "_csrf_token": csrf(client),
+                "code": "D",
+                "assignment_version": version,
+            },
             headers=headers,
         )
         assert first.status_code == 200
@@ -1703,9 +1899,16 @@ def test_roster_editor_can_clear_override_to_reveal_generated_baseline(client):
         original = {
             column: getattr(assignment, column)
             for column in (
-                "code", "generated_code", "override_code", "override_type",
-                "override_reason", "override_by_user_id", "override_at",
-                "source", "note", "version",
+                "code",
+                "generated_code",
+                "override_code",
+                "override_type",
+                "override_reason",
+                "override_by_user_id",
+                "override_at",
+                "source",
+                "note",
+                "version",
             )
         }
         assignment.generated_code = "M"
@@ -1750,7 +1953,8 @@ def test_roster_editor_can_clear_override_to_reveal_generated_baseline(client):
 
 
 def test_roster_publication_emails_every_registered_unit_user(
-    client, monkeypatch,
+    client,
+    monkeypatch,
 ):
     login(client)
     with app.app.app_context():
@@ -1758,9 +1962,7 @@ def test_roster_publication_emails_every_registered_unit_user(
         admin = Staff.query.filter_by(
             unit_id=1, username=ADMIN_CREDENTIALS["username"]
         ).one()
-        staff = Staff.query.filter_by(
-            unit_id=1, username="staff_test"
-        ).one()
+        staff = Staff.query.filter_by(unit_id=1, username="staff_test").one()
         admin.email = "publishing.admin@example.test"
         staff.email = "registered.user@example.test"
         db.session.commit()
@@ -1792,9 +1994,7 @@ def test_security_headers_are_present(client):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
-    assert response.headers["Content-Security-Policy"].startswith(
-        "default-src 'self'"
-    )
+    assert response.headers["Content-Security-Policy"].startswith("default-src 'self'")
     policy = response.headers["Content-Security-Policy"]
     assert "script-src 'self' 'nonce-" in policy
     assert "script-src 'self' 'unsafe-inline'" not in policy
@@ -1839,36 +2039,72 @@ def test_role_permission_matrix_and_cross_airport_isolation():
             "platform": 403,
         },
         "editor": {
-            "roster": 200, "requests": 200,
-            "overtime": 200, "leave": 200,
-            "reports": 200, "metrics": 200, "qualification": 200,
-            "operations": 403, "coverage": 200,
-            "scenarios": 200, "accounts": 403, "onboarding": 403,
-            "admin": 403, "reference": 403, "platform": 403,
+            "roster": 200,
+            "requests": 200,
+            "overtime": 200,
+            "leave": 200,
+            "reports": 200,
+            "metrics": 200,
+            "qualification": 200,
+            "operations": 403,
+            "coverage": 200,
+            "scenarios": 200,
+            "accounts": 403,
+            "onboarding": 403,
+            "admin": 403,
+            "reference": 403,
+            "platform": 403,
         },
         "watch_manager": {
-            "roster": 200, "requests": 200,
-            "overtime": 200, "leave": 403,
-            "reports": 200, "metrics": 403, "qualification": 403,
-            "operations": 403, "coverage": 200,
-            "scenarios": 200, "accounts": 403, "onboarding": 403,
-            "admin": 403, "reference": 403, "platform": 403,
+            "roster": 200,
+            "requests": 200,
+            "overtime": 200,
+            "leave": 403,
+            "reports": 200,
+            "metrics": 403,
+            "qualification": 403,
+            "operations": 403,
+            "coverage": 200,
+            "scenarios": 200,
+            "accounts": 403,
+            "onboarding": 403,
+            "admin": 403,
+            "reference": 403,
+            "platform": 403,
         },
         "duty_watch_manager": {
-            "roster": 200, "requests": 200,
-            "overtime": 200, "leave": 403,
-            "reports": 200, "metrics": 403, "qualification": 403,
-            "operations": 403, "coverage": 200,
-            "scenarios": 200, "accounts": 403, "onboarding": 403,
-            "admin": 403, "reference": 403, "platform": 403,
+            "roster": 200,
+            "requests": 200,
+            "overtime": 200,
+            "leave": 403,
+            "reports": 200,
+            "metrics": 403,
+            "qualification": 403,
+            "operations": 403,
+            "coverage": 200,
+            "scenarios": 200,
+            "accounts": 403,
+            "onboarding": 403,
+            "admin": 403,
+            "reference": 403,
+            "platform": 403,
         },
         "staff": {
-            "roster": 200, "requests": 200,
-            "overtime": 403, "leave": 403,
-            "reports": 200, "metrics": 403, "qualification": 403,
-            "operations": 403, "coverage": 403,
-            "scenarios": 403, "accounts": 403, "onboarding": 403,
-            "admin": 403, "reference": 403, "platform": 403,
+            "roster": 200,
+            "requests": 200,
+            "overtime": 403,
+            "leave": 403,
+            "reports": 200,
+            "metrics": 403,
+            "qualification": 403,
+            "operations": 403,
+            "coverage": 403,
+            "scenarios": 403,
+            "accounts": 403,
+            "onboarding": 403,
+            "admin": 403,
+            "reference": 403,
+            "platform": 403,
         },
     }
 
@@ -1910,55 +2146,77 @@ def test_role_permission_matrix_and_cross_airport_isolation():
         for capability, path in common.items():
             actual = role_client.get(path).status_code
             assert actual == expected[role][capability], (
-                role, capability, actual, expected[role][capability]
+                role,
+                capability,
+                actual,
+                expected[role][capability],
             )
 
-    assert clients["superadmin"].get("/").headers["Location"].endswith(
-        "/platform/admin"
+    assert (
+        clients["superadmin"].get("/").headers["Location"].endswith("/platform/admin")
     )
     platform_denial = clients["superadmin"].get("/roster/2025-04")
     assert b"Return to Platform Administration" in platform_denial.data
     assert b"ask your Unit Administrator" not in platform_denial.data
 
     with app.app.app_context():
-        admin = Staff.query.filter_by(
-            username=ADMIN_CREDENTIALS["username"]
-        ).one()
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
         same_unit_other = Staff.query.filter_by(username="staff_test").one()
-        other_airport = db.session.query(Staff).execution_options(
-            skip_tenant_scope=True
-        ).filter_by(username="other_staff_test").one()
+        other_airport = (
+            db.session.query(Staff)
+            .execution_options(skip_tenant_scope=True)
+            .filter_by(username="other_staff_test")
+            .one()
+        )
 
-    assert clients["staff"].get(
-        f"/staff/{same_unit_other.id}"
-    ).status_code == 200
+    assert clients["staff"].get(f"/staff/{same_unit_other.id}").status_code == 200
     assert clients["staff"].get(f"/staff/{admin.id}").status_code == 403
     assert clients["admin"].get(f"/staff/{same_unit_other.id}").status_code == 200
     assert clients["admin"].get(f"/staff/{other_airport.id}").status_code == 404
 
     target_day = "2025-04-02"
-    assert clients["staff"].post(
-        f"/assign/{admin.id}/2025-04/{target_day}",
-        data={"_csrf_token": csrf(clients["staff"]), "code": "A"},
-    ).status_code == 403
-    assert clients["watch_manager"].post(
-        f"/assign/{admin.id}/2025-04/{target_day}",
-        data={
-            "_csrf_token": csrf(clients["watch_manager"]),
-            "code": "A",
-        },
-    ).status_code == 302
-    assert clients["duty_watch_manager"].post(
-        f"/assign/{admin.id}/2025-04/{target_day}",
-        data={
-            "_csrf_token": csrf(clients["duty_watch_manager"]),
-            "code": "N",
-        },
-    ).status_code == 302
-    assert clients["editor"].post(
-        f"/assign/{admin.id}/2025-04/{target_day}",
-        data={"_csrf_token": csrf(clients["editor"]), "code": "M"},
-    ).status_code == 302
+    assert (
+        clients["staff"]
+        .post(
+            f"/assign/{admin.id}/2025-04/{target_day}",
+            data={"_csrf_token": csrf(clients["staff"]), "code": "A"},
+        )
+        .status_code
+        == 403
+    )
+    assert (
+        clients["watch_manager"]
+        .post(
+            f"/assign/{admin.id}/2025-04/{target_day}",
+            data={
+                "_csrf_token": csrf(clients["watch_manager"]),
+                "code": "A",
+            },
+        )
+        .status_code
+        == 302
+    )
+    assert (
+        clients["duty_watch_manager"]
+        .post(
+            f"/assign/{admin.id}/2025-04/{target_day}",
+            data={
+                "_csrf_token": csrf(clients["duty_watch_manager"]),
+                "code": "N",
+            },
+        )
+        .status_code
+        == 302
+    )
+    assert (
+        clients["editor"]
+        .post(
+            f"/assign/{admin.id}/2025-04/{target_day}",
+            data={"_csrf_token": csrf(clients["editor"]), "code": "M"},
+        )
+        .status_code
+        == 302
+    )
 
 
 def test_health_endpoints_report_ready(client):
@@ -1972,9 +2230,7 @@ def test_month_roster_loader_defensively_scopes_every_query_to_its_unit():
     """Mixed-unit development data must not leak into a roster projection."""
     with app.app.app_context():
         other = Staff.query.filter_by(username="other_staff_test").one()
-        _days, staff, assignments, requirement = app._load_month_roster_core(
-            1, 2025, 4
-        )
+        _days, staff, assignments, requirement = app._load_month_roster_core(1, 2025, 4)
 
     assert all(person.unit_id == 1 for person in staff)
     assert other.id not in assignments
@@ -1987,9 +2243,7 @@ def test_monthly_requirement_lookup_is_defensively_scoped_to_its_unit():
         db.session.add(foreign)
         db.session.commit()
 
-        local = ensure_requirement(
-            db, app.Requirement, 2027, 1, unit_id=1
-        )
+        local = ensure_requirement(db, app.Requirement, 2027, 1, unit_id=1)
 
     assert local.unit_id == 1
     assert local.id != foreign.id
@@ -2004,7 +2258,9 @@ def test_editor_can_hard_lock_an_assignment(client):
         ).first()
         if assignment is None:
             assignment = Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 8, 3),
+                unit_id=1,
+                staff_id=person.id,
+                day=date(2026, 8, 3),
                 code="M",
             )
             db.session.add(assignment)
@@ -2114,7 +2370,8 @@ def test_login_next_uses_canonical_allowlisted_internal_route(client):
     ],
 )
 def test_login_next_rejects_external_or_unapproved_destinations(
-    client, target,
+    client,
+    target,
 ):
     client.get("/login")
     with client.session_transaction() as session:
@@ -2158,22 +2415,19 @@ def test_overtime_finder_reports_an_empty_search_instead_of_looking_broken(clien
     assert response.status_code == 200
     assert b"Eligibility result" in response.data
     assert b"Nobody is eligible for overtime for this date and shift" in response.data
-    assert response.data.index(b"Eligibility result") < response.data.index(
-        b"What if?"
-    )
+    assert response.data.index(b"Eligibility result") < response.data.index(b"What if?")
 
 
 @pytest.mark.parametrize("rostered_code", ["OFF", "AL"])
 def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
-    client, rostered_code,
+    client,
+    rostered_code,
 ):
     login(client)
     chosen_day = date(2027, 1, 15)
     with app.app.app_context():
         watch = Watch.query.filter_by(unit_id=1, name="Watch A").one()
-        person = Staff.query.filter_by(
-            unit_id=1, username="ian_overtime_test"
-        ).first()
+        person = Staff.query.filter_by(unit_id=1, username="ian_overtime_test").first()
         if person is None:
             person = Staff(
                 unit_id=1,
@@ -2239,7 +2493,10 @@ def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
     )
     assert what_if.status_code == 200
     assert b"Ian Overtime Test is eligible" in what_if.data
-    assert b"No exclusion rules were triggered" in what_if.data or b"Advisory information" in what_if.data
+    assert (
+        b"No exclusion rules were triggered" in what_if.data
+        or b"Advisory information" in what_if.data
+    )
 
     with app.app.app_context():
         person = db.session.get(Staff, person_id)
@@ -2298,8 +2555,10 @@ def test_production_operations_workflows(client):
     position_response = client.post(
         "/operations/2025-04",
         data={
-            "_csrf_token": token, "action": "create_position",
-            "code": "TWR", "label": "Tower Controller",
+            "_csrf_token": token,
+            "action": "create_position",
+            "code": "TWR",
+            "label": "Tower Controller",
             "description": "Aerodrome control position",
             "is_safety_critical": "on",
         },
@@ -2314,9 +2573,12 @@ def test_production_operations_workflows(client):
     endorsement_response = client.post(
         "/operations/2025-04",
         data={
-            "_csrf_token": token, "action": "grant_endorsement",
-            "person_id": admin_id, "position_id": position_id,
-            "valid_from": "2025-01-01", "valid_until": "2026-12-31",
+            "_csrf_token": token,
+            "action": "grant_endorsement",
+            "person_id": admin_id,
+            "position_id": position_id,
+            "valid_from": "2025-01-01",
+            "valid_until": "2026-12-31",
             "restrictions": "",
         },
         follow_redirects=True,
@@ -2326,9 +2588,12 @@ def test_production_operations_workflows(client):
     requirement_response = client.post(
         "/operations/2025-04",
         data={
-            "_csrf_token": token, "action": "set_position_requirement",
-            "day": "2025-04-01", "shift_code": "M",
-            "position_id": position_id, "required_count": "1",
+            "_csrf_token": token,
+            "action": "set_position_requirement",
+            "day": "2025-04-01",
+            "shift_code": "M",
+            "position_id": position_id,
+            "required_count": "1",
             "contingency_count": "1",
         },
         follow_redirects=True,
@@ -2338,10 +2603,14 @@ def test_production_operations_workflows(client):
     break_response = client.post(
         "/operations/2025-04",
         data={
-            "_csrf_token": token, "action": "add_break",
-            "day": "2025-04-01", "person_id": admin_id,
-            "position_id": position_id, "start_time": "10:00",
-            "end_time": "10:30", "kind": "break",
+            "_csrf_token": token,
+            "action": "add_break",
+            "day": "2025-04-01",
+            "person_id": admin_id,
+            "position_id": position_id,
+            "start_time": "10:00",
+            "end_time": "10:30",
+            "kind": "break",
         },
         follow_redirects=True,
     )
@@ -2349,9 +2618,10 @@ def test_production_operations_workflows(client):
 
     with app.app.app_context():
         assert app.PositionEndorsement.query.count() == 1
-        assert app.PositionRequirement.query.filter_by(
-            position_id=position_id
-        ).count() == 1
+        assert (
+            app.PositionRequirement.query.filter_by(position_id=position_id).count()
+            == 1
+        )
         assert app.BreakPlan.query.filter_by(position_id=position_id).count() == 1
 
 
@@ -2360,10 +2630,13 @@ def test_standalone_fatigue_reporting_workflow_is_removed(client):
     roster = client.get("/roster/2025-04")
     assert b'href="/fatigue/report"' not in roster.data
     assert client.get("/fatigue/report").status_code == 404
-    assert client.post(
-        "/fatigue/report",
-        data={"_csrf_token": csrf(client)},
-    ).status_code == 404
+    assert (
+        client.post(
+            "/fatigue/report",
+            data={"_csrf_token": csrf(client)},
+        ).status_code
+        == 404
+    )
 
 
 def test_index_redirects_to_current_roster_without_status_dashboard(client):
@@ -2402,7 +2675,9 @@ def test_fatigue_segments_use_effective_override_and_airport_shift(client):
     login(client)
     with app.app.app_context():
         person = Staff.query.filter_by(username="admin_test").first()
-        shift = ShiftType.query.filter_by(unit_id=person.unit_id, is_working=True).first()
+        shift = ShiftType.query.filter_by(
+            unit_id=person.unit_id, is_working=True
+        ).first()
         assignment = Assignment(
             unit_id=person.unit_id,
             staff_id=person.id,
@@ -2463,9 +2738,9 @@ def test_roster_routes_render(client):
     export_resp = client.get(f"/roster/{month}/export")
     assert export_resp.status_code == 200
     assert export_resp.mimetype == "text/csv"
-    assert b'data-roster-sticky-shield' in roster_resp.data
-    assert b'roster.js?v=' in roster_resp.data
-    assert b'rosterStickyShield.style.height' in client.get('/static/roster.js').data
+    assert b"data-roster-sticky-shield" in roster_resp.data
+    assert b"roster.js?v=" in roster_resp.data
+    assert b"rosterStickyShield.style.height" in client.get("/static/roster.js").data
 
 
 def test_roster_csv_export_is_explicitly_tenant_scoped(client):
@@ -2514,9 +2789,7 @@ def test_month_generation_does_not_populate_another_tenants_staff():
             unit_id=1,
             db=db,
             Staff=Staff,
-            month_range=lambda _year, _month: (
-                date(2025, 4, 1), [date(2025, 4, 1)]
-            ),
+            month_range=lambda _year, _month: (date(2025, 4, 1), [date(2025, 4, 1)]),
             refresh_day=lambda person, _day: refreshed_staff_ids.add(person.id),
         )
 
@@ -2607,9 +2880,7 @@ def test_csv_exports_neutralise_spreadsheet_formula_payloads(client):
     login(client)
     acknowledge_reports(client)
     with app.app.app_context():
-        person = Staff.query.filter_by(
-            username=ADMIN_CREDENTIALS["username"]
-        ).one()
+        person = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
         person.name = '=HYPERLINK("https://attacker.invalid")'
         person.staff_no = "+SUM(1,1)"
         db.session.commit()
@@ -2622,9 +2893,7 @@ def test_csv_exports_neutralise_spreadsheet_formula_payloads(client):
             assert "'+SUM(1,1)" in exported
     finally:
         with app.app.app_context():
-            person = Staff.query.filter_by(
-                username=ADMIN_CREDENTIALS["username"]
-            ).one()
+            person = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
             person.name = "Admin Test"
             person.staff_no = "ADM-001"
             db.session.commit()
@@ -2675,9 +2944,10 @@ def test_roster_code_lists_only_accept_existing_shift_codes(client):
     )
     assert b"do not exist: DOESNOTEXIST" in rejected.data
     with app.app.app_context():
-        assert app.RosterSetting.query.filter_by(
-            unit_id=1, key="working_codes"
-        ).first() is None
+        assert (
+            app.RosterSetting.query.filter_by(unit_id=1, key="working_codes").first()
+            is None
+        )
 
     token = csrf(client)
     saved = client.post(
@@ -2699,7 +2969,9 @@ def test_shift_staffing_mapping_follows_shift_type_tool(client):
     login(client)
     response = client.get("/admin")
     assert response.status_code == 200
-    assert b"Required for accurate daily totals and coverage warnings" not in response.data
+    assert (
+        b"Required for accurate daily totals and coverage warnings" not in response.data
+    )
     assert response.data.index(b"admin-shift-list") < response.data.index(
         b"Which shifts count toward staffing?"
     )
@@ -2719,37 +2991,56 @@ def test_annotation_totals_follow_unit_definitions_not_fixed_columns(client):
     acknowledge_reports(client)
     with app.app.app_context():
         person = Staff.query.filter_by(username="staff_test").one()
-        db.session.add_all([
-            AnnotationType(
-                unit_id=1, code="CUSTOM", label="Custom Cover",
-                category="Operations", is_active=True, sort_order=1,
-            ),
-            AnnotationType(
-                unit_id=1, code="OLD", label="Retired Marker",
-                category="Operations", is_active=False, sort_order=2,
-                has_been_used=True,
-            ),
-            Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 1, 10),
-                code="M", annotation="CUSTOM", source="manual",
-            ),
-            Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 1, 11),
-                code="M", annotation="OLD", source="manual",
-            ),
-            Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 1, 12),
-                code="M", annotation="INFO",
-                annotation_note="Operational context only",
-                source="manual",
-            ),
-        ])
+        db.session.add_all(
+            [
+                AnnotationType(
+                    unit_id=1,
+                    code="CUSTOM",
+                    label="Custom Cover",
+                    category="Operations",
+                    is_active=True,
+                    sort_order=1,
+                ),
+                AnnotationType(
+                    unit_id=1,
+                    code="OLD",
+                    label="Retired Marker",
+                    category="Operations",
+                    is_active=False,
+                    sort_order=2,
+                    has_been_used=True,
+                ),
+                Assignment(
+                    unit_id=1,
+                    staff_id=person.id,
+                    day=date(2026, 1, 10),
+                    code="M",
+                    annotation="CUSTOM",
+                    source="manual",
+                ),
+                Assignment(
+                    unit_id=1,
+                    staff_id=person.id,
+                    day=date(2026, 1, 11),
+                    code="M",
+                    annotation="OLD",
+                    source="manual",
+                ),
+                Assignment(
+                    unit_id=1,
+                    staff_id=person.id,
+                    day=date(2026, 1, 12),
+                    code="M",
+                    annotation="INFO",
+                    annotation_note="Operational context only",
+                    source="manual",
+                ),
+            ]
+        )
         db.session.commit()
         app.refresh_annotation_cache()
 
-    page = client.get(
-        "/metrics?start=2026-01-10&end=2026-01-12"
-    )
+    page = client.get("/metrics?start=2026-01-10&end=2026-01-12")
     assert page.status_code == 200
     assert b"Annotation Totals" in page.data
     assert b"Custom Cover" in page.data
@@ -2760,9 +3051,7 @@ def test_annotation_totals_follow_unit_definitions_not_fixed_columns(client):
     assert b">Information</th>" not in page.data
     assert b"Operational context only" not in page.data
 
-    exported = client.get(
-        "/metrics/export?start=2026-01-10&end=2026-01-12"
-    )
+    exported = client.get("/metrics/export?start=2026-01-10&end=2026-01-12")
     assert exported.status_code == 200
     csv_text = exported.data.decode()
     assert "Custom Cover (CUSTOM)" in csv_text
@@ -2777,10 +3066,15 @@ def test_admin_can_add_and_manage_custom_fatigue_rules(client):
     with app.app.app_context():
         person = Staff.query.filter_by(username="staff_test").one()
         target_day = date(2026, 2, 1)
-        db.session.add(Assignment(
-            unit_id=1, staff_id=person.id, day=target_day,
-            code="M", source="manual",
-        ))
+        db.session.add(
+            Assignment(
+                unit_id=1,
+                staff_id=person.id,
+                day=target_day,
+                code="M",
+                source="manual",
+            )
+        )
         db.session.commit()
         person_id = person.id
 
@@ -2804,11 +3098,10 @@ def test_admin_can_add_and_manage_custom_fatigue_rules(client):
 
     with app.app.app_context():
         person = db.session.get(Staff, person_id)
-        findings = app.fatigue_flags_for_range(
-            person, [target_day]
-        )
+        findings = app.fatigue_flags_for_range(person, [target_day])
         custom_messages = [
-            message for message in findings[target_day]
+            message
+            for message in findings[target_day]
             if "Local seven-hour duty limit" in message
         ]
         assert custom_messages
@@ -2832,12 +3125,9 @@ def test_admin_can_add_and_manage_custom_fatigue_rules(client):
     assert paused.status_code == 200
     with app.app.app_context():
         person = db.session.get(Staff, person_id)
-        findings = app.fatigue_flags_for_range(
-            person, [target_day]
-        )
+        findings = app.fatigue_flags_for_range(person, [target_day])
         assert not any(
-            custom_code in message
-            for message in findings.get(target_day, [])
+            custom_code in message for message in findings.get(target_day, [])
         )
 
 
@@ -2846,16 +3136,18 @@ def test_d24_requires_a_complete_observation_window(client):
     segments = []
     for offset in range(31):
         duty_start = start + timedelta(days=offset)
-        segments.append({
-            "day": duty_start.date(),
-            "start": duty_start,
-            "end": duty_start + timedelta(hours=8),
-            "mins": 8 * 60,
-            "night": False,
-            "early": False,
-            "early_pre0600": False,
-            "morning": True,
-        })
+        segments.append(
+            {
+                "day": duty_start.date(),
+                "start": duty_start,
+                "end": duty_start + timedelta(hours=8),
+                "mins": 8 * 60,
+                "night": False,
+                "early": False,
+                "early_pre0600": False,
+                "morning": True,
+            }
+        )
 
     with app.app.app_context():
         without_history = app._analyze_segments(segments)
@@ -2865,10 +3157,7 @@ def test_d24_requires_a_complete_observation_window(client):
         )
     assert app._analyze_segments is fatigue_engine._analyze_segments
     assert app._compliance_month is fatigue_compliance.compliance_month
-    assert (
-        app._fatigue_rule_config
-        == app._fatigue_rule_config_service.load
-    )
+    assert app._fatigue_rule_config == app._fatigue_rule_config_service.load
     assert not any(
         message.startswith("D24:")
         for messages in without_history.values()
@@ -2902,14 +3191,11 @@ def test_system_fatigue_threshold_changes_are_airport_specific(client):
     with app.app.app_context():
         unit_one = app._fatigue_rule_config(1)
         other_airport = app._fatigue_rule_config(3)
+        assert (unit_one["system"]["D21"]["parameters"]["max_duty_hours"]["value"]) == 7
         assert (
-            unit_one["system"]["D21"]["parameters"]
-            ["max_duty_hours"]["value"]
-        ) == 7
-        assert (
-            other_airport["system"]["D21"]["parameters"]
-            ["max_duty_hours"]["value"]
-        ) == 10
+            (other_airport["system"]["D21"]["parameters"]["max_duty_hours"]["value"])
+            == 10
+        )
         assert unit_one["system"]["D21"]["name"] == "Local duty duration"
         assert other_airport["system"]["D21"]["name"] != "Local duty duration"
 
@@ -2966,36 +3252,40 @@ def test_admin_can_configure_requestable_shift(client):
 def test_unit_admin_edits_and_previews_qualification_import(client):
     login(client)
     with app.app.app_context():
-        person = Staff.query.filter_by(
-            username="staff_test", unit_id=1
-        ).one()
-        medical = QualificationType.query.filter_by(
-            unit_id=1, code="MEDICAL"
-        ).one()
+        person = Staff.query.filter_by(username="staff_test", unit_id=1).one()
+        medical = QualificationType.query.filter_by(unit_id=1, code="MEDICAL").one()
         person_id = person.id
         medical_id = medical.id
     token = csrf(client)
-    assigned = client.post("/compliance", data={
-        "_csrf_token": token,
-        "action": "save_person",
-        "person_id": person_id,
-        "type_id": medical_id,
-        "issued_on": "2026-01-01",
-        "valid_from": "2026-01-01",
-        "expires_on": "2027-01-01",
-        "status": "valid",
-    }, follow_redirects=True)
+    assigned = client.post(
+        "/compliance",
+        data={
+            "_csrf_token": token,
+            "action": "save_person",
+            "person_id": person_id,
+            "type_id": medical_id,
+            "issued_on": "2026-01-01",
+            "valid_from": "2026-01-01",
+            "expires_on": "2027-01-01",
+            "status": "valid",
+        },
+        follow_redirects=True,
+    )
     assert assigned.status_code == 200
     assert b"Person qualification saved" in assigned.data
-    created = client.post("/compliance", data={
-        "_csrf_token": csrf(client),
-        "action": "create_type",
-        "code": "UCA",
-        "label": "Unit Competence Assessor",
-        "warning_days_csv": "180,90,60,30",
-        "expiry_required": "no",
-        "is_active": "yes",
-    }, follow_redirects=True)
+    created = client.post(
+        "/compliance",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "create_type",
+            "code": "UCA",
+            "label": "Unit Competence Assessor",
+            "warning_days_csv": "180,90,60,30",
+            "expiry_required": "no",
+            "is_active": "yes",
+        },
+        follow_redirects=True,
+    )
     assert created.status_code == 200
     assert b"Qualification type saved" in created.data
     preview = client.post(
@@ -3056,9 +3346,7 @@ def test_onboarding_branding_rules_and_csv_preview(client):
             "_csrf_token": token,
             "action": "csv_preview",
             "csv_file": (
-                io.BytesIO(
-                    b"name,staff_no,watch\nImported Person,IMP-001,Watch A\n"
-                ),
+                io.BytesIO(b"name,staff_no,watch\nImported Person,IMP-001,Watch A\n"),
                 "people.csv",
             ),
         },
@@ -3178,11 +3466,18 @@ def test_weekend_and_special_date_requirements_are_available(client):
     assert b'name="special_day"' in page.data
 
     requirement_values = {
-        "req_m": "4", "req_d": "3", "req_a": "4", "req_n": "2",
-        "req_sat_m": "2", "req_sat_d": "1",
-        "req_sat_a": "2", "req_sat_n": "0",
-        "req_sun_m": "1", "req_sun_d": "1",
-        "req_sun_a": "1", "req_sun_n": "0",
+        "req_m": "4",
+        "req_d": "3",
+        "req_a": "4",
+        "req_n": "2",
+        "req_sat_m": "2",
+        "req_sat_d": "1",
+        "req_sat_a": "2",
+        "req_sat_n": "0",
+        "req_sun_m": "1",
+        "req_sun_d": "1",
+        "req_sun_a": "1",
+        "req_sun_n": "0",
     }
     saved_defaults = client.post(
         "/admin",
@@ -3196,9 +3491,7 @@ def test_weekend_and_special_date_requirements_are_available(client):
     )
     assert saved_defaults.status_code == 200
     with app.app.app_context():
-        monthly = app.Requirement.query.filter_by(
-            unit_id=1, year=2026, month=12
-        ).one()
+        monthly = app.Requirement.query.filter_by(unit_id=1, year=2026, month=12).one()
         assert monthly.req_sat_m == 2
         assert monthly.req_sun_a == 1
 
@@ -3229,26 +3522,47 @@ def test_weekend_and_special_date_requirements_are_available(client):
         special = app.SpecialRequirement.query.filter_by(
             unit_id=1, day=date(2026, 12, 25)
         ).one()
-        assert app.requirements_for_day(
-            None, special.day, special
-        ) == {"M": 2, "D": 1, "A": 2, "N": 0}
+        assert app.requirements_for_day(None, special.day, special) == {
+            "M": 2,
+            "D": 1,
+            "A": 2,
+            "N": 0,
+        }
 
 
 def test_effective_requirements_use_weekend_defaults_and_date_override():
     monthly = app.Requirement(
-        req_m=4, req_d=3, req_a=4, req_n=2,
-        req_sat_m=2, req_sat_d=1, req_sat_a=2, req_sat_n=0,
-        req_sun_m=1, req_sun_d=1, req_sun_a=1, req_sun_n=0,
+        req_m=4,
+        req_d=3,
+        req_a=4,
+        req_n=2,
+        req_sat_m=2,
+        req_sat_d=1,
+        req_sat_a=2,
+        req_sat_n=0,
+        req_sun_m=1,
+        req_sun_d=1,
+        req_sun_a=1,
+        req_sun_n=0,
     )
-    assert app.requirements_for_day(
-        monthly, date(2026, 12, 21)
-    ) == {"M": 4, "D": 3, "A": 4, "N": 2}
-    assert app.requirements_for_day(
-        monthly, date(2026, 12, 26)
-    ) == {"M": 2, "D": 1, "A": 2, "N": 0}
-    assert app.requirements_for_day(
-        monthly, date(2026, 12, 27)
-    ) == {"M": 1, "D": 1, "A": 1, "N": 0}
+    assert app.requirements_for_day(monthly, date(2026, 12, 21)) == {
+        "M": 4,
+        "D": 3,
+        "A": 4,
+        "N": 2,
+    }
+    assert app.requirements_for_day(monthly, date(2026, 12, 26)) == {
+        "M": 2,
+        "D": 1,
+        "A": 2,
+        "N": 0,
+    }
+    assert app.requirements_for_day(monthly, date(2026, 12, 27)) == {
+        "M": 1,
+        "D": 1,
+        "A": 1,
+        "N": 0,
+    }
 
 
 def test_counter_requires_created_shift_and_respects_closed_nights(client):
@@ -3259,18 +3573,14 @@ def test_counter_requires_created_shift_and_respects_closed_nights(client):
             unit_id=1, key="night_active_weekdays"
         ).first()
         if not night_setting:
-            night_setting = app.RosterSetting(
-                unit_id=1, key="night_active_weekdays"
-            )
+            night_setting = app.RosterSetting(unit_id=1, key="night_active_weekdays")
             db.session.add(night_setting)
         night_setting.value = "0"
         mapping_setting = app.RosterSetting.query.filter_by(
             unit_id=1, key="shift_counter_map"
         ).first()
         if not mapping_setting:
-            mapping_setting = app.RosterSetting(
-                unit_id=1, key="shift_counter_map"
-            )
+            mapping_setting = app.RosterSetting(unit_id=1, key="shift_counter_map")
             db.session.add(mapping_setting)
         mapping = json.loads(mapping_setting.value or "{}")
         mapping["N"] = "N"
@@ -3318,9 +3628,7 @@ def test_under_training_flags_do_not_replace_an_in_date_endorsement():
     assert not app.staff_is_countable_on(person, roster_day)
 
 
-def test_roster_never_shows_fatigue_warning_on_off_shift(
-    client, monkeypatch
-):
+def test_roster_never_shows_fatigue_warning_on_off_shift(client, monkeypatch):
     warning_day = date(2025, 4, 1)
     with app.app.app_context():
         person = Staff.query.filter_by(unit_id=1).first()
@@ -3328,9 +3636,7 @@ def test_roster_never_shows_fatigue_warning_on_off_shift(
         monkeypatch.setattr(
             app,
             "fatigue_flags_for_range",
-            lambda *_args, **_kwargs: {
-                warning_day: ["stale warning must not appear"]
-            },
+            lambda *_args, **_kwargs: {warning_day: ["stale warning must not appear"]},
         )
 
         visible = app.roster_fatigue_flags_for_range(
@@ -3341,9 +3647,7 @@ def test_roster_never_shows_fatigue_warning_on_off_shift(
         visible_working = app.roster_fatigue_flags_for_range(
             person, [warning_day], {warning_day: "M"}, 1
         )
-        assert visible_working == {
-            warning_day: ["stale warning must not appear"]
-        }
+        assert visible_working == {warning_day: ["stale warning must not appear"]}
 
 
 def test_manual_toil_form_submits_and_can_add_or_deduct(client):
@@ -3414,9 +3718,7 @@ def test_roster_scenario_uses_guided_fields_without_json(client):
     assert saved.status_code == 200
     assert b"live roster" in saved.data
     with app.app.app_context():
-        scenario = app.Scenario.query.filter_by(
-            name="Guided cover check"
-        ).one()
+        scenario = app.Scenario.query.filter_by(name="Guided cover check").one()
         changes = json.loads(scenario.changes_json)
         assert changes[0]["staff_id"] == str(person_id)
         assert changes[0]["code"] == "M"
@@ -3482,7 +3784,8 @@ def test_admin_watch_move_flow(client):
         f"/admin/staff/{staff.id}/watch-move",
         data={
             "_csrf_token": csrf(client),
-            "watch_id": watch_b.id, "effective_date": "2025-06-01",
+            "watch_id": watch_b.id,
+            "effective_date": "2025-06-01",
         },
         follow_redirects=True,
     )
@@ -3504,7 +3807,8 @@ def test_admin_watch_move_flow(client):
         f"/admin/staff/watch-move/{entry.id}/edit",
         data={
             "_csrf_token": csrf(client),
-            "watch_id": watch_a.id, "effective_date": "2025-07-01",
+            "watch_id": watch_a.id,
+            "effective_date": "2025-07-01",
         },
         follow_redirects=True,
     )
@@ -3544,8 +3848,12 @@ def test_unit_watch_and_personal_pattern_inheritance(client):
         watch_b.pattern_csv = "A,A"
         watch_b.pattern_anchor = anchor
         person = Staff(
-            unit_id=1, username="pattern_test", name="Pattern Test",
-            staff_no="PAT-001", role="user", watch=watch_a,
+            unit_id=1,
+            username="pattern_test",
+            name="Pattern Test",
+            staff_no="PAT-001",
+            role="user",
+            watch=watch_a,
             pattern_override=False,
         )
         person.set_password("password123")
@@ -3554,27 +3862,25 @@ def test_unit_watch_and_personal_pattern_inheritance(client):
             unit_id=1, key="night_active_weekdays"
         ).first()
         if not night_setting:
-            night_setting = app.RosterSetting(
-                unit_id=1, key="night_active_weekdays"
-            )
+            night_setting = app.RosterSetting(unit_id=1, key="night_active_weekdays")
             db.session.add(night_setting)
         night_setting.value = "0"
         db.session.commit()
         app.refresh_roster_settings_cache()
 
         assert app.code_from_pattern(person, anchor) == "N"
-        assert app.code_from_pattern(
-            person, date(2026, 7, 28)
-        ) == "OFF"
+        assert app.code_from_pattern(person, date(2026, 7, 28)) == "OFF"
 
-        db.session.add(StaffWatchHistory(
-            unit_id=1, staff_id=person.id, watch_id=watch_b.id,
-            effective_date=date(2026, 7, 28),
-        ))
+        db.session.add(
+            StaffWatchHistory(
+                unit_id=1,
+                staff_id=person.id,
+                watch_id=watch_b.id,
+                effective_date=date(2026, 7, 28),
+            )
+        )
         db.session.commit()
-        assert app.code_from_pattern(
-            person, date(2026, 7, 28)
-        ) == "A"
+        assert app.code_from_pattern(person, date(2026, 7, 28)) == "A"
 
         watch_a.pattern_csv = ""
         watch_a.pattern_anchor = anchor
@@ -3582,9 +3888,7 @@ def test_unit_watch_and_personal_pattern_inheritance(client):
             ("base_pattern_csv", "M,A,OFF"),
             ("base_pattern_anchor", "2026-07-26"),
         ):
-            setting = app.RosterSetting.query.filter_by(
-                unit_id=1, key=key
-            ).first()
+            setting = app.RosterSetting.query.filter_by(unit_id=1, key=key).first()
             if not setting:
                 setting = app.RosterSetting(unit_id=1, key=key)
                 db.session.add(setting)
@@ -3592,9 +3896,7 @@ def test_unit_watch_and_personal_pattern_inheritance(client):
         db.session.commit()
         app.refresh_roster_settings_cache()
         assert app.code_from_pattern(person, anchor) == "M"
-        assert app.code_from_pattern(
-            person, date(2026, 7, 28)
-        ) == "A"
+        assert app.code_from_pattern(person, date(2026, 7, 28)) == "A"
 
         person.pattern_override = True
         person.pattern_csv = "D,OFF"
@@ -3615,13 +3917,15 @@ def test_mfa_challenge_completes_login(client):
     with app.app.app_context():
         admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).first()
         app.MfaCredential.query.filter_by(person_id=admin.id).delete()
-        db.session.add(app.MfaCredential(
-            unit_id=admin.unit_id,
-            person_id=admin.id,
-            encrypted_secret=app._encrypt_field(secret),
-            enabled=True,
-            enrolled_at=app.utcnow(),
-        ))
+        db.session.add(
+            app.MfaCredential(
+                unit_id=admin.unit_id,
+                person_id=admin.id,
+                encrypted_secret=app._encrypt_field(secret),
+                enabled=True,
+                enrolled_at=app.utcnow(),
+            )
+        )
         db.session.commit()
     password_step = client.post(
         "/login",
@@ -3651,11 +3955,15 @@ def test_unit_admin_mfa_reset_forces_fresh_enrolment_and_revokes_sessions(client
     with app.app.app_context():
         target = Staff.query.filter_by(username="staff_test").one()
         app.MfaCredential.query.filter_by(person_id=target.id).delete()
-        app.db.session.add(app.MfaCredential(
-            unit_id=1, person_id=target.id,
-            encrypted_secret=app._encrypt_field(pyotp.random_base32()),
-            enabled=True, enrolled_at=app.utcnow(),
-        ))
+        app.db.session.add(
+            app.MfaCredential(
+                unit_id=1,
+                person_id=target.id,
+                encrypted_secret=app._encrypt_field(pyotp.random_base32()),
+                enabled=True,
+                enrolled_at=app.utcnow(),
+            )
+        )
         app.db.session.commit()
     login_as(target_client, "staff_test")
     with app.app.app_context():
@@ -3675,11 +3983,19 @@ def test_unit_admin_mfa_reset_forces_fresh_enrolment_and_revokes_sessions(client
         follow_redirects=False,
     )
     assert reset.status_code == 302
-    assert target_client.get("/", follow_redirects=False).headers["Location"].endswith("/login")
+    assert (
+        target_client.get("/", follow_redirects=False)
+        .headers["Location"]
+        .endswith("/login")
+    )
 
     password_step = target_client.post(
         "/login",
-        data={"_csrf_token": csrf(target_client), "username": "staff_test", "password": "password123"},
+        data={
+            "_csrf_token": csrf(target_client),
+            "username": "staff_test",
+            "password": "password123",
+        },
         follow_redirects=False,
     )
     assert password_step.headers["Location"].endswith("/security/mfa")
@@ -3700,7 +4016,12 @@ def test_unit_admin_mfa_reset_forces_fresh_enrolment_and_revokes_sessions(client
         credential = app.MfaCredential.query.filter_by(person_id=target.id).one()
         assert credential.enabled and not credential.reset_required
         assert credential.recovery_codes_digest == "[]"
-        assert app.CentralSecurityAudit.query.filter_by(event_type="airport_mfa_reset").count() >= 1
+        assert (
+            app.CentralSecurityAudit.query.filter_by(
+                event_type="airport_mfa_reset"
+            ).count()
+            >= 1
+        )
 
 
 def test_mfa_reset_blocks_self_cross_unit_and_csrf(client):
@@ -3724,8 +4045,12 @@ def test_mfa_reset_blocks_self_cross_unit_and_csrf(client):
         )
         app.db.session.add(other)
         platform_target = Staff(
-            unit_id=1, username="superadmin-reset-target", name="Platform target",
-            staff_no="SUP-RESET", role="superadmin", is_operational=False,
+            unit_id=1,
+            username="superadmin-reset-target",
+            name="Platform target",
+            staff_no="SUP-RESET",
+            role="superadmin",
+            is_operational=False,
         )
         platform_target.set_password("password123")
         app.db.session.add(platform_target)
@@ -3738,25 +4063,53 @@ def test_mfa_reset_blocks_self_cross_unit_and_csrf(client):
         app.db.session.add(platform_identity)
         app.db.session.flush()
         platform_membership = app.UnitMembership(
-            identity_id=platform_identity.id, unit_id=1, person_id=platform_target.id,
-            role="SuperAdmin", status="active",
+            identity_id=platform_identity.id,
+            unit_id=1,
+            person_id=platform_target.id,
+            role="SuperAdmin",
+            status="active",
         )
         app.db.session.add(platform_membership)
         app.db.session.commit()
-    assert client.post("/unit/accounts", data={"action": "reset_mfa", "membership_id": own.id, "reason": "valid reason"}).status_code == 400
+    assert (
+        client.post(
+            "/unit/accounts",
+            data={
+                "action": "reset_mfa",
+                "membership_id": own.id,
+                "reason": "valid reason",
+            },
+        ).status_code
+        == 400
+    )
     forbidden = client.post(
         "/unit/accounts",
-        data={"_csrf_token": csrf(client), "action": "reset_mfa", "membership_id": own.id, "reason": "valid reason"},
+        data={
+            "_csrf_token": csrf(client),
+            "action": "reset_mfa",
+            "membership_id": own.id,
+            "reason": "valid reason",
+        },
     )
     assert forbidden.status_code == 403
     cross_unit = client.post(
         "/unit/accounts",
-        data={"_csrf_token": csrf(client), "action": "reset_mfa", "membership_id": other.id, "reason": "valid reason"},
+        data={
+            "_csrf_token": csrf(client),
+            "action": "reset_mfa",
+            "membership_id": other.id,
+            "reason": "valid reason",
+        },
     )
     assert cross_unit.status_code == 404
     platform = client.post(
         "/unit/accounts",
-        data={"_csrf_token": csrf(client), "action": "reset_mfa", "membership_id": platform_membership.id, "reason": "valid reason"},
+        data={
+            "_csrf_token": csrf(client),
+            "action": "reset_mfa",
+            "membership_id": platform_membership.id,
+            "reason": "valid reason",
+        },
     )
     assert platform.status_code == 403
 
@@ -3778,9 +4131,7 @@ def test_continuous_activity_cannot_extend_absolute_session(client):
 def test_privilege_change_forces_existing_session_invalidation(client):
     login(client)
     with app.app.app_context():
-        admin = Staff.query.filter_by(
-            username=ADMIN_CREDENTIALS["username"]
-        ).one()
+        admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
         admin.role = "user"
         db.session.commit()
     try:
@@ -3791,9 +4142,7 @@ def test_privilege_change_forces_existing_session_invalidation(client):
             assert "_user_id" not in session
     finally:
         with app.app.app_context():
-            admin = Staff.query.filter_by(
-                username=ADMIN_CREDENTIALS["username"]
-            ).one()
+            admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
             admin.role = "admin"
             db.session.commit()
 
@@ -3821,9 +4170,7 @@ def test_password_change_revokes_another_existing_session(client):
             assert "_user_id" not in browser_session
     finally:
         with app.app.app_context():
-            person = Staff.query.filter_by(
-                username=ADMIN_CREDENTIALS["username"]
-            ).one()
+            person = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
             person.set_password(ADMIN_CREDENTIALS["password"])
             identity = app.PlatformIdentity.query.filter_by(
                 username=ADMIN_CREDENTIALS["username"]
@@ -3837,12 +4184,8 @@ def test_airport_mfa_change_revokes_another_existing_session(client):
     login(client)
     copy_authenticated_session(client, other_client)
     with app.app.app_context():
-        person = Staff.query.filter_by(
-            username=ADMIN_CREDENTIALS["username"]
-        ).one()
-        credential = app.MfaCredential.query.filter_by(
-            person_id=person.id
-        ).one()
+        person = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        credential = app.MfaCredential.query.filter_by(person_id=person.id).one()
         original_secret = credential.encrypted_secret
         credential.encrypted_secret = app._encrypt_field(pyotp.random_base32())
         credential.enrolled_at = app.utcnow()
@@ -3855,12 +4198,8 @@ def test_airport_mfa_change_revokes_another_existing_session(client):
             assert "_user_id" not in browser_session
     finally:
         with app.app.app_context():
-            person = Staff.query.filter_by(
-                username=ADMIN_CREDENTIALS["username"]
-            ).one()
-            credential = app.MfaCredential.query.filter_by(
-                person_id=person.id
-            ).one()
+            person = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+            credential = app.MfaCredential.query.filter_by(person_id=person.id).one()
             credential.encrypted_secret = original_secret
             db.session.commit()
 
@@ -3922,9 +4261,13 @@ def test_sms_audit_only_allows_provider_delivery_status_updates(client):
     login(client)
     with app.app.app_context():
         audit = app.SmsAudit(
-            unit_id=1, sent_by_staff_id=1, sent_by_name="Admin Test",
-            sender_number="+447700900123", recipient_number="+447700900124",
-            recipient_label="Duty desk", message_content="Original",
+            unit_id=1,
+            sent_by_staff_id=1,
+            sent_by_name="Admin Test",
+            sender_number="+447700900123",
+            recipient_number="+447700900124",
+            recipient_label="Duty desk",
+            message_content="Original",
         )
         db.session.add(audit)
         db.session.commit()
@@ -3939,9 +4282,7 @@ def test_sms_audit_only_allows_provider_delivery_status_updates(client):
 def test_business_change_and_audit_evidence_roll_back_atomically(client):
     login(client)
     with app.app.app_context():
-        person = Staff.query.filter_by(
-            username=ADMIN_CREDENTIALS["username"]
-        ).one()
+        person = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
         day = date(2031, 1, 7)
         assignment = Assignment(
             unit_id=1, staff_id=person.id, day=day, code="M", source="manual"
@@ -4210,9 +4551,7 @@ def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
         follow_redirects=True,
     )
     assert response.status_code == 200
-    assert sent == [
-        ("+441415550100", "Operational test", "+447700900112")
-    ]
+    assert sent == [("+441415550100", "Operational test", "+447700900112")]
     assert b"SMS sent to 1 recipient." in response.data
     with app.app.app_context():
         audit = app.SmsAudit.query.order_by(app.SmsAudit.id.desc()).first()
@@ -4263,26 +4602,37 @@ def test_sms_audit_is_unit_admin_only(client):
     assert page.status_code == 200
     assert b"Operational test" in page.data
     assert b"Admin Test" in page.data
+    assert b"Logged-in account" in page.data
+    assert b"@admin_test" in page.data
 
     wm_client = app.app.test_client()
     login_as(wm_client, "watch_manager_test")
     assert wm_client.get("/messages").status_code == 200
 
 
-def test_messagemedia_delivery_webhook_requires_token_and_updates_audit(client, monkeypatch):
+def test_messagemedia_delivery_webhook_requires_token_and_updates_audit(
+    client, monkeypatch
+):
     with app.app.app_context():
         audit = app.SmsAudit(
-            unit_id=1, sent_by_staff_id=1, sent_by_name="Admin Test",
-            sender_number="+447700900123", recipient_number="+447700900124",
-            recipient_label="Duty desk", message_type="operational",
-            message_content="Update", provider_message_id="delivery-test",
+            unit_id=1,
+            sent_by_staff_id=1,
+            sent_by_name="Admin Test",
+            sender_number="+447700900123",
+            recipient_number="+447700900124",
+            recipient_label="Duty desk",
+            message_type="operational",
+            message_content="Update",
+            provider_message_id="delivery-test",
         )
         db.session.add(audit)
         db.session.commit()
         audit_id = audit.id
 
     monkeypatch.setenv("MESSAGEMEDIA_WEBHOOK_TOKEN", "webhook-test-token")
-    forbidden = client.post("/webhooks/messagemedia/delivery", json={"id": "delivery-test"})
+    forbidden = client.post(
+        "/webhooks/messagemedia/delivery", json={"id": "delivery-test"}
+    )
     assert forbidden.status_code == 403
     accepted = client.post(
         "/webhooks/messagemedia/delivery",
@@ -4300,17 +4650,23 @@ def test_users_can_delete_only_their_own_read_notifications(client):
         admin = Staff.query.filter_by(username="admin_test").one()
         other = Staff.query.filter_by(username="staff_test").one()
         unread = app.Notification(
-            unit_id=1, recipient_id=admin.id,
-            kind="test", message="Unread notification",
+            unit_id=1,
+            recipient_id=admin.id,
+            kind="test",
+            message="Unread notification",
         )
         read = app.Notification(
-            unit_id=1, recipient_id=admin.id,
-            kind="test", message="Read notification",
+            unit_id=1,
+            recipient_id=admin.id,
+            kind="test",
+            message="Read notification",
             read_at=app.utcnow(),
         )
         someone_else = app.Notification(
-            unit_id=1, recipient_id=other.id,
-            kind="test", message="Private notification",
+            unit_id=1,
+            recipient_id=other.id,
+            kind="test",
+            message="Private notification",
             read_at=app.utcnow(),
         )
         db.session.add_all([unread, read, someone_else])
@@ -4349,20 +4705,24 @@ def test_users_can_mark_their_notifications_read_individually(client):
     with app.app.app_context():
         admin = Staff.query.filter_by(username="admin_test").one()
         other = Staff.query.filter_by(username="staff_test").one()
-        app.Notification.query.filter_by(
-            unit_id=1, recipient_id=admin.id
-        ).delete()
+        app.Notification.query.filter_by(unit_id=1, recipient_id=admin.id).delete()
         first = app.Notification(
-            unit_id=1, recipient_id=admin.id,
-            kind="test", message="First unread notification",
+            unit_id=1,
+            recipient_id=admin.id,
+            kind="test",
+            message="First unread notification",
         )
         second = app.Notification(
-            unit_id=1, recipient_id=admin.id,
-            kind="test", message="Second unread notification",
+            unit_id=1,
+            recipient_id=admin.id,
+            kind="test",
+            message="Second unread notification",
         )
         private = app.Notification(
-            unit_id=1, recipient_id=other.id,
-            kind="test", message="Another user's notification",
+            unit_id=1,
+            recipient_id=other.id,
+            kind="test",
+            message="Another user's notification",
         )
         db.session.add_all([first, second, private])
         db.session.commit()
@@ -4431,13 +4791,16 @@ def test_unit_admin_seeds_standard_patterns_idempotently(client):
     with app.app.app_context():
         patterns = app.WorkPattern.query.filter_by(unit_id=1).all()
         assert {row.name for row in patterns} == {
-            "Standard 6-on/4-off", "Part-time 4-on/6-off",
+            "Standard 6-on/4-off",
+            "Part-time 4-on/6-off",
         }
         assert all(row.cycle_length_days == 10 for row in patterns)
         six_on = next(row for row in patterns if row.name.startswith("Standard"))
-        days = app.WorkPatternDay.query.filter_by(
-            unit_id=1, work_pattern_id=six_on.id
-        ).order_by(app.WorkPatternDay.day_index).all()
+        days = (
+            app.WorkPatternDay.query.filter_by(unit_id=1, work_pattern_id=six_on.id)
+            .order_by(app.WorkPatternDay.day_index)
+            .all()
+        )
         assert [row.day_type for row in days] == ["FIXED_SHIFT"] * 6 + ["OFF"] * 4
 
 
@@ -4446,8 +4809,10 @@ def test_pattern_admin_creates_and_configures_a_custom_cycle(client):
     response = client.post(
         "/administration/work-patterns",
         data={
-            "_csrf_token": csrf(client), "action": "create",
-            "name": "Three-day flexible test", "cycle_length_days": "3",
+            "_csrf_token": csrf(client),
+            "action": "create",
+            "name": "Three-day flexible test",
+            "cycle_length_days": "3",
             "contracted_minutes_per_cycle": "960",
             "description": "Test pattern",
         },
@@ -4464,15 +4829,22 @@ def test_pattern_admin_creates_and_configures_a_custom_cycle(client):
     saved = client.post(
         f"/administration/work-patterns/{pattern_id}",
         data={
-            "_csrf_token": csrf(client), "name": "Three-day flexible test",
-            "cycle_length_days": "3", "contracted_minutes_per_cycle": "960",
-            "description": "Configured test pattern", "is_active": "on",
-            "day_type_0": "FIXED_SHIFT", "fixed_shift_type_id_0": str(morning_id),
-            "required_work_0": "on", "notes_0": "Morning duty",
+            "_csrf_token": csrf(client),
+            "name": "Three-day flexible test",
+            "cycle_length_days": "3",
+            "contracted_minutes_per_cycle": "960",
+            "description": "Configured test pattern",
+            "is_active": "on",
+            "day_type_0": "FIXED_SHIFT",
+            "fixed_shift_type_id_0": str(morning_id),
+            "required_work_0": "on",
+            "notes_0": "Morning duty",
             "day_type_1": "WORK_ALLOWED_SET",
             "allowed_shift_type_ids_1": [str(morning_id), str(afternoon_id)],
-            "required_work_1": "on", "notes_1": "Flexible duty",
-            "day_type_2": "OFF", "notes_2": "Protected rest",
+            "required_work_1": "on",
+            "notes_1": "Flexible duty",
+            "day_type_2": "OFF",
+            "notes_2": "Protected rest",
         },
         follow_redirects=True,
     )
@@ -4480,11 +4852,15 @@ def test_pattern_admin_creates_and_configures_a_custom_cycle(client):
     assert b"Pattern saved." in saved.data
     assert b"28-day preview" in saved.data
     with app.app.app_context():
-        days = app.WorkPatternDay.query.filter_by(
-            unit_id=1, work_pattern_id=pattern_id
-        ).order_by(app.WorkPatternDay.day_index).all()
+        days = (
+            app.WorkPatternDay.query.filter_by(unit_id=1, work_pattern_id=pattern_id)
+            .order_by(app.WorkPatternDay.day_index)
+            .all()
+        )
         assert [row.day_type for row in days] == [
-            "FIXED_SHIFT", "WORK_ALLOWED_SET", "OFF",
+            "FIXED_SHIFT",
+            "WORK_ALLOWED_SET",
+            "OFF",
         ]
         allowed = app.WorkPatternDayAllowedShift.query.filter_by(
             unit_id=1, work_pattern_day_id=days[1].id
@@ -4503,9 +4879,12 @@ def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
     assigned = client.post(
         f"/administration/staff/{person_id}/work-rules",
         data={
-            "_csrf_token": csrf(client), "action": "assign_pattern",
-            "work_pattern_id": str(pattern_id), "effective_from": "2026-09-01",
-            "anchor_date": "2026-09-01", "anchor_day_index": "0",
+            "_csrf_token": csrf(client),
+            "action": "assign_pattern",
+            "work_pattern_id": str(pattern_id),
+            "effective_from": "2026-09-01",
+            "anchor_date": "2026-09-01",
+            "anchor_day_index": "0",
             "reason": "Permanent cycle",
         },
         follow_redirects=True,
@@ -4515,9 +4894,12 @@ def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
     rule = client.post(
         f"/administration/staff/{person_id}/work-rules",
         data={
-            "_csrf_token": csrf(client), "action": "add_rule",
-            "rule_type": "NO_NIGHT", "hardness": "HARD",
-            "effective_from": "2026-09-01", "penalty_weight": "1",
+            "_csrf_token": csrf(client),
+            "action": "add_rule",
+            "rule_type": "NO_NIGHT",
+            "hardness": "HARD",
+            "effective_from": "2026-09-01",
+            "penalty_weight": "1",
             "reason": "Medical restriction",
         },
         follow_redirects=True,
@@ -4525,9 +4907,12 @@ def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
     assert rule.status_code == 200
     assert b"Staff rule added." in rule.data
     with app.app.app_context():
-        assert app.StaffPatternAssignment.query.filter_by(
-            unit_id=1, staff_id=person_id, work_pattern_id=pattern_id
-        ).count() == 1
+        assert (
+            app.StaffPatternAssignment.query.filter_by(
+                unit_id=1, staff_id=person_id, work_pattern_id=pattern_id
+            ).count()
+            == 1
+        )
         stored_rule = app.StaffRule.query.filter_by(
             unit_id=1, staff_id=person_id, rule_type="NO_NIGHT"
         ).one()
@@ -4543,30 +4928,43 @@ def test_admin_assigns_dated_pattern_and_hard_staff_rule(client):
     invalid_soft_restriction = client.post(
         f"/administration/staff/{person_id}/work-rules",
         data={
-            "_csrf_token": csrf(client), "action": "add_rule",
-            "rule_type": "NO_NIGHT", "hardness": "SOFT",
-            "effective_from": "2026-10-01", "penalty_weight": "5",
+            "_csrf_token": csrf(client),
+            "action": "add_rule",
+            "rule_type": "NO_NIGHT",
+            "hardness": "SOFT",
+            "effective_from": "2026-10-01",
+            "penalty_weight": "5",
         },
         follow_redirects=True,
     )
-    assert b"This restriction must be configured as a hard rule." in invalid_soft_restriction.data
+    assert (
+        b"This restriction must be configured as a hard rule."
+        in invalid_soft_restriction.data
+    )
     with app.app.app_context():
-        assert app.StaffRule.query.filter_by(
-            unit_id=1, staff_id=person_id, rule_type="NO_NIGHT"
-        ).count() == 1
+        assert (
+            app.StaffRule.query.filter_by(
+                unit_id=1, staff_id=person_id, rule_type="NO_NIGHT"
+            ).count()
+            == 1
+        )
 
 
 def test_admin_schedules_part_time_arrangement_without_overwriting_history(client):
     login(client)
     with app.app.app_context():
         person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
-        patterns = app.WorkPattern.query.filter_by(unit_id=1).order_by(
-            app.WorkPattern.name
-        ).all()
+        patterns = (
+            app.WorkPattern.query.filter_by(unit_id=1)
+            .order_by(app.WorkPattern.name)
+            .all()
+        )
         assert len(patterns) >= 2
-        previous = app.StaffPatternAssignment.query.filter_by(
-            unit_id=1, staff_id=person.id
-        ).order_by(app.StaffPatternAssignment.effective_from.desc()).first()
+        previous = (
+            app.StaffPatternAssignment.query.filter_by(unit_id=1, staff_id=person.id)
+            .order_by(app.StaffPatternAssignment.effective_from.desc())
+            .first()
+        )
         assert previous is not None
         previous_id = previous.id
         person_id = person.id
@@ -4577,11 +4975,14 @@ def test_admin_schedules_part_time_arrangement_without_overwriting_history(clien
     response = client.post(
         f"/administration/staff/{person_id}/work-rules",
         data={
-            "_csrf_token": csrf(client), "action": "assign_pattern",
+            "_csrf_token": csrf(client),
+            "action": "assign_pattern",
             "change_type": "PART_TIME_CHANGE",
             "work_pattern_id": str(pattern_id),
-            "effective_from": "2026-10-01", "anchor_date": "2026-10-01",
-            "anchor_day_index": "2", "contracted_hours_per_week": "22.5",
+            "effective_from": "2026-10-01",
+            "anchor_date": "2026-10-01",
+            "anchor_day_index": "2",
+            "contracted_hours_per_week": "22.5",
             "reason": "Approved flexible-working agreement",
         },
         follow_redirects=True,
@@ -4594,12 +4995,19 @@ def test_admin_schedules_part_time_arrangement_without_overwriting_history(clien
             unit_id=1, staff_id=person_id, effective_from=date(2026, 10, 1)
         ).one()
         person = db.session.get(Staff, person_id)
-        event = app.RosterImpactEvent.query.filter_by(
-            unit_id=1, event_type="PART_TIME_CHANGE",
-        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        event = (
+            app.RosterImpactEvent.query.filter_by(
+                unit_id=1,
+                event_type="PART_TIME_CHANGE",
+            )
+            .order_by(app.RosterImpactEvent.id.desc())
+            .first()
+        )
         assert previous.effective_to == date(2026, 9, 30)
         assert scheduled.anchor_day_index == 2
-        assert scheduled.contracted_minutes_override == round(22.5 * 60 * cycle_days / 7)
+        assert scheduled.contracted_minutes_override == round(
+            22.5 * 60 * cycle_days / 7
+        )
         assert scheduled.change_type == "PART_TIME_CHANGE"
         assert scheduled.contracted_minutes_per_week == 1350
         assert person.employment_type == "FULL_TIME"
@@ -4616,16 +5024,15 @@ def test_unit_admin_creates_complete_effective_dated_joiner(client):
             unit_id=1, name="Standard 6-on/4-off"
         ).one()
         watch = Watch.query.filter_by(unit_id=1).order_by(Watch.id).first()
-        medical = QualificationType.query.filter_by(
-            unit_id=1, code="MEDICAL"
-        ).one()
-        endorsement = QualificationType.query.filter_by(
-            unit_id=1, code="ADI"
-        ).first()
+        medical = QualificationType.query.filter_by(unit_id=1, code="MEDICAL").one()
+        endorsement = QualificationType.query.filter_by(unit_id=1, code="ADI").first()
         if not endorsement:
             endorsement = QualificationType(
-                unit_id=1, code="ADI", label="Tower endorsement",
-                expiry_required=True, is_active=True,
+                unit_id=1,
+                code="ADI",
+                label="Tower endorsement",
+                expiry_required=True,
+                is_active=True,
             )
             db.session.add(endorsement)
             db.session.flush()
@@ -4633,10 +5040,14 @@ def test_unit_admin_creates_complete_effective_dated_joiner(client):
         if not Assignment.query.filter_by(
             unit_id=1, staff_id=horizon_staff.id, day=date(2026, 12, 31)
         ).first():
-            db.session.add(Assignment(
-                unit_id=1, staff_id=horizon_staff.id,
-                day=date(2026, 12, 31), code="OFF",
-            ))
+            db.session.add(
+                Assignment(
+                    unit_id=1,
+                    staff_id=horizon_staff.id,
+                    day=date(2026, 12, 31),
+                    code="OFF",
+                )
+            )
         db.session.commit()
         pattern_id, watch_id = pattern.id, watch.id
         medical_id, endorsement_id = medical.id, endorsement.id
@@ -4644,17 +5055,23 @@ def test_unit_admin_creates_complete_effective_dated_joiner(client):
     response = client.post(
         "/admin",
         data={
-            "_csrf_token": csrf(client), "form": "staff_new",
-            "name": "Effective Joiner", "staff_no": "JOIN-001",
-            "username": "effective_joiner", "watch_id": str(watch_id),
-            "role": "user", "employment_start_date": "2026-09-01",
+            "_csrf_token": csrf(client),
+            "form": "staff_new",
+            "name": "Effective Joiner",
+            "staff_no": "JOIN-001",
+            "username": "effective_joiner",
+            "watch_id": str(watch_id),
+            "role": "user",
+            "employment_start_date": "2026-09-01",
             "unit_join_date": "2026-09-15",
             "roster_start_date": "2026-09-15",
             "employment_type": "PART_TIME",
             "contracted_hours_per_week": "22.5",
             "work_pattern_id": str(pattern_id),
-            "pattern_anchor": "2026-09-15", "anchor_day_index": "2",
-            "operational": "on", "trainee": "on",
+            "pattern_anchor": "2026-09-15",
+            "anchor_day_index": "2",
+            "operational": "on",
+            "trainee": "on",
             "medical_expiry": "2027-09-30",
             "qualification_ids": [str(medical_id), str(endorsement_id)],
             f"qualification_expiry_{medical_id}": "2027-09-30",
@@ -4666,9 +5083,7 @@ def test_unit_admin_creates_complete_effective_dated_joiner(client):
     assert response.status_code == 302
 
     with app.app.app_context():
-        person = Staff.query.filter_by(
-            unit_id=1, username="effective_joiner"
-        ).one()
+        person = Staff.query.filter_by(unit_id=1, username="effective_joiner").one()
         assert person.employment_start_date == date(2026, 9, 1)
         assert person.unit_join_date == date(2026, 9, 15)
         assert person.roster_start_date == date(2026, 9, 15)
@@ -4687,23 +5102,34 @@ def test_unit_admin_creates_complete_effective_dated_joiner(client):
         assert pattern_assignment.work_pattern_id == pattern_id
         assert pattern_assignment.anchor_date == date(2026, 9, 15)
         assert pattern_assignment.anchor_day_index == 2
-        assert app.PersonQualification.query.filter_by(
-            unit_id=1, person_id=person.id, status="valid"
-        ).count() == 2
-        event = app.RosterImpactEvent.query.filter_by(
-            unit_id=1, event_type="UNIT_JOINER"
-        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        assert (
+            app.PersonQualification.query.filter_by(
+                unit_id=1, person_id=person.id, status="valid"
+            ).count()
+            == 2
+        )
+        event = (
+            app.RosterImpactEvent.query.filter_by(unit_id=1, event_type="UNIT_JOINER")
+            .order_by(app.RosterImpactEvent.id.desc())
+            .first()
+        )
         assert event is not None
         assert json.loads(event.staff_ids_json) == [person.id]
         assert event.effective_from == date(2026, 9, 15)
-        assert app.RosterImpactException.query.filter_by(
-            event_id=event.id, staff_id=person.id, status="OPEN"
-        ).count() == 1
-        assert Assignment.query.filter(
-            Assignment.unit_id == 1,
-            Assignment.staff_id == person.id,
-            Assignment.day >= date(2026, 11, 1),
-        ).count() > 0
+        assert (
+            app.RosterImpactException.query.filter_by(
+                event_id=event.id, staff_id=person.id, status="OPEN"
+            ).count()
+            == 1
+        )
+        assert (
+            Assignment.query.filter(
+                Assignment.unit_id == 1,
+                Assignment.staff_id == person.id,
+                Assignment.day >= date(2026, 11, 1),
+            ).count()
+            > 0
+        )
 
 
 def test_leaver_preserves_history_stops_contribution_and_flags_future_work(client):
@@ -4720,7 +5146,10 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
         ).first()
         if not historical:
             historical = Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 9, 10), code="M",
+                unit_id=1,
+                staff_id=person.id,
+                day=date(2026, 9, 10),
+                code="M",
                 generated_code="M",
             )
             db.session.add(historical)
@@ -4729,8 +5158,13 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
         ).first()
         if not protected:
             protected = Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 9, 20), code="A",
-                generated_code="M", override_code="A", override_type="MANUAL",
+                unit_id=1,
+                staff_id=person.id,
+                day=date(2026, 9, 20),
+                code="A",
+                generated_code="M",
+                override_code="A",
+                override_type="MANUAL",
             )
             db.session.add(protected)
         automatic = Assignment.query.filter_by(
@@ -4738,7 +5172,10 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
         ).first()
         if not automatic:
             automatic = Assignment(
-                unit_id=1, staff_id=person.id, day=date(2026, 11, 5), code="M",
+                unit_id=1,
+                staff_id=person.id,
+                day=date(2026, 11, 5),
+                code="M",
                 generated_code="M",
             )
             db.session.add(automatic)
@@ -4748,11 +5185,13 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
     response = client.post(
         f"/admin/staff/{person_id}/leaving",
         data={
-            "_csrf_token": csrf(client), "action": "schedule",
+            "_csrf_token": csrf(client),
+            "action": "schedule",
             "final_unit_date": "2026-09-15",
             "final_operational_duty_date": "2026-09-14",
             "employment_end_date": "2026-09-30",
-            "reason_category": "TRANSFER", "notes": "Moving unit.",
+            "reason_category": "TRANSFER",
+            "notes": "Moving unit.",
         },
         follow_redirects=False,
     )
@@ -4760,21 +5199,39 @@ def test_leaver_preserves_history_stops_contribution_and_flags_future_work(clien
     with app.app.app_context():
         person = db.session.get(Staff, person_id)
         assert person.final_unit_date == date(2026, 9, 15)
-        assert Assignment.query.filter_by(
-            unit_id=1, staff_id=person_id, day=date(2026, 9, 10)
-        ).one().effective_code == "M"
-        assert Assignment.query.filter_by(
-            unit_id=1, staff_id=person_id, day=date(2026, 9, 20)
-        ).one().effective_code == "A"
-        assert Assignment.query.filter_by(
-            unit_id=1, staff_id=person_id, day=date(2026, 11, 5)
-        ).one().generated_code == "OFF"
-        event = app.RosterImpactEvent.query.filter_by(
-            unit_id=1, event_type="UNIT_LEAVER"
-        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        assert (
+            Assignment.query.filter_by(
+                unit_id=1, staff_id=person_id, day=date(2026, 9, 10)
+            )
+            .one()
+            .effective_code
+            == "M"
+        )
+        assert (
+            Assignment.query.filter_by(
+                unit_id=1, staff_id=person_id, day=date(2026, 9, 20)
+            )
+            .one()
+            .effective_code
+            == "A"
+        )
+        assert (
+            Assignment.query.filter_by(
+                unit_id=1, staff_id=person_id, day=date(2026, 11, 5)
+            )
+            .one()
+            .generated_code
+            == "OFF"
+        )
+        event = (
+            app.RosterImpactEvent.query.filter_by(unit_id=1, event_type="UNIT_LEAVER")
+            .order_by(app.RosterImpactEvent.id.desc())
+            .first()
+        )
         assert event is not None
         exception_types = {
-            row.exception_type for row in app.RosterImpactException.query.filter_by(
+            row.exception_type
+            for row in app.RosterImpactException.query.filter_by(
                 event_id=event.id
             ).all()
         }
@@ -4799,18 +5256,17 @@ def test_flexible_pattern_admin_is_permission_and_tenant_scoped():
     ordinary = app.app.test_client()
     login_as(ordinary, "staff_test")
     assert ordinary.get("/administration/work-patterns").status_code == 403
-    assert ordinary.get(
-        "/administration/work-patterns/migration"
-    ).status_code == 403
+    assert ordinary.get("/administration/work-patterns/migration").status_code == 403
 
     admin_client = app.app.test_client()
     login(admin_client)
     with app.app.app_context():
         other = Staff.query.filter_by(unit_id=3, username="other_staff_test").one()
         other_id = other.id
-    assert admin_client.get(
-        f"/administration/staff/{other_id}/work-rules"
-    ).status_code == 404
+    assert (
+        admin_client.get(f"/administration/staff/{other_id}/work-rules").status_code
+        == 404
+    )
 
 
 def test_allocation_proposals_are_editor_only_and_start_as_drafts():
@@ -4891,9 +5347,13 @@ def test_admin_dry_runs_and_migrates_only_exact_legacy_pattern(client):
         ]
         after_by_id = {item[0]: item for item in duties_after}
         assert all(after_by_id[item[0]] == item for item in duties_before)
-        impact = app.RosterImpactEvent.query.filter_by(
-            unit_id=1, event_type="WORK_PATTERN_CHANGE"
-        ).order_by(app.RosterImpactEvent.id.desc()).first()
+        impact = (
+            app.RosterImpactEvent.query.filter_by(
+                unit_id=1, event_type="WORK_PATTERN_CHANGE"
+            )
+            .order_by(app.RosterImpactEvent.id.desc())
+            .first()
+        )
         assert impact is not None
         assert json.loads(impact.staff_ids_json) == [person_id]
         db.session.delete(row)
@@ -4907,20 +5367,33 @@ def test_roster_shows_pattern_breach_and_blocks_publication(client):
         person = Staff.query.filter_by(unit_id=1, username="staff_test").one()
         morning = ShiftType.query.filter_by(unit_id=1, code="M").one()
         pattern = app.WorkPattern(
-            unit_id=1, name="Publication blocker test", cycle_length_days=1,
+            unit_id=1,
+            name="Publication blocker test",
+            cycle_length_days=1,
             contracted_minutes_per_cycle=0,
         )
         db.session.add(pattern)
         db.session.flush()
-        db.session.add(app.WorkPatternDay(
-            unit_id=1, work_pattern_id=pattern.id, day_index=0,
-            day_type="OFF", required_work=False,
-        ))
-        db.session.add(app.StaffPatternAssignment(
-            unit_id=1, staff_id=person.id, work_pattern_id=pattern.id,
-            effective_from=date(2025, 9, 1), effective_to=date(2025, 9, 30),
-            anchor_date=date(2025, 9, 1), anchor_day_index=0,
-        ))
+        db.session.add(
+            app.WorkPatternDay(
+                unit_id=1,
+                work_pattern_id=pattern.id,
+                day_index=0,
+                day_type="OFF",
+                required_work=False,
+            )
+        )
+        db.session.add(
+            app.StaffPatternAssignment(
+                unit_id=1,
+                staff_id=person.id,
+                work_pattern_id=pattern.id,
+                effective_from=date(2025, 9, 1),
+                effective_to=date(2025, 9, 30),
+                anchor_date=date(2025, 9, 1),
+                anchor_day_index=0,
+            )
+        )
         assignment = Assignment.query.filter_by(
             unit_id=1, staff_id=person.id, day=date(2025, 9, 1)
         ).first()
@@ -4948,9 +5421,12 @@ def test_roster_shows_pattern_breach_and_blocks_publication(client):
     assert published.status_code == 200
     assert b"Roster publication blocked" in published.data
     with app.app.app_context():
-        assert app.RosterPublication.query.filter_by(
-            unit_id=1, year=2025, month=9, state="published"
-        ).count() == 0
+        assert (
+            app.RosterPublication.query.filter_by(
+                unit_id=1, year=2025, month=9, state="published"
+            ).count()
+            == 0
+        )
         app.StaffPatternAssignment.query.filter_by(
             unit_id=1, work_pattern_id=pattern_id
         ).delete()
@@ -4967,10 +5443,12 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
 
     assert response.status_code == 200
     assert b"roster.js?v=" in response.data
-    assert b"--roster-sticky-top" in client.get('/static/roster.js').data
-    assert b"ResizeObserver(updateRosterLayout)" in client.get('/static/roster.js').data
-    assert b"Math.ceil(headerHeight / scale)" in client.get('/static/roster.js').data
-    assert b"MutationObserver(updateRosterLayout)" in client.get('/static/roster.js').data
+    assert b"--roster-sticky-top" in client.get("/static/roster.js").data
+    assert b"ResizeObserver(updateRosterLayout)" in client.get("/static/roster.js").data
+    assert b"Math.ceil(headerHeight / scale)" in client.get("/static/roster.js").data
+    assert (
+        b"MutationObserver(updateRosterLayout)" in client.get("/static/roster.js").data
+    )
     assert response.data.count(b'class="sticky left col-name"') == 1
     assert b'class="sticky left col-date"' not in response.data
     assert b'class="sticky col-date">Medical' in response.data

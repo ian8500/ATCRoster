@@ -50,8 +50,10 @@ def register_notification_runtime_blueprints(
     register_notification_blueprints(
         app,
         create_notification_registration_dependencies(
-            db=db, operational_models=operational_models,
-            current_unit_id=services.current_unit_id, now=services.now,
+            db=db,
+            operational_models=operational_models,
+            current_unit_id=services.current_unit_id,
+            now=services.now,
             validate_csrf=services.validate_csrf,
             is_admin_user=services.is_admin_user,
             can_send_unit_messages=services.can_send_unit_messages,
@@ -63,26 +65,44 @@ def register_notification_runtime_blueprints(
 def register_notification_blueprints(
     app: Any, deps: NotificationRegistrationDependencies
 ) -> None:
-    app.register_blueprint(create_notification_blueprint(NotificationDependencies(
-        db=deps.db, Notification=deps.Notification,
-        current_unit_id=deps.current_unit_id, utcnow=deps.now,
-        validate_csrf=deps.validate_csrf,
-    )))
-    app.register_blueprint(create_sms_administration_blueprint(
-        SmsAdministrationDependencies(
-            db=deps.db, SmsAudit=deps.SmsAudit,
-            SmsSenderRegistration=deps.SmsSenderRegistration,
-            current_unit_id=deps.current_unit_id,
-            is_admin_user=deps.is_admin_user,
-            validate_csrf=deps.validate_csrf, utcnow=deps.now,
+    app.register_blueprint(
+        create_notification_blueprint(
+            NotificationDependencies(
+                db=deps.db,
+                Notification=deps.Notification,
+                current_unit_id=deps.current_unit_id,
+                utcnow=deps.now,
+                validate_csrf=deps.validate_csrf,
+            )
         )
-    ))
-    app.register_blueprint(create_messaging_blueprint(MessagingDependencies(
-        db=deps.db, Staff=deps.Staff, Watch=deps.Watch,
-        Assignment=deps.Assignment,
-        SmsSenderRegistration=deps.SmsSenderRegistration,
-        current_unit_id=deps.current_unit_id, utcnow=deps.now,
-        can_send_unit_messages=deps.can_send_unit_messages,
-        validate_csrf=deps.validate_csrf,
-        notifications=deps.notifications,
-    )))
+    )
+    app.register_blueprint(
+        create_sms_administration_blueprint(
+            SmsAdministrationDependencies(
+                db=deps.db,
+                SmsAudit=deps.SmsAudit,
+                SmsSenderRegistration=deps.SmsSenderRegistration,
+                Staff=deps.Staff,
+                current_unit_id=deps.current_unit_id,
+                is_admin_user=deps.is_admin_user,
+                validate_csrf=deps.validate_csrf,
+                utcnow=deps.now,
+            )
+        )
+    )
+    app.register_blueprint(
+        create_messaging_blueprint(
+            MessagingDependencies(
+                db=deps.db,
+                Staff=deps.Staff,
+                Watch=deps.Watch,
+                Assignment=deps.Assignment,
+                SmsSenderRegistration=deps.SmsSenderRegistration,
+                current_unit_id=deps.current_unit_id,
+                utcnow=deps.now,
+                can_send_unit_messages=deps.can_send_unit_messages,
+                validate_csrf=deps.validate_csrf,
+                notifications=deps.notifications,
+            )
+        )
+    )

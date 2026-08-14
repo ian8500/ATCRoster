@@ -12,6 +12,8 @@ from flask_login import current_user, login_required
 @dataclass(frozen=True)
 class AdminUtilityDependencies:
     ChangeLog: Any
+    Staff: Any
+    current_unit_id: Callable[[], int]
     is_admin_user: Callable[[Any], bool]
 
 
@@ -19,7 +21,11 @@ def create_admin_utility_dependencies(
     *, operational_models: Any, **services: Any
 ) -> AdminUtilityDependencies:
     """Bind administration utility routes to the audit model registry."""
-    return AdminUtilityDependencies(ChangeLog=operational_models.ChangeLog, **services)
+    return AdminUtilityDependencies(
+        ChangeLog=operational_models.ChangeLog,
+        Staff=operational_models.Staff,
+        **services,
+    )
 
 
 def create_admin_utility_blueprint(dependencies: AdminUtilityDependencies) -> Blueprint:
@@ -44,19 +50,50 @@ def create_admin_utility_blueprint(dependencies: AdminUtilityDependencies) -> Bl
         ym = request.args.get("ym", "").strip() or None
         entity_type = request.args.get("entity_type", "").strip() or None
         who = request.args.get("who", "").strip() or None
-        query = dependencies.ChangeLog.query.order_by(dependencies.ChangeLog.when.desc())
+        unit_id = dependencies.current_unit_id()
+        query = dependencies.ChangeLog.query.filter_by(unit_id=unit_id).order_by(
+            dependencies.ChangeLog.when.desc()
+        )
         if ym:
             query = query.filter(dependencies.ChangeLog.context_month == ym)
         if entity_type:
             query = query.filter(dependencies.ChangeLog.entity_type == entity_type)
         if who and who.isdigit():
             query = query.filter(dependencies.ChangeLog.who_user_id == int(who))
-        return render_template("change_log.html", rows=query.limit(500).all(), ym=ym, entity_type=entity_type, who=who)
+        rows = query.limit(500).all()
+        actor_ids = {row.who_user_id for row in rows if row.who_user_id is not None}
+        actors = (
+            {
+                actor.id: actor
+                for actor in dependencies.Staff.query.filter(
+                    dependencies.Staff.unit_id == unit_id,
+                    dependencies.Staff.id.in_(actor_ids),
+                ).all()
+            }
+            if actor_ids
+            else {}
+        )
+        available_actors = (
+            dependencies.Staff.query.filter_by(unit_id=unit_id)
+            .order_by(dependencies.Staff.name, dependencies.Staff.username)
+            .all()
+        )
+        return render_template(
+            "change_log.html",
+            rows=rows,
+            ym=ym,
+            entity_type=entity_type,
+            who=who,
+            actors=actors,
+            available_actors=available_actors,
+        )
 
     @blueprint.record_once
     def register_legacy_endpoints(state) -> None:
         state.app.add_url_rule("/__can", "__can", permission_summary, methods=("GET",))
-        state.app.add_url_rule("/admin/change-log", "change_log_page", change_log_page, methods=("GET",))
+        state.app.add_url_rule(
+            "/admin/change-log", "change_log_page", change_log_page, methods=("GET",)
+        )
 
     return blueprint
 
@@ -65,8 +102,10 @@ def register_admin_utility_blueprint(
     app: Any, *, operational_models: Any, **services: Any
 ) -> None:
     """Register small administration utilities at their ownership boundary."""
-    app.register_blueprint(create_admin_utility_blueprint(
-        create_admin_utility_dependencies(
-            operational_models=operational_models, **services
+    app.register_blueprint(
+        create_admin_utility_blueprint(
+            create_admin_utility_dependencies(
+                operational_models=operational_models, **services
+            )
         )
-    ))
+    )
