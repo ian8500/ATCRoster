@@ -19,6 +19,7 @@ import app
 import fatigue_compliance
 import fatigue_engine
 from atcroster.roster.requirements import ensure_month_requirement as ensure_requirement
+from atcroster.roster.assignments import generate_month_assignments
 from app import (
     AnnotationAudit,
     AnnotationType,
@@ -2416,6 +2417,29 @@ def test_roster_csv_export_is_explicitly_tenant_scoped(client):
     assert exported.status_code == 200
     assert b"Other Airport Controller" not in exported.data
     assert b"OTH-CSV-001" not in exported.data
+
+
+def test_month_generation_does_not_populate_another_tenants_staff():
+    """The current tenant's generation pass must not create foreign rows."""
+    with app.app.app_context():
+        other_staff = Staff.query.filter_by(
+            unit_id=3, username="other_staff_test"
+        ).one()
+        refreshed_staff_ids = set()
+        generate_month_assignments(
+            2025,
+            4,
+            unit_id=1,
+            db=db,
+            Staff=Staff,
+            month_range=lambda _year, _month: (
+                date(2025, 4, 1), [date(2025, 4, 1)]
+            ),
+            refresh_day=lambda person, _day: refreshed_staff_ids.add(person.id),
+        )
+
+        assert other_staff.id not in refreshed_staff_ids
+        assert refreshed_staff_ids
 
 
 def test_position_monitor_account_is_hidden_from_roster_and_export(client):
