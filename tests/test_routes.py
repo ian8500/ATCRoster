@@ -1094,12 +1094,12 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
     client.get("/login")
     with client.session_transaction() as sess:
         login_token = sess["_csrf_token"]
-        client.post("/login", data={
-            "_csrf_token": login_token,
-            "username": "staff_test", "password": "password123",
-        })
-        finish_operational_login(client)
-        denied = client.post(
+    client.post("/login", data={
+        "_csrf_token": login_token,
+        "username": "staff_test", "password": "password123",
+    })
+    finish_operational_login(client)
+    denied = client.post(
         "/roster/2025-05/publish",
         data={"_csrf_token": csrf(client)},
     )
@@ -1118,11 +1118,12 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         client.get("/login")
         with client.session_transaction() as sess:
             login_token = sess["_csrf_token"]
-        client.post("/login", data={
-            "_csrf_token": login_token,
-            "username": username, "password": "password123",
-        })
-        response = client.post(
+            client.post("/login", data={
+                "_csrf_token": login_token,
+                "username": username, "password": "password123",
+            })
+            finish_operational_login(client)
+            response = client.post(
             f"/roster/{ym}/publish",
             data={"_csrf_token": csrf(client)},
             follow_redirects=True,
