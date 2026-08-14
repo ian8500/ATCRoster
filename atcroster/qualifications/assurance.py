@@ -64,7 +64,6 @@ def monthly_position_assurance(
                 assignment.staff_id,
                 requirement.position_id,
                 requirement.day,
-                unit_id,
             )
         )
         target = requirement.required_count + requirement.contingency_count
