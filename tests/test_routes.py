@@ -3122,6 +3122,7 @@ def test_unit_admin_mfa_reset_forces_fresh_enrolment_and_revokes_sessions(client
     login(client)
     with app.app.app_context():
         target = Staff.query.filter_by(username="staff_test").one()
+        app.MfaCredential.query.filter_by(person_id=target.id).delete()
         app.db.session.add(app.MfaCredential(
             unit_id=1, person_id=target.id,
             encrypted_secret=app._encrypt_field(pyotp.random_base32()),
