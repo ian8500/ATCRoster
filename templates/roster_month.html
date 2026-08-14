@@ -162,16 +162,16 @@
 <table class="roster">
   <thead>
     <tr>
-      <th class="sticky left col-name">Name</th>
-      <th class="sticky col-staff">Staff #</th>
-      <th class="sticky col-date">Medical</th>
-      <th class="sticky col-date">Tower UE</th>
-      <th class="sticky col-date">Radar UE</th>
-      <th class="sticky col-date">MET UE</th>
-      <th class="sticky col-watch">W</th>
+      <th scope="col" class="sticky left col-name">Name</th>
+      <th scope="col" class="sticky col-staff">Staff #</th>
+      <th scope="col" class="sticky col-date">Medical</th>
+      <th scope="col" class="sticky col-date">Tower UE</th>
+      <th scope="col" class="sticky col-date">Radar UE</th>
+      <th scope="col" class="sticky col-date">MET UE</th>
+      <th scope="col" class="sticky col-watch">W</th>
       {% for d in days %}
         {% set dow = d.strftime('%a') %}
-        <th class="dayhead {% if d.weekday() in [5,6] %}weekend{% endif %}{% if d == today %} is-today{% endif %}">
+        <th scope="col" class="dayhead {% if d.weekday() in [5,6] %}weekend{% endif %}{% if d == today %} is-today{% endif %}">
           {{ d.day }}<br><span class="dow">{{ dow }}</span>
         </th>
       {% endfor %}
@@ -181,7 +181,7 @@
   <tbody>
     {% for s in staff %}
       <tr class="{% if s.id in watch_break_after_ids %}watch-break{% endif %}">
-        <td class="left col-name">{{ s.name }}</td>
+        <th scope="row" class="left col-name">{{ s.name }}</th>
         <td class="left col-staff">{{ s.staff_no }}</td>
         <td class="left small col-date {{ expiry_classes[s.id]['medical'] }}">
           {% if s.medical_expiry %}{{ s.medical_expiry.strftime('%d/%m/%y') }}{% else %}-{% endif %}

@@ -34,6 +34,13 @@ test("staff roster view is read-only without misleading editor controls", async 
   await page.goto(`/roster/${rosterMonth}`);
   staffCookies = await page.context().cookies();
 
+  await expect(page.getByRole("link", { name: "Skip to main content" })).toBeVisible();
+  await expect(page.getByRole("main")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Publish readiness" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Roster zoom" })).toBeVisible();
+  const roster = page.locator("table.roster");
+  expect(await roster.locator("thead th[scope='col']").count()).toBeGreaterThan(7);
+  expect(await roster.locator("tbody th[scope='row']").count()).toBeGreaterThan(0);
   await expect(page.locator("[data-roster-readiness]")).toBeVisible();
   await expect(page.locator("[data-roster-command-open]")).toHaveCount(0);
   await expect(page.locator("[data-roster-command-palette]")).toHaveCount(0);
