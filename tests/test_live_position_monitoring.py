@@ -760,8 +760,13 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     assert b"Alex Controller" in individual.data
     assert b"Operational activity total" not in individual.data
     assert b"All controllers" not in individual.data
-    assert b"Breakdown by position" in individual.data
-    assert b"operational-position-detail" in individual.data
+    assert b"Position occupancy by day" in individual.data
+    assert b"On position" in individual.data
+    assert b"Off position" in individual.data
+    assert b"Primary controller" in individual.data
+    assert b"09:00" in individual.data
+    assert b"11:00" in individual.data
+    assert b"Breakdown by position" not in individual.data
     assert b"01:30" in individual.data
     assert b"00:30" in individual.data
     assert b"02:00" in individual.data
@@ -774,8 +779,19 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
         "start=2026-07-30&end=2026-07-30"
     )
     assert chooser.status_code == 200
-    assert b"Select a controller" in chooser.data
-    assert b"01:30" not in chooser.data
+    assert b"Entire unit" in chooser.data
+    assert b"Alex Controller" in chooser.data
+    assert b"Sam Instructor" in chooser.data
+
+    position_only = client.get(
+        "/reports/operational-activity?"
+        "start=2026-07-30&end=2026-07-30&scope=unit&position_id="
+        f"{live_position_data['position_id']}"
+    )
+    assert position_only.status_code == 200
+    assert b"Aerodrome Control" in position_only.data
+    assert b"10:00" in position_only.data
+    assert b"10:30" in position_only.data
 
     legacy = client.get(
         f"/live-positions/reports/operational-activity?{query}",

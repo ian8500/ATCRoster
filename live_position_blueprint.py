@@ -388,12 +388,13 @@ def create_live_position_blueprint(
                 unit_id=unit_id
             ).all()
         }
-        report_type = request.args.get("scope", "individual")
-        if report_type not in {"individual", "watch", "unit"}:
-            abort(400, "Choose an individual, watch or unit report.")
         selected_person_id = request.args.get("person_id", type=int)
         selected_watch_id = request.args.get("watch_id", type=int)
         selected_position_id = request.args.get("position_id", type=int)
+        default_scope = "individual" if selected_person_id else "unit"
+        report_type = request.args.get("scope", default_scope)
+        if report_type not in {"individual", "watch", "unit"}:
+            abort(400, "Choose an individual, watch or unit report.")
         if not can_view_all:
             report_type = "individual"
             selected_person_id = current_user.id
@@ -412,8 +413,27 @@ def create_live_position_blueprint(
         if selected_position_id and selected_position_id not in positions_by_id:
             abort(404)
 
-        range_start = datetime.combine(start_day, datetime_time.min)
-        range_end = datetime.combine(end_day + timedelta(days=1), datetime_time.min)
+        unit = dependencies.db.session.get(dependencies.Unit, unit_id)
+        try:
+            local_timezone: tzinfo = ZoneInfo(
+                getattr(unit, "timezone", "Europe/London") or "Europe/London"
+            )
+        except ZoneInfoNotFoundError:
+            local_timezone = timezone.utc
+
+        def local_datetime(value: datetime) -> datetime:
+            return value.replace(tzinfo=timezone.utc).astimezone(local_timezone)
+
+        range_start = as_naive_utc(
+            datetime.combine(start_day, datetime_time.min, tzinfo=local_timezone)
+        )
+        range_end = as_naive_utc(
+            datetime.combine(
+                end_day + timedelta(days=1),
+                datetime_time.min,
+                tzinfo=local_timezone,
+            )
+        )
         now = as_naive_utc(dependencies.utcnow())
         sessions = dependencies.PositionSession.query.filter(
             dependencies.PositionSession.unit_id == unit_id,
@@ -440,6 +460,7 @@ def create_live_position_blueprint(
             )
 
         activity: list[dict[str, Any]] = []
+        timeline: list[dict[str, Any]] = []
         role_labels = {
             "solo": "Solo",
             "under_training": "Under instruction",
@@ -447,6 +468,15 @@ def create_live_position_blueprint(
             "ojti": "OJTI",
             "assessor": "Assessor",
         }
+
+        def person_matches_scope(person: Any) -> bool:
+            if not person:
+                return False
+            if report_type == "individual" and selected_person_id:
+                return person.id == selected_person_id
+            if report_type == "watch" and selected_watch_id:
+                return person.watch_id == selected_watch_id
+            return True
 
         def add_activity(
             person_id: int,
@@ -459,9 +489,7 @@ def create_live_position_blueprint(
             person = people_by_id.get(person_id)
             if not person or minutes <= 0:
                 return
-            if report_type == "individual" and selected_person_id and person.id != selected_person_id:
-                return
-            if report_type == "watch" and selected_watch_id and person.watch_id != selected_watch_id:
+            if not person_matches_scope(person):
                 return
             if selected_position_id and position.id != selected_position_id:
                 return
@@ -493,16 +521,38 @@ def create_live_position_blueprint(
             if session_end <= session_start:
                 continue
             participants = participants_by_session.get(session_row.id, [])
-            cursor_day = session_start.date()
-            while cursor_day <= session_end.date():
-                day_start = max(
-                    session_start, datetime.combine(cursor_day, datetime_time.min)
+            cursor_day = local_datetime(session_start).date()
+            final_local_day = local_datetime(session_end).date()
+            while cursor_day <= final_local_day:
+                local_day_start = datetime.combine(
+                    cursor_day, datetime_time.min, tzinfo=local_timezone
                 )
-                day_end = min(
-                    session_end,
-                    datetime.combine(cursor_day + timedelta(days=1), datetime_time.min),
+                local_day_end = datetime.combine(
+                    cursor_day + timedelta(days=1),
+                    datetime_time.min,
+                    tzinfo=local_timezone,
                 )
+                day_start = max(session_start, as_naive_utc(local_day_start))
+                day_end = min(session_end, as_naive_utc(local_day_end))
                 if day_end > day_start:
+                    primary_person = people_by_id.get(session_row.primary_person_id)
+                    if (
+                        person_matches_scope(primary_person)
+                        and (not selected_position_id or position.id == selected_position_id)
+                    ):
+                        timeline.append(
+                            {
+                                "day": cursor_day,
+                                "position": position,
+                                "person": primary_person,
+                                "role_label": "Primary controller",
+                                "start": local_datetime(day_start),
+                                "end": local_datetime(day_end),
+                                "active": session_row.ended_at is None
+                                and day_end == session_end,
+                                "session_id": session_row.id,
+                            }
+                        )
                     all_intervals: list[tuple[datetime, datetime]] = []
                     role_intervals: dict[str, list[tuple[datetime, datetime]]] = {
                         "ojti": [],
@@ -528,6 +578,32 @@ def create_live_position_blueprint(
                                 else "ojti"
                             )
                             role_intervals[role_code].append(interval)
+                            participant_person = people_by_id.get(
+                                participant.person_id
+                            )
+                            clipped_start = max(day_start, participant_start)
+                            clipped_end = min(day_end, participant_end)
+                            if (
+                                person_matches_scope(participant_person)
+                                and (
+                                    not selected_position_id
+                                    or position.id == selected_position_id
+                                )
+                                and clipped_end > clipped_start
+                            ):
+                                timeline.append(
+                                    {
+                                        "day": cursor_day,
+                                        "position": position,
+                                        "person": participant_person,
+                                        "role_label": role_labels[role_code],
+                                        "start": local_datetime(clipped_start),
+                                        "end": local_datetime(clipped_end),
+                                        "active": participant.ended_at is None
+                                        and clipped_end == participant_end,
+                                        "session_id": session_row.id,
+                                    }
+                                )
                             add_activity(
                                 participant.person_id,
                                 position,
@@ -564,6 +640,18 @@ def create_live_position_blueprint(
                         )
                 cursor_day += timedelta(days=1)
 
+        timeline.sort(
+            key=lambda row: (
+                row["day"],
+                row["position"].group_name or "",
+                row["position"].display_order,
+                row["position"].code,
+                row["start"],
+                row["role_label"],
+                row["person"].name,
+            )
+        )
+
         activity.sort(
             key=lambda row: (
                 row["day"],
@@ -573,27 +661,7 @@ def create_live_position_blueprint(
             )
         )
         person_summary: dict[int, dict[str, Any]] = {}
-        position_summary: dict[int, dict[str, Any]] = {}
-        instruction_summary: dict[int, dict[str, Any]] = {}
-        report_totals: dict[str, Any] = {
-            "roles": {},
-            "controller_activity": 0,
-            "occupied": 0,
-            "instruction": 0,
-            "people": set(),
-            "sessions": set(),
-        }
         for row in activity:
-            report_totals["roles"][row["role"]] = (
-                report_totals["roles"].get(row["role"], 0) + row["minutes"]
-            )
-            report_totals["controller_activity"] += row["minutes"]
-            report_totals["people"].add(row["person"].id)
-            report_totals["sessions"].add(row["session_id"])
-            if row["role"] in {"solo", "under_training", "under_assessment"}:
-                report_totals["occupied"] += row["minutes"]
-            if row["role"] in {"ojti", "assessor"}:
-                report_totals["instruction"] += row["minutes"]
             person_total = person_summary.setdefault(
                 row["person"].id,
                 {"person": row["person"], "roles": {}, "total": 0},
@@ -602,35 +670,6 @@ def create_live_position_blueprint(
                 person_total["roles"].get(row["role"], 0) + row["minutes"]
             )
             person_total["total"] += row["minutes"]
-            position_total = position_summary.setdefault(
-                row["position"].id,
-                {
-                    "position": row["position"],
-                    "roles": {},
-                    "total": 0,
-                    "people": set(),
-                    "sessions": set(),
-                },
-            )
-            position_total["roles"][row["role"]] = (
-                position_total["roles"].get(row["role"], 0) + row["minutes"]
-            )
-            position_total["sessions"].add(row["session_id"])
-            if row["role"] in {"solo", "under_training", "under_assessment"}:
-                position_total["total"] += row["minutes"]
-                position_total["people"].add(row["person"].id)
-            if row["role"] in {"ojti", "assessor"}:
-                instruction_total = instruction_summary.setdefault(
-                    row["person"].id,
-                    {
-                        "person": row["person"],
-                        "ojti": 0,
-                        "assessor": 0,
-                        "sessions": set(),
-                    },
-                )
-                instruction_total[row["role"]] += row["minutes"]
-                instruction_total["sessions"].add(row["session_id"])
 
         return render_template(
             "live_position/operational_activity_report.html",
@@ -638,21 +677,10 @@ def create_live_position_blueprint(
             end_day=end_day,
             report_type=report_type,
             activity=activity,
+            timeline=timeline,
             person_summary=sorted(
                 person_summary.values(), key=lambda row: row["person"].name
             ),
-            position_summary=sorted(
-                position_summary.values(),
-                key=lambda row: (
-                    row["position"].group_name,
-                    row["position"].display_order,
-                    row["position"].code,
-                ),
-            ),
-            instruction_summary=sorted(
-                instruction_summary.values(), key=lambda row: row["person"].name
-            ),
-            report_totals=report_totals,
             people=people,
             watches=watches,
             positions=positions,
@@ -662,6 +690,8 @@ def create_live_position_blueprint(
             selected_position_id=selected_position_id,
             can_view_all=can_view_all,
             competency_location=dependencies.competency_enabled(unit_id),
+            report_timezone=getattr(unit, "timezone", "Europe/London")
+            or "Europe/London",
         )
 
     @blueprint.get("/reports/operational-activity")

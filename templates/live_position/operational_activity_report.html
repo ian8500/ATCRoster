@@ -45,8 +45,41 @@
 {% elif can_view_all and report_type == 'watch' and not selected_watch_id %}
 <section class="card card-body empty-state">Select a watch to view its operational activity figures.</section>
 {% else %}
+<section class="operational-position-timeline">
+  <h2>Position occupancy by day</h2>
+  <p>Times are shown in {{ report_timezone }}. Select one position above to narrow this timeline.</p>
+  {% for day_group in timeline|groupby('day') %}
+  <section class="card operational-report-section">
+    <div class="card-hd">{{ day_group.grouper.strftime('%A %d %B %Y') }}</div>
+    {% for position_group in day_group.list|groupby('position.id') %}
+      {% set position_row = position_group.list|first %}
+      <div class="card-bd operational-position-day">
+        <h3>{{ position_row.position.code }} · {{ position_row.position.label }}</h3>
+        <p class="text-muted">{{ position_row.position.group_name or 'Other positions' }}</p>
+        <div class="table-responsive"><table class="table operational-report-table">
+          <thead><tr><th>On position</th><th>Off position</th><th>Controller</th><th>Role</th><th>Watch</th></tr></thead>
+          <tbody>
+          {% for row in position_group.list %}
+            <tr>
+              <td><time datetime="{{ row.start.isoformat() }}">{{ row.start.strftime('%H:%M') }}</time></td>
+              <td>{% if row.active %}<strong>Active</strong>{% else %}<time datetime="{{ row.end.isoformat() }}">{{ row.end.strftime('%H:%M') }}</time>{% endif %}</td>
+              <th>{{ row.person.name }}</th>
+              <td>{{ row.role_label }}</td>
+              <td>{{ row.person.watch.name if row.person.watch else '—' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table></div>
+      </div>
+    {% endfor %}
+  </section>
+  {% else %}
+  <p class="card card-body empty-state">No position occupancy matches these filters.</p>
+  {% endfor %}
+</section>
+
 <section class="card operational-report-section">
-  <div class="card-hd">{% if report_type == 'unit' %}Entire unit{% elif report_type == 'watch' %}{{ (watches|selectattr('id', 'equalto', selected_watch_id)|first).name }}{% else %}{{ selected_person.name if selected_person else current_user.name }}{% endif %} · {{ start_day.strftime('%d %b %Y') }} to {{ end_day.strftime('%d %b %Y') }}</div>
+  <div class="card-hd">Controller activity totals · {% if report_type == 'unit' %}Entire unit{% elif report_type == 'watch' %}{{ (watches|selectattr('id', 'equalto', selected_watch_id)|first).name }}{% else %}{{ selected_person.name if selected_person else current_user.name }}{% endif %} · {{ start_day.strftime('%d %b %Y') }} to {{ end_day.strftime('%d %b %Y') }}</div>
   <div class="table-responsive"><table class="table operational-report-table">
     <thead><tr><th>Controller</th><th>Watch</th><th>Solo</th><th>Under instruction</th><th>OJTI</th><th>Under assessment</th><th>Assessor</th><th>Total</th><th>Solo score</th><th>OJTI score</th></tr></thead>
     <tbody>
@@ -56,17 +89,6 @@
     </tbody>
     {% if person_summary %}<tfoot><tr><th colspan="8">Percentage scores show each role as a share of that controller’s total recorded activity in this report.</th><th>Solo %</th><th>OJTI %</th></tr></tfoot>{% endif %}
   </table></div>
-</section>
-
-<section class="operational-position-breakdown">
-  <h2>Breakdown by position</h2>
-  {% for position_row in position_summary %}
-  <details class="card operational-position-detail">
-    <summary><span><small>{{ position_row.position.group_name or 'Other' }}</small><strong>{{ position_row.position.code }} · {{ position_row.position.label }}</strong></span><span><small>Recorded activity</small><strong>{{ duration(position_row.roles.values()|sum) }}</strong></span></summary>
-    <div class="operational-position-metrics"><span>Solo <strong>{{ duration(position_row.roles.get('solo', 0)) }}</strong></span><span>Under instruction <strong>{{ duration(position_row.roles.get('under_training', 0)) }}</strong></span><span>OJTI <strong>{{ duration(position_row.roles.get('ojti', 0)) }}</strong></span><span>Under assessment <strong>{{ duration(position_row.roles.get('under_assessment', 0)) }}</strong></span><span>Assessor <strong>{{ duration(position_row.roles.get('assessor', 0)) }}</strong></span></div>
-    <div class="table-responsive"><table class="table operational-report-table"><thead><tr><th>Date</th><th>Controller</th><th>Watch</th><th>Activity</th><th>Duration</th></tr></thead><tbody>{% for row in activity if row.position.id == position_row.position.id %}<tr><td>{{ row.day.strftime('%d %b %Y') }}</td><td>{{ row.person.name }}</td><td>{{ row.watch.name if row.watch else '—' }}</td><td>{{ row.role_label }}</td><td>{{ duration(row.minutes) }}</td></tr>{% endfor %}</tbody></table></div>
-  </details>
-  {% else %}<p class="card card-body empty-state">No position activity matches these filters.</p>{% endfor %}
 </section>
 {% endif %}
 
