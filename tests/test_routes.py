@@ -766,6 +766,44 @@ def test_anonymous_browser_posts_default_deny_missing_csrf(client, path):
     assert response.status_code == 400
 
 
+def test_password_recovery_is_non_enumerating_and_records_only_known_accounts(client):
+    client.get("/recover")
+    token = csrf(client)
+    with app.app.app_context():
+        before = app.RecoveryRequest.query.count()
+    known = client.post(
+        "/recover",
+        data={
+            "_csrf_token": token,
+            "mode": "password",
+            "username": ADMIN_CREDENTIALS["username"],
+        },
+        follow_redirects=True,
+    )
+    assert known.status_code == 200
+    assert b"If the supplied details match an account" in known.data
+    with app.app.app_context():
+        recovery = app.RecoveryRequest.query.order_by(
+            app.RecoveryRequest.id.desc()
+        ).first()
+        assert app.RecoveryRequest.query.count() == before + 1
+        assert recovery.state == "pending_approval"
+        assert len(recovery.approval_token_digest) == 64
+    unknown = client.post(
+        "/recover",
+        data={
+            "_csrf_token": csrf(client),
+            "mode": "password",
+            "username": "does-not-exist",
+        },
+        follow_redirects=True,
+    )
+    assert unknown.status_code == 200
+    assert b"If the supplied details match an account" in unknown.data
+    with app.app.app_context():
+        assert app.RecoveryRequest.query.count() == before + 1
+
+
 def test_user_can_update_own_profile_contact_details(client):
     login(client)
     with app.app.app_context():
