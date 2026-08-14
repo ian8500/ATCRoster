@@ -28,6 +28,10 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   ]);
 
   await expect(page.locator(".live-position-kiosk")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Leeds Bradford Airport" })).toBeVisible();
+  await expect(page.locator("#live-position-connection")).toHaveAttribute("role", "status");
+  await expect(page.locator("#live-position-warning")).toHaveAttribute("role", "alert");
+  await expect(page.locator("#live-position-grid")).toHaveAttribute("aria-live", "polite");
   const startKiosk = page.getByRole("button", { name: "Start kiosk" });
   if (await startKiosk.count()) await startKiosk.click();
 
