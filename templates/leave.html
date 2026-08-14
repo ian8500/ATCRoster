@@ -268,12 +268,23 @@ document.querySelectorAll('[data-absence-entry]').forEach((form) => {
   const watch = form.querySelector('[data-absence-watch]');
   const staff = form.querySelector('[data-absence-staff]');
   if (!watch || !staff) return;
+  const controllers = Array.from(staff.options)
+    .filter((option) => option.dataset.watchId)
+    .map((option) => ({
+      watchId: option.dataset.watchId,
+      value: option.value,
+      label: option.textContent,
+    }));
   const update = (clear = false) => {
     staff.disabled = !watch.value;
-    if (clear) staff.value = '';
-    staff.querySelectorAll('option[data-watch-id]').forEach((option) => {
-      option.hidden = Boolean(watch.value) && option.dataset.watchId !== watch.value;
-    });
+    const previousValue = clear ? '' : staff.value;
+    staff.replaceChildren(new Option('Select controller', ''));
+    controllers
+      .filter((controller) => controller.watchId === watch.value)
+      .forEach((controller) => {
+        staff.add(new Option(controller.label, controller.value));
+      });
+    staff.value = previousValue;
   };
   watch.addEventListener('change', () => update(true));
   update();
