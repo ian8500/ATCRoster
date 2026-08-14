@@ -605,6 +605,16 @@ def test_trainee_requires_ojti_for_live_position_logon(live_position_data):
         },
     )
     assert supervised.status_code == 200
+    state = client.get("/live-positions/api/state").get_json()["positions"][0]
+    ojti_participant_id = state["participants"][0]["id"]
+    cannot_remove_ojti = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{position}/participants/{ojti_participant_id}/logoff",
+        {"request_key": "remove-required-ojti"},
+    )
+    assert cannot_remove_ojti.status_code == 422
+    assert "OJTI cannot be removed" in cannot_remove_ojti.get_json()["error"]
 
 
 def test_operational_activity_reports_split_solo_and_ojti_time(live_position_data):

@@ -562,6 +562,32 @@ class LivePositionService:
         )
         if not participant:
             raise LivePositionConflict("The participant is no longer active.")
+        role = self.models.PositionParticipantRole.query.filter_by(
+            id=participant.role_id, unit_id=unit_id
+        ).first()
+        primary = self.models.Staff.query.filter_by(
+            id=session.primary_person_id, unit_id=unit_id
+        ).first()
+        if role and role.code == "ojti" and primary and primary.is_trainee:
+            remaining_ojti = (
+                self.models.PositionSessionParticipant.query.join(
+                    self.models.PositionParticipantRole,
+                    self.models.PositionSessionParticipant.role_id
+                    == self.models.PositionParticipantRole.id,
+                )
+                .filter(
+                    self.models.PositionSessionParticipant.unit_id == unit_id,
+                    self.models.PositionSessionParticipant.session_id == session.id,
+                    self.models.PositionSessionParticipant.id != participant.id,
+                    self.models.PositionSessionParticipant.ended_at.is_(None),
+                    self.models.PositionParticipantRole.code == "ojti",
+                )
+                .first()
+            )
+            if not remaining_ojti:
+                raise LivePositionValidationError(
+                    "An OJTI cannot be removed while the trainee remains logged on."
+                )
         participant.ended_at = timestamp
         participant.ended_reason = "logoff"
         session.session_type = self._participant_session_type(unit_id, session.id)

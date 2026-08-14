@@ -147,6 +147,14 @@ test("Position Monitor requires an OJTI for a trainee", async ({ page }) => {
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(tower).toContainText("Priya Stewart");
   await expect(tower).toContainText("OJTI");
+  await tower
+    .locator(".live-position-tile__participants small")
+    .filter({ hasText: "Euan Roberts" })
+    .getByRole("button", { name: "Log off" })
+    .click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(page.locator("#live-position-action-error")).toContainText(/OJTI cannot be removed/i);
+  await expect(tower).toContainText("Euan Roberts");
 });
 
 test("Position Monitor marks a failed live-state refresh as stale", async ({ page }) => {
