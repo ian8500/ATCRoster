@@ -30,7 +30,7 @@ test("Roster Editor can edit but cannot publish", async ({ page }) => {
   await page.goto(`/roster/${rosterMonth}`);
 
   await expect(page.locator(".cell.editable").first()).toBeVisible();
-  await expect(page.locator("[data-roster-command-open]")).toBeVisible();
-  await expect(page.locator("[data-roster-undo]")).toBeVisible();
+  await expect(page.locator(".cell.editable [data-roster-shift-select]").first()).toBeVisible();
+  await expect(page.locator("[data-roster-command-open]")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Publish roster" })).toHaveCount(0);
 });

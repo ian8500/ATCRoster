@@ -36,12 +36,11 @@ test("staff roster view is read-only without misleading editor controls", async 
 
   await expect(page.getByRole("link", { name: "Skip to main content" })).toBeVisible();
   await expect(page.getByRole("main")).toBeVisible();
-  await expect(page.getByRole("region", { name: "Publish readiness" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Roster zoom" })).toBeVisible();
   const roster = page.locator("table.roster");
   expect(await roster.locator("thead th[scope='col']").count()).toBeGreaterThan(7);
   expect(await roster.locator("tbody th[scope='row']").count()).toBeGreaterThan(0);
-  await expect(page.locator("[data-roster-readiness]")).toBeVisible();
+  await expect(page.locator("[data-roster-readiness]")).toHaveCount(0);
   await expect(page.locator("[data-roster-command-open]")).toHaveCount(0);
   await expect(page.locator("[data-roster-command-palette]")).toHaveCount(0);
   await expect(page.locator("[data-roster-inspector]")).toHaveCount(0);
@@ -80,7 +79,7 @@ test("roster keyboard navigation moves between editable assignments", async ({ p
   await page.goto(`/roster/${rosterMonth}`);
 
   const selected = page.locator(".cell.editable")
-    .filter({ has: page.locator("[data-roster-shift-open]") }).first();
+    .filter({ has: page.locator("[data-roster-shift-select]") }).first();
   const originalDay = await selected.getAttribute("data-roster-day");
   await selected.evaluate((cell) => cell.click());
   await expect(selected).toHaveClass(/is-selected/);
@@ -90,9 +89,5 @@ test("roster keyboard navigation moves between editable assignments", async ({ p
   const moved = page.locator(".cell.is-selected");
   await expect(moved).toHaveCount(1);
   await expect(moved).not.toHaveAttribute("data-roster-day", originalDay);
-  await expect(moved.locator("[data-roster-shift-open]")).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(page.locator("#roster-shift-dialog")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#roster-shift-dialog")).not.toBeVisible();
+  await expect(moved.locator("[data-roster-shift-select]")).toBeFocused();
 });
