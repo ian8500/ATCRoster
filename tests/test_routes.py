@@ -1590,6 +1590,19 @@ def test_health_endpoints_report_ready(client):
     assert ready.get_json()["status"] == "ready"
 
 
+def test_month_roster_loader_defensively_scopes_every_query_to_its_unit():
+    """Mixed-unit development data must not leak into a roster projection."""
+    with app.app.app_context():
+        other = Staff.query.filter_by(username="other_staff_test").one()
+        _days, staff, assignments, requirement = app._load_month_roster_core(
+            1, 2025, 4
+        )
+
+    assert all(person.unit_id == 1 for person in staff)
+    assert other.id not in assignments
+    assert requirement.unit_id == 1
+
+
 def test_editor_can_hard_lock_an_assignment(client):
     login_as(client, "editor_test")
     with app.app.app_context():

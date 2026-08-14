@@ -14,8 +14,8 @@ def set_assignment_code(assignment: Any, code: str, source: str, note: str, inva
     assignment.annotation = None
     assignment.source = source
     invalidate_month(assignment.day)
-    try:
-        record_change("Assignment", assignment.id, "code", old_code, code, note=note, context_day=assignment.day)
-    except Exception:
-        pass
+    record_change(
+        "Assignment", assignment.id, "code", old_code, code,
+        note=note, context_day=assignment.day,
+    )
     return assignment

@@ -61,13 +61,19 @@ def load_month_roster(
                 deps.Staff.query.outerjoin(
                     deps.Watch, deps.Staff.watch_id == deps.Watch.id
                 )
-                .filter(deps.Staff.role != "position_monitor")
+                .filter(
+                    deps.Staff.unit_id == unit_id,
+                    deps.Staff.role != "position_monitor",
+                )
                 .order_by(deps.Watch.order_index, deps.Staff.name)
                 .all()
             )
         except Exception:
             staff = (
-                deps.Staff.query.filter(deps.Staff.role != "position_monitor")
+                deps.Staff.query.filter(
+                    deps.Staff.unit_id == unit_id,
+                    deps.Staff.role != "position_monitor",
+                )
                 .order_by(deps.Staff.id)
                 .all()
             )
@@ -80,7 +86,11 @@ def load_month_roster(
                 deps.Assignment.annotation,
                 deps.Assignment.annotation_note,
             )
-            .filter(deps.Assignment.day >= start, deps.Assignment.day < end)
+            .filter(
+                deps.Assignment.unit_id == unit_id,
+                deps.Assignment.day >= start,
+                deps.Assignment.day < end,
+            )
             .all()
         )
         assignment_map: dict[int, dict[date, tuple]] = {}
@@ -91,22 +101,24 @@ def load_month_roster(
                 annotation,
                 note or "",
             )
-        requirement = deps.Requirement.query.filter_by(year=year, month=month).first()
+        requirement = deps.Requirement.query.filter_by(
+            unit_id=unit_id, year=year, month=month
+        ).first()
         if not requirement:
             requirement = deps.ensure_month_requirement(year, month)
         return days, staff, assignment_map, requirement
     except Exception as exc:
-        try:
-            deps.log_exception(
-                "Failed load_month_roster(%s,%s,%s): %s",
-                unit_id,
-                year,
-                month,
-                exc,
-            )
-        except Exception:
-            pass
-        return [], [], {}, deps.ensure_month_requirement(year, month)
+        # An empty roster is a dangerously misleading fallback for a failed
+        # operational query.  Log the context, then let Flask's error handling
+        # present a real failure rather than implying there are no assignments.
+        deps.log_exception(
+            "Failed load_month_roster(%s,%s,%s): %s",
+            unit_id,
+            year,
+            month,
+            exc,
+        )
+        raise
 
 
 class RosterMonthViewService:
