@@ -25,9 +25,14 @@ def _login(client, username, password):
     client.get("/login")
     with client.session_transaction() as session:
         token = session["_csrf_token"]
-    response = client.post("/login", data={
-        "_csrf_token": token, "username": username, "password": password,
-    })
+    response = client.post(
+        "/login",
+        data={
+            "_csrf_token": token,
+            "username": username,
+            "password": password,
+        },
+    )
     assert response.status_code == 302
 
 
@@ -117,12 +122,30 @@ def test_super_admin_provisions_airport_and_account_limit_is_transactional(
     assert b"Calendar exports" not in created.data
     assert b'name="key" value="training_module"' in created.data
     assert b'name="key" value="competency_module"' in created.data
+    assert b"Serviceability dashboard" in created.data
+    assert b"Control database" in created.data
+    assert b"HTTP performance by route" in created.data
     # The control-plane listing does not display personnel details.
     assert b"tst.admin" not in created.data
     with app.app.app_context():
         unit = Unit.query.filter_by(code="TST").one()
         secret_name = f"ATCROSTER_UNIT_{unit.id}_DATABASE_URL"
     monkeypatch.setenv(secret_name, f"sqlite:///{tmp_path / 'tst-operational.db'}")
+    cleared = super_client.post(
+        "/platform/admin",
+        data={
+            "_csrf_token": _csrf(super_client, "/platform/admin"),
+            "action": "invalidate_roster_cache",
+            "unit_id": str(unit.id),
+        },
+        follow_redirects=True,
+    )
+    assert cleared.status_code == 200
+    assert b"Roster cache cleared for TST" in cleared.data
+    with app.app.app_context():
+        assert app.SuperAdminAudit.query.filter_by(
+            action="roster_cache_invalidated", unit_id=unit.id
+        ).one()
     provision_token = _csrf(super_client, "/platform/admin")
     provisioned = super_client.post(
         "/platform/admin",

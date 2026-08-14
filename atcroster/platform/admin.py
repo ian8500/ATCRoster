@@ -12,6 +12,7 @@ from typing import Any, Callable, AbstractSet
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
@@ -35,6 +36,12 @@ class PlatformAdminDependencies:
     security_event: Callable[..., None]
     feature_flags: AbstractSet[str]
     module_feature_flags: AbstractSet[str]
+    metrics: Any
+    worker_health_snapshot: Callable[..., dict[str, Any]]
+    application_module: Any
+    redis_health_check: Callable[[], None]
+    invalidate_roster_cache: Callable[[int], None]
+    deployment_environment: str
 
 
 def create_platform_admin_dependencies(
@@ -82,6 +89,120 @@ def create_platform_admin_blueprint(
     PLATFORM_FEATURE_FLAGS = dependencies.feature_flags
     PLATFORM_MODULE_FLAGS = dependencies.module_feature_flags
 
+    def _serviceability(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        checks: dict[str, dict[str, str]] = {}
+        try:
+            db.session.execute(text("SELECT 1"))
+            checks["database"] = {
+                "status": "ready",
+                "detail": "Control database reachable",
+            }
+        except Exception:
+            db.session.rollback()
+            checks["database"] = {
+                "status": "blocking",
+                "detail": "Control database unavailable",
+            }
+        try:
+            dependencies.redis_health_check()
+            checks["redis"] = {"status": "ready", "detail": "Shared Redis reachable"}
+        except Exception:
+            checks["redis"] = {
+                "status": "blocking",
+                "detail": "Shared Redis unavailable",
+            }
+        try:
+            worker = dependencies.worker_health_snapshot(
+                dependencies.application_module,
+                stale_after_seconds=int(
+                    os.environ.get("ATCROSTER_PROVISIONING_LEASE_SECONDS", "120")
+                )
+                * 2,
+            )
+        except Exception:
+            worker = {
+                "status": "unavailable",
+                "active_workers": 0,
+                "queue_depth": 0,
+                "stale_workers": 0,
+                "oldest_queued_age_seconds": 0,
+            }
+        worker_ready = worker.get("status") == "ready"
+        checks["worker"] = {
+            "status": "ready" if worker_ready else "warning",
+            "detail": (
+                f"{worker.get('active_workers', 0)} active; "
+                f"{worker.get('queue_depth', 0)} queued"
+                if worker_ready
+                else "Provisioning worker unavailable"
+            ),
+        }
+        unhealthy_routes = [
+            row
+            for row in rows
+            if row["database_health"].lower() not in {"healthy", "ready", "active"}
+            or row["provisioning_error"]
+        ]
+        checks["routing"] = {
+            "status": "ready" if not unhealthy_routes else "warning",
+            "detail": (
+                f"{len(rows)} airport database route(s) healthy"
+                if not unhealthy_routes
+                else f"{len(unhealthy_routes)} airport route(s) require attention"
+            ),
+        }
+        return {
+            "checks": checks,
+            "worker": worker,
+            "unhealthy_routes": unhealthy_routes,
+        }
+
+    def _performance_snapshot() -> dict[str, Any]:
+        routes: dict[str, dict[str, float]] = {}
+        active_requests = 0.0
+        for metric in dependencies.metrics.snapshot():
+            name = metric["name"]
+            labels = metric["labels"]
+            value = float(metric["value"])
+            if name == "active_web_requests":
+                active_requests += value
+                continue
+            route = labels.get("route")
+            if not route:
+                continue
+            row = routes.setdefault(route, {"requests": 0, "errors": 0, "seconds": 0})
+            if name == "http_requests_total":
+                row["requests"] += value
+                if int(labels.get("status", "0")) >= 500:
+                    row["errors"] += value
+            elif name == "http_request_duration_seconds_sum":
+                row["seconds"] += value
+        output = []
+        for route, values in routes.items():
+            requests = int(values["requests"])
+            output.append(
+                {
+                    "route": route,
+                    "requests": requests,
+                    "errors": int(values["errors"]),
+                    "average_ms": round(values["seconds"] * 1000 / requests, 1)
+                    if requests
+                    else 0,
+                }
+            )
+        output.sort(key=lambda row: (row["errors"], row["average_ms"]), reverse=True)
+        total_requests = sum(row["requests"] for row in output)
+        total_errors = sum(row["errors"] for row in output)
+        return {
+            "routes": output[:10],
+            "total_requests": total_requests,
+            "total_errors": total_errors,
+            "error_rate": round(total_errors * 100 / total_requests, 2)
+            if total_requests
+            else 0,
+            "active_requests": max(0, int(active_requests)),
+        }
+
     @login_required
     def platform_admin():
         """Privacy-preserving control plane: aggregates and unit metadata only."""
@@ -95,7 +216,34 @@ def create_platform_admin_blueprint(
         if request.method == "POST":
             _validate_csrf()
             action = (request.form.get("action") or "").strip()
-            if action == "create_unit":
+            if action == "refresh_serviceability":
+                db.session.add(
+                    SuperAdminAudit(
+                        actor_identity_id=platform_actor.id,
+                        action="serviceability_rechecked",
+                        safe_summary="Operator requested a fresh serviceability check",
+                    )
+                )
+                db.session.commit()
+                flash("Serviceability checks refreshed.", "success")
+                return redirect(url_for("platform_admin"))
+            elif action == "invalidate_roster_cache":
+                unit = db.session.get(Unit, request.form.get("unit_id", type=int))
+                if not unit or unit.status == "platform_control":
+                    abort(404)
+                dependencies.invalidate_roster_cache(unit.id)
+                db.session.add(
+                    SuperAdminAudit(
+                        actor_identity_id=platform_actor.id,
+                        unit_id=unit.id,
+                        action="roster_cache_invalidated",
+                        safe_summary=f"Invalidated roster cache for {unit.code}",
+                    )
+                )
+                db.session.commit()
+                flash(f"Roster cache cleared for {unit.code}.", "success")
+                return redirect(url_for("platform_admin"))
+            elif action == "create_unit":
                 code = (request.form.get("code") or "").strip().upper()
                 name = (request.form.get("name") or "").strip()
                 plan = (request.form.get("plan") or "starter").strip()[:40]
@@ -626,10 +774,52 @@ def create_platform_admin_blueprint(
                     "provisioning_job": latest_job,
                 }
             )
+        serviceability = _serviceability(rows)
+        performance = _performance_snapshot()
+        issues = []
+        for component, check in serviceability["checks"].items():
+            if check["status"] != "ready":
+                issues.append(
+                    {
+                        "severity": check["status"],
+                        "component": component.title(),
+                        "summary": check["detail"],
+                        "remediation": {
+                            "redis": "Check the Redis service and connection settings.",
+                            "worker": "Check the provisioning worker deployment and recent logs.",
+                            "routing": "Review the affected airport database state below.",
+                            "database": "Check the control database service and connection settings.",
+                        }.get(component, "Review the service configuration and logs."),
+                    }
+                )
+        if performance["total_errors"]:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "component": "Web requests",
+                    "summary": f"{performance['total_errors']} server error response(s) observed",
+                    "remediation": "Review the affected routes and correlated deployment logs.",
+                }
+            )
+        recent_actions = (
+            SuperAdminAudit.query.order_by(SuperAdminAudit.occurred_at.desc())
+            .limit(10)
+            .all()
+        )
         return render_template(
             "platform_admin.html",
             rows=rows,
             module_feature_keys=sorted(PLATFORM_MODULE_FLAGS),
+            serviceability=serviceability,
+            performance=performance,
+            issues=issues,
+            recent_actions=recent_actions,
+            deployment_environment=dependencies.deployment_environment,
+            deployment_version=(
+                os.environ.get("ATCROSTER_COMMIT_SHA")
+                or os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+                or "unreported"
+            )[:12],
         )
 
     @blueprint.record_once

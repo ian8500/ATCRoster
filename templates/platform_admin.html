@@ -6,6 +6,83 @@
     <div><span class="admin-step">Platform control</span><h2>Platform administration</h2><p>Create and operate airport accounts using privacy-safe metadata. Personnel and roster data are not available here.</p></div>
   </section>
 
+  <section class="card card-body mb-4" aria-labelledby="serviceability-heading">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div>
+        <h3 id="serviceability-heading">Serviceability dashboard</h3>
+        <p class="form-text mb-0">Live service checks and privacy-safe performance totals for this web process. Use deployment logs for request-level investigation.</p>
+      </div>
+      <form method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="refresh_serviceability">
+        <button class="btn btn-sm" type="submit">Recheck now</button>
+      </form>
+    </div>
+
+    <div class="row g-3 mt-1" aria-label="Current service states">
+      {% for key, label in [('database', 'Control database'), ('redis', 'Redis'), ('worker', 'Provisioning worker'), ('routing', 'Airport routing')] %}
+      {% set check = serviceability.checks[key] %}
+      <div class="col-sm-6 col-xl-3">
+        <div class="border rounded p-3 h-100">
+          <strong>{{ label }}</strong>
+          <p class="mb-1"><span class="badge {{ 'text-bg-success' if check.status == 'ready' else ('text-bg-danger' if check.status == 'blocking' else 'text-bg-warning') }}">{{ check.status|upper }}</span></p>
+          <small>{{ check.detail }}</small>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="row g-3 mt-1">
+      <div class="col-md-3"><strong>Environment</strong><br>{{ deployment_environment }}</div>
+      <div class="col-md-3"><strong>Version</strong><br><code>{{ deployment_version }}</code></div>
+      <div class="col-md-2"><strong>Requests</strong><br>{{ performance.total_requests }}</div>
+      <div class="col-md-2"><strong>Server errors</strong><br>{{ performance.total_errors }} ({{ performance.error_rate }}%)</div>
+      <div class="col-md-2"><strong>Active now</strong><br>{{ performance.active_requests }}</div>
+    </div>
+
+    <h4 class="mt-4">Current issues</h4>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>Severity</th><th>Component</th><th>Observed state</th><th>Recommended action</th></tr></thead>
+        <tbody>
+        {% for issue in issues %}
+          <tr><td><strong>{{ issue.severity|upper }}</strong></td><td>{{ issue.component }}</td><td>{{ issue.summary }}</td><td>{{ issue.remediation }}</td></tr>
+        {% else %}
+          <tr><td colspan="4">No current serviceability issues detected by repository-level checks.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <details class="mt-3">
+      <summary>HTTP performance by route</summary>
+      <p class="form-text">Top routes ordered by server errors and mean response time since this process started.</p>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>Route</th><th>Requests</th><th>Server errors</th><th>Mean response</th></tr></thead>
+          <tbody>
+          {% for route in performance.routes %}
+            <tr><td><code>{{ route.route }}</code></td><td>{{ route.requests }}</td><td>{{ route.errors }}</td><td>{{ route.average_ms }} ms</td></tr>
+          {% else %}
+            <tr><td colspan="4">No completed requests recorded in this process yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="mt-3">
+      <summary>Recent platform recovery actions</summary>
+      <ul class="mt-2">
+      {% for action in recent_actions %}
+        <li><time datetime="{{ action.occurred_at.isoformat() }}">{{ action.occurred_at.strftime('%d %b %Y %H:%M') }}</time> — {{ action.safe_summary }}</li>
+      {% else %}
+        <li>No platform actions recorded.</li>
+      {% endfor %}
+      </ul>
+    </details>
+  </section>
+
   <section class="card card-body mb-4">
     <h3>Create airport account</h3>
     <form method="post" class="row g-3">
@@ -92,7 +169,15 @@
               </form>
             {% endfor %}
           </td>
-          <td>{{ row.database_health }} · {{ row.migration_version or "unreported" }}<br>{{ row.storage_bytes }} bytes</td>
+          <td>
+            {{ row.database_health }} · {{ row.migration_version or "unreported" }}<br>{{ row.storage_bytes }} bytes
+            <form method="post" class="mt-2">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="invalidate_roster_cache">
+              <input type="hidden" name="unit_id" value="{{ row.unit.id }}">
+              <button class="btn btn-sm" type="submit">Clear roster cache</button>
+            </form>
+          </td>
           <td>{{ row.activity_count }} aggregate events</td>
           <td>
             <form method="post" class="d-flex gap-2 mb-2">

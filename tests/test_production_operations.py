@@ -63,6 +63,20 @@ def test_metrics_registry_renders_prometheus_text_without_personal_labels():
     assert 'status="200"' in rendered
 
 
+def test_metrics_registry_exposes_structured_privacy_safe_snapshot():
+    registry = MetricsRegistry()
+    registry.add(
+        "http_requests_total", route="roster_month", method="GET", status="200"
+    )
+    assert registry.snapshot() == [
+        {
+            "name": "http_requests_total",
+            "labels": {"method": "GET", "route": "roster_month", "status": "200"},
+            "value": 1,
+        }
+    ]
+
+
 def test_internal_metrics_and_diagnostics_require_bearer_token():
     client = app.app.test_client()
     token = "internal-monitoring-test-token-32-characters"

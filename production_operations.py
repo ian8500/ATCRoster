@@ -123,6 +123,15 @@ class MetricsRegistry:
             lines.append(f"atcroster_{name}{suffix} {value:g}")
         return "\n".join(lines) + "\n"
 
+    def snapshot(self) -> list[dict[str, Any]]:
+        """Return a privacy-safe structured copy for operator dashboards."""
+        with self._lock:
+            rows = sorted(self._values.items())
+        return [
+            {"name": name, "labels": dict(labels), "value": value}
+            for (name, labels), value in rows
+        ]
+
 
 def begin_request(registry: MetricsRegistry) -> float:
     registry.add("active_web_requests", 1)
