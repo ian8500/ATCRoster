@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-live-position-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,6 +7,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Live positions · {{ unit.name }}</title>
+  <script nonce="{{ csp_nonce() }}">
+    try {
+      if (localStorage.getItem('atcroster-live-position-theme') === 'light') {
+        document.documentElement.dataset.livePositionTheme = 'light';
+      }
+    } catch (_storageError) { /* Retain the safe dark default. */ }
+  </script>
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
   <link rel="stylesheet" href="{{ asset_url('styles.css') }}">
 </head>
@@ -26,8 +33,11 @@
       <strong id="live-position-clock">--:--:--</strong>
       <span>UTC</span>
     </div>
-    <div class="live-position-kiosk__connection" id="live-position-connection" role="status" aria-live="polite">
-      <span aria-hidden="true">●</span> Connecting
+    <div class="live-position-kiosk__controls">
+      <button class="live-position-theme-toggle" type="button" id="live-position-theme-toggle" aria-label="Switch to light mode">Light</button>
+      <div class="live-position-kiosk__connection" id="live-position-connection" role="status" aria-live="polite">
+        <span aria-hidden="true">●</span> Connecting
+      </div>
     </div>
   </header>
   <main>
@@ -95,7 +105,21 @@
     const kioskStart = document.getElementById('live-position-kiosk-start');
     const kioskLaunchError = document.getElementById('live-position-kiosk-launch-error');
     const kioskLogout = document.getElementById('live-position-kiosk-logout');
+    const themeToggle = document.getElementById('live-position-theme-toggle');
     const csrf = {{ csrf_token()|tojson }};
+    const applyTheme = (theme) => {
+      const selected = theme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.livePositionTheme = selected;
+      const next = selected === 'light' ? 'dark' : 'light';
+      themeToggle.textContent = next === 'dark' ? 'Dark' : 'Light';
+      themeToggle.setAttribute('aria-label', `Switch to ${next} mode`);
+    };
+    applyTheme(document.documentElement.dataset.livePositionTheme);
+    themeToggle.addEventListener('click', () => {
+      const next = document.documentElement.dataset.livePositionTheme === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      try { localStorage.setItem('atcroster-live-position-theme', next); } catch (_storageError) { /* The selected mode still applies for this page. */ }
+    });
     let people = [];
     let livePositions = new Map();
     let serverOffset = 0;

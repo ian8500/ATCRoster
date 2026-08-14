@@ -262,6 +262,9 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"Start kiosk display" in kiosk_page.data
     assert b"requestFullscreen" in kiosk_page.data
     assert b"live-position-board-viewport" in kiosk_page.data
+    assert b'id="live-position-theme-toggle"' in kiosk_page.data
+    assert b"atcroster-live-position-theme" in kiosk_page.data
+    assert b"Switch to light mode" in kiosk_page.data
     assert b"ResizeObserver" in kiosk_page.data
     assert b"operationalGroupPriority" in kiosk_page.data
     assert b"startsWith('tower')" in kiosk_page.data

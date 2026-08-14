@@ -62,6 +62,10 @@
 .live-position-kiosk__clock span { color: #94a3b8; }
 .live-position-kiosk__connection { justify-self: end; color: #fbbf24; }
 .live-position-kiosk__connection.is-connected { color: #86efac; }
+.live-position-kiosk__controls { display: flex; align-items: center; justify-self: end; gap: .85rem; }
+.live-position-theme-toggle { min-width: 5.5rem; min-height: 42px; padding: .45rem .8rem; border: 2px solid #94a3b8; border-radius: 8px; background: #111c2e; color: #f8fafc; font: inherit; font-weight: 700; cursor: pointer; }
+.live-position-theme-toggle:hover { background: #1e293b; }
+.live-position-theme-toggle:focus-visible { outline: 3px solid #fbbf24; outline-offset: 3px; }
 .live-position-kiosk main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; padding: clamp(.6rem, 1.5vw, 1.5rem) clamp(.75rem, 2vw, 2rem); overflow: hidden; }
 .live-position-kiosk__warning { margin: 0 0 .75rem; padding: .75rem 1rem; border: 2px solid #f87171; border-radius: 8px; background: #450a0a; color: #fecaca; font-weight: 700; }
 .live-position-board-viewport { min-width: 0; min-height: 0; overflow: hidden; }
@@ -148,9 +152,45 @@
 .live-position-dialog input, .live-position-dialog select { min-height: 48px; border: 1px solid #64748b; border-radius: 8px; padding: .65rem; background: #f8fafc; color: #0f172a; font-size: 1rem; }
 .live-position-dialog__error { padding: .75rem; border: 2px solid #f87171; border-radius: 8px; background: #450a0a; }
 .live-position-kiosk__footer { display: flex; align-items: center; justify-content: space-between; padding: clamp(.4rem, 1vh, .75rem) clamp(1rem, 2vw, 2rem); background: rgb(7 17 31 / 95%); border-top: 1px solid #334155; color: #94a3b8; }
+html[data-live-position-theme="light"] .live-position-kiosk,
+html[data-live-position-theme="light"] .live-position-kiosk-launch { background: #eef3f8; color: #0f172a; }
+html[data-live-position-theme="light"] .live-position-kiosk-launch > div,
+html[data-live-position-theme="light"] .live-position-tile,
+html[data-live-position-theme="light"] .live-position-dialog { border-color: #64748b; background: #fff; color: #0f172a; box-shadow: 0 12px 35px rgb(15 23 42 / 14%); }
+html[data-live-position-theme="light"] .live-position-kiosk-launch p,
+html[data-live-position-theme="light"] .live-position-kiosk-launch span,
+html[data-live-position-theme="light"] .live-position-kiosk__header p,
+html[data-live-position-theme="light"] .live-position-kiosk__clock span,
+html[data-live-position-theme="light"] .live-position-controller-times > span,
+html[data-live-position-theme="light"] .live-position-kiosk__footer { color: #475569; }
+html[data-live-position-theme="light"] .live-position-kiosk__header { border-color: #94a3b8; }
+html[data-live-position-theme="light"] .live-position-kiosk__connection { color: #92400e; }
+html[data-live-position-theme="light"] .live-position-kiosk__connection.is-connected { color: #166534; }
+html[data-live-position-theme="light"] .live-position-theme-toggle { border-color: #475569; background: #0f172a; color: #fff; }
+html[data-live-position-theme="light"] .live-position-theme-toggle:hover { background: #1e293b; }
+html[data-live-position-theme="light"] .live-position-group { border-color: #94a3b8; background: rgb(255 255 255 / 72%); }
+html[data-live-position-theme="light"] .live-position-group__header span { background: #e2e8f0; color: #334155; }
+html[data-live-position-theme="light"] .live-position-tile--closed { background: #e2e8f0; color: #334155; }
+html[data-live-position-theme="light"] .live-position-tile--vacant { border-color: #b45309; }
+html[data-live-position-theme="light"] .live-position-tile--operational { border-color: #15803d; }
+html[data-live-position-theme="light"] .live-position-tile--training,
+html[data-live-position-theme="light"] .live-position-tile--supervised { border-color: #1d4ed8; }
+html[data-live-position-theme="light"] .live-position-tile--assessment { border-color: #7e22ce; }
+html[data-live-position-theme="light"] .live-position-tile--warning { border-color: #b91c1c; }
+html[data-live-position-theme="light"] .live-position-tile__alert,
+html[data-live-position-theme="light"] .live-position-dialog__error { border-color: #b91c1c; background: #fee2e2; color: #7f1d1d; }
+html[data-live-position-theme="light"] .live-position-controller-times b { color: #0f172a; }
+html[data-live-position-theme="light"] .live-position-controller-times b.is-overdue { color: #b91c1c; }
+html[data-live-position-theme="light"] .live-position-tile__participants small { border-color: #94a3b8; }
+html[data-live-position-theme="light"] .live-position-tile__participants button { border-color: #475569; }
+html[data-live-position-theme="light"] .live-position-kiosk__warning { border-color: #b91c1c; background: #fee2e2; color: #7f1d1d; }
+html[data-live-position-theme="light"] .live-position-dialog input,
+html[data-live-position-theme="light"] .live-position-dialog select { border-color: #64748b; background: #fff; color: #0f172a; }
+html[data-live-position-theme="light"] .live-position-kiosk__footer { border-color: #94a3b8; background: rgb(241 245 249 / 96%); }
 @media (max-width: 700px) {
   .live-position-kiosk__header { grid-template-columns: 1fr auto; padding: 1rem; }
   .live-position-kiosk__connection { grid-column: 1 / -1; justify-self: start; }
+  .live-position-kiosk__controls { align-items: flex-end; flex-direction: column; }
   .live-position-kiosk main { padding: .75rem; }
   .live-position-kiosk__footer { padding-inline: 1rem; }
 }

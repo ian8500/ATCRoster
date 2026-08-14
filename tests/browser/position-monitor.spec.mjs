@@ -34,6 +34,16 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   await expect(page.locator("#live-position-grid")).toHaveAttribute("aria-live", "polite");
   const startKiosk = page.getByRole("button", { name: "Start kiosk" });
   if (await startKiosk.count()) await startKiosk.click();
+  const themeToggle = page.locator("#live-position-theme-toggle");
+  await expect(themeToggle).toHaveText("Light");
+  await themeToggle.click();
+  await expect(page.locator("html")).toHaveAttribute("data-live-position-theme", "light");
+  await expect(themeToggle).toHaveText("Dark");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-live-position-theme", "light");
+  await expect(page.locator("#live-position-theme-toggle")).toHaveText("Dark");
+  const restartedKiosk = page.getByRole("button", { name: "Start kiosk" });
+  if (await restartedKiosk.count()) await restartedKiosk.click();
 
   const tower = page.locator("article").filter({ hasText: "Aerodrome Control" });
   const logOn = tower.getByRole("button", { name: "Log on" });
