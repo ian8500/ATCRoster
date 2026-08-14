@@ -125,6 +125,30 @@ test("Position Monitor rejects a controller with an expired medical", async ({ p
   await expect(tower.getByRole("button", { name: "Log on" })).toBeVisible();
 });
 
+test("Position Monitor announces active eligibility warnings", async ({ page }) => {
+  await page.route("**/live-positions/api/events", (route) => route.abort());
+  await page.route("**/live-positions/api/state", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.positions[0].eligibility_warnings = [
+      "A current medical is required to log on.",
+    ];
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill(username);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/live-positions/kiosk"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  const startKiosk = page.getByRole("button", { name: "Start kiosk" });
+  if (await startKiosk.count()) await startKiosk.click();
+  const alertedPosition = page.locator("#live-position-grid article").first();
+  await expect(alertedPosition.getByRole("alert")).toContainText(/current medical is required/i);
+  await expect(alertedPosition).toHaveClass(/live-position-tile--warning/);
+});
+
 test("Position Monitor requires an OJTI for a trainee", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel(/username/i).fill(username);
