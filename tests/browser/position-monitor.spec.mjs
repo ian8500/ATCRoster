@@ -96,6 +96,23 @@ test("Position Monitor makes an offline display explicitly stale", async ({ page
   await expect(page.locator("#live-position-connection")).toContainText("Reconnecting");
 });
 
+test("Position Monitor marks a failed live-state refresh as stale", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill(username);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/live-positions/kiosk"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  const firstTile = page.locator("#live-position-grid article").first();
+  await expect(firstTile).toBeVisible();
+
+  await page.route("**/live-positions/api/state", (route) => route.abort());
+  await expect(page.locator("#live-position-warning")).toContainText(/may be stale/i, { timeout: 17_000 });
+  await expect(firstTile).toBeVisible();
+  await expect(page.locator("#live-position-board-viewport")).toHaveClass(/is-stale/);
+});
+
 test("an ordinary ATCO cannot open the kiosk route directly", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel(/username/i).fill("inv.atco01");
