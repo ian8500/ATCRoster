@@ -199,6 +199,13 @@
       refreshed.textContent = `Last refreshed ${new Date().toLocaleTimeString('en-GB')}`;
       fitBoard();
     };
+    const markLiveStateStale = () => {
+      connection.innerHTML = '<span aria-hidden="true">●</span> Reconnecting';
+      connection.classList.remove('is-connected');
+      warning.textContent = 'Live data is unavailable. The displayed position state may be stale; do not rely on it until the connection is restored.';
+      warning.hidden = false;
+      boardViewport.classList.add('is-stale');
+    };
     const loadPeople = async () => {
       const response = await fetch('{{ url_for("live_position.controllers") }}', {headers: {'Accept': 'application/json'}});
       if (!response.ok) return;
@@ -390,11 +397,7 @@
         if (!response.ok) throw new Error('refresh failed');
         render(await response.json());
       } catch (_) {
-        connection.innerHTML = '<span aria-hidden="true">●</span> Reconnecting';
-        connection.classList.remove('is-connected');
-        warning.textContent = 'Live data is unavailable. The displayed position state may be stale; do not rely on it until the connection is restored.';
-        warning.hidden = false;
-        boardViewport.classList.add('is-stale');
+        markLiveStateStale();
       }
     };
     const updateClocks = () => {
@@ -430,6 +433,7 @@
         connection.classList.remove('is-connected');
       };
     };
+    window.addEventListener('offline', markLiveStateStale);
     loadPeople().then(() => { refresh(); connectEvents(); });
     if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
   })();

@@ -66,3 +66,19 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   await page.goto(`/roster/${rosterMonth}`);
   await expect(page).toHaveURL(/\/live-positions\/kiosk$/);
 });
+
+test("Position Monitor makes an offline display explicitly stale", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill(username);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/live-positions/kiosk"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  await expect(page.locator("#live-position-grid article").first()).toBeVisible();
+
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await expect(page.locator("#live-position-warning")).toContainText(/may be stale/i);
+  await expect(page.locator("#live-position-board-viewport")).toHaveClass(/is-stale/);
+  await expect(page.locator("#live-position-connection")).toContainText("Reconnecting");
+});
