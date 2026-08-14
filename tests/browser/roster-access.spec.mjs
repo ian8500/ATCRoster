@@ -17,6 +17,10 @@ function totp(secret) {
   return String(((hash.readUInt32BE(offset) & 0x7fffffff) % 1_000_000)).padStart(6, "0");
 }
 
+let staffCookies;
+
+test.describe.configure({ mode: "serial" });
+
 test("staff roster view is read-only without misleading editor controls", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel(/username/i).fill("lba.atco01");
@@ -28,6 +32,7 @@ test("staff roster view is read-only without misleading editor controls", async 
   await page.getByLabel(/code/i).fill(totp(mfaSecret));
   await page.getByRole("button", { name: /verify|continue/i }).click();
   await page.goto(`/roster/${rosterMonth}`);
+  staffCookies = await page.context().cookies();
 
   await expect(page.locator("[data-roster-readiness]")).toBeVisible();
   await expect(page.locator("[data-roster-command-open]")).toHaveCount(0);
@@ -35,4 +40,22 @@ test("staff roster view is read-only without misleading editor controls", async 
   await expect(page.locator("[data-roster-inspector]")).toHaveCount(0);
   await expect(page.locator("[data-roster-undo]")).toHaveCount(0);
   await expect(page.locator(".cell.editable")).toHaveCount(0);
+});
+
+test("mobile navigation opens, closes, and returns focus predictably", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.context().addCookies(staffCookies);
+  await page.goto(`/roster/${rosterMonth}`);
+
+  const menu = page.getByRole("button", { name: "Menu" });
+  const navigation = page.locator("#primary-navigation");
+  await expect(menu).toBeVisible();
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await menu.click();
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+  await expect(navigation).toHaveClass(/is-open/);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(navigation).not.toHaveClass(/is-open/);
+  await expect(menu).toBeFocused();
 });
