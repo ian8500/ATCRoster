@@ -242,7 +242,9 @@ def main() -> None:
                     watch=watches[index % len(watches)],
                     pattern_csv="M,M,A,A,N,N,OFF,OFF,OFF,OFF",
                     pattern_anchor=current_month - timedelta(days=index % 10),
-                    medical_expiry=args.as_of + timedelta(days=(20 if index == 2 else 400)),
+                    medical_expiry=args.as_of + timedelta(
+                        days=(20 if index == 2 else -5 if index == 5 else 400)
+                    ),
                     tower_ue_expiry=args.as_of + timedelta(days=(80 if index == 3 else 500)),
                     radar_ue_expiry=args.as_of - timedelta(days=5) if index == 4 else None,
                     has_ojti=index % 4 == 0,

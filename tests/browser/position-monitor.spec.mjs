@@ -107,6 +107,24 @@ test("Position Monitor makes an offline display explicitly stale", async ({ page
   await expect(page.locator("#live-position-connection")).toContainText("Connected");
 });
 
+test("Position Monitor rejects a controller with an expired medical", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill(username);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/live-positions/kiosk"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  const startKiosk = page.getByRole("button", { name: "Start kiosk" });
+  if (await startKiosk.count()) await startKiosk.click();
+  const tower = page.locator("article").filter({ hasText: "Aerodrome Control" });
+  await tower.getByRole("button", { name: "Log on" }).click();
+  await page.getByLabel("Primary controller").selectOption({ label: "Fiona Wilson" });
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(page.locator("#live-position-action-error")).toContainText(/current medical is required/i);
+  await expect(tower.getByRole("button", { name: "Log on" })).toBeVisible();
+});
+
 test("Position Monitor marks a failed live-state refresh as stale", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel(/username/i).fill(username);
