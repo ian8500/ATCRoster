@@ -5,7 +5,7 @@ Flask-Login==0.6.3
 
 # Database and migrations
 SQLAlchemy==2.0.51
-alembic==1.19.0
+alembic==1.19.1
 Flask-Migrate==4.1.0
 psycopg==3.3.4
 
