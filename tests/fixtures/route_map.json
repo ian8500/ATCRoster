@@ -540,7 +540,7 @@
     "rule": "/live-positions/kiosk"
   },
   {
-    "endpoint": "live_position.operational_activity",
+    "endpoint": "live_position.operational_activity_legacy",
     "methods": [
       "GET"
     ],
@@ -755,6 +755,13 @@
       "GET"
     ],
     "rule": "/reports/leave/<ym>"
+  },
+  {
+    "endpoint": "reports_operational_activity",
+    "methods": [
+      "GET"
+    ],
+    "rule": "/reports/operational-activity"
   },
   {
     "endpoint": "report_sickness",
