@@ -1016,6 +1016,7 @@ change_audit_service = create_change_audit_service(
     now=utcnow,
 )
 log_change = change_audit_service.record
+stage_change = change_audit_service.stage
 
 # --- Month math (no dateutil) ---
 
@@ -1521,6 +1522,7 @@ register_roster_blueprints(
         validate_csrf=_validate_csrf, parse_year_month=parse_ym,
         current_unit_id=_current_unit_id, roster_month_service=roster_month_service,
         assignment_runtime=assignment_runtime, now=utcnow, log_change=log_change,
+        stage_change=stage_change,
         consume_rate_limit=_consume_rate_limit,
         requirements_for_day=requirements_for_day,
         staff_is_countable_on=staff_is_countable_on,

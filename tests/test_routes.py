@@ -1118,12 +1118,12 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         client.get("/login")
         with client.session_transaction() as sess:
             login_token = sess["_csrf_token"]
-            client.post("/login", data={
-                "_csrf_token": login_token,
-                "username": username, "password": "password123",
-            })
-            finish_operational_login(client)
-            response = client.post(
+        client.post("/login", data={
+            "_csrf_token": login_token,
+            "username": username, "password": "password123",
+        })
+        finish_operational_login(client)
+        response = client.post(
             f"/roster/{ym}/publish",
             data={"_csrf_token": csrf(client)},
             follow_redirects=True,
@@ -1165,6 +1165,13 @@ def test_stale_roster_cell_version_is_rejected(client):
         ).one()
         assert assignment.code == "A"
         assert assignment.version == stale_version + 1
+        audit = ChangeLog.query.filter_by(
+            entity_type="Assignment",
+            entity_id=assignment.id,
+            field="code",
+            new_value="A",
+        ).one()
+        assert audit.context_month == "2025-04"
 
 
 def test_monthly_roster_exposes_delegated_editor_decision_controls(client):
@@ -1628,6 +1635,13 @@ def test_editor_can_hard_lock_an_assignment(client):
         assert assignment.lock_status == "HARD_LOCKED"
         assert assignment.locked_by_user_id is not None
         assert assignment.locked_at is not None
+        audit = ChangeLog.query.filter_by(
+            entity_type="Assignment",
+            entity_id=assignment_id,
+            field="lock_status",
+            new_value="HARD_LOCKED",
+        ).one()
+        assert audit.context_month == "2026-08"
 
 
 def test_obsolete_proposal_and_assignment_lock_controls_are_hidden(client):

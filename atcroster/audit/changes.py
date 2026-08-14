@@ -46,6 +46,34 @@ class ChangeAuditService:
             context_day=context_day,
         )
 
+    def stage(
+        self,
+        entity_type: str,
+        entity_id: int,
+        field: str,
+        old: Any,
+        new: Any,
+        note: str = "",
+        context_day: date | None = None,
+    ) -> None:
+        """Add audit evidence to the caller's current transaction.
+
+        Use this for safety-critical mutations that must not succeed without
+        their matching change record.  The caller remains responsible for the
+        eventual commit or rollback.
+        """
+        self.db.session.add(self.ChangeLog(
+            when=self.now(),
+            who_user_id=getattr(self.current_user(), "id", None),
+            entity_type=entity_type,
+            entity_id=entity_id,
+            field=field,
+            old_value=str(old) if old is not None else None,
+            new_value=str(new) if new is not None else None,
+            context_month=context_month_for_date(context_day),
+            note=note or "",
+        ))
+
 
 def create_change_audit_service(
     *, db: Any, operational_models: Any, **services: Any

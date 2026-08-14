@@ -50,6 +50,7 @@ class RosterDependencies:
     assignment_runtime: Any
     utcnow: Callable[[], Any]
     log_change: Callable[..., None]
+    stage_change: Callable[..., None]
     consume_rate_limit: Callable[..., bool]
     requirements_for_day: Callable[..., dict[str, int]]
     staff_is_countable_on: Callable[[Any, date], bool]
@@ -1071,15 +1072,19 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 assignment.note = "annual leave"
         assignment.version = current_version + 1
         try:
+            # The audit row must live in the same transaction as the roster
+            # edit.  A successful response therefore always has evidence.
+            dependencies.db.session.flush()
+            if code_changed:
+                dependencies.stage_change(
+                    "Assignment", assignment.id, "code", old_code,
+                    assignment.code, note="Manual roster edit",
+                    context_day=duty_day,
+                )
             dependencies.db.session.commit()
         except IntegrityError:
             dependencies.db.session.rollback()
             abort(409, "This roster cell changed concurrently.")
-        if code_changed:
-            dependencies.log_change(
-                "Assignment", assignment.id, "code", old_code, assignment.code,
-                note="Manual roster edit", context_day=duty_day,
-            )
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             saved_shift = dependencies.get_shift(assignment.effective_code)
             return jsonify(
@@ -1120,11 +1125,11 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 request.form.get("lock_reason") or ""
             ).strip()[:250]
         assignment.version = int(assignment.version or 0) + 1
-        dependencies.db.session.commit()
-        dependencies.log_change(
+        dependencies.stage_change(
             "Assignment", assignment.id, "lock_status", old_status, status,
             note=assignment.lock_reason, context_day=assignment.day,
         )
+        dependencies.db.session.commit()
         return redirect(url_for(
             "roster_month", ym=f"{assignment.day.year:04d}-{assignment.day.month:02d}"
         ))
