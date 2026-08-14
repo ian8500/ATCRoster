@@ -779,6 +779,13 @@
     "rule": "/roster/<ym>"
   },
   {
+    "endpoint": "roster_month_acknowledge",
+    "methods": [
+      "POST"
+    ],
+    "rule": "/roster/<ym>/acknowledge"
+  },
+  {
     "endpoint": "roster_export_csv",
     "methods": [
       "GET"
