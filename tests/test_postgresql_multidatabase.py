@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 import psycopg
+import pyotp
 from psycopg import sql
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
@@ -61,6 +63,12 @@ from tests.test_physical_database_isolation import (  # noqa: E402
 REPOSITORY = Path(__file__).resolve().parents[1]
 
 
+def _alembic_head_revision() -> str:
+    config = Config(str(REPOSITORY / "alembic.ini"))
+    config.set_main_option("script_location", str(REPOSITORY / "migrations"))
+    return ScriptDirectory.from_config(config).get_current_head() or ""
+
+
 def _reset_postgres(url):
     engine = create_engine(url, isolation_level="AUTOCOMMIT")
     try:
@@ -97,9 +105,9 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
     dispose_operational_engines()
     for url in (CONTROL_URL, AIRPORT_A_URL, AIRPORT_B_URL):
         _reset_postgres(url)
-    assert upgrade_database(CONTROL_URL, "control") == "20260812_57"
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260812_57"
+    assert upgrade_database(CONTROL_URL, "control") == _alembic_head_revision()
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
+    assert upgrade_database(AIRPORT_B_URL, "operational") == _alembic_head_revision()
     secret_a = "ATCROSTER_UNIT_1_DATABASE_URL"
     secret_b = "ATCROSTER_UNIT_2_DATABASE_URL"
     monkeypatch.setenv(secret_a, AIRPORT_A_URL)
@@ -112,14 +120,14 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
             ]
         )
         db.session.commit()
-        person_a, password_a, _ = _seed_operational_unit(
+        person_a, password_a, mfa_secret_a, _ = _seed_operational_unit(
             1,
             secret_a,
             "postgres-a",
             "POSTGRES-A",
             create_schema=False,
         )
-        person_b, password_b, _ = _seed_operational_unit(
+        person_b, password_b, mfa_secret_b, _ = _seed_operational_unit(
             2,
             secret_b,
             "postgres-b",
@@ -193,6 +201,32 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
                 "_csrf_token": token_b,
                 "username": "postgres-b",
                 "password": "Physical-Test-2026!",
+            },
+        ).status_code
+        == 302
+    )
+    client_a.get("/login/mfa")
+    client_b.get("/login/mfa")
+    with client_a.session_transaction() as session:
+        mfa_token_a = session["_csrf_token"]
+    with client_b.session_transaction() as session:
+        mfa_token_b = session["_csrf_token"]
+    assert (
+        client_a.post(
+            "/login/mfa",
+            data={
+                "_csrf_token": mfa_token_a,
+                "code": pyotp.TOTP(mfa_secret_a).now(),
+            },
+        ).status_code
+        == 302
+    )
+    assert (
+        client_b.post(
+            "/login/mfa",
+            data={
+                "_csrf_token": mfa_token_b,
+                "code": pyotp.TOTP(mfa_secret_b).now(),
             },
         ).status_code
         == 302
@@ -281,7 +315,7 @@ def test_postgresql_control_and_two_airport_databases_are_isolated(
 def test_generated_postgresql_backup_restores_and_preserves_key_records(tmp_path):
     _reset_postgres(AIRPORT_A_URL)
     _reset_postgres(RESTORE_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
     source = create_engine(AIRPORT_A_URL)
     with source.begin() as connection:
         connection.execute(
@@ -298,7 +332,7 @@ def test_generated_postgresql_backup_restores_and_preserves_key_records(tmp_path
         AIRPORT_A_URL, tmp_path, "airport-test", "operational"
     )
     result = restore_backup(archive, metadata, RESTORE_URL)
-    assert result.alembic_revision == "20260812_57"
+    assert result.alembic_revision == _alembic_head_revision()
     restored = create_engine(RESTORE_URL)
     try:
         with restored.connect() as connection:
@@ -332,7 +366,7 @@ def _insert_staff(connection, unit_id, username):
 
 def test_postgresql_rejects_cross_unit_operational_relationships():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
     engine = create_engine(AIRPORT_A_URL)
     try:
         with engine.begin() as connection:
@@ -382,7 +416,7 @@ def test_tenant_integrity_migration_refuses_inconsistent_legacy_data():
 
 def test_postgresql_concurrent_toil_retry_changes_balance_once(monkeypatch):
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
     engine = create_engine(AIRPORT_A_URL)
     with engine.begin() as connection:
         person_id = _insert_staff(connection, 1, "toil-concurrency")
@@ -452,7 +486,7 @@ def test_postgresql_concurrent_toil_retry_changes_balance_once(monkeypatch):
 
 def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
     _reset_postgres(AIRPORT_B_URL)
-    assert upgrade_database(AIRPORT_B_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_B_URL, "operational") == _alembic_head_revision()
     role = f"atcroster_runtime_{os.getpid()}"
     password = "runtime-integration-only"
     owner_dsn = str(
@@ -513,7 +547,7 @@ def test_postgresql_runtime_role_cannot_mutate_audit_evidence():
 
 def test_postgresql_two_roster_editors_reject_the_stale_cell_version():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
     engine = create_engine(AIRPORT_A_URL)
     with engine.begin() as connection:
         person_id = _insert_staff(connection, 1, "roster-race")
@@ -564,7 +598,7 @@ def test_postgresql_two_roster_editors_reject_the_stale_cell_version():
 
 def test_postgresql_two_managers_create_one_request_transition_and_side_effects():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
     engine = create_engine(AIRPORT_A_URL)
     with engine.begin() as connection:
         person_id = _insert_staff(connection, 1, "request-race")
@@ -643,7 +677,7 @@ def test_postgresql_two_managers_create_one_request_transition_and_side_effects(
 
 def test_postgresql_publication_and_roster_mutations_share_a_coherent_month_lock():
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
     dsn = (
         make_url(AIRPORT_A_URL)
         .set(drivername="postgresql")
@@ -770,7 +804,7 @@ def test_postgresql_live_position_logon_retry_tenant_scope_and_handover_races(
     monkeypatch,
 ):
     _reset_postgres(AIRPORT_A_URL)
-    assert upgrade_database(AIRPORT_A_URL, "operational") == "20260812_57"
+    assert upgrade_database(AIRPORT_A_URL, "operational") == _alembic_head_revision()
     secret_name = "ATCROSTER_TEST_LIVE_CONCURRENCY_DATABASE_URL"
     monkeypatch.setenv(secret_name, AIRPORT_A_URL)
     dispose_operational_engines()

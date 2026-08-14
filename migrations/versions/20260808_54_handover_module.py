@@ -26,9 +26,6 @@ def upgrade():
             unit_columns = {
                 column["name"] for column in sa.inspect(bind).get_columns("unit")
             }
-            unit = sa.table(
-                "unit", sa.column("id", sa.Integer()),
-            )
             feature = sa.table(
                 "feature_flag", sa.column("unit_id", sa.Integer()),
                 sa.column("key", sa.String()), sa.column("enabled", sa.Boolean()),
@@ -36,16 +33,18 @@ def upgrade():
             enabled_units = set(bind.execute(sa.select(feature.c.unit_id).where(
                 feature.c.key == "handover_module"
             )).scalars())
-            unit_ids_query = sa.select(unit.c.id)
             if "status" in unit_columns:
                 unit = sa.table(
                     "unit",
                     sa.column("id", sa.Integer()),
                     sa.column("status", sa.String()),
                 )
-                unit_ids_query = unit_ids_query.where(
+                unit_ids_query = sa.select(unit.c.id).where(
                     unit.c.status != "platform_control"
                 )
+            else:
+                unit = sa.table("unit", sa.column("id", sa.Integer()))
+                unit_ids_query = sa.select(unit.c.id)
             unit_ids = bind.execute(unit_ids_query).scalars()
             for unit_id in unit_ids:
                 if unit_id not in enabled_units:
