@@ -1145,6 +1145,50 @@ def test_staff_acknowledges_the_current_published_roster_once(client):
         assert app.RosterAcknowledgement.query.filter_by(unit_id=1, publication_id=publication.id, person_id=1).count() == 1
 
 
+def test_republished_roster_requires_a_fresh_acknowledgement(client):
+    login(client)
+    publish_url = "/roster/2025-04/publish"
+    acknowledge_url = "/roster/2025-04/acknowledge"
+    with app.app.app_context():
+        publication = app.RosterPublication.query.filter_by(
+            unit_id=1, year=2025, month=4, state="published"
+        ).order_by(app.RosterPublication.version.desc()).first()
+    if publication is None:
+        assert client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code == 302
+    assert client.post(acknowledge_url, data={"_csrf_token": csrf(client)}).status_code == 302
+    with app.app.app_context():
+        first_publication = app.RosterPublication.query.filter_by(
+            unit_id=1, year=2025, month=4, state="published"
+        ).order_by(app.RosterPublication.version.desc()).one()
+        assignment = app.Assignment.query.filter_by(
+            unit_id=1, day=date(2025, 4, 1)
+        ).first()
+        assignment.code = "D" if assignment.code != "D" else "M"
+        assignment.version += 1
+        app.db.session.commit()
+    assert client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code == 302
+    with app.app.app_context():
+        first_publication = app.db.session.get(
+            app.RosterPublication, first_publication.id
+        )
+        current_publication = app.RosterPublication.query.filter_by(
+            unit_id=1, year=2025, month=4, state="published"
+        ).order_by(app.RosterPublication.version.desc()).one()
+        assert first_publication.state == "superseded"
+        assert current_publication.version == first_publication.version + 1
+        assert app.RosterAcknowledgement.query.filter_by(
+            unit_id=1, publication_id=current_publication.id, person_id=1
+        ).count() == 0
+    acknowledged = client.post(
+        acknowledge_url, data={"_csrf_token": csrf(client)}, follow_redirects=True
+    )
+    assert b"Roster acknowledgement recorded." in acknowledged.data
+    with app.app.app_context():
+        assert app.RosterAcknowledgement.query.filter_by(
+            unit_id=1, publication_id=current_publication.id, person_id=1
+        ).count() == 1
+
+
 def test_roster_editor_cannot_publish_or_withdraw_roster(client):
     login_as(client, "editor_test", follow_redirects=True)
 
