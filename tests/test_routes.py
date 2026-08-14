@@ -4055,9 +4055,9 @@ def test_unit_messages_does_not_offer_another_airports_recipients(client):
 
 def test_admin_configures_airport_sms_numbers(client, monkeypatch):
     login(client)
-    monkeypatch.setenv("MESSAGEMEDIA_API_KEY", "test-key")
-    monkeypatch.setenv("MESSAGEMEDIA_API_SECRET", "test-secret")
-    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900999")
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "test-user")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "test-key")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900999")
 
     response = client.post(
         "/admin",
@@ -4099,7 +4099,7 @@ def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
         sent.append((to_number, body, from_number))
         return True, "SMtest"
 
-    monkeypatch.setattr(app, "_send_sms_via_messagemedia", fake_send)
+    monkeypatch.setattr(app, "_send_sms_via_clicksend", fake_send)
     rejected = client.post(
         "/messages",
         data={

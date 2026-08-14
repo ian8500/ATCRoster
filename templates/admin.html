@@ -28,7 +28,7 @@
       <div class="admin-form-grid">
         <label>Approved sender numbers
           <textarea name="sms_sender_numbers" rows="6" placeholder="Operations | +447700900123">{% for item in sms_senders %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
-          <small>One per line as “Name | +international number”. With Sinch MessageMedia, Watch Managers register and verify their own number from their profile.</small>
+          <small>One per line as “Name | +international number”. With ClickSend, Watch Managers register and verify their own number from their profile.</small>
         </label>
         <label>Operational destination numbers
           <textarea name="sms_operational_numbers" rows="6" placeholder="Duty desk | +441412345678">{% for item in sms_operational_numbers %}{{ item.label }} | {{ item.number }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>

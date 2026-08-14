@@ -1,7 +1,8 @@
 from datetime import date
 
 from atcroster.notifications.sms import (
-    normalise_sms_number, normalise_uk_mobile, parse_sms_number_lines,
+    clicksend_credentials, normalise_sms_number, normalise_uk_mobile,
+    parse_sms_number_lines, send_via_clicksend,
 )
 from atcroster.notifications.email import valid_email
 from atcroster.notifications.configuration import SmsConfigurationService
@@ -35,7 +36,7 @@ def test_parse_sms_number_lines_deduplicates_and_reports_invalid_lines():
 
 
 def test_sms_configuration_uses_only_configured_unit_numbers(monkeypatch):
-    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900124")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900124")
     service = SmsConfigurationService(
         settings_snapshot=lambda unit_id: {
             "sms_sender_numbers": '[{"number": "+447700900123", "label": "Ops"}]',
@@ -49,6 +50,39 @@ def test_sms_configuration_uses_only_configured_unit_numbers(monkeypatch):
         {"number": "+447700900124", "label": "Unit fallback sender"},
     ]
     assert service.default_number("sms_default_sender", options) == "+447700900123"
+
+
+def test_clicksend_send_uses_documented_basic_auth_and_message_shape(monkeypatch):
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "clicksend-user")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "clicksend-key")
+    captured = {}
+
+    class Response:
+        status = 200
+
+        def read(self, size=-1):
+            assert size == 64 * 1024
+            return b'{"response_code":"SUCCESS","data":{"messages":[{"message_id":"cs-1"}]}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["payload"] = request.data
+        captured["authorization"] = request.get_header("Authorization")
+        assert timeout == 10
+        return Response()
+
+    monkeypatch.setattr("atcroster.notifications.sms.urllib_request.urlopen", fake_urlopen)
+    assert clicksend_credentials()[:2] == ("clicksend-user", "clicksend-key")
+    assert send_via_clicksend("+447700900124", "Test", "+447700900123") == (True, "cs-1")
+    assert captured["url"] == "https://rest.clicksend.com/v3/sms/send"
+    assert b'"body": "Test"' in captured["payload"]
+    assert captured["authorization"].startswith("Basic ")
 
 
 def test_sms_audit_service_stamps_current_unit_and_actor():

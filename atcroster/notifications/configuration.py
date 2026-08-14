@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from .sms import messagemedia_credentials, normalise_sms_number, normalise_uk_mobile
+from .sms import clicksend_credentials, normalise_sms_number, normalise_uk_mobile
 
 
 def validate_sms_settings(
@@ -110,7 +110,7 @@ class SmsConfigurationService:
 
     def sender_options(self, unit_id: int | None = None) -> list[dict[str, str]]:
         configured = self.number_options("sms_sender_numbers", unit_id)
-        fallback = normalise_uk_mobile(messagemedia_credentials()[2])
+        fallback = normalise_uk_mobile(clicksend_credentials()[2])
         if fallback and fallback not in {item["number"] for item in configured}:
             configured.append({"number": fallback, "label": "Unit fallback sender"})
         return configured
@@ -139,12 +139,12 @@ class SmsConfigurationService:
 
     def configuration_gaps(self, unit_id: int | None = None) -> list[str]:
         """Return operator-actionable missing configuration without secrets."""
-        key, secret, _fallback = messagemedia_credentials()
+        username, api_key, _fallback = clicksend_credentials()
         gaps: list[str] = []
-        if not key:
-            gaps.append("provider API key")
-        if not secret:
-            gaps.append("provider API secret")
+        if not username:
+            gaps.append("ClickSend username")
+        if not api_key:
+            gaps.append("ClickSend API key")
         senders = self.number_options("sms_sender_numbers", unit_id)
         default_sender = normalise_sms_number(
             self.settings_snapshot(self._unit_id(unit_id)).get("sms_default_sender")

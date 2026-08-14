@@ -178,7 +178,7 @@ from atcroster.notifications import (
     NotificationRuntime,
     NotificationRuntimeDependencies,
     parse_sms_number_lines,
-    send_via_messagemedia,
+    send_via_clicksend,
     valid_email,
     SmsConfigurationService,
     create_sms_audit_service,
@@ -628,7 +628,7 @@ sms_audit_service = create_sms_audit_service(
 overtime_sms_service = OvertimeSmsService(
     configuration=sms_configuration,
     audit=sms_audit_service,
-    send=send_via_messagemedia,
+    send=send_via_clicksend,
 )
 notification_runtime = NotificationRuntime(NotificationRuntimeDependencies(
     db=db,
@@ -643,9 +643,9 @@ notification_runtime = NotificationRuntime(NotificationRuntimeDependencies(
     sms_audit=sms_audit_service,
     overtime_sms=overtime_sms_service,
     flash=flash,
-    sms_sender=module_callback(__name__, "_send_sms_via_messagemedia"),
+    sms_sender=module_callback(__name__, "_send_sms_via_clicksend"),
 ))
-_messagemedia_credentials = notification_runtime.credentials
+_clicksend_credentials = notification_runtime.credentials
 _normalise_sms_number = notification_runtime.normalise_number
 _normalise_uk_mobile = notification_runtime.normalise_uk_mobile
 _sms_number_options = notification_runtime.number_options
@@ -658,7 +658,9 @@ _send_account_email = notification_runtime.send_email
 _valid_email = notification_runtime.valid_email
 _platform_support_emails = notification_runtime.support_emails
 _unit_admin_emails = notification_runtime.admin_emails
-_send_sms_via_messagemedia = notification_runtime.send_sms
+_send_sms_via_clicksend = notification_runtime.send_sms
+# Legacy private alias retained for integrations during the provider transition.
+_send_sms_via_messagemedia = _send_sms_via_clicksend
 _send_sms = notification_runtime.send_sms
 _record_sms_audit = notification_runtime.record_sms
 _send_overtime_sms_notifications = notification_runtime.send_overtime

@@ -31,7 +31,7 @@ class SmsAuditService:
             message_type=(message_type or "unit")[:30],
             message_content=body,
             provider_message_id=(provider_message_id or "")[:64],
-            provider="messagemedia",
+            provider="clicksend",
             delivery_status=delivery_status[:30],
         ))
         self.db.session.commit()

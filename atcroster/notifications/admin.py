@@ -40,7 +40,7 @@ def create_sms_administration_blueprint(dependencies: SmsAdministrationDependenc
         ).limit(1000).all()
         try:
             registrations = dependencies.SmsSenderRegistration.query.filter_by(
-                unit_id=dependencies.current_unit_id(), provider="messagemedia",
+                unit_id=dependencies.current_unit_id(), provider="clicksend",
             ).order_by(dependencies.SmsSenderRegistration.verification_requested_at.desc()).all()
         except ProgrammingError:
             dependencies.db.session.rollback()
@@ -52,7 +52,7 @@ def create_sms_administration_blueprint(dependencies: SmsAdministrationDependenc
         require_admin()
         dependencies.validate_csrf()
         row = dependencies.SmsSenderRegistration.query.filter_by(
-            id=registration_id, unit_id=dependencies.current_unit_id(), provider="messagemedia",
+            id=registration_id, unit_id=dependencies.current_unit_id(), provider="clicksend",
         ).first_or_404()
         expiry = request.form.get("expires_at", "").strip()
         try:
@@ -65,7 +65,7 @@ def create_sms_administration_blueprint(dependencies: SmsAdministrationDependenc
         row.expires_at = expires_at
         row.provider_identifier = (request.form.get("provider_identifier") or row.number).strip()[:120]
         dependencies.db.session.commit()
-        flash("Sinch sender verification recorded.", "ok")
+        flash("ClickSend sender verification recorded.", "ok")
         return redirect(url_for("admin_sms_audit"))
 
     def messagemedia_delivery_webhook():

@@ -96,7 +96,7 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
                             unit_id=s.unit_id,
                             staff_id=s.id,
                             number=number,
-                            provider="messagemedia",
+                            provider="clicksend",
                         ).first()
                     except ProgrammingError:
                         db.session.rollback()
@@ -119,7 +119,7 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
                         row.expires_at = None
                     db.session.commit()
                     flash(
-                        "Number recorded. Verify it in Sinch MessageMedia, then ask a Unit Administrator to confirm it here.",
+                        "Number recorded. Verify it in ClickSend, then ask a Unit Administrator to confirm it here.",
                         "ok",
                     )
                 return redirect(url_for("staff_profile", sid=s.id) + "#contact")
@@ -245,7 +245,7 @@ def create_staff_profile_blueprint(dependencies: StaffProfileDependencies) -> Bl
             try:
                 sms_sender_registrations = (
                     SmsSenderRegistration.query.filter_by(
-                        unit_id=s.unit_id, staff_id=s.id, provider="messagemedia"
+                        unit_id=s.unit_id, staff_id=s.id, provider="clicksend"
                     )
                     .order_by(SmsSenderRegistration.id.desc())
                     .all()
