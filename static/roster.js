@@ -4,6 +4,21 @@ const rosterRoot = document.getElementById('roster');
 const rosterTable = document.querySelector('table.roster');
 const siteHeader = document.querySelector('.site-header');
 const rosterStickyShield = document.querySelector('[data-roster-sticky-shield]');
+const assignmentUrlFor = (control) => {
+  const cell = control?.closest('.cell');
+  const template = rosterRoot?.dataset.assignmentUrlTemplate;
+  if (!cell || !template) return '';
+  return template
+    .replace('__staff__', encodeURIComponent(cell.dataset.rosterStaff || ''))
+    .replace('__day__', encodeURIComponent(cell.dataset.rosterDay || ''));
+};
+const cellLabel = (control) => {
+  const cell = control?.closest('.cell');
+  return {
+    name: cell?.dataset.rosterName || 'Controller',
+    day: cell?.dataset.rosterDay || 'selected day',
+  };
+};
 const updateRosterLayout = () => {
   if (!rosterTable) return;
   const headerHeight = siteHeader ? Math.ceil(siteHeader.getBoundingClientRect().height) : 0;
@@ -95,7 +110,8 @@ const applyShiftPayload = (button, payload, baseline = false) => {
   button.textContent = code || '—'; button.dataset.code = code; button.dataset.version = payload.version;
   button.dataset.override = baseline ? '0' : button.dataset.override;
   button.className = `code-input roster-cell-button code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
-  button.setAttribute('aria-label', `${button.dataset.staffName} shift on ${button.dataset.dayLabel}: ${code || 'unassigned'}`);
+  const label = cellLabel(button);
+  button.setAttribute('aria-label', `${label.name} shift on ${label.day}: ${code || 'unassigned'}`);
   cell?.querySelectorAll('[data-roster-annotation-open]').forEach((annotationButton) => { annotationButton.dataset.version = payload.version; });
   cell?.classList.toggle('training', Boolean(payload.is_training)); cell?.classList.remove('request-applied'); cell?.querySelector('.request-applied-marker')?.remove();
   if (cell) cell.dataset.rosterCode = code;
@@ -112,12 +128,12 @@ rosterRoot?.addEventListener('click', (event) => {
   if (!button || !shiftForm || !shiftSelect || !shiftVersion) return;
   activeShift = button;
   loadShiftOptions();
-  shiftForm.action = button.dataset.action;
+  shiftForm.action = assignmentUrlFor(button);
   shiftVersion.value = button.dataset.version || '0';
   shiftSelect.querySelector('option[value="__BASELINE__"]')?.remove();
   if (button.dataset.override === '1') shiftSelect.add(new Option('↺ Baseline', '__BASELINE__'));
   shiftSelect.value = button.dataset.code || '';
-  if (shiftTitle) shiftTitle.textContent = `${button.dataset.staffName} · ${button.dataset.dayLabel}`;
+  if (shiftTitle) { const label = cellLabel(button); shiftTitle.textContent = `${label.name} · ${label.day}`; }
   shiftDialog.showModal();
   shiftSelect.focus();
 });
@@ -152,7 +168,7 @@ const saveShiftFromCommand = async (button, code, recordChange = true) => {
   data.set('assignment_version', button.dataset.version || '0'); data.set('code', code);
   button.dataset.saving = '1'; showStatus('Saving…');
   try {
-    const response = await fetch(button.dataset.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+    const response = await fetch(assignmentUrlFor(button), { method: 'POST', body: data, credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) throw new Error(payload.error || 'The roster change could not be saved.');
     applyShiftPayload(button, payload, code === '__BASELINE__'); if (recordChange) recordRosterChange(button, previousCode); showStatus('Saved');
@@ -217,12 +233,12 @@ const closeAnnotationEditor = () => { if (annotationDialog?.open) annotationDial
 rosterRoot?.addEventListener('click', (event) => {
   const button = event.target.closest('[data-roster-annotation-open]');
   if (!button || !annotationForm) return;
-  activeAnnotation = button; annotationForm.action = button.dataset.action;
+  activeAnnotation = button; annotationForm.action = assignmentUrlFor(button);
   annotationForm.querySelector('[data-roster-annotation-version]').value = button.dataset.version || '0';
   const select = annotationForm.querySelector('[data-annotation-select]'); select.value = '';
   const note = annotationForm.querySelector('.annotation-note'); const apply = annotationForm.querySelector('.annotation-apply');
   note.value = ''; note.hidden = true; note.required = false; apply.hidden = true;
-  annotationForm.querySelector('[data-roster-annotation-title]').textContent = `${button.dataset.staffName} · ${button.dataset.dayLabel}`;
+  { const label = cellLabel(button); annotationForm.querySelector('[data-roster-annotation-title]').textContent = `${label.name} · ${label.day}`; }
   annotationDialog.showModal(); select.focus();
 });
 annotationDialog?.querySelectorAll('[data-roster-annotation-close]').forEach((button) => button.addEventListener('click', closeAnnotationEditor));

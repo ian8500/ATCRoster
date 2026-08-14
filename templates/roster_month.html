@@ -149,6 +149,7 @@
      data-can-edit="{{ '1' if can_edit else '0' }}"
      data-readonly="{{ '1' if readonly else '0' }}"
      data-day-count="{{ days|length }}"
+     data-assignment-url-template="{{ url_for('assign_cell', staff_id=0, ym=ym, day='2000-01-01')|replace('/0/', '/__staff__/')|replace('/2000-01-01', '/__day__') }}"
      data-roster-telemetry-url="{{ url_for('roster_telemetry') }}">
 
 <table class="roster">
@@ -244,12 +245,9 @@
                     class="code-input roster-cell-button code-len-{{ code|length }}{% if code %} {{ code|lower }} group-{{ prefix }}{% endif %}"
                     data-roster-shift-open
                     data-roster-cell-action
-                    data-action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}"
                     data-version="{{ assignment_version_map.get((s.id, d), 0) }}"
                     data-code="{{ code }}"
                     data-override="{{ '1' if assignment_override_map.get((s.id, d)) else '0' }}"
-                    data-staff-name="{{ s.name }}"
-                    data-day-label="{{ d.strftime('%d %B %Y') }}"
                     {% if (not can_edit) or readonly %}disabled{% endif %}
                     {% if f %}title="{{ ', '.join(f) }}"{% endif %}
                     aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}: {{ code or 'unassigned' }}"
@@ -269,10 +267,7 @@
               {% if can_edit and not readonly %}
               <button type="button" class="annot-select roster-annotation-button"
                       data-roster-annotation-open
-                      data-action="{{ url_for('assign_cell', staff_id=s.id, ym=ym, day=d.isoformat()) }}"
                       data-version="{{ assignment_version_map.get((s.id, d), 0) }}"
-                      data-staff-name="{{ s.name }}"
-                      data-day-label="{{ d.strftime('%d %B %Y') }}"
                       title="Annotate"
                       aria-label="{{ s.name }} annotation on {{ d.strftime('%d %B %Y') }}"><span aria-hidden="true">&nbsp;</span></button>
               {% else %}
