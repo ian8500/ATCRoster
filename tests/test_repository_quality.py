@@ -84,6 +84,15 @@ def test_quality_workflow_discovers_sources_and_builds_supported_pythons_and_sbo
     assert "verify_release_candidate.py" in workflow
 
 
+def test_staging_health_and_promotion_expect_the_staging_environment():
+    staging_health = (ROOT / ".github/workflows/staging-health.yml").read_text()
+    promotion = (ROOT / ".github/workflows/promote.yml").read_text()
+
+    assert '.environment == "staging"' in staging_health
+    assert '.environment == "staging"' in promotion
+    assert '.environment == "production"' in promotion
+
+
 def test_worker_readiness_requires_database_heartbeat_not_only_process_liveness():
     source = (ROOT / "scripts/run_worker_service.py").read_text()
     assert "worker_heartbeat" in source
