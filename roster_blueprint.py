@@ -904,6 +904,31 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 + (counts["N"] if night_active else 0),
             }
 
+        def updated_staff_fatigue() -> list[dict[str, Any]]:
+            _month_start, month_days = dependencies.roster_month_service.range(
+                year, month
+            )
+            assignments = dependencies.Assignment.query.filter(
+                dependencies.Assignment.unit_id == unit_id,
+                dependencies.Assignment.staff_id == staff_id,
+                dependencies.Assignment.day >= month_days[0],
+                dependencies.Assignment.day <= month_days[-1],
+            ).all()
+            code_by_day = {
+                item.day: (item.effective_code or "").upper()
+                for item in assignments
+            }
+            findings = dependencies.roster_fatigue_flags(
+                person, month_days, code_by_day, unit_id
+            )
+            return [
+                {
+                    "day": roster_day.isoformat(),
+                    "reasons": list(findings.get(roster_day, [])),
+                }
+                for roster_day in month_days
+            ]
+
         dependencies.roster_month_service.lock(unit_id, year, month)
         person = dependencies.Staff.query.filter_by(
             id=staff_id, unit_id=unit_id
@@ -1093,6 +1118,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 version=assignment.version,
                 is_training=bool(saved_shift and saved_shift.is_training),
                 day_summary=updated_day_summary(),
+                fatigue_updates=updated_staff_fatigue(),
             )
         return redirect(url_for("roster_month", ym=ym))
 

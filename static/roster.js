@@ -86,6 +86,44 @@ const updateDaySummary = (day, summary) => {
   });
 };
 
+const updateFatigueWarning = (staffId, update) => {
+  const cell = rosterRoot?.querySelector(
+    `.cell[data-roster-staff="${CSS.escape(String(staffId))}"][data-roster-day="${CSS.escape(update.day)}"]`
+  );
+  if (!cell) return;
+  const reasons = Array.isArray(update.reasons) ? update.reasons.filter(Boolean) : [];
+  cell.querySelector('.fatigue-hazard')?.remove();
+  cell.classList.toggle('fatigue', reasons.length > 0);
+  const select = cell.querySelector('[data-roster-shift-select]');
+  if (select) {
+    select.setAttribute('aria-invalid', reasons.length ? 'true' : 'false');
+    if (reasons.length) select.title = reasons.join(', ');
+    else select.removeAttribute('title');
+  }
+  if (!reasons.length) return;
+  const hazard = document.createElement('span');
+  hazard.className = 'fatigue-hazard';
+  hazard.tabIndex = 0;
+  hazard.setAttribute('role', 'img');
+  hazard.setAttribute('aria-label', `Fatigue warning: ${reasons.join('; ')}`);
+  const symbol = document.createElement('span');
+  symbol.setAttribute('aria-hidden', 'true');
+  symbol.textContent = '⚠';
+  const tooltip = document.createElement('span');
+  tooltip.className = 'fatigue-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  const heading = document.createElement('strong');
+  heading.textContent = 'Fatigue warning';
+  tooltip.append(heading);
+  reasons.forEach((reason) => {
+    const detail = document.createElement('span');
+    detail.textContent = reason;
+    tooltip.append(detail);
+  });
+  hazard.append(symbol, tooltip);
+  cell.prepend(hazard);
+};
+
 const applyShiftPayload = (select, payload, baseline = false) => {
   const cell = select.closest('.cell');
   const code = payload.code || '';
@@ -101,6 +139,9 @@ const applyShiftPayload = (select, payload, baseline = false) => {
   cell?.classList.toggle('training', Boolean(payload.is_training)); cell?.classList.remove('request-applied'); cell?.querySelector('.request-applied-marker')?.remove();
   if (cell) cell.dataset.rosterCode = code;
   updateDaySummary(payload.day, payload.day_summary);
+  (payload.fatigue_updates || []).forEach((update) => {
+    updateFatigueWarning(payload.staff_id, update);
+  });
 };
 rosterRoot?.addEventListener('change', async (event) => {
   const select = event.target.closest('[data-roster-shift-select]');

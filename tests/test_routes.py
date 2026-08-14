@@ -1572,6 +1572,7 @@ def test_monthly_roster_omits_publish_readiness_presentation(client):
 
 def test_roster_shift_can_be_saved_without_a_page_reload(client):
     login(client)
+    assert client.get("/roster/2025-04").status_code == 200
     duty_day = date(2025, 4, 3)
     with app.app.app_context():
         admin = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
@@ -1612,6 +1613,9 @@ def test_roster_shift_can_be_saved_without_a_page_reload(client):
         assert set(payload["day_summary"]) == {
             "counts", "night_active", "rag", "required", "total",
         }
+        assert len(payload["fatigue_updates"]) == 30
+        assert payload["fatigue_updates"][0]["day"] == "2025-04-01"
+        assert set(payload["fatigue_updates"][0]) == {"day", "reasons"}
         with app.app.app_context():
             saved = Assignment.query.filter_by(
                 unit_id=1, staff_id=staff_id, day=duty_day

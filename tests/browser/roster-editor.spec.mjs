@@ -67,6 +67,33 @@ test("roster editor reports a stale async save", async ({ page }) => {
   await expect(page.locator("[data-roster-save-status]")).toContainText(/changed after the page was loaded/i);
 });
 
+test("roster editor displays a returned fatigue warning immediately", async ({ page }) => {
+  if (authenticatedCookies) await page.context().addCookies(authenticatedCookies);
+  else await signIn(page);
+  await page.goto(`/roster/${rosterMonth}`);
+  const cell = page.locator(".cell.editable").filter({ has: page.locator("[data-roster-shift-select]") }).first();
+  const day = await cell.getAttribute("data-roster-day");
+  const staffId = await cell.getAttribute("data-roster-staff");
+  await page.route("**/assign/**", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      ok: true,
+      staff_id: Number(staffId),
+      day,
+      code: "A",
+      version: 999,
+      is_training: false,
+      fatigue_updates: [{ day, reasons: ["Minimum rest period breached"] }],
+    }),
+  }));
+  await cell.locator("[data-roster-shift-select]").selectOption("A");
+  await expect(cell.locator(".fatigue-hazard")).toHaveAttribute(
+    "aria-label", /Minimum rest period breached/
+  );
+  await expect(cell.locator("[data-roster-shift-select]")).toHaveAttribute("aria-invalid", "true");
+});
+
 test("roster editor keeps direct accessible in-cell selection", async ({ page }) => {
   await page.context().addCookies(authenticatedCookies); await page.goto(`/roster/${rosterMonth}`);
   await expect(page.locator("[data-roster-readiness]")).toHaveCount(0);
