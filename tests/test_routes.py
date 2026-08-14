@@ -1783,6 +1783,29 @@ def test_editor_can_hard_lock_an_assignment(client):
         assert audit.context_month == "2026-08"
 
 
+def test_assignment_lock_rejects_a_cross_unit_identifier(client):
+    login_as(client, "editor_test")
+    with app.app.app_context():
+        foreign_person = Staff.query.filter_by(username="other_staff_test").one()
+        foreign_assignment = Assignment(
+            unit_id=foreign_person.unit_id,
+            staff_id=foreign_person.id,
+            day=date(2026, 8, 4),
+            code="M",
+        )
+        db.session.add(foreign_assignment)
+        db.session.commit()
+        foreign_assignment_id = foreign_assignment.id
+    response = client.post(
+        f"/assignment/{foreign_assignment_id}/lock",
+        data={"_csrf_token": csrf(client), "lock_status": "HARD_LOCKED"},
+    )
+    assert response.status_code == 404
+    with app.app.app_context():
+        foreign_assignment = db.session.get(Assignment, foreign_assignment_id)
+        assert foreign_assignment.lock_status == "UNLOCKED"
+
+
 def test_obsolete_proposal_and_assignment_lock_controls_are_hidden(client):
     login_as(client, "editor_test")
     response = client.get("/roster/2025-04")
