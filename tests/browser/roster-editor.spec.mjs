@@ -62,7 +62,12 @@ test("roster editor retains accessible decision controls", async ({ page }) => {
   await expect(page.locator("[data-roster-inspector]")).toHaveCount(1);
   await page.getByRole("button", { name: /commands/i }).click();
   await expect(page.locator("[data-roster-command-palette]")).toBeVisible();
-  await page.getByRole("button", { name: /close commands/i }).click();
+  await page.getByPlaceholder(/type a shift code/i).fill("M");
+  await page.getByPlaceholder(/type a shift code/i).press("Enter");
+  await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
+  await expect(page.locator("[data-roster-undo]")).toBeEnabled();
+  await page.locator("[data-roster-undo]").click();
+  await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
   await page.locator('[data-roster-filter="coverage"]').click();
   await expect(page.locator("[data-roster-readiness-dialog]")).toBeVisible();
   await expect(page.locator("[data-roster-readiness-summary]")).toContainText(/issue/);
