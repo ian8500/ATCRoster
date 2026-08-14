@@ -197,7 +197,9 @@ def create_live_position_blueprint(
             raise LivePositionValidationError("Unknown or inactive position.")
         return position
 
-    def _eligibility_reasons(person: Any, role_code: str = "") -> list[str]:
+    def _eligibility_reasons(
+        person: Any, *, position: Any | None = None, role_code: str = ""
+    ) -> list[str]:
         today = dependencies.utcnow().date()
         reasons: list[str] = []
         if not person.is_operational:
@@ -224,18 +226,40 @@ def create_live_position_blueprint(
         ).first()
         if not legacy_ue and not endorsement:
             reasons.append("A current unit endorsement is required to log on.")
+        if position:
+            position_uses_endorsements = dependencies.PositionEndorsement.query.filter_by(
+                unit_id=_unit_id(), position_id=position.id
+            ).first()
+            if position_uses_endorsements:
+                position_endorsement = dependencies.PositionEndorsement.query.filter(
+                    dependencies.PositionEndorsement.unit_id == _unit_id(),
+                    dependencies.PositionEndorsement.person_id == person.id,
+                    dependencies.PositionEndorsement.position_id == position.id,
+                    dependencies.PositionEndorsement.status == "valid",
+                    dependencies.PositionEndorsement.valid_from <= today,
+                    dependencies.db.or_(
+                        dependencies.PositionEndorsement.valid_until.is_(None),
+                        dependencies.PositionEndorsement.valid_until >= today,
+                    ),
+                ).first()
+                if not position_endorsement:
+                    reasons.append(
+                        "A current endorsement for this position is required to log on."
+                    )
         if role_code == "ojti" and not person.has_ojti:
             reasons.append("A current OJTI is required.")
         if role_code in {"assessor", "examiner"} and not person.has_assessor:
             reasons.append("A current assessor authority is required.")
         return reasons
 
-    def _validate_primary(person: Any) -> None:
-        if reasons := _eligibility_reasons(person):
+    def _validate_primary(person: Any, position: Any) -> None:
+        if reasons := _eligibility_reasons(person, position=position):
             raise LivePositionValidationError(reasons[0])
 
-    def _validate_support(person: Any, role: Any) -> None:
-        if reasons := _eligibility_reasons(person, role.code):
+    def _validate_support(person: Any, role: Any, position: Any) -> None:
+        if reasons := _eligibility_reasons(
+            person, position=position, role_code=role.code
+        ):
             raise LivePositionValidationError(reasons[0])
 
     def _validate_primary_arrangement(person: Any, session_type: str) -> None:
@@ -245,7 +269,7 @@ def create_live_position_blueprint(
             )
 
     def _secondary_selection(
-        data: dict[str, Any], *, required: bool = False
+        data: dict[str, Any], *, position: Any, required: bool = False
     ) -> tuple[list[dict[str, int]], str]:
         role_code = str(data.get("support_role") or "").strip().lower()
         person_id = _int_field(data, "support_person_id")
@@ -262,7 +286,7 @@ def create_live_position_blueprint(
         if not role:
             raise LivePositionValidationError("That secondary role is unavailable.")
         person = _controller(person_id)
-        _validate_support(person, role)
+        _validate_support(person, role, position)
         return (
             [{"person_id": person.id, "role_id": role.id}],
             "training" if role.code == "ojti" else "assessment",
@@ -950,11 +974,11 @@ def create_live_position_blueprint(
         _require_kiosk()
         data = _payload()
         try:
-            person = _controller(_int_field(data, "person_id"))
-            _validate_primary(person)
-            participants, session_type = _secondary_selection(data)
-            _validate_primary_arrangement(person, session_type)
             position = _configured_position(position_id)
+            person = _controller(_int_field(data, "person_id"))
+            _validate_primary(person, position)
+            participants, session_type = _secondary_selection(data, position=position)
+            _validate_primary_arrangement(person, session_type)
             _service().start_session(
                 unit_id=_unit_id(),
                 position_id=position_id,
@@ -1010,11 +1034,11 @@ def create_live_position_blueprint(
         _require_kiosk()
         data = _payload()
         try:
-            incoming = _controller(_int_field(data, "person_id"))
-            _validate_primary(incoming)
-            participants, session_type = _secondary_selection(data)
-            _validate_primary_arrangement(incoming, session_type)
             position = _configured_position(position_id)
+            incoming = _controller(_int_field(data, "person_id"))
+            _validate_primary(incoming, position)
+            participants, session_type = _secondary_selection(data, position=position)
+            _validate_primary_arrangement(incoming, session_type)
             _service().handover(
                 unit_id=_unit_id(),
                 position_id=position_id,
@@ -1035,7 +1059,10 @@ def create_live_position_blueprint(
         _require_kiosk()
         data = _payload()
         try:
-            participants, _session_type = _secondary_selection(data, required=True)
+            position = _configured_position(position_id)
+            participants, _session_type = _secondary_selection(
+                data, position=position, required=True
+            )
             participant = participants[0]
             row = _service().add_participant(
                 unit_id=_unit_id(),
@@ -1153,14 +1180,18 @@ def create_live_position_blueprint(
                             "started_at": _iso_timestamp(row.started_at),
                             "maximum_duration_seconds": maximum_duration_seconds,
                             "eligibility_warnings": (
-                                _eligibility_reasons(person, role.code)
+                                _eligibility_reasons(
+                                    person, position=position, role_code=role.code
+                                )
                                 if person and role
                                 else ["Supporting controller details are unavailable."]
                             ),
                         }
                     )
             eligibility_warnings = (
-                _eligibility_reasons(primary) if primary and session else []
+                _eligibility_reasons(primary, position=position)
+                if primary and session
+                else []
             )
             if primary and primary.is_trainee and session:
                 has_ojti = any(

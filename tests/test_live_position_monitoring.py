@@ -577,6 +577,57 @@ def test_secondary_role_requires_the_matching_qualification(live_position_data):
     assert "OJTI" in rejected.get_json()["error"]
 
 
+def test_configured_position_requires_its_own_current_endorsement(
+    live_position_data,
+):
+    position_id = live_position_data["position_id"]
+    with app.app.app_context():
+        app.db.session.add(
+            app.PositionEndorsement(
+                unit_id=1,
+                person_id=live_position_data["supporter_id"],
+                position_id=position_id,
+                valid_from=date(2020, 1, 1),
+                status="valid",
+            )
+        )
+        app.db.session.commit()
+    client = app.app.test_client()
+    csrf = _login_kiosk(client)
+    denied = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{position_id}/logon",
+        {
+            "person_id": live_position_data["controller_id"],
+            "request_key": "missing-position-endorsement",
+        },
+    )
+    assert denied.status_code == 422
+    assert "endorsement for this position" in denied.get_json()["error"]
+    with app.app.app_context():
+        app.db.session.add(
+            app.PositionEndorsement(
+                unit_id=1,
+                person_id=live_position_data["controller_id"],
+                position_id=position_id,
+                valid_from=date(2020, 1, 1),
+                status="valid",
+            )
+        )
+        app.db.session.commit()
+    accepted = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{position_id}/logon",
+        {
+            "person_id": live_position_data["controller_id"],
+            "request_key": "current-position-endorsement",
+        },
+    )
+    assert accepted.status_code == 200
+
+
 def test_trainee_requires_ojti_for_live_position_logon(live_position_data):
     client = app.app.test_client()
     csrf = _login_kiosk(client)
