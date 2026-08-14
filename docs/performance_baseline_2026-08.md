@@ -32,3 +32,8 @@ the utility does not persist it. Example:
 python scripts/measure_http_performance.py --cookie "session=…" \
   http://127.0.0.1:8000/roster/2026-08
 ```
+
+The command can now enforce agreed release-review budgets with
+`--max-median-ms`, `--max-html-bytes` and `--max-dom-elements`. See
+[performance and capacity assurance](operations/performance-and-capacity.md)
+for the measurement protocol and interpretation boundaries.

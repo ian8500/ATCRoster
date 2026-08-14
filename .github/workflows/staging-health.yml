@@ -26,7 +26,7 @@ jobs:
             --retry 3 --retry-all-errors --retry-delay 5 \
             --max-time 15 \
             "$STAGING_ORIGIN/health/live" |
-            jq -e '.status == "ok" and .environment == "production"'
+            jq -e '.status == "ok" and .environment == "staging"'
           curl --fail --show-error --silent \
             --retry 3 --retry-all-errors --retry-delay 5 \
             --max-time 15 \
