@@ -831,6 +831,71 @@ def test_recovery_approval_is_scoped_to_the_request_airport(client):
         assert recovery.state == "pending_approval"
 
 
+def test_completed_recovery_updates_identity_and_tenant_password(client):
+    reset_token = "recovery-reset-token-for-a-dedicated-test-account"
+    with app.app.app_context():
+        person = Staff(
+            unit_id=1,
+            username="recovery-target",
+            name="Recovery Target",
+            staff_no="REC-001",
+            role="user",
+            is_operational=True,
+        )
+        person.set_password("original-recovery-password")
+        db.session.add(person)
+        db.session.flush()
+        identity = app.PlatformIdentity(
+            public_id="test-recovery-target",
+            username=person.username,
+            password_hash=person.password_hash,
+            email="recovery.target@example.test",
+        )
+        db.session.add(identity)
+        db.session.flush()
+        db.session.add(app.UnitMembership(
+            identity_id=identity.id,
+            unit_id=1,
+            person_id=person.id,
+            role="StaffUser",
+            status="active",
+        ))
+        recovery = app.RecoveryRequest(
+            unit_id=1,
+            identity_id=identity.id,
+            person_id=person.id,
+            approval_token_digest=hashlib.sha256(
+                b"unused-recovery-approval-token"
+            ).hexdigest(),
+            reset_token_digest=hashlib.sha256(reset_token.encode()).hexdigest(),
+            state="reset_sent",
+            expires_at=app.utcnow() + timedelta(hours=1),
+        )
+        db.session.add(recovery)
+        db.session.commit()
+        person_id, identity_id, recovery_id = person.id, identity.id, recovery.id
+    page = client.get(f"/recover/reset/{reset_token}")
+    assert page.status_code == 200
+    reset = client.post(
+        f"/recover/reset/{reset_token}",
+        data={
+            "_csrf_token": csrf(client),
+            "password": "replacement-recovery-password",
+            "password_confirmation": "replacement-recovery-password",
+        },
+        follow_redirects=True,
+    )
+    assert b"Password updated. Sign in with your new password." in reset.data
+    with app.app.app_context():
+        person = db.session.get(Staff, person_id)
+        identity = db.session.get(app.PlatformIdentity, identity_id)
+        recovery = db.session.get(app.RecoveryRequest, recovery_id)
+        assert person.check_password("replacement-recovery-password")
+        assert identity.password_hash == person.password_hash
+        assert recovery.state == "completed"
+        assert recovery.reset_token_digest is None
+
+
 def test_user_can_update_own_profile_contact_details(client):
     login(client)
     with app.app.app_context():
