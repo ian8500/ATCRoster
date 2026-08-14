@@ -434,6 +434,7 @@
       };
     };
     window.addEventListener('offline', markLiveStateStale);
+    window.addEventListener('online', refresh);
     loadPeople().then(() => { refresh(); connectEvents(); });
     if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
   })();

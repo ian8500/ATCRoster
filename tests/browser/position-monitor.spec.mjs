@@ -94,6 +94,11 @@ test("Position Monitor makes an offline display explicitly stale", async ({ page
   await expect(page.locator("#live-position-warning")).toContainText(/may be stale/i);
   await expect(page.locator("#live-position-board-viewport")).toHaveClass(/is-stale/);
   await expect(page.locator("#live-position-connection")).toContainText("Reconnecting");
+
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.locator("#live-position-warning")).toBeHidden();
+  await expect(page.locator("#live-position-board-viewport")).not.toHaveClass(/is-stale/);
+  await expect(page.locator("#live-position-connection")).toContainText("Connected");
 });
 
 test("Position Monitor marks a failed live-state refresh as stale", async ({ page }) => {
