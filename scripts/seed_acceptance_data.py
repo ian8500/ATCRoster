@@ -520,6 +520,13 @@ def main() -> None:
                 ]),
                 created_by_id=people[1].id,
             ))
+            published_assignments = roster.Assignment.query.execution_options(
+                skip_tenant_scope=True
+            ).filter(
+                roster.Assignment.unit_id == unit.id,
+                roster.Assignment.day >= previous_month,
+                roster.Assignment.day < current_month,
+            ).order_by(roster.Assignment.staff_id, roster.Assignment.day).all()
             publication = roster.RosterPublication(
                 unit_id=unit.id,
                 year=previous_month.year,
@@ -530,6 +537,15 @@ def main() -> None:
                     "airport": code,
                     "month": previous_month.strftime("%Y-%m"),
                     "release_assurance": {"acceptance_dataset": True},
+                    "assignments": [
+                        {
+                            "staff_id": assignment.staff_id,
+                            "day": assignment.day.isoformat(),
+                            "code": assignment.code,
+                            "annotation": assignment.annotation or "",
+                        }
+                        for assignment in published_assignments
+                    ],
                 }),
                 published_at=roster.utcnow(),
             )
