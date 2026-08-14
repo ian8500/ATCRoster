@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import date
 from dataclasses import dataclass
+import logging
 from typing import Any, Callable
+
+
+logger = logging.getLogger(__name__)
 
 
 def generated_horizon_end(
@@ -42,8 +46,17 @@ def invalidate_impact_months(
                 cache.delete_memoized(
                     cached_loader, int(unit_id), cursor.year, cursor.month
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Cache loss must not prevent recording the workforce impact,
+                # but operators need enough context to investigate stale data.
+                logger.warning(
+                    "roster_cache_invalidation_failed unit_id=%s year=%s "
+                    "month=%s error=%s",
+                    unit_id,
+                    cursor.year,
+                    cursor.month,
+                    exc,
+                )
         next_year, next_month = add_months(cursor.year, cursor.month, 1)
         cursor = date(next_year, next_month, 1)
 
