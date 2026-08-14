@@ -3303,6 +3303,16 @@ def test_manual_toil_form_submits_and_can_add_or_deduct(client):
         assert db.session.get(Staff, person_id).toil_half_days == 3
 
 
+def test_manual_toil_form_does_not_list_another_airports_staff(client):
+    login(client)
+
+    page = client.get("/admin/toil/new")
+
+    assert page.status_code == 200
+    assert b"Other Airport Staff" not in page.data
+    assert b"OTH-001" not in page.data
+
+
 def test_roster_scenario_uses_guided_fields_without_json(client):
     login(client)
     with app.app.app_context():

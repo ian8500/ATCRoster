@@ -242,8 +242,11 @@ def create_toil_administration_blueprint(
     def admin_toil_new():
         if not dependencies.is_admin_user(current_user):
             abort(403)
+        unit_id = dependencies.current_unit_id()
         atcos = (
-            dependencies.Staff.query.filter_by(is_operational=True)
+            dependencies.Staff.query.filter_by(
+                unit_id=unit_id, is_operational=True
+            )
             .filter(dependencies.Staff.role != "position_monitor")
             .order_by(dependencies.Staff.name.asc())
             .all()
@@ -259,7 +262,7 @@ def create_toil_administration_blueprint(
             unit = request.form.get("unit", "days").lower()
             note = (request.form.get("note") or "").strip()
             staff = dependencies.Staff.query.filter_by(
-                id=sid, unit_id=dependencies.current_unit_id()
+                id=sid, unit_id=unit_id
             ).first_or_404()
             direction = -1 if request.form.get("direction") == "subtract" else 1
             half_days = (
