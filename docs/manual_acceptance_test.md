@@ -208,8 +208,8 @@ Use the manifest’s `request_month`.
 | J04 | Open an unpublished monthly roster as Staff User. | A Draft banner states that the roster may be subject to change; no Publish button is shown. | |
 | J05 | Open the same roster as Unit Admin. | The Draft banner includes a Publish roster button. | |
 | J06 | Publish the month and confirm the prompt. | The banner changes to Published and displays the publication date. | |
-| J07 | Repeat J06 as a Watch Manager on another draft month. | The Watch Manager can publish the month. | |
-| J08 | Repeat J06 as a Duty Watch Manager on another draft month. | The Duty Watch Manager can publish the month. | |
+| J07 | Attempt J06 as a Watch Manager on another draft month. | Publication is denied; the roster remains a draft. | |
+| J08 | Attempt J06 as a Duty Watch Manager on another draft month. | Publication is denied; the roster remains a draft. | |
 | J09 | Attempt the publication POST as a standard Staff User. | The server returns 403 and no publication is created. | |
 | J10 | Change a shift or annotation in a published month. | The live roster returns to Draft because it no longer matches the published snapshot. | |
 | J11 | Publish the updated roster. | The new roster becomes current, the previous version is superseded, and operational staff receive a notification. | |
