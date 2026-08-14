@@ -431,9 +431,9 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
                 operational_currency = (
                     dependencies.operational_currency_runtime.shortfalls(unit_id)
                 )
-            except SQLAlchemyError:
+            except (SQLAlchemyError, TypeError, ValueError):
                 # Currency is an advisory summary; it must not hide core reports
-                # when an operational reporting table is temporarily unavailable.
+                # when its data is temporarily unavailable or malformed.
                 current_app.logger.exception(
                     "operational_currency_summary_unavailable unit_id=%s", unit_id
                 )

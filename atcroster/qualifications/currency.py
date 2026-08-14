@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, Mapping
 
 
@@ -151,6 +151,13 @@ def minutes_between(start: datetime, end: datetime) -> int:
     return max(0, round((end - start).total_seconds() / 60))
 
 
+def as_naive_utc(value: datetime) -> datetime:
+    """Normalize database and application timestamps for safe comparison."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def operational_currency_shortfalls(
     unit_id: int,
     *,
@@ -166,7 +173,7 @@ def operational_currency_shortfalls(
 ) -> dict[str, Any]:
     """Calculate credited operational minutes and currency shortfalls."""
     requirement = requirement_for(unit_id)
-    current_time = now()
+    current_time = as_naive_utc(now())
     start_day, end_day = currency_window(requirement, current_time.date())
     if not requirement["enabled"] or not live_position_enabled(unit_id):
         return {
@@ -233,16 +240,24 @@ def operational_currency_shortfalls(
     )
     credited_minutes: dict[int, dict[str, int]] = {}
     for session in sessions:
-        start = max(session.started_at, range_start)
-        end = min(session.ended_at or current_time, range_end)
+        start = max(as_naive_utc(session.started_at), range_start)
+        session_end = (
+            as_naive_utc(session.ended_at) if session.ended_at else current_time
+        )
+        end = min(session_end, range_end)
         if end > start:
             credit = credited_minutes.setdefault(
                 session.primary_person_id, {"operational": 0, "ojti": 0}
             )
             credit["operational"] += minutes_between(start, end)
     for participant in participants:
-        start = max(participant.started_at, range_start)
-        end = min(participant.ended_at or current_time, range_end)
+        start = max(as_naive_utc(participant.started_at), range_start)
+        participant_end = (
+            as_naive_utc(participant.ended_at)
+            if participant.ended_at
+            else current_time
+        )
+        end = min(participant_end, range_end)
         if end > start:
             credit = credited_minutes.setdefault(
                 participant.person_id, {"operational": 0, "ojti": 0}

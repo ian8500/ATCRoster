@@ -1,6 +1,7 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from atcroster.qualifications.currency import (
+    as_naive_utc,
     currency_window,
     load_currency_requirement,
 )
@@ -54,4 +55,12 @@ def test_currency_window_supports_rolling_days():
     assert currency_window(requirement, date(2026, 8, 13)) == (
         date(2026, 7, 15),
         date(2026, 8, 13),
+    )
+
+
+def test_currency_timestamps_normalize_aware_application_time_for_database_rows():
+    aware = datetime(2026, 8, 14, 12, 0, tzinfo=timezone(timedelta(hours=1)))
+    assert as_naive_utc(aware) == datetime(2026, 8, 14, 11, 0)
+    assert as_naive_utc(datetime(2026, 8, 14, 11, 0)) == datetime(
+        2026, 8, 14, 11, 0
     )

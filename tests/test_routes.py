@@ -484,6 +484,34 @@ def test_reports_hub_survives_an_optional_currency_summary_failure(client, monke
     assert b"Leave-Year Summary" in response.data
 
 
+def test_reports_hub_survives_mixed_currency_timestamp_types(client, monkeypatch):
+    login(client)
+    with app.app.app_context():
+        flag = app.FeatureFlag.query.filter_by(
+            unit_id=1, key="live_position_monitoring"
+        ).first()
+        if flag is None:
+            db.session.add(
+                app.FeatureFlag(
+                    unit_id=1, key="live_position_monitoring", enabled=True
+                )
+            )
+        else:
+            flag.enabled = True
+        db.session.commit()
+
+    def mixed_timestamps(_unit_id):
+        raise TypeError("can't compare offset-naive and offset-aware datetimes")
+
+    monkeypatch.setattr(
+        app.operational_currency_runtime, "shortfalls", mixed_timestamps
+    )
+    acknowledge_reports(client)
+    response = client.get("/reports")
+    assert response.status_code == 200
+    assert b"Leave-Year Summary" in response.data
+
+
 def test_leave_year_report_filters_by_watch(client):
     login(client)
     acknowledge_reports(client)
