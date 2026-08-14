@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pyotp
 import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from conftest import finish_operational_login
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -457,6 +457,31 @@ def test_reports_require_sensitive_data_acknowledgement(client):
     direct_after_return = client.get("/reports/leave-year")
     assert direct_after_return.status_code == 302
     assert direct_after_return.headers["Location"].endswith("/reports")
+
+
+def test_reports_hub_survives_an_optional_currency_summary_failure(client, monkeypatch):
+    login(client)
+    with app.app.app_context():
+        flag = app.FeatureFlag.query.filter_by(
+            unit_id=1, key="live_position_monitoring"
+        ).first()
+        if flag is None:
+            flag = app.FeatureFlag(
+                unit_id=1, key="live_position_monitoring", enabled=True
+            )
+            db.session.add(flag)
+        else:
+            flag.enabled = True
+        db.session.commit()
+
+    def unavailable(_unit_id):
+        raise SQLAlchemyError("temporary operational reporting failure")
+
+    monkeypatch.setattr(app.operational_currency_runtime, "shortfalls", unavailable)
+    acknowledge_reports(client)
+    response = client.get("/reports")
+    assert response.status_code == 200
+    assert b"Leave-Year Summary" in response.data
 
 
 def test_leave_year_report_filters_by_watch(client):

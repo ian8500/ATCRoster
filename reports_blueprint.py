@@ -17,6 +17,7 @@ from flask import (
     Blueprint,
     Response,
     abort,
+    current_app,
     redirect,
     render_template,
     request,
@@ -25,6 +26,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 from reporting import csv_safe_cell
+from sqlalchemy.exc import SQLAlchemyError
 
 
 @dataclass(frozen=True)
@@ -423,11 +425,18 @@ def create_reports_blueprint(dependencies: ReportsDependencies) -> Blueprint:
             return render_template("reports_index.html", requires_acknowledgement=True)
         today = date.today()
         unit_id = dependencies.current_unit_id()
-        operational_currency = (
-            dependencies.operational_currency_runtime.shortfalls(unit_id)
-            if dependencies.live_position_enabled(unit_id)
-            else {"enabled": False, "rows": []}
-        )
+        operational_currency = {"enabled": False, "rows": []}
+        if dependencies.live_position_enabled(unit_id):
+            try:
+                operational_currency = (
+                    dependencies.operational_currency_runtime.shortfalls(unit_id)
+                )
+            except SQLAlchemyError:
+                # Currency is an advisory summary; it must not hide core reports
+                # when an operational reporting table is temporarily unavailable.
+                current_app.logger.exception(
+                    "operational_currency_summary_unavailable unit_id=%s", unit_id
+                )
         return render_template(
             "reports_index.html",
             ym=f"{today.year}-{today.month:02d}",
