@@ -848,7 +848,11 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         year, month = dependencies.parse_year_month(ym)
         unit_id = dependencies.current_unit_id()
         publication = dependencies.publication_service.active_publication(year, month)
-        if not publication or publication.unit_id != unit_id:
+        if (
+            not publication
+            or publication.unit_id != unit_id
+            or not dependencies.publication_service.matches_live(publication, year, month)
+        ):
             abort(404, "There is no published roster to acknowledge.")
         acknowledgement = dependencies.RosterAcknowledgement.query.filter_by(
             unit_id=unit_id,

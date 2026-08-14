@@ -1189,6 +1189,28 @@ def test_republished_roster_requires_a_fresh_acknowledgement(client):
         ).count() == 1
 
 
+def test_stale_published_roster_cannot_be_acknowledged(client):
+    login(client)
+    publish_url = "/roster/2025-04/publish"
+    with app.app.app_context():
+        publication = app.RosterPublication.query.filter_by(
+            unit_id=1, year=2025, month=4, state="published"
+        ).order_by(app.RosterPublication.version.desc()).first()
+    if publication is None:
+        assert client.post(publish_url, data={"_csrf_token": csrf(client)}).status_code == 302
+    with app.app.app_context():
+        assignment = app.Assignment.query.filter_by(
+            unit_id=1, day=date(2025, 4, 2)
+        ).first()
+        assignment.code = "D" if assignment.code != "D" else "M"
+        assignment.version += 1
+        app.db.session.commit()
+    response = client.post(
+        "/roster/2025-04/acknowledge", data={"_csrf_token": csrf(client)}
+    )
+    assert response.status_code == 404
+
+
 def test_roster_editor_cannot_publish_or_withdraw_roster(client):
     login_as(client, "editor_test", follow_redirects=True)
 
