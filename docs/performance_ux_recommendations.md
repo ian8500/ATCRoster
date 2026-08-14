@@ -1,10 +1,49 @@
-# Performance & User Experience Recommendations
+# Roster performance and UX status
 
-## Implemented improvements
-- **Month roster caching** – `_load_month_roster_fast` is now wrapped in the lightweight memoisation helper so repeated visits within a few minutes reuse the same database results rather than executing two heavy queries per page load. The cache automatically invalidates whenever a cell is edited because `_invalidate_month_cache_for_day` is already hooked into `_set_code`.【F:app.py†L120-L144】【F:app.py†L403-L458】【F:app.py†L1701-L1735】
-- **Throttled roster auto-fit** – The resize handler that scales the roster grid is now scheduled with `requestAnimationFrame` and protected against rapid-fire resize events. This keeps the UI responsive on devices where layout recalculation was previously triggered dozens of times per second and adds a `ResizeObserver` fallback to react to layout changes like sidebar toggles without polling.【F:templates/base.html†L1-L61】
+This document records the current, repository-verifiable state of the monthly
+roster surface. It is not a production capacity claim.
 
-## Additional opportunities
-- **Shift form batching** – `templates/roster_month.html` renders a `<form>` per cell, which leads to thousands of DOM nodes and repeated full-page reloads. Replacing the forms with a single delegated `<form>` or an AJAX endpoint would cut HTML payload size dramatically and enable inline confirmation to improve perceived speed.【F:templates/roster_month.html†L1-L160】【F:app.py†L2143-L2190】
-- **Eager-load watch relationships** – The roster view sorts staff by watch and later dereferences `s.watch` in the template. Adding `.options(db.joinedload(Staff.watch))` to the `_load_month_roster_core` query prevents an N+1 pattern on busy rosters and keeps caching effective when SQLAlchemy session expires rows between requests.【F:app.py†L403-L458】【F:templates/roster_month.html†L41-L118】
-- **Defer heavy analytics** – `/metrics` performs aggregated counts synchronously before rendering. Consider precomputing or caching those summaries, or paginating long date ranges, to avoid long response times when the database grows.【F:app.py†L2971-L3112】
+## Implemented
+
+- The monthly roster uses the modular month-view and roster-domain services;
+  the root `app.py` remains only the compatibility/WSGI entrypoint.
+- Repeated month loads use the bounded month cache. Assignment mutations
+  invalidate the affected unit/month cache entry.
+- Shift assignment uses one delegated, asynchronous editor dialog rather than
+  a form and select for every editable cell. The server remains authoritative:
+  the flow includes CSRF, permission checks, validation, audit logging and
+  optimistic-concurrency responses.
+- The editor preserves roster position after a save, exposes a saved-session
+  status, supports keyboard movement between editable cells, and keeps one
+  inspector, command palette and readiness interface per page.
+- Roster layout fitting is scheduled with `requestAnimationFrame` and observes
+  relevant size changes where `ResizeObserver` is available.
+- Position Monitor uses a similarly bounded live-state display and makes a
+  failed refresh or disconnected event stream visibly stale rather than
+  presenting last-known data as current.
+
+## Measurement
+
+`scripts/measure_http_performance.py` records repeatable HTTP median latency,
+HTML size, gzip size and DOM-element count against local or staging URLs. Pass
+an authenticated session cookie only to a controlled environment; never place
+credentials in source control or benchmark artefacts.
+
+Browser acceptance tests protect the delegated roster-editor and Position
+Monitor workflows. They are functional regression tests, not a substitute for
+a representative load test.
+
+## Next operational measurements
+
+Before a production capacity commitment, run a seeded PostgreSQL and Redis
+benchmark with representative unit sizes and capture:
+
+- month-load and edit p50/p95/p99 latency;
+- SQL-query counts and database-pool saturation;
+- roster HTML/DOM size at representative staffing levels;
+- cache hit/invalidation behaviour;
+- live-position update and reconnection latency; and
+- error rates during concurrent editor activity.
+
+The operational procedure and acceptance criteria are documented in
+`docs/operations/performance-and-capacity.md`.
