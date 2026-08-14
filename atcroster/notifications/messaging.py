@@ -33,10 +33,13 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
     def unit_messages():
         if not dependencies.can_send_unit_messages(current_user):
             abort(403)
-        people = dependencies.Staff.query.filter_by(membership_status="active").filter(
+        unit_id = dependencies.current_unit_id()
+        people = dependencies.Staff.query.filter_by(
+            unit_id=unit_id, membership_status="active"
+        ).filter(
             dependencies.Staff.role != "position_monitor",
         ).order_by(dependencies.Staff.name).all()
-        watches = dependencies.Watch.query.order_by(
+        watches = dependencies.Watch.query.filter_by(unit_id=unit_id).order_by(
             dependencies.Watch.order_index, dependencies.Watch.name,
         ).all()
         selected_scope = request.form.get("scope", "all")
@@ -93,6 +96,7 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
             elif template == "today_shift":
                 today = date.today()
                 assignments = dependencies.Assignment.query.filter(
+                    dependencies.Assignment.unit_id == unit_id,
                     dependencies.Assignment.day == today,
                     dependencies.Assignment.staff_id.in_([person.id for person in recipients]),
                 ).all()

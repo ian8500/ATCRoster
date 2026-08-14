@@ -3990,6 +3990,16 @@ def test_unit_messages_recipient_order_and_default(client):
     assert b"updateRecipientDetails" in content
 
 
+def test_unit_messages_does_not_offer_another_airports_recipients(client):
+    login(client)
+
+    page = client.get("/messages")
+
+    assert page.status_code == 200
+    assert b"Other Airport Staff" not in page.data
+    assert b"OTH-001" not in page.data
+
+
 def test_admin_configures_airport_sms_numbers(client, monkeypatch):
     login(client)
     monkeypatch.setenv("MESSAGEMEDIA_API_KEY", "test-key")
