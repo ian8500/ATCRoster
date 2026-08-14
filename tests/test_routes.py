@@ -894,6 +894,7 @@ def test_completed_recovery_updates_identity_and_tenant_password(client):
         assert identity.password_hash == person.password_hash
         assert recovery.state == "completed"
         assert recovery.reset_token_digest is None
+    assert client.get(f"/recover/reset/{reset_token}").status_code == 404
 
 
 def test_user_can_update_own_profile_contact_details(client):
