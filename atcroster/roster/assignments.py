@@ -173,6 +173,7 @@ def generate_month_assignments(
     year: int,
     month: int,
     *,
+    unit_id: int,
     db: Any,
     Staff: Any,
     month_range: Callable[[int, int], tuple[Any, list[date]]],
@@ -180,9 +181,9 @@ def generate_month_assignments(
 ) -> None:
     """Refresh every non-monitor assignment in a roster month."""
     _, days = month_range(year, month)
-    for staff in Staff.query.filter(Staff.role != "position_monitor").order_by(
-        Staff.id
-    ):
+    for staff in Staff.query.filter(
+        Staff.unit_id == unit_id, Staff.role != "position_monitor"
+    ).order_by(Staff.id):
         for day in days:
             refresh_day(staff, day)
     db.session.commit()
@@ -196,6 +197,7 @@ def allocate_day_shift_shortfall(
     weekday_code: str,
     sunday_code: str,
     *,
+    unit_id: int,
     db: Any,
     Assignment: Any,
     is_working_day_code: Callable[[str], bool],
@@ -205,7 +207,7 @@ def allocate_day_shift_shortfall(
     set_code: Callable[..., Any],
 ) -> int:
     """Fill an unmet day-duty requirement without replacing protected cells."""
-    existing = Assignment.query.filter_by(day=day).all()
+    existing = Assignment.query.filter_by(unit_id=unit_id, day=day).all()
     assigned = sum(
         1 for assignment in existing if is_working_day_code(assignment.code or "")
     )
@@ -226,7 +228,7 @@ def allocate_day_shift_shortfall(
         if not passes_fatigue(person, day, code):
             continue
         if assignment is None:
-            assignment = Assignment(staff_id=person.id, day=day)
+            assignment = Assignment(unit_id=unit_id, staff_id=person.id, day=day)
             db.session.add(assignment)
             assignments_by_staff[person.id][day] = assignment
         set_code(assignment, code, source="ai", note="AI fill D")
@@ -235,11 +237,15 @@ def allocate_day_shift_shortfall(
     return changes
 
 
-def assignment_for_day(db: Any, Assignment: Any, staff_id: int, day: date) -> Any:
+def assignment_for_day(
+    db: Any, Assignment: Any, unit_id: int, staff_id: int, day: date
+) -> Any:
     """Load or create the one assignment row for a staff member and date."""
-    assignment = Assignment.query.filter_by(staff_id=staff_id, day=day).first()
+    assignment = Assignment.query.filter_by(
+        unit_id=unit_id, staff_id=staff_id, day=day
+    ).first()
     if assignment is None:
-        assignment = Assignment(staff_id=staff_id, day=day)
+        assignment = Assignment(unit_id=unit_id, staff_id=staff_id, day=day)
         db.session.add(assignment)
     return assignment
 
@@ -364,6 +370,7 @@ class AssignmentRuntime:
         return generate_month_assignments(
             year,
             month,
+            unit_id=deps.current_unit_id(),
             db=deps.refresh.db,
             Staff=deps.refresh.Staff,
             month_range=deps.month_range,
@@ -384,6 +391,7 @@ class AssignmentRuntime:
 class AllocationRuntimeDependencies:
     db: Any
     Assignment: Any
+    current_unit_id: Callable[[], int]
     is_working_day_code: Callable[[str], bool]
     has_leave_or_sickness: Callable[[int, date], bool]
     passes_fatigue: Callable[[Any, date, str], bool]
@@ -428,6 +436,7 @@ class AllocationRuntime:
             assignments_by_staff,
             weekday_code,
             sunday_code,
+            unit_id=deps.current_unit_id(),
             db=deps.db,
             Assignment=deps.Assignment,
             is_working_day_code=deps.is_working_day_code,

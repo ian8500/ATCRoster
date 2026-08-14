@@ -28,6 +28,7 @@ class RosterEditingDependencies:
     Assignment: Any
     Leave: Any
     Sickness: Any
+    current_unit_id: Callable[[], int]
     invalidate_month_for_day: Callable[[Any], None]
     log_change: Callable[..., None]
     would_trigger_fatigue: Callable[..., Any]
@@ -56,7 +57,9 @@ class RosterEditingRuntime:
 
     def assignment(self, staff_id: int, day: Any):
         deps = self.dependencies
-        return assignment_for_day(deps.db, deps.Assignment, staff_id, day)
+        return assignment_for_day(
+            deps.db, deps.Assignment, deps.current_unit_id(), staff_id, day
+        )
 
     @staticmethod
     def cell_is_protected(assignment: Any) -> bool:
