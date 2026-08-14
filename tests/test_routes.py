@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 import os
 import sys
@@ -802,6 +803,32 @@ def test_password_recovery_is_non_enumerating_and_records_only_known_accounts(cl
     assert b"If the supplied details match an account" in unknown.data
     with app.app.app_context():
         assert app.RecoveryRequest.query.count() == before + 1
+
+
+def test_recovery_approval_is_scoped_to_the_request_airport(client):
+    approval_token = "recovery-approval-token-for-another-airport"
+    with app.app.app_context():
+        identity = app.PlatformIdentity.query.filter_by(
+            username=ADMIN_CREDENTIALS["username"]
+        ).one()
+        recovery = app.RecoveryRequest(
+            unit_id=3,
+            identity_id=identity.id,
+            approval_token_digest=hashlib.sha256(
+                approval_token.encode()
+            ).hexdigest(),
+            state="pending_approval",
+            expires_at=app.utcnow() + timedelta(hours=1),
+        )
+        db.session.add(recovery)
+        db.session.commit()
+        recovery_id = recovery.id
+    login(client)
+    response = client.get(f"/recover/approve/{approval_token}")
+    assert response.status_code == 403
+    with app.app.app_context():
+        recovery = db.session.get(app.RecoveryRequest, recovery_id)
+        assert recovery.state == "pending_approval"
 
 
 def test_user_can_update_own_profile_contact_details(client):
