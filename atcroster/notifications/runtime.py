@@ -58,6 +58,9 @@ class NotificationRuntime:
     def sms_configured(self) -> bool:
         return self.dependencies.sms_configuration.service_configured()
 
+    def sms_configuration_gaps(self) -> list[str]:
+        return self.dependencies.sms_configuration.configuration_gaps()
+
     def send_email(self, to_address: str, subject: str, body: str) -> bool:
         return send_account_email(to_address, subject, body, self.dependencies.app_logger)
 

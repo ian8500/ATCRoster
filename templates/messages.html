@@ -6,7 +6,11 @@
 </section>
 
 {% if not sms_ready %}
-<div class="alert alert-warning">SMS is unavailable until the configured provider credentials and unit fallback sender are set.</div>
+<div class="alert alert-warning" role="alert">
+  <strong>SMS is not configured for this airport.</strong>
+  Missing: {{ sms_configuration_gaps|join(', ') }}.
+  Provider credentials are deployment settings; configure the airport sender in Admin → SMS settings.
+</div>
 {% endif %}
 
 <section class="card">

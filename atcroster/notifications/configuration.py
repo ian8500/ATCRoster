@@ -135,5 +135,22 @@ class SmsConfigurationService:
         )
 
     def service_configured(self) -> bool:
-        key, secret, fallback = messagemedia_credentials()
-        return bool(key and secret and normalise_sms_number(fallback))
+        return not self.configuration_gaps()
+
+    def configuration_gaps(self, unit_id: int | None = None) -> list[str]:
+        """Return operator-actionable missing configuration without secrets."""
+        key, secret, _fallback = messagemedia_credentials()
+        gaps: list[str] = []
+        if not key:
+            gaps.append("provider API key")
+        if not secret:
+            gaps.append("provider API secret")
+        senders = self.number_options("sms_sender_numbers", unit_id)
+        default_sender = normalise_sms_number(
+            self.settings_snapshot(self._unit_id(unit_id)).get("sms_default_sender")
+        )
+        if not senders:
+            gaps.append("unit fallback sender")
+        elif default_sender not in {item["number"] for item in senders}:
+            gaps.append("unit default fallback sender")
+        return gaps

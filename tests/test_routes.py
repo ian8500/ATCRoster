@@ -3996,6 +3996,8 @@ def test_unit_messages_recipient_order_and_default(client):
     assert b'data-recipient-detail="individual" hidden' in content
     assert b'data-recipient-detail="operational" hidden' in content
     assert b"updateRecipientDetails" in content
+    assert b"SMS is not configured for this airport" in content
+    assert b"provider API key" in content
 
 
 def test_unit_messages_does_not_offer_another_airports_recipients(client):

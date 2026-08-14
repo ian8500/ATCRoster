@@ -137,7 +137,9 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
                 dependencies.notifications.flash_result(sent, failures)
         return render_template(
             "messages.html", people=people, watches=watches,
-            sms_ready=dependencies.notifications.sms_configured(), template=template,
+            sms_ready=dependencies.notifications.sms_configured(),
+            sms_configuration_gaps=dependencies.notifications.sms_configuration_gaps(),
+            template=template,
             message=message, selected_scope=selected_scope,
             selected_recipient=selected_recipient, selected_watch=selected_watch,
             sender_options=sender_options, operational_options=operational_options,
