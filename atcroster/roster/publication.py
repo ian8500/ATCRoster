@@ -124,12 +124,8 @@ def create_publication_service(
         }
 
     def _can_publish_roster(user) -> bool:
-        """Month publication is available to accountable operational managers."""
-        return bool(
-            is_admin_user(user)
-            or getattr(user, "is_wm", False)
-            or getattr(user, "is_dwm", False)
-        )
+        """Only the accountable Unit Admin can publish or withdraw a roster."""
+        return bool(is_admin_user(user))
 
     def _active_roster_publication(year: int, month: int):
         return (

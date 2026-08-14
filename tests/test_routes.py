@@ -1076,7 +1076,6 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         assert publication is not None
         snapshot = app.json.loads(publication.snapshot_json)
         assert snapshot["published_by"]["name"] == "Admin Test"
-
     returned_to_draft = client.post(
         "/roster/2025-04/unpublish",
         data={"_csrf_token": csrf(client)},
@@ -1127,10 +1126,21 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
         response = client.post(
             f"/roster/{ym}/publish",
             data={"_csrf_token": csrf(client)},
-            follow_redirects=True,
         )
-        assert response.status_code == 200
-        assert b"Published roster" in response.data
+        assert response.status_code == 403
+
+
+def test_roster_editor_cannot_publish_or_withdraw_roster(client):
+    login_as(client, "editor_test", follow_redirects=True)
+
+    response = client.get("/roster/2025-04")
+    assert b"Publish roster" not in response.data
+    assert client.post(
+        "/roster/2025-04/publish", data={"_csrf_token": csrf(client)}
+    ).status_code == 403
+    assert client.post(
+        "/roster/2025-04/unpublish", data={"_csrf_token": csrf(client)}
+    ).status_code == 403
 
 
 def test_stale_roster_cell_version_is_rejected(client):
