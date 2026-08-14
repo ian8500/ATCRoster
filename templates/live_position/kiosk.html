@@ -168,11 +168,19 @@
           : position.display_status === 'vacant'
             ? '<button class="btn" data-operation="logon">Log on</button><button class="btn btn-secondary" data-operation="close">Close</button>'
             : '<button class="btn" data-operation="handover">Hand over</button><button class="btn btn-secondary" data-operation="logoff">Log off</button><button class="btn btn-secondary" data-operation="logoff_close">Log off & close</button><button class="btn btn-secondary" data-operation="participant">Add secondary</button>';
-        return `<article class="live-position-tile live-position-tile--${escapeText(position.display_status)}" data-position-id="${position.id}" data-position-label="${escapeText(position.code)}" data-primary-id="${occupied ? occupied.id : ''}" data-primary-name="${occupied ? escapeText(occupied.name) : ''}">
+        const eligibilityWarnings = [
+          ...(position.eligibility_warnings || []),
+          ...(position.participants || []).flatMap((participant) => participant.eligibility_warnings || []),
+        ];
+        const warningMarkup = eligibilityWarnings.length
+          ? `<div class="live-position-tile__alert" role="alert"><strong>Attention required</strong><ul>${eligibilityWarnings.map((item) => `<li>${escapeText(item)}</li>`).join('')}</ul></div>`
+          : '';
+        return `<article class="live-position-tile live-position-tile--${escapeText(position.display_status)}${eligibilityWarnings.length ? ' live-position-tile--warning' : ''}" data-position-id="${position.id}" data-position-label="${escapeText(position.code)}" data-primary-id="${occupied ? occupied.id : ''}" data-primary-name="${occupied ? escapeText(occupied.name) : ''}">
           <header><strong>${escapeText(position.code)}</strong><span>${escapeText(label)}</span></header>
           <h2>${escapeText(position.label)}</h2>
           ${occupied ? `<div class="live-position-tile__primary"><strong>${escapeText(occupied.name)}</strong><div class="live-position-controller-times"><span>Elapsed <b data-elapsed-from="${escapeText(occupied.started_at)}">00:00:00</b></span><span>Remaining <b data-remaining-from="${escapeText(occupied.started_at)}" data-maximum-seconds="${occupied.maximum_duration_seconds}">00:00:00</b></span></div></div>` : '<p>No controller logged on</p>'}
           <div class="live-position-tile__participants">${position.participants.map((p) => `<small><span><strong>${escapeText(p.role_label)}</strong> ${escapeText(p.person_name)}</span><span class="live-position-controller-times"><span>Elapsed <b data-elapsed-from="${escapeText(p.started_at)}">00:00:00</b></span><span>Remaining <b data-remaining-from="${escapeText(p.started_at)}" data-maximum-seconds="${p.maximum_duration_seconds}">00:00:00</b></span></span><button data-operation="participant_remove" data-participant-id="${p.id}">Log off</button></small>`).join('')}</div>
+          ${warningMarkup}
           <footer>${buttons}</footer>
         </article>`;
       };

@@ -615,6 +615,48 @@ def test_trainee_requires_ojti_for_live_position_logon(live_position_data):
     )
     assert cannot_remove_ojti.status_code == 422
     assert "OJTI cannot be removed" in cannot_remove_ojti.get_json()["error"]
+    with app.app.app_context():
+        expired_controller = app.Staff(
+            unit_id=1,
+            username="expired-controller",
+            name="Expired Controller",
+            staff_no="ATCO-EXPIRED",
+            role="user",
+            is_operational=True,
+            medical_expiry=date(2020, 1, 1),
+            tower_ue_expiry=date(2027, 7, 31),
+        )
+        expired_controller.set_password("expired-controller-password")
+        alert_position = app.OperationalPosition(
+            unit_id=1, code="GMC", label="Ground", display_order=2
+        )
+        app.db.session.add_all([expired_controller, alert_position])
+        app.db.session.flush()
+        app.db.session.add_all(
+            [
+                app.PositionSession(
+                    unit_id=1,
+                    position_id=alert_position.id,
+                    primary_person_id=expired_controller.id,
+                    session_type="operational",
+                    started_at=datetime(2026, 7, 30, 8, 0),
+                    created_by_id=live_position_data["kiosk_id"],
+                    transaction_key="expired-controller-session",
+                ),
+                app.PositionStatusEvent(
+                    unit_id=1,
+                    position_id=alert_position.id,
+                    status="open",
+                    occurred_at=datetime(2026, 7, 30, 8, 0),
+                    actor_id=live_position_data["kiosk_id"],
+                    transaction_key="expired-controller-position-open",
+                ),
+            ]
+        )
+        app.db.session.commit()
+    positions = client.get("/live-positions/api/state").get_json()["positions"]
+    state = next(item for item in positions if item["id"] == alert_position.id)
+    assert "A current medical is required to log on." in state["eligibility_warnings"]
 
 
 def test_operational_activity_reports_split_solo_and_ojti_time(live_position_data):

@@ -197,16 +197,13 @@ def create_live_position_blueprint(
             raise LivePositionValidationError("Unknown or inactive position.")
         return position
 
-    def _validate_primary(person: Any) -> None:
+    def _eligibility_reasons(person: Any, role_code: str = "") -> list[str]:
         today = dependencies.utcnow().date()
+        reasons: list[str] = []
         if not person.is_operational:
-            raise LivePositionValidationError(
-                "This person is not currently operational."
-            )
+            reasons.append("This person is not currently operational.")
         if not person.medical_expiry or person.medical_expiry < today:
-            raise LivePositionValidationError(
-                "A current medical is required to log on."
-            )
+            reasons.append("A current medical is required to log on.")
         legacy_ue = any(
             expiry and expiry >= today
             for expiry in (
@@ -226,18 +223,20 @@ def create_live_position_blueprint(
             ),
         ).first()
         if not legacy_ue and not endorsement:
-            raise LivePositionValidationError(
-                "A current unit endorsement is required to log on."
-            )
+            reasons.append("A current unit endorsement is required to log on.")
+        if role_code == "ojti" and not person.has_ojti:
+            reasons.append("A current OJTI is required.")
+        if role_code in {"assessor", "examiner"} and not person.has_assessor:
+            reasons.append("A current assessor authority is required.")
+        return reasons
+
+    def _validate_primary(person: Any) -> None:
+        if reasons := _eligibility_reasons(person):
+            raise LivePositionValidationError(reasons[0])
 
     def _validate_support(person: Any, role: Any) -> None:
-        _validate_primary(person)
-        if role.code == "ojti" and not person.has_ojti:
-            raise LivePositionValidationError("A current OJTI is required.")
-        if role.code in {"assessor", "examiner"} and not person.has_assessor:
-            raise LivePositionValidationError(
-                "A current assessor authority is required."
-            )
+        if reasons := _eligibility_reasons(person, role.code):
+            raise LivePositionValidationError(reasons[0])
 
     def _validate_primary_arrangement(person: Any, session_type: str) -> None:
         if bool(getattr(person, "is_trainee", False)) and session_type != "training":
@@ -1150,9 +1149,26 @@ def create_live_position_blueprint(
                             "person_name": person.name if person else "Unknown",
                             "role_id": row.role_id,
                             "role_label": role.label if role else "Supporting",
+                            "role_code": role.code if role else "",
                             "started_at": _iso_timestamp(row.started_at),
                             "maximum_duration_seconds": maximum_duration_seconds,
+                            "eligibility_warnings": (
+                                _eligibility_reasons(person, role.code)
+                                if person and role
+                                else ["Supporting controller details are unavailable."]
+                            ),
                         }
+                    )
+            eligibility_warnings = (
+                _eligibility_reasons(primary) if primary and session else []
+            )
+            if primary and primary.is_trainee and session:
+                has_ojti = any(
+                    participant["role_code"] == "ojti" for participant in participants
+                )
+                if not has_ojti:
+                    eligibility_warnings.append(
+                        "Trainee is active without a current OJTI."
                     )
             physical_status = status_event.status if status_event else "closed"
             display_status = (
@@ -1187,6 +1203,7 @@ def create_live_position_blueprint(
                         else None
                     ),
                     "participants": participants,
+                    "eligibility_warnings": eligibility_warnings,
                 }
             )
         return {"server_time": _iso_timestamp(now), "positions": state}

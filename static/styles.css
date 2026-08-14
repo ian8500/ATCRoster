@@ -82,6 +82,10 @@
 .live-position-tile--operational { border-color: #4ade80; }
 .live-position-tile--training, .live-position-tile--supervised { border-color: #60a5fa; }
 .live-position-tile--assessment { border-color: #c084fc; }
+.live-position-tile--warning { border-color: #f87171; }
+.live-position-tile__alert { margin-top: .75rem; padding: .65rem .8rem; border-left: 4px solid #f87171; background: #3b1118; color: #fee2e2; }
+.live-position-tile__alert strong { color: inherit; }
+.live-position-tile__alert ul { margin: .35rem 0 0; padding-left: 1.2rem; }
 .live-position-tile__primary { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .live-position-tile__primary strong { font-size: 1.5rem; }
 .live-position-controller-times { display: grid; gap: .2rem; text-align: right; font-variant-numeric: tabular-nums; }
