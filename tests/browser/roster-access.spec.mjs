@@ -84,6 +84,8 @@ test("roster keyboard navigation moves between editable assignments", async ({ p
   const originalDay = await selected.getAttribute("data-roster-day");
   await selected.evaluate((cell) => cell.click());
   await expect(selected).toHaveClass(/is-selected/);
+  await expect(page.locator("[data-roster-inspector]")).toBeVisible();
+  await expect(page.locator("[data-roster-inspector]")).toHaveAttribute("aria-live", "polite");
   await page.keyboard.press("ArrowRight");
   const moved = page.locator(".cell.is-selected");
   await expect(moved).toHaveCount(1);

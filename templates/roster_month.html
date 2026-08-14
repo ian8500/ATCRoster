@@ -127,7 +127,7 @@
   </form>
 </dialog>
 {% if can_edit and not readonly %}
-  <aside class="roster-inspector" data-roster-inspector hidden aria-labelledby="roster-inspector-title">
+  <aside class="roster-inspector" data-roster-inspector hidden aria-labelledby="roster-inspector-title" aria-live="polite">
     <button type="button" class="roster-inspector__close" data-roster-inspector-close aria-label="Close selected-cell inspector">×</button>
     <span class="eyebrow">Selected assignment</span><h3 id="roster-inspector-title" data-roster-inspector-title>Choose a cell</h3>
     <p data-roster-inspector-detail>Select a roster cell to review and edit its assignment.</p>
