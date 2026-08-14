@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from flask import Blueprint, abort, current_app, flash, render_template, request
 from flask_login import current_user, login_required
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import SQLAlchemyError
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,19 @@ class MessagingDependencies:
 def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint:
     """Create the existing `/messages` endpoint without changing its contract."""
     blueprint = Blueprint("messaging", __name__)
+
+    def record_delivery(**values: Any) -> None:
+        """Preserve a successful provider submission if its local audit write fails."""
+        try:
+            dependencies.notifications.record_sms(**values)
+        except SQLAlchemyError:
+            dependencies.db.session.rollback()
+            current_app.logger.exception("sms_audit_record_failed")
+            flash(
+                "SMS was submitted, but its local audit record could not be saved. "
+                "Please notify a Unit Administrator.",
+                "error",
+            )
 
     @login_required
     def unit_messages():
@@ -59,7 +72,7 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
                         dependencies.SmsSenderRegistration.expires_at > now,
                     ),
                 ).order_by(dependencies.SmsSenderRegistration.verified_at.desc()).all()
-            except ProgrammingError:
+            except SQLAlchemyError:
                 dependencies.db.session.rollback()
                 current_app.logger.warning("sms_sender_registration_schema_unavailable")
                 verified = []
@@ -108,7 +121,7 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
                     ok, detail = dependencies.notifications.send_sms(person.phone_number, body, from_number=selected_sender)
                     preview.append((person.name, body))
                     if ok:
-                        dependencies.notifications.record_sms(sender_number=selected_sender, recipient_number=person.phone_number, recipient_label=person.name, body=body, message_type="shift_reminder", provider_message_id=detail)
+                        record_delivery(sender_number=selected_sender, recipient_number=person.phone_number, recipient_label=person.name, body=body, message_type="shift_reminder", provider_message_id=detail)
                         sent += 1
                     else:
                         failures.append((person, detail))
@@ -122,14 +135,14 @@ def create_messaging_blueprint(dependencies: MessagingDependencies) -> Blueprint
                 label = next((item["label"] for item in operational_options if item["number"] == direct_recipient), direct_recipient)
                 preview = [(label, message)]
                 if ok:
-                    dependencies.notifications.record_sms(sender_number=selected_sender, recipient_number=direct_recipient, recipient_label=label, body=message, message_type="operational", provider_message_id=detail)
+                    record_delivery(sender_number=selected_sender, recipient_number=direct_recipient, recipient_label=label, body=message, message_type="operational", provider_message_id=detail)
                 dependencies.notifications.flash_result(1 if ok else 0, [] if ok else [(None, detail)])
             else:
                 sent, failures = 0, []
                 for person in recipients:
                     ok, detail = dependencies.notifications.send_sms(person.phone_number, message, from_number=selected_sender)
                     if ok:
-                        dependencies.notifications.record_sms(sender_number=selected_sender, recipient_number=person.phone_number, recipient_label=person.name, body=message, message_type="unit", provider_message_id=detail)
+                        record_delivery(sender_number=selected_sender, recipient_number=person.phone_number, recipient_label=person.name, body=message, message_type="unit", provider_message_id=detail)
                         sent += 1
                     else:
                         failures.append((person, detail))

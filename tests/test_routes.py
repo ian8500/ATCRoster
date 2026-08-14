@@ -4048,7 +4048,16 @@ def test_unit_messages_permission_boundary(client):
     assert wm_client.get("/admin/sms-audit").status_code == 403
 
 
-def test_unit_messages_recipient_order_and_default(client):
+def test_unit_messages_recipient_order_and_default(client, monkeypatch):
+    for name in (
+        "CLICK_SEND_USERNAME",
+        "CLICKSEND_USERNAME",
+        "CLICK_SEND_API_KEY",
+        "CLICKSEND_API_KEY",
+        "CLICK_SEND_DEFAULT_SENDER",
+        "CLICKSEND_FALLBACK_SENDER",
+    ):
+        monkeypatch.delenv(name, raising=False)
     login(client)
     page = client.get("/messages")
     assert page.status_code == 200
@@ -4065,7 +4074,7 @@ def test_unit_messages_recipient_order_and_default(client):
     assert b'data-recipient-detail="operational" hidden' in content
     assert b"updateRecipientDetails" in content
     assert b"SMS is not configured for this airport" in content
-    assert b"provider API key" in content
+    assert b"ClickSend API key" in content
 
 
 def test_unit_messages_does_not_offer_another_airports_recipients(client):
@@ -4076,6 +4085,22 @@ def test_unit_messages_does_not_offer_another_airports_recipients(client):
     assert page.status_code == 200
     assert b"Other Airport Staff" not in page.data
     assert b"OTH-001" not in page.data
+
+
+def configure_unit_sms_numbers(client):
+    response = client.post(
+        "/admin",
+        data={
+            "_csrf_token": csrf(client),
+            "form": "sms_settings",
+            "sms_sender_numbers": "Operations | +44 7700 900111\nBackup | +447700900112",
+            "sms_operational_numbers": "Duty desk | +44 141 555 0100",
+            "sms_default_sender": "+447700900112",
+            "sms_default_operational_number": "+441415550100",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
 
 
 def test_admin_configures_airport_sms_numbers(client, monkeypatch):
@@ -4115,9 +4140,10 @@ def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
     client, monkeypatch
 ):
     login(client)
-    monkeypatch.setenv("MESSAGEMEDIA_API_KEY", "test-key")
-    monkeypatch.setenv("MESSAGEMEDIA_API_SECRET", "test-secret")
-    monkeypatch.setenv("MESSAGEMEDIA_FALLBACK_SENDER", "+447700900999")
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "test-user")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "test-key")
+    monkeypatch.setenv("CLICK_SEND_DEFAULT_SENDER", "+447700900999")
+    configure_unit_sms_numbers(client)
     sent = []
 
     def fake_send(to_number, body, from_number=None):
@@ -4165,6 +4191,38 @@ def test_messages_rejects_unapproved_sender_and_sends_to_operational_number(
         assert audit.message_type == "operational"
         assert audit.message_content == "Operational test"
         assert audit.provider_message_id == "SMtest"
+
+
+def test_messages_keep_a_successful_provider_submission_when_audit_write_fails(
+    client, monkeypatch
+):
+    login(client)
+    monkeypatch.setenv("CLICK_SEND_USERNAME", "test-user")
+    monkeypatch.setenv("CLICK_SEND_API_KEY", "test-key")
+    configure_unit_sms_numbers(client)
+    monkeypatch.setattr(
+        app, "_send_sms_via_clicksend", lambda *_args, **_kwargs: (True, "cs-1")
+    )
+
+    def audit_failure(**_values):
+        raise SQLAlchemyError("audit database unavailable")
+
+    monkeypatch.setattr(app.notification_runtime, "record_sms", audit_failure)
+    response = client.post(
+        "/messages",
+        data={
+            "_csrf_token": csrf(client),
+            "scope": "operational",
+            "sender_number": "+447700900112",
+            "operational_number": "+441415550100",
+            "template": "custom",
+            "message": "Operational test",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"SMS sent to 1 recipient." in response.data
+    assert b"local audit record could not be saved" in response.data
 
 
 def test_sms_audit_is_unit_admin_only(client):

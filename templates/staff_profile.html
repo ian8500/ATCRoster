@@ -129,7 +129,7 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="sms_sender_registration">
         <label>UK mobile number <input type="tel" name="sender_number" required placeholder="+447700900123"></label>
-        <small>After saving, verify the number in Sinch MessageMedia: Settings → Numbers → Active → My own numbers. Sinch requires re-verification every 12 months.</small>
+        <small>After saving, verify the number in ClickSend, then ask a Unit Administrator to record its verification here.</small>
         <div class="form-actions"><button class="btn" type="submit">Register number for verification</button></div>
       </form>
       {% if sms_sender_registrations %}
