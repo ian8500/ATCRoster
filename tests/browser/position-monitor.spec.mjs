@@ -28,8 +28,36 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   await page.getByLabel("Primary controller").selectOption({ label: "Alex Taylor" });
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(tower).toContainText("Alex Taylor");
-  const logOff = tower.getByRole("button", { name: "Log off", exact: true });
-  await expect(logOff).toBeVisible();
+  await tower.getByRole("button", { name: "Add secondary" }).click();
+  await page.getByLabel("Secondary role").selectOption("ojti");
+  const secondary = page.locator("#live-position-support-person");
+  const secondaryOption = await secondary.locator("option").evaluateAll((options) => {
+    const eligible = options.find((option) => option.value);
+    return eligible ? { value: eligible.value, label: eligible.textContent } : null;
+  });
+  expect(secondaryOption).not.toBeNull();
+  await secondary.selectOption(secondaryOption.value);
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(tower).toContainText("OJTI");
+
+  await tower.locator("footer button[data-operation='logoff']").click();
+  await page.getByRole("button", { name: /\(OJTI\) only$/ }).click();
+  await expect(tower).not.toContainText("OJTI");
+  await expect(tower).toContainText("Alex Taylor");
+
+  await tower.getByRole("button", { name: "Hand over" }).click();
+  const primary = page.getByLabel("Primary controller");
+  const handoverOption = await primary.locator("option").evaluateAll((options) => {
+    const eligible = options.find((option) => option.value && option.textContent !== "Alex Taylor");
+    return eligible ? { value: eligible.value, label: eligible.textContent } : null;
+  });
+  expect(handoverOption).not.toBeNull();
+  await primary.selectOption(handoverOption.value);
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(tower).toContainText(handoverOption.label);
+  await expect(tower).not.toContainText("Alex Taylor");
+
+  const logOff = tower.locator("footer button[data-operation='logoff']");
   await logOff.click();
   await expect(tower.getByRole("button", { name: "Log on" })).toBeVisible();
 
