@@ -39,8 +39,11 @@ def finish_operational_login(client) -> None:
                 "/", environ_base={"REMOTE_ADDR": "127.0.0.1"}
             ):
                 app._reset_rate_limit(
-                        "airport-mfa",
-                        f"{challenge_unit_id}:{challenge_user_id}",
+                    "airport-mfa", f"{challenge_unit_id}:{challenge_user_id}"
+                )
+                app._reset_rate_limit(
+                    "airport-mfa-enrolment",
+                    f"{challenge_unit_id}:{challenge_user_id}",
                 )
         if not credential:
             client.get("/security/mfa")
