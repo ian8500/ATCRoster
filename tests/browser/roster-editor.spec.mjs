@@ -40,18 +40,13 @@ test.describe.configure({ mode: "serial" });
 test("roster editor supports async save, validation feedback and concurrency recovery", async ({ page }) => {
   await signIn(page); await page.goto(`/roster/${rosterMonth}`);
   authenticatedCookies = await page.context().cookies();
-  const cell = page.locator(".cell.editable").filter({ has: page.locator("[data-roster-shift-open]") }).first();
-  await cell.locator("[data-roster-shift-open]").click();
-  await page.locator("[data-roster-shift-select]").selectOption("M");
-  await page.getByRole("button", { name: /save shift/i }).click();
+  const cell = page.locator(".cell.editable").filter({ has: page.locator("[data-roster-shift-select]") }).first();
+  await cell.locator("[data-roster-shift-select]").selectOption("M");
   await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
-  await cell.locator("[data-roster-shift-open]").click();
-  await page.locator("[data-roster-shift-select]").selectOption("A");
-  await expect(page.getByRole("button", { name: /save shift/i })).toBeEnabled();
-  await page.getByRole("button", { name: /save shift/i }).click();
+  await cell.locator("[data-roster-shift-select]").selectOption("A");
   await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
   await page.reload();
-  await expect(cell.locator("[data-roster-shift-open]")).toBeVisible();
+  await expect(cell.locator("[data-roster-shift-select]")).toBeVisible();
 });
 
 test("roster editor reports a stale async save", async ({ page }) => {
@@ -67,28 +62,15 @@ test("roster editor reports a stale async save", async ({ page }) => {
     }),
   }));
   await page.goto(`/roster/${rosterMonth}`);
-  const cell = page.locator(".cell.editable").filter({ has: page.locator("[data-roster-shift-open]") }).first();
-  await cell.locator("[data-roster-shift-open]").click();
-  await page.locator("[data-roster-shift-select]").selectOption("M");
-  await page.getByRole("button", { name: /save shift/i }).click();
+  const cell = page.locator(".cell.editable").filter({ has: page.locator("[data-roster-shift-select]") }).first();
+  await cell.locator("[data-roster-shift-select]").selectOption("M");
   await expect(page.locator("[data-roster-save-status]")).toContainText(/changed after the page was loaded/i);
 });
 
-test("roster editor retains accessible decision controls", async ({ page }) => {
+test("roster editor keeps direct accessible in-cell selection", async ({ page }) => {
   await page.context().addCookies(authenticatedCookies); await page.goto(`/roster/${rosterMonth}`);
-  await expect(page.locator("[data-roster-readiness]")).toBeVisible();
-  await expect(page.getByText("Saved in this session")).toBeVisible();
-  await expect(page.locator("[data-roster-command-palette]")).toHaveCount(1);
+  await expect(page.locator("[data-roster-readiness]")).toHaveCount(0);
+  await expect(page.locator("[data-roster-command-palette]")).toHaveCount(0);
   await expect(page.locator("[data-roster-inspector]")).toHaveCount(1);
-  await page.getByRole("button", { name: /commands/i }).click();
-  await expect(page.locator("[data-roster-command-palette]")).toBeVisible();
-  await page.getByPlaceholder(/type a shift code/i).fill("M");
-  await page.getByPlaceholder(/type a shift code/i).press("Enter");
-  await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
-  await expect(page.locator("[data-roster-undo]")).toBeEnabled();
-  await page.locator("[data-roster-undo]").click();
-  await expect(page.locator("[data-roster-save-status]")).toContainText(/saved/i);
-  await page.locator('[data-roster-filter="coverage"]').click();
-  await expect(page.locator("[data-roster-readiness-dialog]")).toBeVisible();
-  await expect(page.locator("[data-roster-readiness-summary]")).toContainText(/issue/);
+  await expect(page.locator(".cell.editable [data-roster-shift-select]").first()).toBeVisible();
 });

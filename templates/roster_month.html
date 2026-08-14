@@ -107,55 +107,20 @@
   {% endif %}
 </section>
 
-<section class="roster-readiness" data-roster-readiness aria-label="Publish readiness">
-  <div><span class="eyebrow">Publish readiness</span><strong>{{ roster_validation.blocking_count }} blocking item{{ '' if roster_validation.blocking_count == 1 else 's' }}</strong></div>
-  <button type="button" data-roster-filter="coverage"><strong>{{ readiness_issues.coverage|length }}</strong><span>Coverage</span></button>
-  <button type="button" data-roster-filter="fatigue"><strong>{{ readiness_issues.fatigue|length }}</strong><span>Fatigue</span></button>
-  <button type="button" data-roster-filter="qualification"><strong>{{ readiness_issues.qualification|length }}</strong><span>Qualification</span></button>
-  <button type="button" data-roster-filter="leave"><strong>{{ readiness_issues.leave|length }}</strong><span>Leave</span></button>
-  <button type="button" data-roster-filter="request"><strong>{{ readiness_issues.request|length }}</strong><span>Requests</span></button>
-  {% if can_edit and not readonly %}
-    <button type="button" class="btn btn-sm" data-roster-command-open aria-keyshortcuts="Control+K Meta+K">Commands <kbd>⌘K</kbd></button>
-    <button type="button" class="btn btn-sm" data-roster-undo disabled>Undo last change</button>
-    <span class="roster-unsaved" data-roster-session-status>Saved in this session</span>
-  {% endif %}
-</section>
-<dialog data-roster-readiness-dialog aria-labelledby="roster-readiness-title">
-  <form method="dialog" class="roster-readiness-dialog__content">
-    <div class="annotation-dialog__header"><h3 id="roster-readiness-title">Publish-readiness issues</h3><button aria-label="Close issue list">×</button></div>
-    <p data-roster-readiness-summary></p><ul data-roster-readiness-list></ul>
-  </form>
-</dialog>
 {% if can_edit and not readonly %}
   <aside class="roster-inspector" data-roster-inspector hidden aria-labelledby="roster-inspector-title" aria-live="polite">
     <button type="button" class="roster-inspector__close" data-roster-inspector-close aria-label="Close selected-cell inspector">×</button>
     <span class="eyebrow">Selected assignment</span><h3 id="roster-inspector-title" data-roster-inspector-title>Choose a cell</h3>
     <p data-roster-inspector-detail>Select a roster cell to review and edit its assignment.</p>
   </aside>
-  <dialog class="roster-command-palette" data-roster-command-palette aria-labelledby="roster-command-title">
-    <form method="dialog"><div class="annotation-dialog__header"><h3 id="roster-command-title">Roster commands</h3><button aria-label="Close commands">×</button></div>
-    <label>Shift code <input data-roster-command-input autocomplete="off" maxlength="10" placeholder="Type a shift code, then press Enter"></label>
-    <p>Choose a cell, then use this command or press Enter to edit it. Arrow keys move between editable cells.</p></form>
-  </dialog>
 {% endif %}
-
-<template id="roster-shift-options">
-  <optgroup label="Working shifts">
-    {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code in ['SC','SSC'] %} disabled{% endif %}>{{ sh.code }}</option>{% endfor %}
-  </optgroup>
-  <optgroup label="Training shifts">
-    {% for sh in shifts_training %}<option value="{{ sh.code }}">{{ sh.code }}</option>{% endfor %}
-  </optgroup>
-  <optgroup label="Non-working">
-    {% for sh in shifts_non %}<option value="{{ sh.code }}">{{ sh.code }}</option>{% endfor %}
-  </optgroup>
-</template>
 
 <!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
 <div id="roster" class="roster-status-frame {{ 'roster-status-frame--published' if roster_publication else 'roster-status-frame--draft' }}"
      data-can-edit="{{ '1' if can_edit else '0' }}"
      data-readonly="{{ '1' if readonly else '0' }}"
      data-day-count="{{ days|length }}"
+     data-csrf-token="{{ csrf_token() }}"
      data-assignment-url-template="{{ url_for('assign_cell', staff_id=0, ym=ym, day='2000-01-01')|replace('/0/', '/__staff__/')|replace('/2000-01-01', '/__day__') }}"
      data-roster-telemetry-url="{{ url_for('roster_telemetry') }}">
 
@@ -212,7 +177,6 @@
           <td class="cell {{ 'editable' if can_edit and not readonly else 'locked' }}{% if not s.is_operational %} nonop{% endif %}{% if f %} fatigue{% endif %}{% if rv_blocking %} roster-validation-blocking{% elif rv %} roster-validation-advisory{% endif %}{% if d == today %} is-today{% endif %}{% if code in training_codes %} training{% endif %}{% if applied_request %} request-applied{% endif %}"
               data-roster-staff="{{ s.id }}" data-roster-day="{{ d.isoformat() }}"
               data-roster-name="{{ s.name }}" data-roster-code="{{ code }}"
-              data-readiness="{% if f %}fatigue {% endif %}{% if rv_blocking %}coverage {% endif %}{% if capability_matrix.get((s.id, d)) and not capability_matrix[(s.id, d)].counts_as_operational and code %}qualification {% endif %}{% if code == 'AL' %}leave {% endif %}{% if req_info %}request{% endif %}"
               {% if applied_request %}title="Applied from an approved shift request" aria-label="{{ s.name }}, {{ d.strftime('%d %B %Y') }}, {{ code }}, applied from an approved shift request"{% endif %}>
             {% if applied_request %}
               <span class="request-applied-marker" aria-hidden="true"></span>
@@ -248,17 +212,21 @@
                     aria-label="{{ s.name }} absence on {{ d.strftime('%d %B %Y') }}: {{ code }}">{{ code }}</span>
             </div>
             {% else %}
-            <button type="button"
-                    class="code-input roster-cell-button code-len-{{ code|length }}{% if code %} {{ code|lower }} group-{{ prefix }}{% endif %}"
-                    data-roster-shift-open
-                    data-roster-cell-action
+            <select class="code-input roster-cell-select code-len-{{ code|length }}{% if code %} {{ code|lower }} group-{{ prefix }}{% endif %}"
+                    data-roster-shift-select data-roster-cell-action
                     data-version="{{ assignment_version_map.get((s.id, d), 0) }}"
                     data-code="{{ code }}"
                     data-override="{{ '1' if assignment_override_map.get((s.id, d)) else '0' }}"
                     {% if (not can_edit) or readonly %}disabled{% endif %}
                     {% if f %}title="{{ ', '.join(f) }}"{% endif %}
                     aria-label="{{ s.name }} shift on {{ d.strftime('%d %B %Y') }}: {{ code or 'unassigned' }}"
-                    aria-invalid="{% if f %}true{% else %}false{% endif %}">{{ code or '—' }}</button>
+                    aria-invalid="{% if f %}true{% else %}false{% endif %}">
+              <option value="">—</option>
+              {% for sh in shifts_working %}<option value="{{ sh.code }}"{% if sh.code == code %} selected{% endif %}{% if sh.code in ['SC','SSC'] %} disabled{% endif %}>{{ sh.code }}</option>{% endfor %}
+              {% for sh in shifts_training %}<option value="{{ sh.code }}"{% if sh.code == code %} selected{% endif %}>{{ sh.code }}</option>{% endfor %}
+              {% for sh in shifts_non %}<option value="{{ sh.code }}"{% if sh.code == code %} selected{% endif %}>{{ sh.code }}</option>{% endfor %}
+              {% if assignment_override_map.get((s.id, d)) %}<option value="__BASELINE__">↺ Baseline</option>{% endif %}
+            </select>
             {% endif %}
             {% endif %}
 
@@ -300,7 +268,7 @@
         {% set a = counters[d]["A"] %}
         {% set n = counters[d]["N"] %}
         {% set total = m + dday + a + (n if night_active[d] else 0) %}
-        <td class="totcell{% if d == today %} is-today{% endif %}" data-roster-day="{{ d.isoformat() }}" data-readiness="{% for code in ('M', 'D', 'A', 'N') if (code != 'N' or night_active[d]) and req_by_day[d][code] > counters[d][code] %}coverage {% endfor %}">
+        <td class="totcell{% if d == today %} is-today{% endif %}" data-roster-day="{{ d.isoformat() }}">
           <div class="daily-total"><strong>Total {{ total }}</strong></div>
           <div class="rag {{ rag[d]['M'] }}" data-roster-count-row="M">M <span class="rag-count{% if m > req_by_day[d]['M'] %} rag-count--over{% endif %}" data-roster-count>{{ m }}</span>/<span data-roster-required>{{ req_by_day[d]['M'] }}</span></div>
           <div class="rag {{ rag[d]['D'] }}" data-roster-count-row="D">D <span class="rag-count{% if dday > req_by_day[d]['D'] %} rag-count--over{% endif %}" data-roster-count>{{ dday }}</span>/<span data-roster-required>{{ req_by_day[d]['D'] }}</span></div>
@@ -314,22 +282,6 @@
 </div> <!-- /#roster -->
 
 {% if can_edit and not readonly %}
-<dialog class="annotation-dialog" id="roster-shift-dialog" aria-labelledby="roster-shift-dialog-title">
-  <form method="post" data-roster-shift-form>
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="assignment_version" value="0" data-roster-shift-version>
-    <div class="annotation-dialog__header">
-      <div><span class="admin-step">Roster shift</span><h3 id="roster-shift-dialog-title" data-roster-shift-title>Choose shift</h3></div>
-      <button type="button" class="annotation-dialog__close" data-roster-shift-close aria-label="Close shift editor">×</button>
-    </div>
-    <label for="roster-shift-code">Shift</label>
-    <select id="roster-shift-code" name="code" class="code-input" data-roster-shift-select></select>
-    <div class="annotation-dialog__actions">
-      <button type="button" class="btn btn-sm" data-roster-shift-close>Cancel</button>
-      <button type="submit" class="btn btn-primary btn-sm">Save shift</button>
-    </div>
-  </form>
-</dialog>
 <dialog class="annotation-dialog" id="roster-annotation-dialog" aria-labelledby="roster-annotation-dialog-title">
   <form method="post" data-roster-annotation-form>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -397,13 +349,6 @@
         title="Shift applied through an approved request">Requested shift</span>
 </div>
 
-<script nonce="{{ csp_nonce() }}">
-  // The server builds this compact, escaped issue index; mutations remain
-  // server-authoritative and the client only maps issues to visible cells.
-  const rosterReadinessIssues = {{ readiness_issues|tojson }};
-  const editableRosterCells = () => [...document.querySelectorAll('.cell.editable')]
-    .filter((cell) => cell.querySelector('[data-roster-cell-action] select:not(:disabled), [data-roster-shift-open]:not(:disabled)'));
-</script>
 <script nonce="{{ csp_nonce() }}" src="{{ asset_url('roster.js') }}"></script>
 {# Roster interaction code lives in static/roster.js so this rendered page stays cache-friendly. #}
 {% if false %}

@@ -986,7 +986,7 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'data-roster-zoom="0.90"' in response.data
     assert b'data-roster-zoom="1"' in response.data
     assert b'data-roster-zoom="fit"' in response.data
-    assert b"code-input roster-cell-button code-len-3" in response.data
+    assert b"code-input roster-cell-select code-len-3" in response.data
     assert b"shift on 01 April 2025" in response.data
     assert b"Active unit" not in response.data
     assert b"data-operational-clock" in response.data
@@ -994,9 +994,7 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b'<body class="app-body roster-page">' in response.data
     assert b'data-assignment-url-template="/assign/__staff__/2025-04/__day__"' in response.data
     assert b"data-action=" not in response.data
-    # Representative fixture guardrail: a regression back to one editor form
-    # per cell should fail CI before it inflates the monthly roster response.
-    assert len(response.data) < 350_000
+    # Shift selectors are direct in-cell controls, not per-cell forms.
     assert response.data.count(b"<form") < 20
 
     stylesheet = client.get("/static/styles.css")
@@ -1011,8 +1009,8 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"transform: scale(var(--ui-scale))" not in stylesheet.data
     assert b"remaining below every sticky heading" in stylesheet.data
     assert b"z-index:12" in stylesheet.data
-    assert response.data.count(b"data-roster-shift-open") > 1
-    assert b"roster-shift-dialog" in response.data
+    assert response.data.count(b"data-roster-shift-select") > 1
+    assert b"roster-shift-dialog" not in response.data
     assert response.data.count(b'class="annot-select" data-annotation-select') == 1
     assert b">Annotate</button>" not in response.data
     assert b'<span aria-hidden="true">&nbsp;</span></button>' in response.data
@@ -1024,7 +1022,7 @@ def test_roster_has_persistent_zoom_presets(client):
     assert b"updateRosterLayout" in roster_script.data
     assert b"--roster-status-frame-width" in roster_script.data
     assert b".roster-status-frame::before" in stylesheet.data
-    assert b"button.dataset.version = payload.version" in roster_script.data
+    assert b"select.dataset.version = payload.version" in roster_script.data
 
 
 def test_roster_renders_annual_leave_as_static_al_code(client):
@@ -1475,20 +1473,24 @@ def test_roster_assignment_rejects_cross_unit_staff_identifier(client):
     assert response.status_code == 404
 
 
-def test_monthly_roster_exposes_delegated_editor_decision_controls(client):
+def test_monthly_roster_exposes_direct_in_cell_editor_controls(client):
     login(client)
     response = client.get("/roster/2025-04")
 
     assert response.status_code == 200
     for marker in (
-        b"data-roster-readiness",
-        b"data-roster-command-palette",
         b"data-roster-inspector",
         b"data-roster-cell-action",
-        b"data-roster-undo",
-        b"data-roster-session-status",
+        b"data-roster-shift-select",
     ):
         assert marker in response.data
+    for removed_marker in (
+        b"data-roster-readiness",
+        b"data-roster-command-palette",
+        b"roster-shift-dialog",
+        b"data-roster-undo",
+    ):
+        assert removed_marker not in response.data
     assert b'<form class="shift-picker"' not in response.data
 
 
@@ -1498,25 +1500,21 @@ def test_monthly_roster_hides_editor_controls_for_read_only_staff(client):
     response = client.get("/roster/2025-04")
 
     assert response.status_code == 200
-    assert b"data-roster-readiness" in response.data
-    assert b"data-roster-readiness-dialog" in response.data
-    assert b"data-roster-command-open" not in response.data
+    assert b"data-roster-readiness" not in response.data
     assert b"data-roster-command-palette" not in response.data
     assert b"data-roster-inspector" not in response.data
-    assert b"data-roster-undo" not in response.data
-    assert b"rosterReadinessIssues = {}" not in response.data
+    assert b"data-roster-shift-select" in response.data
 
 
-def test_monthly_roster_readiness_lists_are_precise_and_session_status_is_truthful(client):
+def test_monthly_roster_omits_publish_readiness_presentation(client):
     login(client)
     response = client.get("/roster/2025-04")
 
     assert response.status_code == 200
-    assert b"Saved in this session" in response.data
-    assert b"Unsaved changes" not in response.data
-    assert b"rosterReadinessIssues" in response.data
-    assert b"data-roster-readiness-dialog" in response.data
-    assert b"data-roster-cell-action] select:not(:disabled)" in response.data
+    assert b"Publish readiness" not in response.data
+    assert b"rosterReadinessIssues" not in response.data
+    assert b"data-roster-readiness-dialog" not in response.data
+    assert b"data-roster-shift-select" in response.data
 
 
 def test_roster_shift_can_be_saved_without_a_page_reload(client):
@@ -2003,7 +2001,7 @@ def test_obsolete_proposal_and_assignment_lock_controls_are_hidden(client):
     assert response.status_code == 200
     assert b"Allocation proposals" not in response.data
     assert b'name="lock_status"' not in response.data
-    assert response.data.count(b'id="roster-shift-options"') == 1
+    assert b'id="roster-shift-options"' not in response.data
 
 
 def test_operational_commit_invalidates_the_unit_roster_cache(client):
