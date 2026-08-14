@@ -914,6 +914,19 @@ def test_completed_recovery_updates_identity_and_tenant_password(client):
     revoked = existing_session.get("/modules", follow_redirects=False)
     assert revoked.status_code == 302
     assert revoked.headers["Location"].endswith("/login")
+    with app.app.app_context():
+        recovery = db.session.get(app.RecoveryRequest, recovery_id)
+        membership = app.UnitMembership.query.filter_by(
+            identity_id=identity_id
+        ).one()
+        credential = app.MfaCredential.query.filter_by(person_id=person_id).first()
+        if credential:
+            db.session.delete(credential)
+        db.session.delete(recovery)
+        db.session.delete(membership)
+        db.session.delete(db.session.get(app.PlatformIdentity, identity_id))
+        db.session.delete(db.session.get(Staff, person_id))
+        db.session.commit()
 
 
 def test_user_can_update_own_profile_contact_details(client):
