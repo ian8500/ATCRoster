@@ -874,6 +874,22 @@ def test_completed_recovery_updates_identity_and_tenant_password(client):
         db.session.add(recovery)
         db.session.commit()
         person_id, identity_id, recovery_id = person.id, identity.id, recovery.id
+    existing_session = app.app.test_client()
+    existing_session.get("/login")
+    with existing_session.session_transaction() as session:
+        login_token = session["_csrf_token"]
+    signed_in = existing_session.post(
+        "/login",
+        data={
+            "_csrf_token": login_token,
+            "username": "recovery-target",
+            "password": "original-recovery-password",
+        },
+        follow_redirects=False,
+    )
+    assert signed_in.status_code == 302
+    finish_operational_login(existing_session)
+    assert existing_session.get("/modules").status_code == 200
     page = client.get(f"/recover/reset/{reset_token}")
     assert page.status_code == 200
     reset = client.post(
@@ -895,6 +911,9 @@ def test_completed_recovery_updates_identity_and_tenant_password(client):
         assert recovery.state == "completed"
         assert recovery.reset_token_digest is None
     assert client.get(f"/recover/reset/{reset_token}").status_code == 404
+    revoked = existing_session.get("/modules", follow_redirects=False)
+    assert revoked.status_code == 302
+    assert revoked.headers["Location"].endswith("/login")
 
 
 def test_user_can_update_own_profile_contact_details(client):
