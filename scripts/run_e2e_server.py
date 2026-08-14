@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 E2E_MFA_SECRET = "JBSWY3DPEHPK3PXP"
 E2E_MFA_USERNAMES = (
-    "lba.admin", "lba.editor", "lba.atco01", "lba.atco02", "ema.editor",
+    "lba.admin", "lba.editor", "lba.atco01", "lba.atco02", "ema.admin", "ema.editor",
 )
 
 # Python puts ``scripts/`` first when this file is launched directly. Ensure

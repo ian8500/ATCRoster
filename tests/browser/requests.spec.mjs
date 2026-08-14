@@ -8,6 +8,11 @@ const requestDate = (() => {
   date.setUTCMonth(date.getUTCMonth() + 2, 15);
   return date.toISOString().slice(0, 10);
 })();
+const approvalMonth = (() => {
+  const date = new Date();
+  date.setUTCMonth(date.getUTCMonth() + 2, 1);
+  return date.toISOString().slice(0, 7);
+})();
 
 function totp(secret) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -41,4 +46,28 @@ test("ATCO can submit and review a future shift request", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("status", { name: /request status: pending/i })).toBeVisible();
   await expect(page.getByText("Browser acceptance request")).toBeVisible();
+});
+
+test("manager can approve a pending request onto the roster", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill("ema.admin");
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/login/mfa"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  await page.getByLabel(/code/i).fill(totp(mfaSecret));
+  await Promise.all([
+    page.waitForURL(url => !url.pathname.endsWith("/login/mfa")),
+    page.getByRole("button", { name: /verify|continue/i }).click(),
+  ]);
+  await page.goto(`/requests?view=admin&ym=${approvalMonth}`);
+
+  const pending = page.getByRole("row").filter({ hasText: /Pending/ }).first();
+  await expect(pending).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await pending.getByRole("button", { name: /approve and add to roster/i }).click();
+  await expect(page.getByRole("listitem").filter({
+    hasText: "Request approved and added to the roster.",
+  })).toBeVisible();
 });
