@@ -13,9 +13,13 @@ def ensure_month_requirement(
     year: int,
     month: int,
     default: tuple[int, ...] = (4, 4, 4, 2),
+    unit_id: int | None = None,
 ) -> Any:
-    """Load or create the monthly staffing requirement row."""
-    requirement = Requirement.query.filter_by(year=year, month=month).first()
+    """Load or create the monthly staffing requirement row for one unit."""
+    filters = {"year": year, "month": month}
+    if unit_id is not None:
+        filters["unit_id"] = unit_id
+    requirement = Requirement.query.filter_by(**filters).first()
     if requirement is not None:
         return requirement
     if len(default) == 3:
@@ -24,6 +28,7 @@ def ensure_month_requirement(
     else:
         morning, day, afternoon, night = default
     requirement = Requirement(
+        **({"unit_id": unit_id} if unit_id is not None else {}),
         year=year,
         month=month,
         req_m=morning,
@@ -59,6 +64,7 @@ def save_monthly_requirements(
     *,
     db: Any,
     Requirement: Any,
+    unit_id: int,
     impact_type: Any,
     record_roster_impact: Callable[..., None],
 ) -> None:
@@ -72,9 +78,11 @@ def save_monthly_requirements(
     values = {field: form.getlist(field) for field in fields}
     for index, period in enumerate(periods):
         year, month = [int(value) for value in period.split("-")]
-        row = Requirement.query.filter_by(year=year, month=month).first()
+        row = Requirement.query.filter_by(
+            unit_id=unit_id, year=year, month=month
+        ).first()
         if not row:
-            row = Requirement(year=year, month=month)
+            row = Requirement(unit_id=unit_id, year=year, month=month)
             db.session.add(row)
         for field in fields:
             try:
@@ -103,6 +111,7 @@ def save_special_requirement(
     *,
     db: Any,
     SpecialRequirement: Any,
+    unit_id: int,
     impact_type: Any,
     record_roster_impact: Callable[..., None],
 ) -> str:
@@ -114,9 +123,11 @@ def save_special_requirement(
     label = (form.get("special_label") or "").strip()[:80]
     if not label:
         raise ValueError("Describe the reason, for example Christmas Day.")
-    row = SpecialRequirement.query.filter_by(day=selected_day).first()
+    row = SpecialRequirement.query.filter_by(
+        unit_id=unit_id, day=selected_day
+    ).first()
     if not row:
-        row = SpecialRequirement(day=selected_day)
+        row = SpecialRequirement(unit_id=unit_id, day=selected_day)
         db.session.add(row)
     row.label = label
     for code in ("m", "d", "a", "n"):
@@ -141,10 +152,13 @@ def delete_special_requirement(
     *,
     db: Any,
     SpecialRequirement: Any,
+    unit_id: int,
     impact_type: Any,
     record_roster_impact: Callable[..., None],
 ) -> None:
-    row = SpecialRequirement.query.filter_by(id=record_id).first_or_404()
+    row = SpecialRequirement.query.filter_by(
+        id=record_id, unit_id=unit_id
+    ).first_or_404()
     removed_day = row.day
     db.session.delete(row)
     record_roster_impact(

@@ -896,6 +896,7 @@ assignment_runtime = AssignmentRuntime(create_assignment_runtime_dependencies(
     ensure_month_requirement=ensure_roster_month_requirement,
     requirements_for_day=resolve_roster_requirements_for_day,
     iter_year_months=iter_year_months,
+    current_unit_id=_current_unit_id,
 ))
 set_assignment = assignment_runtime.set_assignment
 overwrite_assignment = assignment_runtime.overwrite_assignment

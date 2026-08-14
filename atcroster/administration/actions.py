@@ -202,6 +202,7 @@ def dispatch_admin_action(
                 values,
                 db=deps.db,
                 Requirement=deps.Requirement,
+                unit_id=deps.current_unit_id(),
                 impact_type=deps.RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
                 record_roster_impact=deps.record_roster_impact,
             )
@@ -216,6 +217,7 @@ def dispatch_admin_action(
                 values,
                 db=deps.db,
                 SpecialRequirement=deps.SpecialRequirement,
+                unit_id=deps.current_unit_id(),
                 impact_type=deps.RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
                 record_roster_impact=deps.record_roster_impact,
             )
@@ -230,6 +232,7 @@ def dispatch_admin_action(
             int(values.get("special_requirement_id") or 0),
             db=deps.db,
             SpecialRequirement=deps.SpecialRequirement,
+            unit_id=deps.current_unit_id(),
             impact_type=deps.RosterImpactEventType.STAFFING_REQUIREMENT_CHANGE,
             record_roster_impact=deps.record_roster_impact,
         )

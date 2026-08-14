@@ -283,6 +283,7 @@ class AssignmentRuntimeDependencies:
     ensure_month_requirement: Callable[..., Any]
     requirements_for_day: Callable[..., dict[str, int]]
     iter_year_months: Callable[[date, date], Any]
+    current_unit_id: Callable[[], int]
 
 
 def create_assignment_runtime_dependencies(
@@ -341,7 +342,12 @@ class AssignmentRuntime:
     ):
         deps = self.dependencies
         return deps.ensure_month_requirement(
-            deps.refresh.db, deps.Requirement, year, month, default
+            deps.refresh.db,
+            deps.Requirement,
+            year,
+            month,
+            default,
+            unit_id=deps.current_unit_id() or None,
         )
 
     def requirements_for_day(

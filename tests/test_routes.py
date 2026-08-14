@@ -17,6 +17,7 @@ if REPO_ROOT not in sys.path:
 import app
 import fatigue_compliance
 import fatigue_engine
+from atcroster.roster.requirements import ensure_month_requirement as ensure_requirement
 from app import (
     AnnotationAudit,
     AnnotationType,
@@ -1608,6 +1609,20 @@ def test_month_roster_loader_defensively_scopes_every_query_to_its_unit():
     assert all(person.unit_id == 1 for person in staff)
     assert other.id not in assignments
     assert requirement.unit_id == 1
+
+
+def test_monthly_requirement_lookup_is_defensively_scoped_to_its_unit():
+    with app.app.app_context():
+        foreign = app.Requirement(unit_id=3, year=2027, month=1, req_m=9)
+        db.session.add(foreign)
+        db.session.commit()
+
+        local = ensure_requirement(
+            db, app.Requirement, 2027, 1, unit_id=1
+        )
+
+    assert local.unit_id == 1
+    assert local.id != foreign.id
 
 
 def test_editor_can_hard_lock_an_assignment(client):
