@@ -904,6 +904,15 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             flash(message, "error")
             return redirect(url_for("roster_month", ym=ym))
 
+        def edit_conflict(message: str):
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify(
+                    ok=False,
+                    error=message,
+                    reload_required=True,
+                ), 409
+            abort(409, message)
+
         def updated_day_summary() -> dict[str, Any]:
             people = dependencies.Staff.query.filter_by(unit_id=unit_id).all()
             assignments = dependencies.Assignment.query.filter_by(
@@ -986,7 +995,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         except (TypeError, ValueError):
             abort(400, "Invalid roster cell version.")
         if submitted_version != current_version:
-            abort(409, "This roster cell changed after the page was loaded.")
+            return edit_conflict("This roster cell changed after the page was loaded.")
         if assignment is None:
             assignment = dependencies.Assignment(
                 unit_id=unit_id,
@@ -1135,7 +1144,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             dependencies.db.session.commit()
         except IntegrityError:
             dependencies.db.session.rollback()
-            abort(409, "This roster cell changed concurrently.")
+            return edit_conflict("This roster cell changed concurrently.")
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             saved_shift = dependencies.get_shift(assignment.effective_code)
             return jsonify(

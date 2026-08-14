@@ -54,6 +54,26 @@ test("roster editor supports async save, validation feedback and concurrency rec
   await expect(cell.locator("[data-roster-shift-open]")).toBeVisible();
 });
 
+test("roster editor reports a stale async save", async ({ page }) => {
+  if (authenticatedCookies) await page.context().addCookies(authenticatedCookies);
+  else await signIn(page);
+  await page.route("**/assign/**", (route) => route.fulfill({
+    status: 409,
+    contentType: "application/json",
+    body: JSON.stringify({
+      ok: false,
+      error: "This roster cell changed after the page was loaded.",
+      reload_required: true,
+    }),
+  }));
+  await page.goto(`/roster/${rosterMonth}`);
+  const cell = page.locator(".cell.editable").filter({ has: page.locator("[data-roster-shift-open]") }).first();
+  await cell.locator("[data-roster-shift-open]").click();
+  await page.locator("[data-roster-shift-select]").selectOption("M");
+  await page.getByRole("button", { name: /save shift/i }).click();
+  await expect(page.locator("[data-roster-save-status]")).toContainText(/changed after the page was loaded/i);
+});
+
 test("roster editor retains accessible decision controls", async ({ page }) => {
   await page.context().addCookies(authenticatedCookies); await page.goto(`/roster/${rosterMonth}`);
   await expect(page.locator("[data-roster-readiness]")).toBeVisible();

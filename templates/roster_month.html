@@ -542,7 +542,11 @@
         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.ok) throw new Error(payload.error || 'The roster change could not be saved.');
+      if (!response.ok || !payload.ok) {
+        const failure = new Error(payload.error || 'The roster change could not be saved.');
+        failure.reloadRequired = Boolean(payload.reload_required) || response.status === 409;
+        throw failure;
+      }
       const code = payload.code || '';
       const prefix = code === 'EM' ? 'm' : (code === 'LA' ? 'a' : code.slice(0, 1).toLowerCase());
       activeShiftButton.textContent = code || '—';

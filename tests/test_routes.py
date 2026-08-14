@@ -1266,6 +1266,33 @@ def test_stale_roster_cell_version_is_rejected(client):
     assert audit.context_month == "2025-04"
 
 
+def test_stale_async_roster_cell_version_has_a_structured_conflict(client):
+    login(client)
+    with app.app.app_context():
+        person = Staff.query.filter_by(username="staff_test").one()
+        assignment = Assignment.query.filter_by(
+            unit_id=1, staff_id=person.id, day=date(2025, 4, 3)
+        ).one()
+        stale_version = assignment.version
+        assignment.version += 1
+        db.session.commit()
+    response = client.post(
+        f"/assign/{person.id}/2025-04/2025-04-03",
+        data={
+            "_csrf_token": csrf(client),
+            "code": "M",
+            "assignment_version": stale_version,
+        },
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "ok": False,
+        "error": "This roster cell changed after the page was loaded.",
+        "reload_required": True,
+    }
+
+
 def test_roster_assignment_rejects_cross_unit_staff_identifier(client):
     login(client)
     with app.app.app_context():
