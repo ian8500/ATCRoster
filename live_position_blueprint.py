@@ -239,6 +239,12 @@ def create_live_position_blueprint(
                 "A current assessor authority is required."
             )
 
+    def _validate_primary_arrangement(person: Any, session_type: str) -> None:
+        if bool(getattr(person, "is_trainee", False)) and session_type != "training":
+            raise LivePositionValidationError(
+                "A trainee requires a current OJTI to log on."
+            )
+
     def _secondary_selection(
         data: dict[str, Any], *, required: bool = False
     ) -> tuple[list[dict[str, int]], str]:
@@ -948,6 +954,7 @@ def create_live_position_blueprint(
             person = _controller(_int_field(data, "person_id"))
             _validate_primary(person)
             participants, session_type = _secondary_selection(data)
+            _validate_primary_arrangement(person, session_type)
             position = _configured_position(position_id)
             _service().start_session(
                 unit_id=_unit_id(),
@@ -1007,6 +1014,7 @@ def create_live_position_blueprint(
             incoming = _controller(_int_field(data, "person_id"))
             _validate_primary(incoming)
             participants, session_type = _secondary_selection(data)
+            _validate_primary_arrangement(incoming, session_type)
             position = _configured_position(position_id)
             _service().handover(
                 unit_id=_unit_id(),

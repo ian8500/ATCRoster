@@ -48,6 +48,17 @@ def live_position_data():
             has_ojti=True,
             has_assessor=True,
         )
+        trainee = app.Staff(
+            unit_id=1,
+            username="trainee",
+            name="Taylor Trainee",
+            staff_no="ATCO-3",
+            role="user",
+            is_operational=True,
+            is_trainee=True,
+            medical_expiry=date(2027, 7, 31),
+            tower_ue_expiry=date(2027, 7, 31),
+        )
         admin = app.Staff(
             unit_id=1,
             username="live-admin",
@@ -59,6 +70,7 @@ def live_position_data():
         kiosk.set_password("secure-kiosk-password")
         controller.set_password("controller-password")
         supporter.set_password("supporter-password")
+        trainee.set_password("trainee-password")
         admin.set_password("admin-password")
         position_group = app.OperationalPositionGroup(
             unit_id=1, name="Tower", display_order=10, is_active=True
@@ -76,7 +88,7 @@ def live_position_data():
             is_primary=False,
         )
         app.db.session.add_all(
-            [unit, kiosk, controller, supporter, admin, position_group, position, role]
+            [unit, kiosk, controller, supporter, trainee, admin, position_group, position, role]
         )
         app.db.session.flush()
         app.db.session.add(
@@ -120,6 +132,7 @@ def live_position_data():
             "admin_id": admin.id,
             "controller_id": controller.id,
             "supporter_id": supporter.id,
+            "trainee_id": trainee.id,
             "position_id": position.id,
             "role_id": role.id,
         }
@@ -562,6 +575,36 @@ def test_secondary_role_requires_the_matching_qualification(live_position_data):
     )
     assert rejected.status_code == 422
     assert "OJTI" in rejected.get_json()["error"]
+
+
+def test_trainee_requires_ojti_for_live_position_logon(live_position_data):
+    client = app.app.test_client()
+    csrf = _login_kiosk(client)
+    position = live_position_data["position_id"]
+    rejected = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{position}/logon",
+        {
+            "person_id": live_position_data["trainee_id"],
+            "request_key": "trainee-without-ojti",
+        },
+    )
+    assert rejected.status_code == 422
+    assert "trainee requires a current OJTI" in rejected.get_json()["error"]
+
+    supervised = _action(
+        client,
+        csrf,
+        f"/live-positions/api/positions/{position}/logon",
+        {
+            "person_id": live_position_data["trainee_id"],
+            "support_person_id": live_position_data["supporter_id"],
+            "support_role": "ojti",
+            "request_key": "trainee-with-ojti",
+        },
+    )
+    assert supervised.status_code == 200
 
 
 def test_operational_activity_reports_split_solo_and_ojti_time(live_position_data):
