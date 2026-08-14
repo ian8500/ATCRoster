@@ -1069,6 +1069,8 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
     )
     assert published.status_code == 200
     assert b"Published roster" in published.data
+
+
     assert b"Published " in published.data
     assert b"Draft roster" not in published.data
     with app.app.app_context():
@@ -1130,6 +1132,17 @@ def test_roster_publication_is_managed_from_monthly_roster(client):
             data={"_csrf_token": csrf(client)},
         )
         assert response.status_code == 403
+
+
+def test_staff_acknowledges_the_current_published_roster_once(client):
+    login(client)
+    assert client.post("/roster/2025-04/publish", data={"_csrf_token": csrf(client)}).status_code == 302
+    acknowledged = client.post("/roster/2025-04/acknowledge", data={"_csrf_token": csrf(client)}, follow_redirects=True)
+    assert acknowledged.status_code == 200
+    assert b"Roster acknowledgement recorded." in acknowledged.data
+    with app.app.app_context():
+        publication = app.RosterPublication.query.filter_by(unit_id=1, year=2025, month=4, state="published").one()
+        assert app.RosterAcknowledgement.query.filter_by(unit_id=1, publication_id=publication.id, person_id=1).count() == 1
 
 
 def test_roster_editor_cannot_publish_or_withdraw_roster(client):

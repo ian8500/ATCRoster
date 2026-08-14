@@ -598,6 +598,7 @@ def create_fresh_schema():
         sa.Column('publication_id', sa.Integer(), sa.ForeignKey('roster_publication.id'), nullable=False),
         sa.Column('person_id', sa.Integer(), sa.ForeignKey('staff.id'), nullable=False),
         sa.Column('acknowledged_at', sa.DateTime(), nullable=False),
+        sa.UniqueConstraint('unit_id', 'publication_id', 'person_id', name='uq_roster_acknowledgement_publication_person'),
     )
     op.create_index('ix_roster_acknowledgement_unit_id', 'roster_acknowledgement', ['unit_id'], unique=False)
     op.create_table('sickness',

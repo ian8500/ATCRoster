@@ -32,6 +32,7 @@ from reporting import csv_safe_cell
 class RosterDependencies:
     db: Any
     RosterPublication: Any
+    RosterAcknowledgement: Any
     Staff: Any
     Notification: Any
     Assignment: Any
@@ -87,6 +88,7 @@ def create_roster_dependencies(
     return RosterDependencies(
         db=db,
         RosterPublication=saas_models.RosterPublication,
+        RosterAcknowledgement=saas_models.RosterAcknowledgement,
         Staff=operational_models.Staff,
         Notification=operational_models.Notification,
         Assignment=operational_models.Assignment,
@@ -784,6 +786,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                     "staff_id": str(request_row.staff_id),
                     "remediation": "Resolve request", "href": url_for("requests_page"),
                 })
+        roster_acknowledgement = None
+        if roster_publication:
+            roster_acknowledgement = dependencies.RosterAcknowledgement.query.filter_by(
+                unit_id=unit_id, publication_id=roster_publication.id,
+                person_id=current_user.id,
+            ).first()
         return render_template(
             "roster_month.html",
             ym=ym,
@@ -823,6 +831,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             annotation_groups=dependencies.get_annotation_groups(),
             night_active=night_active,
             roster_publication=roster_publication,
+            roster_acknowledgement=roster_acknowledgement,
             can_publish_roster=dependencies.publication_service.can_publish(current_user),
             staffing_shortfall_count=staffing_shortfall_count,
             qualification_warning_count=qualification_warning_count,
@@ -832,6 +841,44 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
             capability_matrix=capability_matrix,
             readiness_issues=readiness_issues,
         )
+
+    @login_required
+    def roster_month_acknowledge(ym):
+        dependencies.validate_csrf()
+        year, month = dependencies.parse_year_month(ym)
+        unit_id = dependencies.current_unit_id()
+        publication = dependencies.publication_service.active_publication(year, month)
+        if not publication or publication.unit_id != unit_id:
+            abort(404, "There is no published roster to acknowledge.")
+        acknowledgement = dependencies.RosterAcknowledgement.query.filter_by(
+            unit_id=unit_id,
+            publication_id=publication.id,
+            person_id=current_user.id,
+        ).first()
+        if acknowledgement is None:
+            acknowledgement = dependencies.RosterAcknowledgement(
+                unit_id=unit_id,
+                publication_id=publication.id,
+                person_id=current_user.id,
+                acknowledged_at=dependencies.utcnow(),
+            )
+            dependencies.db.session.add(acknowledgement)
+            try:
+                dependencies.db.session.commit()
+            except IntegrityError:
+                dependencies.db.session.rollback()
+                flash("You have already acknowledged this roster version.", "info")
+                return redirect(url_for("roster_month", ym=ym))
+            dependencies.log_change(
+                "RosterAcknowledgement", acknowledgement.id, "acknowledged_at",
+                None, acknowledgement.acknowledged_at.isoformat(),
+                note=f"Acknowledged roster publication version {publication.version}.",
+                context_day=date(year, month, 1),
+            )
+            flash("Roster acknowledgement recorded.", "ok")
+        else:
+            flash("You have already acknowledged this roster version.", "info")
+        return redirect(url_for("roster_month", ym=ym))
 
     @login_required
     def assign_cell(staff_id, ym, day):
@@ -1149,6 +1196,7 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 roster_month_unpublish,
                 ["POST"],
             ),
+            ("/roster/<ym>/acknowledge", "roster_month_acknowledge", roster_month_acknowledge, ["POST"]),
             ("/roster/<ym>", "roster_month", roster_month, ["GET"]),
             ("/roster/telemetry", "roster_telemetry", roster_telemetry, ["POST"]),
             (

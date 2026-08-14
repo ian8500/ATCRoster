@@ -98,6 +98,13 @@
     {% if roster_publication %}<form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}" data-confirm="Undo publication for the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Return to draft</button></form>
     {% else %}<form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}" data-confirm="Publish the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-sm" type="submit" {% if roster_validation.blocking_count %}disabled title="Resolve blocking validation findings first"{% endif %}>Publish roster</button></form>{% endif %}
   {% endif %}
+  {% if roster_publication %}
+    {% if roster_acknowledgement %}
+      <span class="assurance-ok" role="status">Acknowledged {{ roster_acknowledgement.acknowledged_at.strftime('%d %B %Y') }}</span>
+    {% else %}
+      <form method="post" action="{{ url_for('roster_month_acknowledge', ym=ym) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Acknowledge roster</button></form>
+    {% endif %}
+  {% endif %}
 </section>
 
 <section class="roster-readiness" data-roster-readiness aria-label="Publish readiness">
