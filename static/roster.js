@@ -79,6 +79,28 @@ const shiftSubmit = shiftForm?.querySelector('button[type="submit"]');
 const shiftVersion = shiftDialog?.querySelector('[data-roster-shift-version]');
 const shiftTitle = shiftDialog?.querySelector('[data-roster-shift-title]');
 let activeShift;
+const rosterUndo = document.querySelector('[data-roster-undo]');
+const rosterSessionStatus = document.querySelector('[data-roster-session-status]');
+const latestRosterChanges = [];
+const recordRosterChange = (button, code) => {
+  latestRosterChanges.push({ button, code });
+  if (latestRosterChanges.length > 20) latestRosterChanges.shift();
+  if (rosterUndo) rosterUndo.disabled = false;
+  if (rosterSessionStatus) rosterSessionStatus.textContent = 'Saved in this session';
+};
+const applyShiftPayload = (button, payload, baseline = false) => {
+  const cell = button.closest('.cell');
+  const code = payload.code || '';
+  const prefix = code === 'EM' ? 'm' : (code === 'LA' ? 'a' : code.slice(0, 1).toLowerCase());
+  button.textContent = code || '—'; button.dataset.code = code; button.dataset.version = payload.version;
+  button.dataset.override = baseline ? '0' : button.dataset.override;
+  button.className = `code-input roster-cell-button code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
+  button.setAttribute('aria-label', `${button.dataset.staffName} shift on ${button.dataset.dayLabel}: ${code || 'unassigned'}`);
+  cell?.querySelectorAll('[data-roster-annotation-open]').forEach((annotationButton) => { annotationButton.dataset.version = payload.version; });
+  cell?.classList.toggle('training', Boolean(payload.is_training)); cell?.classList.remove('request-applied'); cell?.querySelector('.request-applied-marker')?.remove();
+  if (cell) cell.dataset.rosterCode = code;
+  updateDaySummary(payload.day, payload.day_summary);
+};
 const closeShiftEditor = () => { if (shiftDialog?.open) shiftDialog.close(); activeShift?.focus({ preventScroll: true }); };
 const loadShiftOptions = () => {
   if (!shiftSelect || shiftSelect.dataset.optionsLoaded || !shiftOptions) return;
@@ -104,22 +126,15 @@ shiftDialog?.addEventListener('click', (event) => { if (event.target === shiftDi
 shiftForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!activeShift || shiftForm.dataset.saving === '1') return;
-  const cell = activeShift.closest('.cell');
   const data = new FormData(shiftForm);
   const baseline = data.get('code') === '__BASELINE__';
+  const previousCode = activeShift.dataset.code || '';
   shiftForm.dataset.saving = '1'; shiftForm.classList.add('is-saving'); shiftSelect.disabled = true; showStatus('Saving…');
   try {
     const response = await fetch(shiftForm.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) throw new Error(payload.error || 'The roster change could not be saved.');
-    const code = payload.code || ''; const prefix = code === 'EM' ? 'm' : (code === 'LA' ? 'a' : code.slice(0, 1).toLowerCase());
-    activeShift.textContent = code || '—'; activeShift.dataset.code = code; activeShift.dataset.version = payload.version;
-    activeShift.dataset.override = baseline ? '0' : activeShift.dataset.override;
-    activeShift.className = `code-input roster-cell-button code-len-${code.length}${code ? ` ${code.toLowerCase()} group-${prefix}` : ''}`;
-    activeShift.setAttribute('aria-label', `${activeShift.dataset.staffName} shift on ${activeShift.dataset.dayLabel}: ${code || 'unassigned'}`);
-    cell?.querySelectorAll('[data-roster-annotation-open]').forEach((button) => { button.dataset.version = payload.version; });
-    cell?.classList.toggle('training', Boolean(payload.is_training)); cell?.classList.remove('request-applied'); cell?.querySelector('.request-applied-marker')?.remove();
-    updateDaySummary(payload.day, payload.day_summary); showStatus('Saved'); closeShiftEditor();
+    applyShiftPayload(activeShift, payload, baseline); recordRosterChange(activeShift, previousCode); showStatus('Saved'); closeShiftEditor();
   } catch (error) { showStatus(error.message || 'The roster change could not be saved.', true); }
   finally {
     shiftSelect.disabled = false;
@@ -128,6 +143,71 @@ shiftForm?.addEventListener('submit', async (event) => {
     if (shiftSubmit) { shiftSubmit.disabled = false; shiftSubmit.removeAttribute('aria-disabled'); }
     shiftForm.dataset.saving = '0'; shiftForm.classList.remove('is-saving');
   }
+});
+
+const saveShiftFromCommand = async (button, code, recordChange = true) => {
+  if (!button || !shiftForm || button.dataset.saving === '1') return;
+  const previousCode = button.dataset.code || '';
+  const data = new FormData(shiftForm);
+  data.set('assignment_version', button.dataset.version || '0'); data.set('code', code);
+  button.dataset.saving = '1'; showStatus('Saving…');
+  try {
+    const response = await fetch(button.dataset.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'The roster change could not be saved.');
+    applyShiftPayload(button, payload, code === '__BASELINE__'); if (recordChange) recordRosterChange(button, previousCode); showStatus('Saved');
+  } catch (error) { showStatus(error.message || 'The roster change could not be saved.', true); }
+  finally { button.dataset.saving = '0'; }
+};
+rosterUndo?.addEventListener('click', async () => {
+  const change = latestRosterChanges.pop(); if (!change) return;
+  await saveShiftFromCommand(change.button, change.code, false);
+  rosterUndo.disabled = latestRosterChanges.length === 0;
+});
+
+const inspector = document.querySelector('[data-roster-inspector]');
+const inspectorTitle = document.querySelector('[data-roster-inspector-title]');
+const inspectorDetail = document.querySelector('[data-roster-inspector-detail]');
+let selectedRosterCell;
+const editableCell = (cell) => cell?.querySelector('[data-roster-shift-open]:not(:disabled)');
+const selectRosterCell = (cell) => {
+  if (!editableCell(cell)) return;
+  document.querySelectorAll('.cell.is-selected').forEach((item) => item.classList.remove('is-selected'));
+  selectedRosterCell = cell; cell.classList.add('is-selected');
+  if (inspector) { inspector.hidden = false; inspectorTitle.textContent = `${cell.dataset.rosterName} · ${cell.dataset.rosterDay}`; inspectorDetail.textContent = `Shift ${cell.dataset.rosterCode || 'not assigned'}. Press Enter or use Commands to change it.`; }
+};
+rosterRoot?.addEventListener('click', (event) => { const cell = event.target.closest('.cell'); if (cell && editableCell(cell) && !event.target.closest('[data-roster-shift-open]')) selectRosterCell(cell); });
+document.querySelector('[data-roster-inspector-close]')?.addEventListener('click', () => { if (inspector) inspector.hidden = true; selectedRosterCell?.classList.remove('is-selected'); });
+
+const readinessDialog = document.querySelector('[data-roster-readiness-dialog]');
+const readinessSummary = document.querySelector('[data-roster-readiness-summary]');
+const readinessList = document.querySelector('[data-roster-readiness-list]');
+document.querySelectorAll('[data-roster-filter]').forEach((button) => button.addEventListener('click', () => {
+  const filter = button.dataset.rosterFilter; const issues = rosterReadinessIssues[filter] || [];
+  const matches = issues.map((issue) => issue.staff_id ? document.querySelector(`[data-roster-staff="${issue.staff_id}"][data-roster-day="${issue.date}"]`) : document.querySelector(`.totcell[data-roster-day="${issue.date}"][data-readiness~="${filter}"]`)).filter(Boolean);
+  document.querySelectorAll('.cell.is-readiness-match,.totcell.is-readiness-match').forEach((cell) => cell.classList.remove('is-readiness-match'));
+  matches.forEach((cell) => cell.classList.add('is-readiness-match'));
+  if (readinessSummary && readinessList) {
+    readinessSummary.textContent = `${issues.length} issue${issues.length === 1 ? '' : 's'} listed and ${matches.length} location${matches.length === 1 ? '' : 's'} highlighted.`;
+    readinessList.replaceChildren(...issues.map((issue) => { const item = document.createElement('li'); const title = document.createElement('strong'); const severity = document.createElement('span'); const link = document.createElement('a'); title.textContent = `${issue.date} · ${issue.shift} · ${issue.controller}`; severity.textContent = ` (${issue.severity}) `; link.href = issue.href; link.textContent = issue.remediation; item.append(title, severity, link); return item; }));
+    if (!readinessDialog.open) readinessDialog.showModal();
+  }
+  matches[0]?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+}));
+
+const commandPalette = document.querySelector('[data-roster-command-palette]');
+const commandInput = document.querySelector('[data-roster-command-input]');
+const openCommands = () => { if (!selectedRosterCell) { const first = [...document.querySelectorAll('.cell.editable')].find(editableCell); if (first) selectRosterCell(first); } commandPalette?.showModal(); commandInput?.focus(); };
+document.querySelector('[data-roster-command-open]')?.addEventListener('click', openCommands);
+commandInput?.addEventListener('keydown', (event) => { if (event.key !== 'Enter') return; event.preventDefault(); saveShiftFromCommand(editableCell(selectedRosterCell), commandInput.value.trim().toUpperCase()); commandPalette?.close(); });
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && commandPalette) { event.preventDefault(); openCommands(); return; }
+  if (!selectedRosterCell || event.target.matches('input,select,textarea,button')) return;
+  const row = selectedRosterCell.closest('tr'); const offset = selectedRosterCell.cellIndex; let target;
+  if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { const step = event.key === 'ArrowRight' ? 1 : -1; for (let index = offset + step; row?.cells[index]; index += step) { if (editableCell(row.cells[index])) { target = row.cells[index]; break; } } }
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { const step = event.key === 'ArrowDown' ? 1 : -1; let next = row; while ((next = step > 0 ? next?.nextElementSibling : next?.previousElementSibling)) { const candidate = next.cells?.[offset]; if (editableCell(candidate)) { target = candidate; break; } } }
+  if (target) { event.preventDefault(); selectRosterCell(target); editableCell(target)?.focus({ preventScroll: true }); }
+  if (event.key === 'Enter') { event.preventDefault(); editableCell(selectedRosterCell)?.click(); }
 });
 
 const annotationDialog = document.getElementById('roster-annotation-dialog');

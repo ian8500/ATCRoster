@@ -4,6 +4,8 @@ import crypto from "node:crypto";
 const username = process.env.ATCROSTER_E2E_USERNAME || "lba.admin";
 const password = process.env.ATCROSTER_E2E_PASSWORD || "Test-ATCRoster-2026!";
 const mfaSecret = process.env.ATCROSTER_E2E_MFA_SECRET || "JBSWY3DPEHPK3PXP";
+const rosterMonth = process.env.ATCROSTER_E2E_ROSTER_MONTH
+  || new Date().toISOString().slice(0, 7);
 
 function totp(secret) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -36,7 +38,7 @@ let authenticatedCookies;
 test.describe.configure({ mode: "serial" });
 
 test("roster editor supports async save, validation feedback and concurrency recovery", async ({ page }) => {
-  await signIn(page); await page.goto("/roster/2025-04");
+  await signIn(page); await page.goto(`/roster/${rosterMonth}`);
   authenticatedCookies = await page.context().cookies();
   const cell = page.locator(".cell.editable").filter({ has: page.locator("[data-roster-shift-open]") }).first();
   await cell.locator("[data-roster-shift-open]").click();
@@ -53,9 +55,15 @@ test("roster editor supports async save, validation feedback and concurrency rec
 });
 
 test("roster editor retains accessible decision controls", async ({ page }) => {
-  await page.context().addCookies(authenticatedCookies); await page.goto("/roster/2025-04");
+  await page.context().addCookies(authenticatedCookies); await page.goto(`/roster/${rosterMonth}`);
   await expect(page.locator("[data-roster-readiness]")).toBeVisible();
   await expect(page.getByText("Saved in this session")).toBeVisible();
   await expect(page.locator("[data-roster-command-palette]")).toHaveCount(1);
   await expect(page.locator("[data-roster-inspector]")).toHaveCount(1);
+  await page.getByRole("button", { name: /commands/i }).click();
+  await expect(page.locator("[data-roster-command-palette]")).toBeVisible();
+  await page.getByRole("button", { name: /close commands/i }).click();
+  await page.locator('[data-roster-filter="coverage"]').click();
+  await expect(page.locator("[data-roster-readiness-dialog]")).toBeVisible();
+  await expect(page.locator("[data-roster-readiness-summary]")).toContainText(/issue/);
 });

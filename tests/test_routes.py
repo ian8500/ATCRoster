@@ -1192,6 +1192,21 @@ def test_monthly_roster_exposes_delegated_editor_decision_controls(client):
     assert b'<form class="shift-picker"' not in response.data
 
 
+def test_monthly_roster_hides_editor_controls_for_read_only_staff(client):
+    login_as(client, "staff_test", follow_redirects=True)
+
+    response = client.get("/roster/2025-04")
+
+    assert response.status_code == 200
+    assert b"data-roster-readiness" in response.data
+    assert b"data-roster-readiness-dialog" in response.data
+    assert b"data-roster-command-open" not in response.data
+    assert b"data-roster-command-palette" not in response.data
+    assert b"data-roster-inspector" not in response.data
+    assert b"data-roster-undo" not in response.data
+    assert b"rosterReadinessIssues = {}" not in response.data
+
+
 def test_monthly_roster_readiness_lists_are_precise_and_session_status_is_truthful(client):
     login(client)
     response = client.get("/roster/2025-04")
