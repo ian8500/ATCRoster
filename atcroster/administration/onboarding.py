@@ -295,21 +295,31 @@ def create_onboarding_blueprint(dependencies: OnboardingDependencies) -> Bluepri
                 bool(unit.name and unit.code and unit.timezone),
                 "unit_onboarding",
             ),
-            ("Watches configured", Watch.query.count() > 0, "admin"),
+            (
+                "Watches configured",
+                Watch.query.filter_by(unit_id=unit.id).count() > 0,
+                "admin",
+            ),
             (
                 "Active shifts configured",
-                ShiftType.query.filter_by(is_active=True).count() > 0,
+                ShiftType.query.filter_by(unit_id=unit.id, is_active=True).count()
+                > 0,
                 "admin",
             ),
             (
                 "Operational staff added",
-                Staff.query.filter_by(is_operational=True).count() > 0,
+                Staff.query.filter_by(unit_id=unit.id, is_operational=True).count()
+                > 0,
                 "admin",
             ),
-            ("Staffing requirements set", Requirement.query.count() > 0, "admin"),
+            (
+                "Staffing requirements set",
+                Requirement.query.filter_by(unit_id=unit.id).count() > 0,
+                "admin",
+            ),
             (
                 "Qualification types set",
-                QualificationType.query.count() > 0,
+                QualificationType.query.filter_by(unit_id=unit.id).count() > 0,
                 "qualification_compliance",
             ),
             ("Roster warning rules available", True, "admin_fatigue_rules"),
