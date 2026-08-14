@@ -85,6 +85,12 @@ def test_clicksend_send_uses_documented_basic_auth_and_message_shape(monkeypatch
     assert captured["authorization"].startswith("Basic ")
 
 
+def test_application_clicksend_hook_targets_provider_without_runtime_recursion():
+    import app
+
+    assert app._send_sms_via_clicksend is send_via_clicksend
+
+
 def test_sms_audit_service_stamps_current_unit_and_actor():
     added = []
 

@@ -658,7 +658,7 @@ _send_account_email = notification_runtime.send_email
 _valid_email = notification_runtime.valid_email
 _platform_support_emails = notification_runtime.support_emails
 _unit_admin_emails = notification_runtime.admin_emails
-_send_sms_via_clicksend = notification_runtime.send_sms
+_send_sms_via_clicksend = send_via_clicksend
 # Legacy private alias retained for integrations during the provider transition.
 _send_sms_via_messagemedia = _send_sms_via_clicksend
 _send_sms = notification_runtime.send_sms
