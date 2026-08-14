@@ -8,7 +8,7 @@
 
 <section class="card">
   <div class="card-bd">
-    <form method="post" class="toolbar">
+    <form method="post" class="toolbar" data-overtime-search>
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="find">
       <label>Date <input type="date" name="date" value="{{ chosen_date }}"></label>
@@ -19,7 +19,8 @@
           {% endfor %}
         </select>
       </label>
-      <button class="btn"><i class="fa-solid fa-magnifying-glass"></i> Find Eligible</button>
+      <button class="btn" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Find Eligible</button>
+      <span class="visually-hidden" role="status" aria-live="polite" data-overtime-search-status></span>
     </form>
   </div>
 </section>
@@ -145,14 +146,22 @@
         <p class="muted">Check a particular ATCO against the overtime rules. This does not alter the roster or send a message.</p>
       </div>
     </div>
-    <form method="post" class="toolbar">
+    <form method="post" class="toolbar" data-overtime-what-if>
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="what_if">
+      <label>Watch
+        <select name="what_if_watch_id" required data-what-if-watch>
+          <option value="">Select a watch first</option>
+          {% for watch in watches %}
+            <option value="{{ watch.id }}" {% if what_if_watch_id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>ATCO
-        <select name="what_if_staff_id" required>
+        <select name="what_if_staff_id" required data-what-if-staff {% if not what_if_watch_id %}disabled{% endif %}>
           <option value="">Select an ATCO</option>
           {% for person in overtime_staff %}
-            <option value="{{ person.id }}" {% if what_if_staff_id == person.id %}selected{% endif %}>{{ person.name }}</option>
+            <option value="{{ person.id }}" data-watch-id="{{ person.watch_id or '' }}" {% if what_if_staff_id == person.id %}selected{% endif %} {% if what_if_watch_id and person.watch_id != what_if_watch_id %}hidden{% endif %}>{{ person.name }}</option>
           {% endfor %}
         </select>
       </label>
@@ -164,7 +173,7 @@
           {% endfor %}
         </select>
       </label>
-      <button class="btn"><i class="fa-solid fa-scale-balanced"></i> Check eligibility</button>
+      <button class="btn" type="submit"><i class="fa-solid fa-scale-balanced"></i> Check eligibility</button>
     </form>
 
     {% if what_if_result %}
@@ -191,4 +200,27 @@
   </div>
 </section>
 </div>
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const search = document.querySelector('[data-overtime-search]');
+  if (search) search.addEventListener('submit', () => {
+    const button = search.querySelector('button[type="submit"]');
+    const status = search.querySelector('[data-overtime-search-status]');
+    if (button) { button.disabled = true; button.textContent = 'Finding eligible ATCOs…'; }
+    if (status) status.textContent = 'Searching for eligible ATCOs.';
+  }, { once: true });
+  const watch = document.querySelector('[data-what-if-watch]');
+  const staff = document.querySelector('[data-what-if-staff]');
+  if (!watch || !staff) return;
+  const update = () => {
+    const watchId = watch.value;
+    staff.disabled = !watchId;
+    staff.value = '';
+    staff.querySelectorAll('option[data-watch-id]').forEach((option) => {
+      option.hidden = Boolean(watchId) && option.dataset.watchId !== watchId;
+    });
+  };
+  watch.addEventListener('change', update);
+})();
+</script>
 {% endblock %}

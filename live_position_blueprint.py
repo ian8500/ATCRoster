@@ -332,7 +332,6 @@ def create_live_position_blueprint(
             abort(403)
         return redirect(url_for("administration_home"))
 
-    @blueprint.get("/reports/operational-activity")
     @login_required
     def operational_activity():
         _require_module()
@@ -651,6 +650,24 @@ def create_live_position_blueprint(
             selected_position_id=selected_position_id,
             can_view_all=can_view_all,
             competency_location=dependencies.competency_enabled(unit_id),
+        )
+
+    @blueprint.get("/reports/operational-activity")
+    @login_required
+    def operational_activity_legacy():
+        """Keep saved Live Position report links working without duplicating the UI."""
+        return redirect(
+            url_for("reports_operational_activity", **request.args), code=308
+        )
+
+    @blueprint.record_once
+    def register_report_route(state) -> None:
+        """Expose operational activity as a report, not a separate module page."""
+        state.app.add_url_rule(
+            "/reports/operational-activity",
+            endpoint="reports_operational_activity",
+            view_func=operational_activity,
+            methods=("GET",),
         )
 
     @blueprint.route("/admin/positions", methods=["GET", "POST"])

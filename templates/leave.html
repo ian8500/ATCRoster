@@ -25,14 +25,22 @@
       <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
     </summary>
     <div class="card-body">
-      <form class="row g-3 align-items-end" method="post">
+      <form class="row g-3 align-items-end" method="post" data-absence-entry>
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="leave_add">
-        <div class="col-md-4">
+        <div class="col-md-2">
+          <label class="form-label" for="leave-entry-watch">Watch</label>
+          <select id="leave-entry-watch" class="form-select" name="entry_watch_id" required data-absence-watch>
+            <option value="">Select watch first</option>
+            {% for watch in watches %}<option value="{{ watch.id }}">{{ watch.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
           <label class="form-label" for="leave-staff">Staff</label>
-          <select id="leave-staff" class="form-select" name="staff_id" required>
+          <select id="leave-staff" class="form-select" name="staff_id" required data-absence-staff>
+            <option value="">Select controller</option>
             {% for s in staff %}
-            <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }})</option>
+            <option value="{{ s.id }}" data-watch-id="{{ s.watch_id or '' }}">{{ s.name }} ({{ s.staff_no }})</option>
             {% endfor %}
           </select>
         </div>
@@ -68,14 +76,22 @@
       <span><span class="absence-open-label">Open</span><span class="absence-close-label">Close</span> <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></span>
     </summary>
     <div class="card-body">
-      <form class="row g-3 align-items-end" method="post">
+      <form class="row g-3 align-items-end" method="post" data-absence-entry>
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="form" value="sick_add">
-        <div class="col-md-4">
+        <div class="col-md-2">
+          <label class="form-label" for="sickness-entry-watch">Watch</label>
+          <select id="sickness-entry-watch" class="form-select" name="entry_watch_id" required data-absence-watch>
+            <option value="">Select watch first</option>
+            {% for watch in watches %}<option value="{{ watch.id }}">{{ watch.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
           <label class="form-label" for="sickness-staff">Staff</label>
-          <select id="sickness-staff" class="form-select" name="staff_id" required>
+          <select id="sickness-staff" class="form-select" name="staff_id" required data-absence-staff>
+            <option value="">Select controller</option>
             {% for s in staff %}
-            <option value="{{ s.id }}">{{ s.name }} ({{ s.staff_no }})</option>
+            <option value="{{ s.id }}" data-watch-id="{{ s.watch_id or '' }}">{{ s.name }} ({{ s.staff_no }})</option>
             {% endfor %}
           </select>
         </div>
@@ -248,5 +264,19 @@
     });
   });
 })();
+document.querySelectorAll('[data-absence-entry]').forEach((form) => {
+  const watch = form.querySelector('[data-absence-watch]');
+  const staff = form.querySelector('[data-absence-staff]');
+  if (!watch || !staff) return;
+  const update = (clear = false) => {
+    staff.disabled = !watch.value;
+    if (clear) staff.value = '';
+    staff.querySelectorAll('option[data-watch-id]').forEach((option) => {
+      option.hidden = Boolean(watch.value) && option.dataset.watchId !== watch.value;
+    });
+  };
+  watch.addEventListener('change', () => update(true));
+  update();
+});
 </script>
 {% endblock %}

@@ -5,9 +5,6 @@
   <div><span class="admin-step">Competency</span><h2>Licences, endorsements and ongoing validity</h2><p>CAA licence details, medical validity, English language and every unit endorsement in one shared record.</p></div>
   <a class="btn btn-primary" href="{{ url_for('competency_profile', sid=current_user.id) }}">Open my competency profile</a>
 </section>
-{% if has_live_position_module %}
-<section class="training-module-summary"><article class="card"><span>Live position records</span><strong>Operational activity reports</strong><p>Review solo, OJTI, assessment and position activity by date, person or watch.</p><a href="{{ url_for('live_position.operational_activity') }}">Open reports</a></article></section>
-{% endif %}
 {% if can_view_people %}
 <section class="card training-people" id="people"><div class="card-hd">Staff competency profiles</div><div class="card-bd training-people-grid">
 {% for person in people %}<a href="{{ url_for('competency_profile', sid=person.id) }}"><span class="training-person-avatar" aria-hidden="true">{{ person.name[:1] }}</span><span><strong>{{ person.name }}</strong><small>{{ person.staff_no }}{% if person.watch %} · {{ person.watch.name }}{% endif %}</small></span><span class="status-pill">Competency</span><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></a>{% else %}<p class="empty-state">No staff profiles are available.</p>{% endfor %}

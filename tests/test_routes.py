@@ -1139,7 +1139,7 @@ def test_annual_leave_requires_soal_before_roster_shift_override(client):
             assignment = Assignment.query.filter_by(staff_id=1, day=duty_day).one()
             assert assignment.annotation == "SOAL"
             version = assignment.version
-        assert b"code-input roster-cell-button code-len-2 al group-a" in applied.data
+        assert b"code-input roster-cell-select code-len-2 al group-a" in applied.data
         assert b"SOAL" in applied.data
 
         shifted = client.post(
@@ -2173,6 +2173,7 @@ def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
         data={
             "_csrf_token": token,
             "action": "what_if",
+            "what_if_watch_id": str(watch.id),
             "what_if_staff_id": str(person_id),
             "date": chosen_day.isoformat(),
             "shift_code": "M",
@@ -2193,6 +2194,7 @@ def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
         data={
             "_csrf_token": token,
             "action": "what_if",
+            "what_if_watch_id": str(watch.id),
             "what_if_staff_id": str(person_id),
             "date": chosen_day.isoformat(),
             "shift_code": "M",
@@ -2202,6 +2204,31 @@ def test_overtime_finder_offers_operational_staff_on_off_or_leave_days(
     assert ineligible.status_code == 200
     assert b"Ian Overtime Test is not eligible" in ineligible.data
     assert b"Opted out of overtime" in ineligible.data
+
+
+def test_overtime_what_if_rejects_an_atco_from_another_watch(client):
+    login(client)
+    with app.app.app_context():
+        watch_a = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        watch_b = Watch.query.filter_by(unit_id=1, name="Watch B").one()
+        person = Staff.query.filter_by(unit_id=1, watch_id=watch_b.id).first()
+        assert person is not None
+        watch_a_id, person_id = watch_a.id, person.id
+
+    response = client.post(
+        "/overtime",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "what_if",
+            "what_if_watch_id": str(watch_a_id),
+            "what_if_staff_id": str(person_id),
+            "date": "2025-04-01",
+            "shift_code": "M",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Select an ATCO in the chosen watch." in response.data
 
 
 def test_production_operations_workflows(client):
@@ -3916,6 +3943,22 @@ def test_existing_leave_can_filter_by_watch_or_whole_unit(client):
     assert f'data-leave-id="{leave_b_id}"'.encode() not in watch_a_page.data
     assert f'data-leave-id="{leave_b_id}"'.encode() in watch_b_page.data
     assert f'data-leave-id="{leave_a_id}"'.encode() not in watch_b_page.data
+    assert b'name="entry_watch_id"' in whole_unit.data
+
+    forged = client.post(
+        "/leave?ym=2029-07",
+        data={
+            "_csrf_token": csrf(client),
+            "form": "leave_add",
+            "entry_watch_id": str(watch_a_id),
+            "staff_id": str(person_b.id),
+            "leave_type": "AL",
+            "start": "2029-07-06",
+            "end": "2029-07-06",
+        },
+    )
+    assert forged.status_code == 400
+    assert b"Select a controller in the chosen watch." in forged.data
 
     with app.app.app_context():
         Leave.query.filter(Leave.id.in_([leave_a_id, leave_b_id])).delete()

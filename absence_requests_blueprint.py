@@ -83,8 +83,10 @@ def create_absence_requests_blueprint(
         ):
             abort(403)
 
+        unit_id = dependencies.current_unit_id()
         staff = dependencies.Staff.query.filter(
-            dependencies.Staff.role != "position_monitor"
+            dependencies.Staff.unit_id == unit_id,
+            dependencies.Staff.role != "position_monitor",
         ).order_by(dependencies.Staff.name).all()
 
         # ---------- month selection ----------
@@ -109,7 +111,7 @@ def create_absence_requests_blueprint(
             ).first()
             if not selected_watch:
                 abort(400, "Invalid watch filter.")
-        watches = dependencies.Watch.query.order_by(
+        watches = dependencies.Watch.query.filter_by(unit_id=unit_id).order_by(
             dependencies.Watch.order_index,
             dependencies.Watch.name,
         ).all()
@@ -125,6 +127,20 @@ def create_absence_requests_blueprint(
                 return redirect(url_for("leave", ym=ym_param))
 
             form = request.form.get("form", "")
+
+            def selected_staff_for_absence() -> Any | None:
+                try:
+                    staff_id = int(request.form["staff_id"])
+                    watch_id = int(request.form["entry_watch_id"])
+                except (KeyError, TypeError, ValueError):
+                    flash("Select a watch and a controller.", "error")
+                    return None
+                if not any(watch.id == watch_id for watch in watches):
+                    abort(400, "Select a valid watch.")
+                person = dependencies.tenant_get(dependencies.Staff, staff_id)
+                if not person or person.watch_id != watch_id:
+                    abort(400, "Select a controller in the chosen watch.")
+                return person
 
             if form in {"absence_type_add", "absence_type_delete"}:
                 if not dependencies.is_admin_user(current_user):
@@ -176,16 +192,16 @@ def create_absence_requests_blueprint(
                 return redirect(url_for("leave", ym=ym_param))
 
             if form == "leave_add":
-                staff_id = int(request.form["staff_id"])
+                s = selected_staff_for_absence()
+                if s is None:
+                    return redirect(url_for("leave", ym=ym_param))
+                staff_id = s.id
                 lv_type = request.form["leave_type"].upper().strip()
                 start_d = date.fromisoformat(request.form["start"])
                 end_d = date.fromisoformat(request.form["end"])
 
                 # NEW: allow TOU8 / TOUI in this form (write to roster, deduct TOIL)
                 if lv_type in {"TOU8", "TOUI"}:
-                    s = dependencies.tenant_get(dependencies.Staff, staff_id)
-                    if not s:
-                        abort(404)
                     used_per_day_half = 2 if lv_type == "TOU8" else 1
                     cur = start_d
                     while cur <= end_d:
@@ -237,9 +253,6 @@ def create_absence_requests_blueprint(
                 )
                 dependencies.db.session.add(lv)
                 dependencies.db.session.commit()
-                s = dependencies.tenant_get(dependencies.Staff, staff_id)
-                if not s:
-                    abort(404)
                 cur = start_d
                 while cur <= end_d:
                     dependencies.refresh_day_from_pattern_and_leave(s, cur)
@@ -292,7 +305,10 @@ def create_absence_requests_blueprint(
                 return redirect(url_for("leave", ym=ym_param))
 
             if form == "sick_add":
-                staff_id = int(request.form["staff_id"])
+                s = selected_staff_for_absence()
+                if s is None:
+                    return redirect(url_for("leave", ym=ym_param))
+                staff_id = s.id
                 code = request.form["sick_code"].upper()
                 sickness_codes = {
                     item["code"] for item in dependencies.get_absence_types("sickness")
@@ -302,9 +318,6 @@ def create_absence_requests_blueprint(
                     return redirect(url_for("leave", ym=ym_param))
                 start_d = date.fromisoformat(request.form["start"])
                 end_d = date.fromisoformat(request.form["end"])
-                s = dependencies.tenant_get(dependencies.Staff, staff_id)
-                if not s:
-                    abort(404)
                 cur = start_d
                 while cur <= end_d:
                     a = dependencies.Assignment.query.filter_by(

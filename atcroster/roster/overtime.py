@@ -185,6 +185,7 @@ class OvertimeSupport:
 class OvertimeDependencies:
     ShiftType: Any
     Staff: Any
+    Watch: Any
     current_unit_id: Callable[[], int]
     consume_rate_limit: Callable[..., bool]
     is_editor_user: Callable[[Any], bool]
@@ -204,6 +205,7 @@ def create_overtime_dependencies(
     return OvertimeDependencies(
         ShiftType=operational_models.ShiftType,
         Staff=operational_models.Staff,
+        Watch=operational_models.Watch,
         **services,
     )
 
@@ -401,6 +403,7 @@ def create_overtime_blueprint(dependencies: OvertimeDependencies) -> Blueprint:
     blueprint = Blueprint("overtime", __name__)
     ShiftType = dependencies.ShiftType
     Staff = dependencies.Staff
+    Watch = dependencies.Watch
     _current_unit_id = dependencies.current_unit_id
     _consume_rate_limit = dependencies.consume_rate_limit
     is_editor_user = dependencies.is_editor_user
@@ -439,12 +442,18 @@ def create_overtime_blueprint(dependencies: OvertimeDependencies) -> Blueprint:
             .order_by(Staff.name)
             .all()
         )
+        watches = (
+            Watch.query.filter_by(unit_id=unit_id)
+            .order_by(Watch.order_index, Watch.name)
+            .all()
+        )
         results = []
         excluded = []
         what_if_result = None
         chosen_date = None
         chosen_shift = None
         what_if_staff_id = None
+        what_if_watch_id = None
         selected_staff_ids: set[str] = set()
         sms_body = ""
         searched = request.method == "POST"
@@ -458,6 +467,10 @@ def create_overtime_blueprint(dependencies: OvertimeDependencies) -> Blueprint:
             what_if_staff_id = (
                 int(raw_what_if_staff_id) if raw_what_if_staff_id.isdigit() else None
             )
+            raw_what_if_watch_id = request.form.get("what_if_watch_id", "")
+            what_if_watch_id = (
+                int(raw_what_if_watch_id) if raw_what_if_watch_id.isdigit() else None
+            )
             selected_staff_ids = {sid for sid in request.form.getlist("staff_ids")}
             sms_body = (request.form.get("message") or "").strip()
 
@@ -467,6 +480,9 @@ def create_overtime_blueprint(dependencies: OvertimeDependencies) -> Blueprint:
 
             if action == "what_if":
                 searched = False
+                selected_watch = next(
+                    (watch for watch in watches if watch.id == what_if_watch_id), None
+                )
                 selected_staff = next(
                     (
                         person
@@ -475,10 +491,12 @@ def create_overtime_blueprint(dependencies: OvertimeDependencies) -> Blueprint:
                     ),
                     None,
                 )
-                if error_msg:
+                if selected_watch is None:
+                    flash("Select a watch before choosing an ATCO.", "error")
+                elif error_msg:
                     flash(error_msg, "error")
-                elif selected_staff is None:
-                    flash("Select an ATCO to check.", "error")
+                elif selected_staff is None or selected_staff.watch_id != selected_watch.id:
+                    flash("Select an ATCO in the chosen watch.", "error")
                 else:
                     eligible_result = next(
                         (
@@ -571,8 +589,10 @@ def create_overtime_blueprint(dependencies: OvertimeDependencies) -> Blueprint:
             shifts=shifts,
             results=results,
             overtime_staff=overtime_staff,
+            watches=watches,
             what_if_result=what_if_result,
             what_if_staff_id=what_if_staff_id,
+            what_if_watch_id=what_if_watch_id,
             chosen_date=chosen_date,
             chosen_shift=chosen_shift,
             sms_body=sms_body,

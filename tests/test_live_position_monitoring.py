@@ -754,7 +754,7 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
         "start=2026-07-30&end=2026-07-30&person_id="
         f"{live_position_data['controller_id']}"
     )
-    individual = client.get(f"/live-positions/reports/operational-activity?{query}")
+    individual = client.get(f"/reports/operational-activity?{query}")
     assert individual.status_code == 200
     assert b"Alex Controller" in individual.data
     assert b"Operational activity total" not in individual.data
@@ -769,12 +769,19 @@ def test_operational_activity_reports_split_solo_and_ojti_time(live_position_dat
     assert b"75.0%" in individual.data
 
     chooser = client.get(
-        "/live-positions/reports/operational-activity?"
+        "/reports/operational-activity?"
         "start=2026-07-30&end=2026-07-30"
     )
     assert chooser.status_code == 200
     assert b"Select a controller" in chooser.data
     assert b"01:30" not in chooser.data
+
+    legacy = client.get(
+        f"/live-positions/reports/operational-activity?{query}",
+        follow_redirects=False,
+    )
+    assert legacy.status_code == 308
+    assert legacy.headers["Location"].endswith(f"/reports/operational-activity?{query}")
 
 
 def test_admin_can_configure_currency_category_and_position(live_position_data):
