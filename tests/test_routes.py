@@ -1182,7 +1182,25 @@ def test_stale_roster_cell_version_is_rejected(client):
             field="code",
             new_value="A",
         ).one()
-        assert audit.context_month == "2025-04"
+    assert audit.context_month == "2025-04"
+
+
+def test_roster_assignment_rejects_cross_unit_staff_identifier(client):
+    login(client)
+    with app.app.app_context():
+        foreign = Staff.query.filter_by(username="other_staff_test").one()
+        foreign_id = foreign.id
+
+    response = client.post(
+        f"/assign/{foreign_id}/2025-04/2025-04-02",
+        data={
+            "_csrf_token": csrf(client),
+            "code": "M",
+            "assignment_version": "0",
+        },
+    )
+
+    assert response.status_code == 404
 
 
 def test_monthly_roster_exposes_delegated_editor_decision_controls(client):
