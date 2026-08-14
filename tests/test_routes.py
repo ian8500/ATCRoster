@@ -2385,6 +2385,39 @@ def test_roster_routes_render(client):
     assert b'rosterStickyShield.style.height' in client.get('/static/roster.js').data
 
 
+def test_roster_csv_export_is_explicitly_tenant_scoped(client):
+    """A combined development database must not leak another unit's roster."""
+    with app.app.app_context():
+        other_staff = Staff(
+            unit_id=3,
+            username="other_export_staff_csv",
+            name="Other Airport Controller",
+            staff_no="OTH-CSV-001",
+            role="user",
+            is_operational=True,
+        )
+        other_staff.set_password("not-used")
+        db.session.add(other_staff)
+        db.session.flush()
+        db.session.add(
+            Assignment(
+                unit_id=3,
+                staff_id=other_staff.id,
+                day=date(2025, 4, 1),
+                code="M",
+                source="manual",
+            )
+        )
+        db.session.commit()
+
+    login(client)
+    exported = client.get("/roster/2025-04/export")
+
+    assert exported.status_code == 200
+    assert b"Other Airport Controller" not in exported.data
+    assert b"OTH-CSV-001" not in exported.data
+
+
 def test_position_monitor_account_is_hidden_from_roster_and_export(client):
     with app.app.app_context():
         kiosk = Staff(

@@ -413,19 +413,24 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         ):
             abort(429)
         year, month = dependencies.parse_year_month(ym)
+        unit_id = dependencies.current_unit_id()
         start, days = dependencies.roster_month_service.range(year, month)
         staff = (
             dependencies.Staff.query.outerjoin(
                 dependencies.Watch,
                 dependencies.Staff.watch_id == dependencies.Watch.id,
             )
-            .filter(dependencies.Staff.role != "position_monitor")
+            .filter(
+                dependencies.Staff.unit_id == unit_id,
+                dependencies.Staff.role != "position_monitor",
+            )
             .order_by(dependencies.Watch.order_index, dependencies.Staff.name)
             .all()
         )
         assignment_map = defaultdict(dict)
         month_end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
         for assignment in dependencies.Assignment.query.filter(
+            dependencies.Assignment.unit_id == unit_id,
             dependencies.Assignment.day >= start,
             dependencies.Assignment.day < month_end,
         ):
@@ -433,11 +438,12 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
                 assignment.effective_code
             )
         requirement = dependencies.Requirement.query.filter_by(
-            year=year, month=month
+            unit_id=unit_id, year=year, month=month
         ).first()
         special_by_day = {
             row.day: row
             for row in dependencies.SpecialRequirement.query.filter(
+                dependencies.SpecialRequirement.unit_id == unit_id,
                 dependencies.SpecialRequirement.day >= start,
                 dependencies.SpecialRequirement.day < month_end,
             ).all()
@@ -450,7 +456,6 @@ def create_roster_blueprint(dependencies: RosterDependencies) -> Blueprint:
         }
         counters = {day: Counter() for day in days}
         excluded = dependencies.exclude_from_counters()
-        unit_id = dependencies.current_unit_id()
         for person in staff:
             if not person.is_operational:
                 continue
