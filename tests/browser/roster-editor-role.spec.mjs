@@ -19,7 +19,7 @@ function totp(secret) {
 
 test("Roster Editor can edit but cannot publish", async ({ page }) => {
   await page.goto("/login");
-  await page.getByLabel(/username/i).fill("lba.editor");
+  await page.getByLabel(/username/i).fill("ema.editor");
   await page.getByRole("textbox", { name: "Password" }).fill(password);
   await Promise.all([
     page.waitForURL("**/login/mfa"),

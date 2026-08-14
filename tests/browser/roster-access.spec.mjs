@@ -59,3 +59,31 @@ test("mobile navigation opens, closes, and returns focus predictably", async ({ 
   await expect(navigation).not.toHaveClass(/is-open/);
   await expect(menu).toBeFocused();
 });
+
+test("roster keyboard navigation moves between editable assignments", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill("lba.editor");
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/login/mfa"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  await page.getByLabel(/code/i).fill(totp(mfaSecret));
+  await page.getByRole("button", { name: /verify|continue/i }).click();
+  await page.goto(`/roster/${rosterMonth}`);
+
+  const selected = page.locator(".cell.editable")
+    .filter({ has: page.locator("[data-roster-shift-open]") }).first();
+  const originalDay = await selected.getAttribute("data-roster-day");
+  await selected.evaluate((cell) => cell.click());
+  await expect(selected).toHaveClass(/is-selected/);
+  await page.keyboard.press("ArrowRight");
+  const moved = page.locator(".cell.is-selected");
+  await expect(moved).toHaveCount(1);
+  await expect(moved).not.toHaveAttribute("data-roster-day", originalDay);
+  await expect(moved.locator("[data-roster-shift-open]")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#roster-shift-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#roster-shift-dialog")).not.toBeVisible();
+});

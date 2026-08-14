@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 E2E_MFA_SECRET = "JBSWY3DPEHPK3PXP"
-E2E_MFA_USERNAMES = ("lba.admin", "lba.editor", "lba.atco01")
+E2E_MFA_USERNAMES = ("lba.admin", "lba.editor", "lba.atco01", "ema.editor")
 
 # Python puts ``scripts/`` first when this file is launched directly. Ensure
 # the root-level WSGI compatibility module is importable in CI and locally.
