@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import re
 
 import pytest
@@ -278,8 +278,9 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"Log off all controllers" in kiosk_page.data
     assert b"data-logoff-choice" in kiosk_page.data
     assert b"position?.participants.length" in kiosk_page.data
-    assert b"data-elapsed-from" in kiosk_page.data
-    assert b"data-remaining-from" in kiosk_page.data
+    assert b"data-accrued-seconds" in kiosk_page.data
+    assert b"data-remaining-accrued-seconds" in kiosk_page.data
+    assert b"Reset break" in kiosk_page.data
     assert b"group.positions.length} position" not in kiosk_page.data
     assert b'id="live-position-kiosk-logout"' in kiosk_page.data
     assert b"kioskLogout.requestSubmit()" in kiosk_page.data
@@ -504,6 +505,49 @@ def test_kiosk_actions_do_not_request_or_require_controller_pins(
         },
     )
     assert response.status_code == 200
+
+
+def test_live_state_carries_position_time_across_a_short_break(live_position_data):
+    with app.app.app_context():
+        now = app.utcnow().replace(tzinfo=None)
+        app.db.session.add_all(
+            [
+                app.PositionStatusEvent(
+                    unit_id=1,
+                    position_id=live_position_data["position_id"],
+                    status="open",
+                    occurred_at=now - timedelta(hours=2),
+                    actor_id=live_position_data["kiosk_id"],
+                    transaction_key="accrual-open",
+                ),
+                app.PositionSession(
+                    unit_id=1,
+                    position_id=live_position_data["position_id"],
+                    primary_person_id=live_position_data["controller_id"],
+                    started_at=now - timedelta(minutes=120),
+                    ended_at=now - timedelta(minutes=30),
+                    created_by_id=live_position_data["kiosk_id"],
+                    transaction_key="accrual-prior",
+                ),
+                app.PositionSession(
+                    unit_id=1,
+                    position_id=live_position_data["position_id"],
+                    primary_person_id=live_position_data["controller_id"],
+                    started_at=now - timedelta(minutes=10),
+                    created_by_id=live_position_data["kiosk_id"],
+                    transaction_key="accrual-current",
+                ),
+            ]
+        )
+        app.db.session.commit()
+
+    client = app.app.test_client()
+    _login_kiosk(client)
+    primary = client.get("/live-positions/api/state").get_json()["positions"][0][
+        "primary"
+    ]
+    assert 5990 <= primary["accrued_seconds"] <= 6020
+    assert primary["required_break_seconds"] == 1800
 
 
 def test_controller_cannot_be_logged_on_to_two_positions(live_position_data):
@@ -838,9 +882,30 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
     page = client.get("/live-positions/admin/positions")
     assert page.status_code == 200
     assert b"Maximum-time weekly matrix" in page.data
+    assert b"Cumulative controller-time recovery" in page.data
     assert b"airport\xe2\x80\x99s local timezone" in page.data
     with client.session_transaction() as session:
         csrf = session["_csrf_token"]
+    policy = client.post(
+        "/live-positions/admin/positions",
+        data={
+            "_csrf_token": csrf,
+            "action": "update_recovery_policy",
+            "base_break_minutes": "25",
+            "escalation_after_minutes": "90",
+            "extra_break_minutes": "10",
+            "escalation_interval_minutes": "45",
+            "escalation_cap_minutes": "180",
+        },
+    )
+    assert policy.status_code == 302
+    with app.app.app_context():
+        saved_policy = app.LivePositionRecoveryPolicy.query.filter_by(unit_id=1).one()
+        assert saved_policy.base_break_minutes == 25
+        assert saved_policy.escalation_cap_minutes == 180
+        assert app.PositionSessionAudit.query.filter_by(
+            unit_id=1, action="recovery_policy_updated"
+        ).one()
     group = client.post(
         "/live-positions/admin/positions",
         data={

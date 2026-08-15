@@ -11,6 +11,22 @@
 </section>
 
 <details class="card" open>
+  <summary><strong>Cumulative controller-time recovery</strong><span>Airport-wide policy</span></summary>
+  <p>Controller time continues across position changes and short breaks. It resets only after the controller has remained out of every primary, OJTI or assessor role for the full recovery period.</p>
+  <form method="post" class="admin-form-grid live-position-config-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="update_recovery_policy">
+    <label>Base break before time resets (minutes)<input name="base_break_minutes" type="number" min="1" max="240" value="{{ recovery_policy.base_break_minutes }}" required></label>
+    <label>Escalation begins after accrued minutes<input name="escalation_after_minutes" type="number" min="1" max="480" value="{{ recovery_policy.escalation_after_minutes }}" required></label>
+    <label>Additional break per interval (minutes)<input name="extra_break_minutes" type="number" min="0" max="120" value="{{ recovery_policy.extra_break_minutes }}" required></label>
+    <label>Escalation interval (minutes)<input name="escalation_interval_minutes" type="number" min="1" max="240" value="{{ recovery_policy.escalation_interval_minutes }}" required></label>
+    <label>Stop increasing after accrued minutes<input name="escalation_cap_minutes" type="number" min="1" max="720" value="{{ recovery_policy.escalation_cap_minutes }}" required></label>
+    <div class="form-actions"><button class="btn" type="submit">Save recovery policy</button></div>
+  </form>
+  <p class="form-text">Default: 30 minutes out of position. After two accrued hours, each additional commenced hour adds 15 minutes, with escalation capped at four accrued hours.</p>
+</details>
+
+<details class="card" open>
   <summary><strong>Position groups</strong><span>{{ groups|length }} configured</span></summary>
   <p>Create the display sections first, such as Tower and Radar. Their display order controls the order on the live screen.</p>
   <form method="post" class="admin-form-grid">

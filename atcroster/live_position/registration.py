@@ -19,6 +19,7 @@ class OperationalRegistrationDependencies:
     FeatureFlag: Any
     OperationalPosition: Any
     OperationalPositionTimeAllowance: Any
+    LivePositionRecoveryPolicy: Any
     OperationalPositionGroup: Any
     PositionCurrencyCategory: Any
     PositionStatusEvent: Any
@@ -74,6 +75,7 @@ def create_operational_registration_dependencies(
         FeatureFlag=saas_models.FeatureFlag,
         OperationalPosition=saas_models.OperationalPosition,
         OperationalPositionTimeAllowance=saas_models.OperationalPositionTimeAllowance,
+        LivePositionRecoveryPolicy=saas_models.LivePositionRecoveryPolicy,
         OperationalPositionGroup=saas_models.OperationalPositionGroup,
         PositionCurrencyCategory=saas_models.PositionCurrencyCategory,
         PositionStatusEvent=saas_models.PositionStatusEvent,
@@ -100,6 +102,7 @@ def register_operational_blueprints(app: Any, d: OperationalRegistrationDependen
     app.register_blueprint(create_live_position_blueprint(LivePositionDependencies(
         db=d.db, Unit=d.Unit, OperationalPosition=d.OperationalPosition,
         OperationalPositionTimeAllowance=d.OperationalPositionTimeAllowance,
+        LivePositionRecoveryPolicy=d.LivePositionRecoveryPolicy,
         OperationalPositionGroup=d.OperationalPositionGroup,
         PositionCurrencyCategory=d.PositionCurrencyCategory,
         PositionStatusEvent=d.PositionStatusEvent, PositionSession=d.PositionSession,

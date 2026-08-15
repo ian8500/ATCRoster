@@ -55,7 +55,7 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   await page.getByLabel("Primary controller").selectOption({ label: "Alex Taylor" });
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(tower).toContainText("Alex Taylor");
-  await expect(tower.getByText("Elapsed").first()).toBeVisible();
+  await expect(tower.getByText("Accrued").first()).toBeVisible();
   await expect(tower.getByText("Remaining").first()).toBeVisible();
   await tower.getByRole("button", { name: "Add secondary" }).click();
   await page.getByLabel("Secondary role").selectOption("ojti");

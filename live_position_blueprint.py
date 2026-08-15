@@ -30,6 +30,10 @@ from live_position_service import (
     LivePositionService,
     LivePositionValidationError,
 )
+from live_position_timing import (
+    PositionRecoveryPolicy,
+    cumulative_position_seconds,
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,7 @@ class LivePositionDependencies:
     Unit: Any
     OperationalPosition: Any
     OperationalPositionTimeAllowance: Any
+    LivePositionRecoveryPolicy: Any
     OperationalPositionGroup: Any
     PositionCurrencyCategory: Any
     PositionStatusEvent: Any
@@ -178,6 +183,77 @@ def create_live_position_blueprint(
             f"{local_moment.weekday()}:{local_moment.hour}",
             position.maximum_session_duration_minutes,
         )
+
+    def _recovery_policy_row() -> Any | None:
+        return dependencies.LivePositionRecoveryPolicy.query.filter_by(
+            unit_id=_unit_id()
+        ).first()
+
+    def _recovery_policy() -> PositionRecoveryPolicy:
+        row = _recovery_policy_row()
+        return PositionRecoveryPolicy(
+            base_break_minutes=row.base_break_minutes if row else 30,
+            escalation_after_minutes=row.escalation_after_minutes if row else 120,
+            extra_break_minutes=row.extra_break_minutes if row else 15,
+            escalation_interval_minutes=(
+                row.escalation_interval_minutes if row else 60
+            ),
+            escalation_cap_minutes=row.escalation_cap_minutes if row else 240,
+        )
+
+    def _controller_accrual(
+        person_id: int, now: datetime, policy: PositionRecoveryPolicy
+    ) -> tuple[int, int]:
+        now_naive = as_naive_utc(now)
+        cutoff = now_naive - timedelta(days=7)
+        intervals: list[tuple[datetime, datetime]] = []
+        primary_sessions = dependencies.PositionSession.query.filter(
+            dependencies.PositionSession.unit_id == _unit_id(),
+            dependencies.PositionSession.primary_person_id == person_id,
+            dependencies.PositionSession.is_void.is_(False),
+            dependencies.PositionSession.started_at <= now_naive,
+            dependencies.db.or_(
+                dependencies.PositionSession.ended_at.is_(None),
+                dependencies.PositionSession.ended_at >= cutoff,
+            ),
+        ).all()
+        intervals.extend(
+            (
+                as_naive_utc(row.started_at),
+                min(as_naive_utc(row.ended_at), now_naive)
+                if row.ended_at
+                else now_naive,
+            )
+            for row in primary_sessions
+        )
+        participant_rows = (
+            dependencies.PositionSessionParticipant.query.join(
+                dependencies.PositionSession,
+                dependencies.PositionSession.id
+                == dependencies.PositionSessionParticipant.session_id,
+            )
+            .filter(
+                dependencies.PositionSessionParticipant.unit_id == _unit_id(),
+                dependencies.PositionSessionParticipant.person_id == person_id,
+                dependencies.PositionSession.is_void.is_(False),
+                dependencies.PositionSessionParticipant.started_at <= now_naive,
+                dependencies.db.or_(
+                    dependencies.PositionSessionParticipant.ended_at.is_(None),
+                    dependencies.PositionSessionParticipant.ended_at >= cutoff,
+                ),
+            )
+            .all()
+        )
+        intervals.extend(
+            (
+                as_naive_utc(row.started_at),
+                min(as_naive_utc(row.ended_at), now_naive)
+                if row.ended_at
+                else now_naive,
+            )
+            for row in participant_rows
+        )
+        return cumulative_position_seconds(intervals, policy)
 
     def _controller(person_id: int) -> Any:
         person = dependencies.Staff.query.filter_by(
@@ -722,7 +798,54 @@ def create_live_position_blueprint(
         if request.method == "POST":
             data = _payload()
             action = str(data.get("action") or "")
-            if action == "create_group":
+            if action == "update_recovery_policy":
+                values = {
+                    "base_break_minutes": _int_field(data, "base_break_minutes", 30),
+                    "escalation_after_minutes": _int_field(
+                        data, "escalation_after_minutes", 120
+                    ),
+                    "extra_break_minutes": _int_field(data, "extra_break_minutes", 15),
+                    "escalation_interval_minutes": _int_field(
+                        data, "escalation_interval_minutes", 60
+                    ),
+                    "escalation_cap_minutes": _int_field(
+                        data, "escalation_cap_minutes", 240
+                    ),
+                }
+                valid = (
+                    1 <= values["base_break_minutes"] <= 240
+                    and 1 <= values["escalation_after_minutes"] <= 480
+                    and 0 <= values["extra_break_minutes"] <= 120
+                    and 1 <= values["escalation_interval_minutes"] <= 240
+                    and values["escalation_after_minutes"]
+                    <= values["escalation_cap_minutes"]
+                    <= 720
+                )
+                if not valid:
+                    flash("Enter a valid cumulative-time recovery policy.", "error")
+                else:
+                    row = _recovery_policy_row()
+                    if row is None:
+                        row = dependencies.LivePositionRecoveryPolicy(unit_id=unit_id)
+                        dependencies.db.session.add(row)
+                    for key, value in values.items():
+                        setattr(row, key, value)
+                    row.updated_at = dependencies.utcnow()
+                    row.updated_by_id = current_user.id
+                    dependencies.db.session.add(
+                        dependencies.PositionSessionAudit(
+                            unit_id=unit_id,
+                            actor_id=current_user.id,
+                            action="recovery_policy_updated",
+                            occurred_at=dependencies.utcnow(),
+                            new_value_json=json.dumps(values, sort_keys=True),
+                            transaction_key=LivePositionService.transaction_key(),
+                        )
+                    )
+                    dependencies.db.session.commit()
+                    flash("Cumulative position-time policy updated.", "ok")
+                    return redirect(url_for("live_position.position_configuration"))
+            elif action == "create_group":
                 name = str(data.get("group_name") or "").strip()[:80]
                 duplicate = dependencies.OperationalPositionGroup.query.filter(
                     dependencies.OperationalPositionGroup.unit_id == unit_id,
@@ -943,6 +1066,7 @@ def create_live_position_blueprint(
             positions=positions,
             groups=groups,
             categories=categories,
+            recovery_policy=_recovery_policy(),
             position_matrices={
                 position.id: _position_time_matrix(position) for position in positions
             },
@@ -1186,6 +1310,16 @@ def create_live_position_blueprint(
             .all()
         )
         state = []
+        recovery_policy = _recovery_policy()
+        accrual_cache: dict[int, tuple[int, int]] = {}
+
+        def accrual(person_id: int) -> tuple[int, int]:
+            if person_id not in accrual_cache:
+                accrual_cache[person_id] = _controller_accrual(
+                    person_id, now, recovery_policy
+                )
+            return accrual_cache[person_id]
+
         for position in positions:
             status_event = (
                 dependencies.PositionStatusEvent.query.filter_by(
@@ -1229,6 +1363,7 @@ def create_live_position_blueprint(
                     role = dependencies.db.session.get(
                         dependencies.PositionParticipantRole, row.role_id
                     )
+                    accrued_seconds, required_break_seconds = accrual(row.person_id)
                     participants.append(
                         {
                             "id": row.id,
@@ -1237,6 +1372,9 @@ def create_live_position_blueprint(
                             "role_label": role.label if role else "Supporting",
                             "role_code": role.code if role else "",
                             "started_at": _iso_timestamp(row.started_at),
+                            "accrued_seconds": accrued_seconds,
+                            "accrued_at": _iso_timestamp(now),
+                            "required_break_seconds": required_break_seconds,
                             "maximum_duration_seconds": maximum_duration_seconds,
                             "eligibility_warnings": (
                                 _eligibility_reasons(
@@ -1282,6 +1420,9 @@ def create_live_position_blueprint(
                             "id": primary.id,
                             "name": primary.name,
                             "started_at": _iso_timestamp(session.started_at),
+                            "accrued_seconds": accrual(primary.id)[0],
+                            "accrued_at": _iso_timestamp(now),
+                            "required_break_seconds": accrual(primary.id)[1],
                             "maximum_duration_seconds": maximum_duration_seconds,
                             "due_off_at": (
                                 _iso_timestamp(session.due_off_at)

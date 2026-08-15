@@ -418,6 +418,42 @@ def register_saas_models(db, utcnow):
             ),
         )
 
+    class LivePositionRecoveryPolicy(db.Model):
+        __tablename__ = "live_position_recovery_policy"
+        id = db.Column(db.Integer, primary_key=True)
+        unit_id = db.Column(
+            db.Integer, db.ForeignKey("unit.id"), nullable=False, unique=True, index=True
+        )
+        base_break_minutes = db.Column(db.Integer, nullable=False, default=30)
+        escalation_after_minutes = db.Column(db.Integer, nullable=False, default=120)
+        extra_break_minutes = db.Column(db.Integer, nullable=False, default=15)
+        escalation_interval_minutes = db.Column(db.Integer, nullable=False, default=60)
+        escalation_cap_minutes = db.Column(db.Integer, nullable=False, default=240)
+        updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+        updated_by_id = db.Column(db.Integer, db.ForeignKey("staff.id"))
+        __table_args__ = (
+            db.CheckConstraint(
+                "base_break_minutes >= 1 AND base_break_minutes <= 240",
+                name="ck_position_recovery_base_break",
+            ),
+            db.CheckConstraint(
+                "escalation_after_minutes >= 1 AND escalation_after_minutes <= 480",
+                name="ck_position_recovery_threshold",
+            ),
+            db.CheckConstraint(
+                "extra_break_minutes >= 0 AND extra_break_minutes <= 120",
+                name="ck_position_recovery_extra_break",
+            ),
+            db.CheckConstraint(
+                "escalation_interval_minutes >= 1 AND escalation_interval_minutes <= 240",
+                name="ck_position_recovery_interval",
+            ),
+            db.CheckConstraint(
+                "escalation_cap_minutes >= escalation_after_minutes AND escalation_cap_minutes <= 720",
+                name="ck_position_recovery_cap",
+            ),
+        )
+
     class PositionCurrencyCategory(db.Model):
         __tablename__ = "position_currency_category"
         id = db.Column(db.Integer, primary_key=True)
