@@ -259,6 +259,26 @@ def test_invalid_position_matrix_blocks_the_data_migration(tmp_path):
     assert "outside the weekly matrix" in result.stderr
 
 
+def test_recovery_policy_upgrade_supports_physically_separate_operational_database(
+    tmp_path,
+):
+    database = tmp_path / "separate-operational.db"
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
+        connection.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES ('20260814_59')")
+        )
+
+    result = _run_alembic(database, "head")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    with engine.connect() as connection:
+        inspector = inspect(connection)
+        assert "live_position_recovery_policy" in inspector.get_table_names()
+        assert inspector.get_foreign_keys("live_position_recovery_policy") == []
+
+
 def test_assignment_values_are_conservatively_classified(tmp_path):
     database = tmp_path / "assignment-baseline-override.db"
     assert _run_alembic(database, "20260803_41").returncode == 0

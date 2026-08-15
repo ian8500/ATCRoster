@@ -31,8 +31,6 @@ def upgrade() -> None:
         sa.Column("escalation_cap_minutes", sa.Integer(), nullable=False, server_default="240"),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.Column("updated_by_id", sa.Integer()),
-        sa.ForeignKeyConstraint(["unit_id"], ["unit.id"]),
-        sa.ForeignKeyConstraint(["updated_by_id"], ["staff.id"]),
         sa.UniqueConstraint("unit_id", name="uq_live_position_recovery_policy_unit_id"),
         sa.CheckConstraint("base_break_minutes >= 1 AND base_break_minutes <= 240", name="ck_position_recovery_base_break"),
         sa.CheckConstraint("escalation_after_minutes >= 1 AND escalation_after_minutes <= 480", name="ck_position_recovery_threshold"),

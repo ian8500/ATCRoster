@@ -422,7 +422,7 @@ def register_saas_models(db, utcnow):
         __tablename__ = "live_position_recovery_policy"
         id = db.Column(db.Integer, primary_key=True)
         unit_id = db.Column(
-            db.Integer, db.ForeignKey("unit.id"), nullable=False, unique=True, index=True
+            db.Integer, nullable=False, unique=True, index=True
         )
         base_break_minutes = db.Column(db.Integer, nullable=False, default=30)
         escalation_after_minutes = db.Column(db.Integer, nullable=False, default=120)
@@ -430,7 +430,7 @@ def register_saas_models(db, utcnow):
         escalation_interval_minutes = db.Column(db.Integer, nullable=False, default=60)
         escalation_cap_minutes = db.Column(db.Integer, nullable=False, default=240)
         updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-        updated_by_id = db.Column(db.Integer, db.ForeignKey("staff.id"))
+        updated_by_id = db.Column(db.Integer)
         __table_args__ = (
             db.CheckConstraint(
                 "base_break_minutes >= 1 AND base_break_minutes <= 240",
