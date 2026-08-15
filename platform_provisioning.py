@@ -26,9 +26,6 @@ from scripts.migrate_all_databases import (
     upgrade_database,
 )
 
-ACTIVE_STATES = ("queued", "running", "retry_wait")
-
-
 def worker_health_snapshot(application, *, stale_after_seconds: int) -> dict:
     """Return non-sensitive worker and queue signals for deployment probes."""
     now = application.utcnow()

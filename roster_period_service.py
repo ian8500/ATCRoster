@@ -9,11 +9,6 @@ from typing import Any
 from roster_horizon import get_unit_automatic_recalculation_start
 
 
-ROSTER_PERIOD_STATUSES = frozenset({
-    "CURRENT", "PROTECTED", "FUTURE_AUTOMATIC", "HISTORICAL", "CLOSED",
-})
-
-
 @dataclass(frozen=True)
 class RosterPeriodDependencies:
     db: Any
