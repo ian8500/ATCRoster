@@ -757,7 +757,8 @@ def test_roster_shows_annotation_once_and_hover_detail_can_be_edited(
     assert b'class="annotation-dialog"' in page.data
     assert b'class="annotation-remove-form"' in page.data
     assert b'aria-label="Remove NEAT annotation"' in page.data
-    assert b"data-roster-shift-open" in page.data
+    assert b"data-roster-shift-select" in page.data
+    assert b"data-roster-shift-open" not in page.data
     assert b"annotation-code--editable" in page.data
     assert b"Click to add annotation text" in page.data
     assert b'<svg viewBox="0 0 16 16"' not in page.data

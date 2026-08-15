@@ -178,21 +178,24 @@ def create_platform_admin_blueprint(
             elif name == "http_request_duration_seconds_sum":
                 row["seconds"] += value
         output = []
+        total_requests = 0
+        total_errors = 0
         for route, values in routes.items():
             requests = int(values["requests"])
+            errors = int(values["errors"])
+            total_requests += requests
+            total_errors += errors
             output.append(
                 {
                     "route": route,
                     "requests": requests,
-                    "errors": int(values["errors"]),
+                    "errors": errors,
                     "average_ms": round(values["seconds"] * 1000 / requests, 1)
                     if requests
                     else 0,
                 }
             )
         output.sort(key=lambda row: (row["errors"], row["average_ms"]), reverse=True)
-        total_requests = sum(row["requests"] for row in output)
-        total_errors = sum(row["errors"] for row in output)
         return {
             "routes": output[:10],
             "total_requests": total_requests,

@@ -2219,6 +2219,140 @@ def test_role_permission_matrix_and_cross_airport_isolation():
     )
 
 
+def test_every_get_page_fails_safely_for_every_supported_user_level():
+    """Exercise the complete page surface for every supported access level.
+
+    A role may legitimately receive a redirect, 403, or tenant-safe 404. A
+    server error is never an acceptable access-control outcome.
+    """
+    with app.app.app_context():
+        unit = db.session.get(Unit, 1)
+        watch = Watch.query.filter_by(unit_id=unit.id).first()
+        for username, role, membership_role in (
+            ("auditor_test", "auditor", "ReadOnlyAuditor"),
+            ("kiosk_test", "position_monitor", "PositionMonitor"),
+        ):
+            if Staff.query.filter_by(unit_id=unit.id, username=username).first():
+                continue
+            person = Staff(
+                unit_id=unit.id,
+                username=username,
+                name=username.replace("_", " ").title(),
+                staff_no=username.upper(),
+                role=role,
+                watch_id=watch.id if role == "auditor" else None,
+                is_operational=role == "auditor",
+            )
+            person.set_password("password123")
+            db.session.add(person)
+            db.session.flush()
+            identity = app.PlatformIdentity(
+                public_id=f"test-{username}",
+                username=username,
+                password_hash=person.password_hash,
+            )
+            db.session.add(identity)
+            db.session.flush()
+            db.session.add(app.UnitMembership(
+                identity_id=identity.id,
+                unit_id=unit.id,
+                person_id=person.id,
+                role=membership_role,
+                status="active",
+            ))
+        db.session.commit()
+        staff_id = Staff.query.filter_by(unit_id=1, username="staff_test").one().id
+
+    values = {
+        "assignment_id": 999999,
+        "day": "2025-04-02",
+        "filename": "styles.css",
+        "hid": 999999,
+        "item_id": 999999,
+        "notification_id": 999999,
+        "participant_id": 999999,
+        "pattern_id": 999999,
+        "position_id": 999999,
+        "proposal_id": 999999,
+        "record_id": 999999,
+        "registration_id": 999999,
+        "rid": 999999,
+        "run_id": 999999,
+        "sid": staff_id,
+        "staff_id": staff_id,
+        "token": "invalid-test-token",
+        "ym": "2025-04",
+    }
+    page_paths = []
+    adapter = app.app.url_map.bind("localhost")
+    for rule in app.app.url_map.iter_rules():
+        if "GET" not in (rule.methods or ()) or rule.endpoint == "static":
+            continue
+        path = adapter.build(
+            rule.endpoint,
+            {argument: values[argument] for argument in rule.arguments},
+        )
+        page_paths.append((rule.endpoint, path))
+
+    clients = {}
+    for level, username in (
+        ("unit_admin", ADMIN_CREDENTIALS["username"]),
+        ("roster_editor", "editor_test"),
+        ("watch_manager", "watch_manager_test"),
+        ("duty_watch_manager", "duty_watch_manager_test"),
+        ("staff_user", "staff_test"),
+        ("read_only_auditor", "auditor_test"),
+        ("position_monitor", "kiosk_test"),
+    ):
+        role_client = app.app.test_client()
+        login_as(role_client, username, follow_redirects=False)
+        clients[level] = role_client
+
+    platform_client = app.app.test_client()
+    login_as(platform_client, "platform_test", follow_redirects=False)
+    with app.app.app_context():
+        identity = app.PlatformIdentity.query.filter_by(username="platform_test").one()
+        credential = app.PlatformMfaCredential.query.filter_by(
+            identity_id=identity.id,
+        ).first()
+        platform_identity_id = identity.id
+        created_platform_credential = credential is None
+        secret = app._decrypt_field(credential.encrypted_secret) if credential else ""
+    if not secret:
+        platform_client.get("/login/platform-mfa/setup")
+        with platform_client.session_transaction() as session:
+            secret = session["_pending_platform_mfa_secret"]
+            token = session["_csrf_token"]
+        platform_client.post(
+            "/login/platform-mfa/setup",
+            data={"_csrf_token": token, "code": pyotp.TOTP(secret).now()},
+        )
+    platform_client.get("/login/platform-mfa")
+    with platform_client.session_transaction() as session:
+        token = session["_csrf_token"]
+    platform_client.post(
+        "/login/platform-mfa",
+        data={"_csrf_token": token, "code": pyotp.TOTP(secret).now()},
+    )
+    clients["super_admin"] = platform_client
+
+    failures = []
+    for level, role_client in clients.items():
+        for endpoint, path in page_paths:
+            response = role_client.get(path, follow_redirects=False)
+            expected_degraded = endpoint in {"health_ready", "platform_worker_health"}
+            if response.status_code >= 500 and not expected_degraded:
+                failures.append((level, endpoint, path, response.status_code))
+
+    assert not failures, failures
+    if created_platform_credential:
+        with app.app.app_context():
+            app.PlatformMfaCredential.query.filter_by(
+                identity_id=platform_identity_id,
+            ).delete()
+            db.session.commit()
+
+
 def test_health_endpoints_report_ready(client):
     assert client.get("/health/live").get_json()["status"] == "ok"
     ready = client.get("/health/ready")
