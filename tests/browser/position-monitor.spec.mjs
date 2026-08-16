@@ -57,6 +57,26 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   await expect(tower).toContainText("Alex Taylor");
   await expect(tower.getByText("Accrued").first()).toBeVisible();
   await expect(tower.getByText("Remaining").first()).toBeVisible();
+  const accruedClock = tower.locator("[data-accrued-seconds]").first();
+  await expect(accruedClock).not.toHaveText("00:00:00", { timeout: 3_000 });
+  const displayedDuringRefresh = await accruedClock.evaluate(async (node) => {
+    const root = node.closest("#live-position-grid");
+    const values = [node.textContent];
+    const observer = new MutationObserver(() => {
+      root.querySelectorAll("[data-accrued-seconds]").forEach(
+        clock => values.push(clock.textContent),
+      );
+    });
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    await new Promise(resolve => setTimeout(resolve, 5_500));
+    observer.disconnect();
+    return values;
+  });
+  expect(displayedDuringRefresh).not.toContain("00:00:00");
   await tower.getByRole("button", { name: "Add secondary" }).click();
   await page.getByLabel("Secondary role").selectOption("ojti");
   const secondary = page.locator("#live-position-support-person");

@@ -229,6 +229,10 @@
       connection.innerHTML = '<span aria-hidden="true">●</span> Connected';
       connection.classList.add('is-connected');
       refreshed.textContent = `Last refreshed ${new Date().toLocaleTimeString('en-GB')}`;
+      // SSE replaces the position markup every five seconds. Populate the
+      // newly-created clock nodes in the same task so the browser never paints
+      // their 00:00:00 placeholders between authoritative state updates.
+      updateClocks();
       fitBoard();
     };
     const markLiveStateStale = () => {

@@ -280,6 +280,8 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"position?.participants.length" in kiosk_page.data
     assert b"data-accrued-seconds" in kiosk_page.data
     assert b"data-remaining-accrued-seconds" in kiosk_page.data
+    assert b"newly-created clock nodes" in kiosk_page.data
+    assert b"updateClocks();\n      fitBoard();" in kiosk_page.data
     assert b"Reset break" in kiosk_page.data
     assert b"group.positions.length} position" not in kiosk_page.data
     assert b'id="live-position-kiosk-logout"' in kiosk_page.data
