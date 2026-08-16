@@ -321,7 +321,7 @@ def create_fresh_schema():
     op.create_table('super_admin_audit',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('actor_identity_id', sa.Integer(), sa.ForeignKey('platform_identity.id'), nullable=False),
-        sa.Column('unit_id', sa.Integer(), sa.ForeignKey('unit.id'), nullable=False),
+        sa.Column('unit_id', sa.Integer(), sa.ForeignKey('unit.id'), nullable=True),
         sa.Column('action', sa.String(80), nullable=False),
         sa.Column('safe_summary', sa.String(500), nullable=False),
         sa.Column('occurred_at', sa.DateTime(), nullable=False),

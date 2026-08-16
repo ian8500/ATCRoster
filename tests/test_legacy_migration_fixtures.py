@@ -150,6 +150,12 @@ def test_legacy_fixture_upgrades_to_head_without_data_loss(fixture_name, tmp_pat
             }
             assert "protected_roster_months_ahead" in unit_columns
             assert "preserve_redundant_overrides" in unit_columns
+        if "super_admin_audit" in inspector.get_table_names():
+            audit_columns = {
+                column["name"]: column
+                for column in inspector.get_columns("super_admin_audit")
+            }
+            assert audit_columns["unit_id"]["nullable"] is True
         for table, count in before.items():
             assert (
                 connection.execute(text(f'SELECT COUNT(*) FROM "{table}"')).scalar_one()

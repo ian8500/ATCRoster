@@ -407,6 +407,23 @@ def test_platform_admin_onboarding_contains_no_personal_identity_fields():
     for value in prohibited:
         assert value not in lower
 
+    refreshed = client.post(
+        "/platform/admin",
+        data={
+            "_csrf_token": _csrf(client, "/platform/admin"),
+            "action": "refresh_serviceability",
+        },
+        follow_redirects=True,
+    )
+    assert refreshed.status_code == 200
+    assert b"Serviceability checks refreshed." in refreshed.data
+    assert b"Serviceability dashboard" in refreshed.data
+    with app.app.app_context():
+        audit = app.SuperAdminAudit.query.filter_by(
+            action="serviceability_rechecked"
+        ).one()
+        assert audit.unit_id is None
+
     created = client.post(
         "/platform/admin",
         data={
