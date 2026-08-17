@@ -116,6 +116,93 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   await expect(page).toHaveURL(/\/live-positions\/kiosk$/);
 });
 
+test("Position Monitor presents closed positions as solid, opaque operational cards", async ({ page }) => {
+  await page.route("**/live-positions/api/events", (route) => route.abort());
+  await page.route("**/live-positions/api/state", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.positions = payload.positions.slice(0, 1).map((position) => ({
+      ...position,
+      display_status: "closed",
+      primary: null,
+      participants: [],
+      eligibility_warnings: [],
+    }));
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill(username);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/live-positions/kiosk"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  const startKiosk = page.getByRole("button", { name: "Start kiosk" });
+  if (await startKiosk.count()) await startKiosk.click();
+
+  const tile = page.locator(".live-position-tile--closed");
+  await expect(tile).toHaveCount(1);
+  await expect(tile).toBeVisible();
+  await expect(tile.locator("header > span")).toHaveText("CLOSED");
+  const presentation = await tile.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      background: style.backgroundColor,
+      borderStyle: style.borderTopStyle,
+      opacity: Number(style.opacity),
+      radius: Number.parseFloat(style.borderTopLeftRadius),
+    };
+  });
+  expect(presentation.background).not.toBe("transparent");
+  expect(presentation.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(presentation.borderStyle).toBe("solid");
+  expect(presentation.opacity).toBe(1);
+  expect(presentation.radius).toBeGreaterThan(0);
+});
+
+test("Position Monitor gives an empty board a contained operational state", async ({ page }) => {
+  await page.route("**/live-positions/api/events", (route) => route.abort());
+  await page.route("**/live-positions/api/state", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.positions = [];
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill(username);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/live-positions/kiosk"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  const startKiosk = page.getByRole("button", { name: "Start kiosk" });
+  if (await startKiosk.count()) await startKiosk.click();
+
+  const viewport = page.locator("#live-position-board-viewport");
+  const emptyState = page.locator("#live-position-grid > .empty-state");
+  await expect(emptyState).toHaveCount(1);
+  await expect(emptyState).toContainText("No active operational positions are configured.");
+  const presentation = await emptyState.evaluate((node) => {
+    const board = node.closest("#live-position-board-viewport");
+    const rect = node.getBoundingClientRect();
+    const boardRect = board.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    return {
+      display: style.display,
+      paddingTop: Number.parseFloat(style.paddingTop),
+      centred: style.placeItems === "center",
+      contained: rect.left >= boardRect.left && rect.right <= boardRect.right,
+      boardOverflowX: getComputedStyle(board).overflowX,
+    };
+  });
+  expect(presentation.display).toBe("grid");
+  expect(presentation.paddingTop).toBeGreaterThan(0);
+  expect(presentation.centred).toBe(true);
+  expect(presentation.contained).toBe(true);
+  expect(presentation.boardOverflowX).toBe("hidden");
+  await expect(viewport).toBeVisible();
+});
+
 test("Position Monitor makes an offline display explicitly stale", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel(/username/i).fill(username);

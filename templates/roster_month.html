@@ -60,52 +60,62 @@
 
 {% block content %}
 <div class="roster-sticky-shield" data-roster-sticky-shield aria-hidden="true"></div>
-<h2>ATC Roster – {{ month_title }}</h2>
 <div class="roster-save-status" data-roster-save-status role="status" aria-live="polite"></div>
 
-<div class="month-nav roster-month-nav">
-  {% if prev_ym %}
-    <a class="btn ghost" href="{{ url_for('roster_month', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
-  {% else %}
-    <span class="btn ghost disabled-nav-control">&larr; —</span>
-  {% endif %}
-  <a class="btn ghost roster-next-link" href="{{ url_for('roster_month', ym=next_ym) }}">{{ next_ym }} &rarr;</a>
-
-  <a class="btn roster-export-link" href="{{ url_for('roster_export_csv', ym=ym) }}">Export CSV</a>
-  <button class="btn" data-command="print-roster">Print</button>
-
-  <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
-    <span class="roster-zoom-label">Zoom</span>
-    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.75"
-            >75%</button>
-    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.90"
-            >90%</button>
-    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="1"
-            >100%</button>
-    <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="fit"
-            >Fit width</button>
+<header class="roster-workspace-header">
+  <div class="roster-workspace-heading">
+    <h2>ATC Roster – {{ month_title }}</h2>
   </div>
 
-</div>
+  <div class="month-nav roster-month-nav">
+    <div class="roster-toolbar__group roster-toolbar__group--period">
+      {% if prev_ym %}
+        <a class="btn ghost" href="{{ url_for('roster_month', ym=prev_ym) }}">&larr; {{ prev_ym }}</a>
+      {% else %}
+        <span class="btn ghost disabled-nav-control">&larr; —</span>
+      {% endif %}
+      <a class="btn ghost roster-next-link" href="{{ url_for('roster_month', ym=next_ym) }}">{{ next_ym }} &rarr;</a>
+    </div>
 
-<section class="roster-overview" aria-label="Roster status and assurance summary">
-  <div class="roster-overview__state {{ 'is-published' if roster_publication else 'is-draft' }}">
-    <span class="eyebrow">{{ 'Published roster' if roster_publication else 'Draft roster' }}</span>
-    <strong>{{ month_title }}</strong>
-    <small>{% if roster_publication %}Published {{ roster_publication.published_at.strftime('%d %B %Y') }}{% else %}Not yet published to staff{% endif %}</small>
+    <div class="roster-toolbar__group roster-toolbar__group--actions">
+      <a class="btn roster-export-link" href="{{ url_for('roster_export_csv', ym=ym) }}">Export CSV</a>
+      <button class="btn" data-command="print-roster">Print</button>
+    </div>
+
+    <div class="roster-toolbar__group roster-toolbar__group--zoom">
+      <div class="roster-zoom-controls" role="group" aria-label="Roster zoom">
+        <span class="roster-zoom-label">Zoom</span>
+        <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.75"
+                >75%</button>
+        <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="0.90"
+                >90%</button>
+        <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="1"
+                >100%</button>
+        <button type="button" class="btn ghost roster-zoom-btn" data-roster-zoom="fit"
+                >Fit width</button>
+      </div>
+    </div>
   </div>
-  {% if can_publish_roster %}
-    {% if roster_publication %}<form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}" data-confirm="Undo publication for the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Return to draft</button></form>
-    {% else %}<form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}" data-confirm="Publish the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-sm" type="submit" {% if roster_validation.blocking_count %}disabled title="Resolve blocking validation findings first"{% endif %}>Publish roster</button></form>{% endif %}
-  {% endif %}
-  {% if roster_publication %}
-    {% if roster_acknowledgement %}
-      <span class="assurance-ok" role="status">Acknowledged {{ roster_acknowledgement.acknowledged_at.strftime('%d %B %Y') }}</span>
-    {% else %}
-      <form method="post" action="{{ url_for('roster_month_acknowledge', ym=ym) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Acknowledge roster</button></form>
+
+  <section class="roster-overview" aria-label="Roster status and assurance summary">
+    <div class="roster-overview__state {{ 'is-published' if roster_publication else 'is-draft' }}">
+      <span class="eyebrow">{{ 'Published roster' if roster_publication else 'Draft roster' }}</span>
+      <strong>{{ month_title }}</strong>
+      <small>{% if roster_publication %}Published {{ roster_publication.published_at.strftime('%d %B %Y') }}{% else %}Not yet published to staff{% endif %}</small>
+    </div>
+    {% if can_publish_roster %}
+      {% if roster_publication %}<form method="post" action="{{ url_for('roster_month_unpublish', ym=ym) }}" data-confirm="Undo publication for the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Return to draft</button></form>
+      {% else %}<form method="post" action="{{ url_for('roster_month_publish', ym=ym) }}" data-confirm="Publish the {{ month_title }} roster?"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-sm" type="submit" {% if roster_validation.blocking_count %}disabled title="Resolve blocking validation findings first"{% endif %}>Publish roster</button></form>{% endif %}
     {% endif %}
-  {% endif %}
-</section>
+    {% if roster_publication %}
+      {% if roster_acknowledgement %}
+        <span class="assurance-ok" role="status">Acknowledged {{ roster_acknowledgement.acknowledged_at.strftime('%d %B %Y') }}</span>
+      {% else %}
+        <form method="post" action="{{ url_for('roster_month_acknowledge', ym=ym) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Acknowledge roster</button></form>
+      {% endif %}
+    {% endif %}
+  </section>
+</header>
 
 {% if can_edit and not readonly %}
   <aside class="roster-inspector" data-roster-inspector hidden aria-labelledby="roster-inspector-title" aria-live="polite">

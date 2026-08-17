@@ -106,25 +106,49 @@ test("roster keeps its controller row header opaque above scrolled cells", async
   if (authenticatedCookies) await page.context().addCookies(authenticatedCookies);
   else await signIn(page);
   const telemetry = page.waitForRequest("**/roster/telemetry");
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/roster/${rosterMonth}`);
   await expect(page.locator("table.roster caption")).toHaveText(/ATC roster for/);
   const nameCell = page.locator("table.roster tbody th.col-name").first();
   await expect(nameCell).toHaveAttribute("scope", "row");
   await expect(nameCell).toHaveCSS("position", "sticky");
-  await expect(nameCell).toHaveCSS("z-index", "8");
-  await expect(nameCell).toHaveCSS("background-color", "rgb(24, 30, 38)");
+  await page.evaluate(() => {
+    window.scrollTo({ left: document.documentElement.scrollWidth, top: window.scrollY });
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollX)).toBeGreaterThan(0);
   const layering = await nameCell.evaluate((cell) => {
     const table = cell.closest("table");
-    window.scrollTo({ left: Math.max(1, (table?.scrollWidth || 0) - window.innerWidth) });
+    const header = table?.querySelector("thead th.col-name");
     const rect = cell.getBoundingClientRect();
-    const target = document.elementFromPoint(rect.left + 8, rect.top + 8);
+    const headerRect = header?.getBoundingClientRect();
+    const target = document.elementFromPoint(
+      rect.left + Math.min(12, Math.max(1, rect.width / 2)),
+      rect.top + Math.min(12, Math.max(1, rect.height / 2)),
+    );
+    const style = getComputedStyle(cell);
+    const headerStyle = header ? getComputedStyle(header) : null;
+    const ordinaryCell = cell.parentElement?.querySelector(".cell");
+    const ordinaryZIndex = ordinaryCell ? Number(getComputedStyle(ordinaryCell).zIndex) || 0 : 0;
     return {
-      opaque: getComputedStyle(cell).backgroundColor !== "rgba(0, 0, 0, 0)",
+      opaque: style.backgroundColor !== "transparent" && style.backgroundColor !== "rgba(0, 0, 0, 0)" && Number(style.opacity) === 1,
       remainsOnTop: Boolean(target && cell.contains(target)),
+      bodyZIndex: Number(style.zIndex) || 0,
+      headerZIndex: Number(headerStyle?.zIndex) || 0,
+      ordinaryZIndex,
+      alignsWithHeader: Boolean(headerRect && Math.abs(rect.left - headerRect.left) <= 1),
     };
   });
   expect(layering.opaque).toBe(true);
   expect(layering.remainsOnTop).toBe(true);
+  expect(layering.bodyZIndex).toBeGreaterThan(layering.ordinaryZIndex);
+  expect(layering.headerZIndex).toBeGreaterThan(layering.bodyZIndex);
+  expect(layering.alignsWithHeader).toBe(true);
+  await nameCell.hover();
+  const hoverBackground = await nameCell.evaluate((cell) => {
+    const style = getComputedStyle(cell);
+    return style.backgroundColor !== "transparent" && style.backgroundColor !== "rgba(0, 0, 0, 0)" && Number(style.opacity) === 1;
+  });
+  expect(hoverBackground).toBe(true);
   await expect(page.locator("[data-roster-inspector]")).toBeHidden();
   await page.locator(".cell.editable [data-roster-shift-select]").first().focus();
   await expect(page.locator("[data-roster-inspector]")).toBeVisible();

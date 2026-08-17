@@ -38,4 +38,142 @@
 .shift-picker.is-saving .code-input { opacity:.65; cursor:progress; }
 .roster-annotation-button { cursor:pointer; line-height:1; }
 #roster-annotation-code { width:100%; min-height:44px; padding:.55rem .7rem; border:1px solid var(--control-border); border-radius:8px; }
+
+/*
+ * Roster workspace hierarchy
+ *
+ * Keep the dense operational grid, while grouping the month controls and
+ * publication state into one compact decision area. These rules are scoped to
+ * the roster layer so the rest of the application retains its established
+ * navigation treatment.
+ */
+.roster-workspace-header {
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) minmax(290px, 440px);
+  grid-template-areas:
+    "heading overview"
+    "toolbar toolbar";
+  gap:.55rem .85rem;
+  align-items:center;
+  margin:0 0 .75rem;
+}
+.roster-workspace-heading { grid-area:heading; min-width:0; padding:.2rem .1rem; }
+.roster-workspace-heading h2 {
+  margin:0;
+  color:#f3f6f8;
+  font-size:clamp(1.3rem, 2vw, 1.78rem);
+  line-height:1.15;
+  letter-spacing:-.018em;
+}
+.roster-workspace-header .roster-overview {
+  grid-area:overview;
+  min-width:0;
+  margin:0;
+  padding:.55rem;
+  gap:.55rem;
+  border-color:rgba(113, 139, 165, .42);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 3%);
+}
+.roster-workspace-header .roster-overview__state { padding:.55rem .65rem; }
+.roster-workspace-header .roster-overview .btn { min-height:32px; }
+
+.roster-month-nav {
+  grid-area:toolbar;
+  display:flex;
+  align-items:center;
+  gap:.45rem;
+  margin:0;
+  padding:.5rem .65rem;
+  border-color:rgba(113, 139, 165, .38);
+  background:#141a21;
+}
+.roster-toolbar__group {
+  display:inline-flex;
+  align-items:center;
+  gap:.35rem;
+  min-width:0;
+  padding-right:.55rem;
+  border-right:1px solid rgba(140, 161, 183, .26);
+}
+.roster-toolbar__group:last-child { padding-right:0; border-right:0; }
+.roster-month-nav .roster-next-link,
+.roster-month-nav .roster-export-link { margin-left:0; }
+.roster-toolbar__group--actions .btn:not(:hover):not(:focus-visible) {
+  color:#c3cbd3;
+  border-color:rgba(140, 161, 183, .42);
+  background:#19212a;
+}
+.roster-month-nav .roster-zoom-controls {
+  gap:.18rem;
+  margin:0;
+  padding:.16rem;
+  border-color:rgba(140, 161, 183, .38);
+  border-radius:6px;
+  background:#0f151c;
+}
+.roster-month-nav .roster-zoom-label { padding:0 .3rem; }
+.roster-month-nav .roster-zoom-controls .btn {
+  min-height:28px;
+  padding:.25rem .48rem;
+  border-color:transparent;
+  border-radius:4px;
+}
+.roster-month-nav .roster-zoom-controls .roster-zoom-btn.is-active {
+  border-color:#4f91c9;
+  background:#274b68;
+}
+
+/* Make dense data easier to scan without changing assignment colour meaning. */
+.roster { font-variant-numeric:tabular-nums; }
+.roster th,
+.roster td { border-color:rgb(69 84 101 / 78%); }
+.roster tbody td { border-color:rgb(58 72 88 / 82%); }
+.roster thead th { border-bottom:2px solid #52687d; }
+.roster th.dayhead { min-width:38px; line-height:1.05; }
+.roster th.dayhead .dow {
+  display:block;
+  margin-top:.2rem;
+  font-size:.67rem;
+  font-variant-caps:all-small-caps;
+  letter-spacing:.05em;
+}
+.roster .total-row > * {
+  border-top:2px solid #52687d;
+  background:#18212b;
+}
+.roster .total-row .totcell { font-variant-numeric:tabular-nums; }
+.roster tbody tr.watch-break > * { border-bottom:6px solid #4f9fe8; }
+
+/* Keep status affordances distinct when several conditions affect one cell. */
+.roster .request-applied-marker { top:4px; right:auto; left:4px; z-index:6; }
+.roster .fatigue-hazard { top:4px; right:4px; z-index:7; }
+.roster .roster-validation-hazard { right:4px; bottom:4px; z-index:7; }
+
+@media (max-width: 820px) {
+  .roster-workspace-header {
+    grid-template-columns:minmax(0, 1fr);
+    grid-template-areas:
+      "heading"
+      "overview"
+      "toolbar";
+  }
+  .roster-workspace-header .roster-overview { grid-template-columns:minmax(0, 1fr) auto; }
+}
+
+@media (max-width: 620px) {
+  .roster-workspace-header { gap:.5rem; }
+  .roster-month-nav { align-items:stretch; gap:.45rem; }
+  .roster-toolbar__group { flex-wrap:wrap; }
+  .roster-toolbar__group--zoom { width:100%; padding:0; border-right:0; }
+  .roster-month-nav .roster-zoom-controls { width:100%; overflow-x:auto; }
+  .roster-workspace-header .roster-overview { grid-template-columns:1fr; }
+}
+
+/* Selection uses an outline so it never suppresses an active fatigue warning. */
+.roster .cell.is-selected {
+  outline:3px solid #75b8ff;
+  outline-offset:-3px;
+  z-index:4;
+}
+
 @media print { .roster th.dayhead.is-today::before, .roster td.cell.is-today::before, .roster td.totcell.is-today::before { display:none !important; } }

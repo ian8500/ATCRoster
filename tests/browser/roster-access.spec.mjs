@@ -30,7 +30,10 @@ test("staff roster view is read-only without misleading editor controls", async 
     page.getByRole("button", { name: /sign in|login/i }).click(),
   ]);
   await page.getByLabel(/code/i).fill(totp(mfaSecret));
-  await page.getByRole("button", { name: /verify|continue/i }).click();
+  await Promise.all([
+    page.waitForURL((url) => !url.pathname.endsWith("/login/mfa")),
+    page.getByRole("button", { name: /verify|continue/i }).click(),
+  ]);
   await page.goto(`/roster/${rosterMonth}`);
   staffCookies = await page.context().cookies();
 
@@ -48,10 +51,77 @@ test("staff roster view is read-only without misleading editor controls", async 
   await expect(page.locator(".cell.editable")).toHaveCount(0);
 });
 
+test("roster command bar stays compact without clipping its controls", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.context().addCookies(staffCookies);
+  await page.goto(`/roster/${rosterMonth}`);
+
+  const heading = page.locator(".roster-workspace-heading > h2");
+  const toolbar = page.locator(".roster-month-nav");
+  const overview = page.locator(".roster-overview");
+  const zoom = page.getByRole("group", { name: "Roster zoom" });
+  await expect(toolbar).toBeVisible();
+  await expect(toolbar.getByRole("link", { name: "Export CSV" })).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "Print" })).toBeVisible();
+  await expect(zoom).toBeVisible();
+  await expect(zoom.getByRole("button")).toHaveCount(4);
+
+  const compactLayout = await toolbar.evaluate((node) => {
+    const frame = node.getBoundingClientRect();
+    const children = [...node.children].filter((child) => {
+      const rect = child.getBoundingClientRect();
+      return getComputedStyle(child).display !== "none" && rect.width > 0 && rect.height > 0;
+    });
+    const rows = new Set(children.map((child) => Math.round(child.getBoundingClientRect().top)));
+    const tallestChild = Math.max(...children.map((child) => child.getBoundingClientRect().height));
+    return {
+      clientWidth: node.clientWidth,
+      scrollWidth: node.scrollWidth,
+      rowCount: rows.size,
+      height: frame.height,
+      tallestChild,
+    };
+  });
+  expect(compactLayout.scrollWidth).toBeLessThanOrEqual(compactLayout.clientWidth + 1);
+  expect(compactLayout.rowCount).toBe(1);
+  expect(compactLayout.height).toBeLessThanOrEqual(compactLayout.tallestChild + 32);
+
+  const [headingBox, toolbarBox, overviewBox] = await Promise.all([
+    heading.boundingBox(), toolbar.boundingBox(), overview.boundingBox(),
+  ]);
+  expect(headingBox).not.toBeNull();
+  expect(toolbarBox).not.toBeNull();
+  expect(overviewBox).not.toBeNull();
+  expect(headingBox.x + headingBox.width).toBeLessThanOrEqual(overviewBox.x + 1);
+  expect(toolbarBox.y).toBeGreaterThanOrEqual(
+    Math.max(headingBox.y + headingBox.height, overviewBox.y + overviewBox.height) - 1,
+  );
+});
+
 test("mobile navigation opens, closes, and returns focus predictably", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.context().addCookies(staffCookies);
   await page.goto(`/roster/${rosterMonth}`);
+
+  const toolbar = page.locator(".roster-month-nav");
+  await expect(toolbar).toBeVisible();
+  const mobileToolbar = await toolbar.evaluate((node) => {
+    const controls = [...node.querySelectorAll("a, button")]
+      .filter((control) => {
+        const rect = control.getBoundingClientRect();
+        return getComputedStyle(control).display !== "none" && rect.width > 0 && rect.height > 0;
+      });
+    return {
+      clientWidth: node.clientWidth,
+      scrollWidth: node.scrollWidth,
+      controlsWithinViewport: controls.every((control) => {
+        const rect = control.getBoundingClientRect();
+        return rect.left >= -1 && rect.right <= window.innerWidth + 1;
+      }),
+    };
+  });
+  expect(mobileToolbar.scrollWidth).toBeLessThanOrEqual(mobileToolbar.clientWidth + 1);
+  expect(mobileToolbar.controlsWithinViewport).toBe(true);
 
   const menu = page.getByRole("button", { name: "Menu" });
   const navigation = page.locator("#primary-navigation");
@@ -75,7 +145,10 @@ test("roster keyboard navigation moves between editable assignments", async ({ p
     page.getByRole("button", { name: /sign in|login/i }).click(),
   ]);
   await page.getByLabel(/code/i).fill(totp(mfaSecret));
-  await page.getByRole("button", { name: /verify|continue/i }).click();
+  await Promise.all([
+    page.waitForURL((url) => !url.pathname.endsWith("/login/mfa")),
+    page.getByRole("button", { name: /verify|continue/i }).click(),
+  ]);
   await page.goto(`/roster/${rosterMonth}`);
 
   const selected = page.locator(".cell.editable")
