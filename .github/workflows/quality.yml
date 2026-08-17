@@ -138,7 +138,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ATCROSTER_ENV: development
-      ATCROSTER_E2E_DATABASE: ${{ runner.temp }}/atcroster-e2e.db
       ATCROSTER_E2E_BASE_URL: http://127.0.0.1:5000
       ATCROSTER_E2E_USERNAME: lba.admin
       ATCROSTER_E2E_PASSWORD: Test-ATCRoster-2026!
@@ -160,7 +159,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - name: Start isolated seeded browser-test application
-        run: python scripts/run_e2e_server.py > "$RUNNER_TEMP/atcroster-e2e.log" 2>&1 &
+        run: ATCROSTER_E2E_DATABASE="$RUNNER_TEMP/atcroster-e2e.db" python scripts/run_e2e_server.py > "$RUNNER_TEMP/atcroster-e2e.log" 2>&1 &
       - name: Wait for application readiness
         run: |
           for attempt in $(seq 1 60); do
