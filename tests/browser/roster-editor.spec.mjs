@@ -92,6 +92,40 @@ test("roster editor displays a returned fatigue warning immediately", async ({ p
     "aria-label", /Minimum rest period breached/
   );
   await expect(cell.locator("[data-roster-shift-select]")).toHaveAttribute("aria-invalid", "true");
+  const hazard = cell.locator(".fatigue-hazard");
+  const tooltip = hazard.locator(".fatigue-tooltip");
+  await expect(tooltip).toBeHidden();
+  await hazard.hover();
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText("Minimum rest period breached");
+
+  const hoverLayering = await tooltip.evaluate((tip) => {
+    const rosterCell = tip.closest("td.cell");
+    const tipRect = tip.getBoundingClientRect();
+    const cellRect = rosterCell.getBoundingClientRect();
+    const sampleX = Math.max(1, Math.min(window.innerWidth - 2, tipRect.right - 8));
+    const sampleY = Math.max(
+      tipRect.top + 2,
+      Math.min(tipRect.bottom - 2, cellRect.bottom + 4),
+    );
+    const topElement = document.elementFromPoint(sampleX, sampleY);
+    const style = getComputedStyle(rosterCell);
+    return {
+      extendsBelowCell: tipRect.bottom > cellRect.bottom + 2,
+      overflow: style.overflow,
+      zIndex: Number(style.zIndex),
+      tooltipIsTopmost: topElement === tip || tip.contains(topElement),
+    };
+  });
+  expect(hoverLayering.extendsBelowCell).toBe(true);
+  expect(hoverLayering.overflow).toBe("visible");
+  expect(hoverLayering.zIndex).toBeGreaterThan(10);
+  expect(hoverLayering.tooltipIsTopmost).toBe(true);
+
+  await page.mouse.move(0, 0);
+  await expect(tooltip).toBeHidden();
+  await hazard.focus();
+  await expect(tooltip).toBeVisible();
 });
 
 test("roster editor keeps direct accessible in-cell selection", async ({ page }) => {

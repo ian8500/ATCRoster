@@ -149,6 +149,18 @@
 .roster .fatigue-hazard { top:4px; right:4px; z-index:7; }
 .roster .roster-validation-hazard { right:4px; bottom:4px; z-index:7; }
 
+/*
+ * Fatigue explanations extend beyond the dense roster cell. Elevate the cell
+ * while the warning is being inspected so later table rows cannot paint over
+ * the hover/focus tooltip, and temporarily release the cell's normal clipping.
+ */
+.roster td.cell.fatigue:hover,
+.roster td.cell.fatigue:focus-within {
+  overflow:visible;
+  z-index:50;
+}
+.roster td.cell.fatigue .fatigue-tooltip { z-index:60; }
+
 @media (max-width: 820px) {
   .roster-workspace-header {
     grid-template-columns:minmax(0, 1fr);
