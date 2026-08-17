@@ -183,7 +183,12 @@ const selectRosterCell = (cell) => {
   selectedRosterCell = cell; cell.classList.add('is-selected');
   if (inspector) { inspector.hidden = false; inspectorTitle.textContent = `${cell.dataset.rosterName} · ${cell.dataset.rosterDay}`; inspectorDetail.textContent = `Shift ${cell.dataset.rosterCode || 'not assigned'}. Use the in-cell shift selector to change it.`; }
 };
-rosterRoot?.addEventListener('click', (event) => { const cell = event.target.closest('.cell'); if (cell && editableCell(cell) && !event.target.closest('[data-roster-shift-select]')) selectRosterCell(cell); });
+rosterRoot?.addEventListener('click', (event) => {
+  const cell = event.target.closest('.cell');
+  if (!cell || !editableCell(cell)) return;
+  if (event.target.closest('[data-roster-shift-select], .fatigue-hazard')) return;
+  selectRosterCell(cell);
+});
 rosterRoot?.addEventListener('focusin', (event) => {
   const select = event.target.closest('[data-roster-shift-select]');
   if (select) selectRosterCell(select.closest('.cell'));

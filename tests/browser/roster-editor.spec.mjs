@@ -124,8 +124,21 @@ test("roster editor displays a returned fatigue warning immediately", async ({ p
 
   await page.mouse.move(0, 0);
   await expect(tooltip).toBeHidden();
+  const inspector = page.locator("[data-roster-inspector]");
+  await cell.locator("[data-roster-shift-select]").focus();
+  await expect(inspector).toBeVisible();
+  await expect(cell).toHaveClass(/\bis-selected\b/);
+  await inspector.locator("[data-roster-inspector-close]").click();
+  await expect(inspector).toBeHidden();
+  await hazard.click();
+  await expect(tooltip).toBeVisible();
+  await expect(inspector).toBeHidden();
+  await expect(cell).not.toHaveClass(/\bis-selected\b/);
+
+  await page.mouse.move(0, 0);
   await hazard.focus();
   await expect(tooltip).toBeVisible();
+  await expect(inspector).toBeHidden();
 });
 
 test("roster editor keeps direct accessible in-cell selection", async ({ page }) => {
