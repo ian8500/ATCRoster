@@ -172,16 +172,12 @@ rosterRoot?.addEventListener('change', async (event) => {
   }
 });
 
-const inspector = document.querySelector('[data-roster-inspector]');
-const inspectorTitle = document.querySelector('[data-roster-inspector-title]');
-const inspectorDetail = document.querySelector('[data-roster-inspector-detail]');
 let selectedRosterCell;
 const editableCell = (cell) => cell?.querySelector('[data-roster-shift-select]:not(:disabled)');
 const selectRosterCell = (cell) => {
   if (!editableCell(cell)) return;
   document.querySelectorAll('.cell.is-selected').forEach((item) => item.classList.remove('is-selected'));
   selectedRosterCell = cell; cell.classList.add('is-selected');
-  if (inspector) { inspector.hidden = false; inspectorTitle.textContent = `${cell.dataset.rosterName} · ${cell.dataset.rosterDay}`; inspectorDetail.textContent = `Shift ${cell.dataset.rosterCode || 'not assigned'}. Use the in-cell shift selector to change it.`; }
 };
 rosterRoot?.addEventListener('click', (event) => {
   const cell = event.target.closest('.cell');
@@ -193,8 +189,6 @@ rosterRoot?.addEventListener('focusin', (event) => {
   const select = event.target.closest('[data-roster-shift-select]');
   if (select) selectRosterCell(select.closest('.cell'));
 });
-document.querySelector('[data-roster-inspector-close]')?.addEventListener('click', () => { if (inspector) inspector.hidden = true; selectedRosterCell?.classList.remove('is-selected'); });
-
 document.addEventListener('keydown', (event) => {
   if (!selectedRosterCell || event.target.matches('input,select,textarea,button')) return;
   const row = selectedRosterCell.closest('tr'); const offset = selectedRosterCell.cellIndex; let target;

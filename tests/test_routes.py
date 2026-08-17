@@ -1924,7 +1924,6 @@ def test_monthly_roster_exposes_direct_in_cell_editor_controls(client):
 
     assert response.status_code == 200
     for marker in (
-        b"data-roster-inspector",
         b"data-roster-cell-action",
         b"data-roster-shift-select",
     ):
@@ -1932,6 +1931,7 @@ def test_monthly_roster_exposes_direct_in_cell_editor_controls(client):
     for removed_marker in (
         b"data-roster-readiness",
         b"data-roster-command-palette",
+        b"data-roster-inspector",
         b"roster-shift-dialog",
         b"data-roster-undo",
     ):

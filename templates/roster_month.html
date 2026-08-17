@@ -117,14 +117,6 @@
   </section>
 </header>
 
-{% if can_edit and not readonly %}
-  <aside class="roster-inspector" data-roster-inspector hidden aria-labelledby="roster-inspector-title" aria-live="polite">
-    <button type="button" class="roster-inspector__close" data-roster-inspector-close aria-label="Close selected-cell inspector">×</button>
-    <span class="eyebrow">Selected assignment</span><h3 id="roster-inspector-title" data-roster-inspector-title>Choose a cell</h3>
-    <p data-roster-inspector-detail>Select a roster cell to review and edit its assignment.</p>
-  </aside>
-{% endif %}
-
 <!-- Wrapper exposes editability flags to JS (and is harmless otherwise) -->
 <div id="roster" class="roster-status-frame {{ 'roster-status-frame--published' if roster_publication else 'roster-status-frame--draft' }}"
      data-can-edit="{{ '1' if can_edit else '0' }}"

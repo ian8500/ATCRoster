@@ -124,29 +124,31 @@ test("roster editor displays a returned fatigue warning immediately", async ({ p
 
   await page.mouse.move(0, 0);
   await expect(tooltip).toBeHidden();
-  const inspector = page.locator("[data-roster-inspector]");
-  await cell.locator("[data-roster-shift-select]").focus();
-  await expect(inspector).toBeVisible();
-  await expect(cell).toHaveClass(/\bis-selected\b/);
-  await inspector.locator("[data-roster-inspector-close]").click();
-  await expect(inspector).toBeHidden();
+  const otherCell = page.locator(".cell.editable")
+    .filter({ has: page.locator("[data-roster-shift-select]") }).nth(1);
+  await otherCell.evaluate((other) => other.click());
+  await expect(otherCell).toHaveClass(/\bis-selected\b/);
   await hazard.click();
   await expect(tooltip).toBeVisible();
-  await expect(inspector).toBeHidden();
   await expect(cell).not.toHaveClass(/\bis-selected\b/);
+  await expect(otherCell).toHaveClass(/\bis-selected\b/);
+  await expect(page.locator("[data-roster-inspector]")).toHaveCount(0);
 
   await page.mouse.move(0, 0);
   await hazard.focus();
   await expect(tooltip).toBeVisible();
-  await expect(inspector).toBeHidden();
+  await expect(page.locator("[data-roster-inspector]")).toHaveCount(0);
 });
 
-test("roster editor keeps direct accessible in-cell selection", async ({ page }) => {
+test("roster editor keeps direct accessible in-cell selection without a separate inspector", async ({ page }) => {
   await page.context().addCookies(authenticatedCookies); await page.goto(`/roster/${rosterMonth}`);
   await expect(page.locator("[data-roster-readiness]")).toHaveCount(0);
   await expect(page.locator("[data-roster-command-palette]")).toHaveCount(0);
-  await expect(page.locator("[data-roster-inspector]")).toHaveCount(1);
-  await expect(page.locator(".cell.editable [data-roster-shift-select]").first()).toBeVisible();
+  await expect(page.locator("[data-roster-inspector]")).toHaveCount(0);
+  const select = page.locator(".cell.editable [data-roster-shift-select]").first();
+  await expect(select).toBeVisible();
+  await select.focus();
+  await expect(select.locator("xpath=ancestor::td[contains(@class,'cell')]")).toHaveClass(/\bis-selected\b/);
 });
 
 test("roster keeps its controller row header opaque above scrolled cells", async ({ page }) => {
@@ -196,8 +198,9 @@ test("roster keeps its controller row header opaque above scrolled cells", async
     return style.backgroundColor !== "transparent" && style.backgroundColor !== "rgba(0, 0, 0, 0)" && Number(style.opacity) === 1;
   });
   expect(hoverBackground).toBe(true);
-  await expect(page.locator("[data-roster-inspector]")).toBeHidden();
+  await expect(page.locator("[data-roster-inspector]")).toHaveCount(0);
   await page.locator(".cell.editable [data-roster-shift-select]").first().focus();
-  await expect(page.locator("[data-roster-inspector]")).toBeVisible();
+  await expect(page.locator(".cell.is-selected")).toHaveCount(1);
+  await expect(page.locator("[data-roster-inspector]")).toHaveCount(0);
   expect((await telemetry).method()).toBe("POST");
 });
