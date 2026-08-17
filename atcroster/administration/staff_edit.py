@@ -382,7 +382,10 @@ def create_staff_edit_blueprint(dependencies: StaffEditDependencies) -> Blueprin
                 db.session.rollback()
                 flash(f"Update failed: {e}", "error")
 
-            return redirect(url_for("admin"))
+            # A profile update is one step in the wider staff-management
+            # workflow.  Keep the administrator on the same person rather
+            # than sending them back to the unfiltered administration list.
+            return redirect(url_for("admin_staff_edit", sid=s.id))
 
         watches = Watch.query.order_by(Watch.order_index).all()
         account_membership = (

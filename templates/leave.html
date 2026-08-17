@@ -6,18 +6,6 @@
     <div><span class="admin-step">People availability</span><h2>Leave &amp; Sickness</h2><p>Record and review absence information for {{ month_title }}.</p></div>
   </section>
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="mb-3">
-        {% for category, message in messages %}
-          <div class="alert alert-{{ 'success' if category == 'ok' else ('danger' if category == 'error' else 'info') }} alert-sm py-2 mb-2">
-            {{ message }}
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
-
   <!-- Add Leave -->
   <details class="card mb-4 absence-entry-panel" data-persist-details="leave-add">
     <summary class="card-header">
@@ -32,7 +20,7 @@
           <label class="form-label" for="leave-entry-watch">Watch</label>
           <select id="leave-entry-watch" class="form-select" name="entry_watch_id" required data-absence-watch>
             <option value="">Select watch first</option>
-            {% for watch in watches %}<option value="{{ watch.id }}">{{ watch.name }}</option>{% endfor %}
+            {% for watch in watches %}<option value="{{ watch.id }}" {% if selected_watch_id == watch.id %}selected{% endif %}>{{ watch.name }}</option>{% endfor %}
           </select>
         </div>
         <div class="col-md-2">
@@ -83,7 +71,7 @@
           <label class="form-label" for="sickness-entry-watch">Watch</label>
           <select id="sickness-entry-watch" class="form-select" name="entry_watch_id" required data-absence-watch>
             <option value="">Select watch first</option>
-            {% for watch in watches %}<option value="{{ watch.id }}">{{ watch.name }}</option>{% endfor %}
+            {% for watch in watches %}<option value="{{ watch.id }}" {% if selected_watch_id == watch.id %}selected{% endif %}>{{ watch.name }}</option>{% endfor %}
           </select>
         </div>
         <div class="col-md-2">
@@ -137,7 +125,7 @@
     </summary>
     <div class="card-body sickness-instance-list">
       {% for instance in sickness_instances %}
-      <details class="sickness-instance">
+      <details class="sickness-instance" data-persist-details="sickness-instance-{{ instance.staff_id }}-{{ instance.start.isoformat() }}">
         <summary>
           <span>
             <strong>{{ instance.staff.name }}</strong>
@@ -197,7 +185,7 @@
       <form method="get" class="d-flex flex-wrap align-items-end gap-2" aria-label="Filter existing leave by watch">
         <input type="hidden" name="ym" value="{{ ym }}">
         <label class="form-label mb-0" for="leave-watch-filter">Watch
-          <select id="leave-watch-filter" class="form-select form-select-sm" name="watch_id">
+          <select id="leave-watch-filter" class="form-select form-select-sm" name="watch_id" data-auto-submit>
             <option value="">Whole unit</option>
             {% for watch in watches %}
             <option value="{{ watch.id }}" {% if selected_watch_id == watch.id %}selected{% endif %}>{{ watch.name }}</option>
@@ -234,7 +222,7 @@
                 <input type="hidden" name="leave_type" value="{{ lv.leave_type }}">
                 <input type="date" aria-label="Leave start date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block compact-date-input" name="start" value="{{ lv.start }}">
                 <input type="date" aria-label="Leave end date for {{ lv.staff.name }}" class="form-control form-control-sm d-inline-block compact-date-input" name="end" value="{{ lv.end }}">
-                <button class="btn btn-sm btn-secondary" type="submit">Update</button>
+                <button class="btn btn-sm btn-secondary" type="submit">Update dates</button>
               </form>
               <form class="d-inline ms-1" method="post"
                     data-confirm="Delete this leave record?">

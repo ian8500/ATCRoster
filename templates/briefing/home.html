@@ -28,16 +28,15 @@
           <span aria-hidden="true">→</span>
           Ends {{ item.expires_at.strftime('%d %b %Y %H:%M') }}
         </small>
+        {% if delivery.acknowledged_at %}
+          <small class="briefing-card__archive-note">Archive to remove this from the current briefing. Deletion remains available in Archive.</small>
+        {% endif %}
       </div>
       <div class="briefing-card__compact-actions">
         {% if delivery.acknowledged_at %}
           <form method="post" action="{{ url_for('briefing.archive_item', item_id=item.id) }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm" type="submit" title="Archive" aria-label="Archive {{ item.title }}"><i class="fa-solid fa-box-archive"></i></button>
-          </form>
-          <form method="post" action="{{ url_for('briefing.delete_item', item_id=item.id) }}" data-confirm="Remove this briefing from your personal view? The audit record will be retained.">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm" type="submit" title="Delete" aria-label="Delete {{ item.title }}"><i class="fa-solid fa-trash"></i></button>
+            <button class="btn btn-sm" type="submit" title="Archive from current briefing" aria-label="Archive {{ item.title }} from current briefing"><i class="fa-solid fa-box-archive"></i></button>
           </form>
         {% endif %}
         <i class="fa-solid fa-chevron-right briefing-card__open-indicator" aria-hidden="true"></i>
@@ -54,26 +53,31 @@
   </div>
 </section>
 
-<div class="briefing-sections">
-  {% for section in (
-    {'title': 'Brief of the Day.', 'icon': 'fa-bullhorn', 'rows': daily_deliveries, 'empty': 'There are no Briefs of the Day are active.'},
-    {'title': 'Mandatory Messages', 'icon': 'fa-triangle-exclamation', 'rows': mandatory_deliveries, 'empty': "You have no current 'mandatory messages'."},
-    {'title': 'Other Messages', 'icon': 'fa-inbox', 'rows': other_deliveries, 'empty': "You have no current 'other messages'."}
-  ) %}
-    <section class="briefing-section">
-      <header class="briefing-section__header">
-        <h3><i class="fa-solid {{ section.icon }}" aria-hidden="true"></i> {{ section.title }}</h3>
-        <span>{{ section.rows|length }}</span>
-      </header>
-      <div class="briefing-list">
-        {% for delivery, item in section.rows %}
-          {{ briefing_card(delivery, item) }}
-        {% else %}
-          <div class="briefing-section__empty"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> {{ section.empty }}</div>
-        {% endfor %}
-      </div>
+{% set has_current_briefings = daily_deliveries or mandatory_deliveries or other_deliveries %}
+<div class="briefing-sections{% if not has_current_briefings %} briefing-sections--empty{% endif %}">
+  {% if has_current_briefings %}
+    {% for section in (
+      {'title': 'Brief of the Day.', 'icon': 'fa-bullhorn', 'rows': daily_deliveries},
+      {'title': 'Mandatory Messages', 'icon': 'fa-triangle-exclamation', 'rows': mandatory_deliveries},
+      {'title': 'Other Messages', 'icon': 'fa-inbox', 'rows': other_deliveries}
+    ) if section.rows %}
+      <section class="briefing-section">
+        <header class="briefing-section__header">
+          <h3><i class="fa-solid {{ section.icon }}" aria-hidden="true"></i> {{ section.title }}</h3>
+          <span>{{ section.rows|length }}</span>
+        </header>
+        <div class="briefing-list">
+          {% for delivery, item in section.rows %}
+            {{ briefing_card(delivery, item) }}
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  {% else %}
+    <section class="briefing-section briefing-section--empty">
+      <div class="briefing-section__empty"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><strong>No current briefings</strong><span>You are up to date. New operational briefings will appear here.</span></div>
     </section>
-  {% endfor %}
+  {% endif %}
 </div>
 <script nonce="{{ csp_nonce() }}">
 (() => {

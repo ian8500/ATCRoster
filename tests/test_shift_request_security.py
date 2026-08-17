@@ -117,15 +117,55 @@ def test_comment_persistence_update_and_single_record(secured_client):
         "_csrf_token": token, "form": "add", "day": day, "code": "REQ", "comment": "First note",
     })
     assert first.status_code == 302
+    first_page = secured_client.get(first.headers["Location"])
+    assert first_page.data.count(b"Request saved.") == 1
     second = secured_client.post("/requests", data={
         "_csrf_token": token, "form": "add", "day": day, "code": "REQ", "comment": "Updated note",
     })
     assert second.status_code == 302
+    page = secured_client.get(second.headers["Location"])
+    assert page.data.count(b"Request saved.") == 1
     with app.app.app_context():
         rows = ShiftRequest.query.filter_by(unit_id=1, day=request_day()).all()
         assert len(rows) == 1
         assert rows[0].requester_comment == "Updated note"
         assert RequestAudit.query.filter_by(request_id=rows[0].id).count() == 2
+
+
+def test_request_form_only_offers_working_shifts_and_existing_date_bounds(
+    secured_client,
+):
+    login(secured_client)
+    with app.app.app_context():
+        user = Staff.query.filter_by(username="user-a").one()
+        db.session.add(
+            ShiftRequest(
+                unit_id=1,
+                staff_id=user.id,
+                day=request_day(),
+                code="REQ",
+            )
+        )
+        db.session.commit()
+
+    page = secured_client.get("/requests")
+    with app.app.app_context():
+        first_allowed, last_allowed = _request_date_bounds(date.today(), 1)
+
+    assert page.status_code == 200
+    assert b'<option value="REQ">REQ</option>' in page.data
+    assert b'<option value="REST">REST</option>' not in page.data
+    assert f'min="{first_allowed.isoformat()}"'.encode() in page.data
+    assert f'max="{last_allowed.isoformat()}"'.encode() in page.data
+    assert (
+        b"Saving another request for a date with a pending request updates "
+        b"that pending request."
+    ) in page.data
+    assert b'<th class="request-col-month">Month</th>' not in page.data
+    assert (
+        f'<th colspan="4" scope="rowgroup">{request_day().strftime("%B %Y")}</th>'.encode()
+        in page.data
+    )
 
 
 def test_profile_navigation_shows_and_clears_unread_notification_count(
@@ -302,7 +342,11 @@ def test_admin_cancellation_records_timestamp_audit_and_safe_redirect(secured_cl
         },
     )
     assert response.status_code == 302
-    assert "/requests?ym=" in response.headers["Location"]
+    assert response.headers["Location"] == (
+        f"/requests?ym={request_day():%Y-%m}#request-{rid}"
+    )
+    page = secured_client.get(response.headers["Location"].split("#", 1)[0])
+    assert f'id="request-{rid}"'.encode() in page.data
     with app.app.app_context():
         row = db.session.get(ShiftRequest, rid)
         assert row.cancelled_at is not None

@@ -55,3 +55,16 @@ def test_shared_component_layer_owns_cross_application_visual_primitives():
         ".serviceability-card",
     ):
         assert selector in component_layer
+
+
+def test_progressive_workflow_controls_preserve_all_required_paths():
+    training = (ROOT / "templates/training_profile.html").read_text()
+    handover = (ROOT / "templates/handover/view.html").read_text()
+
+    assert "data-training-objective-details" in training
+    assert "<details class=\"training-objective__details\"" in training
+    assert 'name="note_{{ objective.id }}"' in training
+    assert 'name="safety_{{ objective.id }}"' in training
+    assert "details.open = Boolean(attainment.value || assistance.value)" in training
+    assert ">Current handover<" in handover
+    assert ">All handovers<" not in handover

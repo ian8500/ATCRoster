@@ -294,38 +294,44 @@ def create_onboarding_blueprint(dependencies: OnboardingDependencies) -> Bluepri
                 "Airport identity",
                 bool(unit.name and unit.code and unit.timezone),
                 "unit_onboarding",
+                None,
             ),
             (
                 "Watches configured",
                 Watch.query.filter_by(unit_id=unit.id).count() > 0,
                 "admin",
+                "roster-setup",
             ),
             (
                 "Active shifts configured",
                 ShiftType.query.filter_by(unit_id=unit.id, is_active=True).count()
                 > 0,
                 "admin",
+                "shifts",
             ),
             (
                 "Operational staff added",
                 Staff.query.filter_by(unit_id=unit.id, is_operational=True).count()
                 > 0,
                 "admin",
+                "staff",
             ),
             (
                 "Staffing requirements set",
                 Requirement.query.filter_by(unit_id=unit.id).count() > 0,
                 "admin",
+                "requirements",
             ),
             (
                 "Qualification types set",
                 QualificationType.query.filter_by(unit_id=unit.id).count() > 0,
                 "qualification_compliance",
+                None,
             ),
-            ("Roster warning rules available", True, "admin_fatigue_rules"),
-            ("Unit Admin access active", active > 0, "unit_accounts"),
+            ("Roster warning rules available", True, "admin_fatigue_rules", None),
+            ("Unit Admin access active", active > 0, "unit_accounts", None),
         ]
-        readiness_complete = sum(1 for _, complete, _ in readiness if complete)
+        readiness_complete = sum(1 for _, complete, _, _ in readiness if complete)
         return render_template(
             "unit_onboarding.html",
             unit=unit,

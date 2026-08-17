@@ -191,7 +191,7 @@
           ? '<button class="btn" data-operation="logon">Log on</button>'
           : position.display_status === 'vacant'
             ? '<button class="btn" data-operation="logon">Log on</button><button class="btn btn-secondary" data-operation="close">Close</button>'
-            : '<button class="btn" data-operation="handover">Hand over</button><button class="btn btn-secondary" data-operation="logoff">Log off</button><button class="btn btn-secondary" data-operation="logoff_close">Log off & close</button><button class="btn btn-secondary" data-operation="participant">Add secondary</button>';
+            : '<button class="btn" data-operation="handover">Hand over</button><button class="btn btn-secondary" data-operation="logoff">Log off…</button><button class="btn btn-secondary" data-operation="logoff_close">Log off & close…</button><button class="btn btn-secondary" data-operation="participant">Add secondary</button>';
         const eligibilityWarnings = [
           ...(position.eligibility_warnings || []),
           ...(position.participants || []).flatMap((participant) => participant.eligibility_warnings || []),
@@ -203,7 +203,7 @@
           <header><strong>${escapeText(position.code)}</strong><span>${escapeText(label)}</span></header>
           <h2>${escapeText(position.label)}</h2>
           ${occupied ? `<div class="live-position-tile__primary"><strong>${escapeText(occupied.name)}</strong><div class="live-position-controller-times"><span>Accrued <b data-accrued-seconds="${occupied.accrued_seconds}" data-accrued-at="${escapeText(occupied.accrued_at)}">00:00:00</b></span><span>Remaining <b data-remaining-accrued-seconds="${occupied.accrued_seconds}" data-accrued-at="${escapeText(occupied.accrued_at)}" data-maximum-seconds="${occupied.maximum_duration_seconds}">00:00:00</b></span><span>Reset break <b data-static-duration-seconds="${occupied.required_break_seconds}">00:00:00</b></span></div></div>` : '<p>No controller logged on</p>'}
-          <div class="live-position-tile__participants">${position.participants.map((p) => `<small><span><strong>${escapeText(p.role_label)}</strong> ${escapeText(p.person_name)}</span><span class="live-position-controller-times"><span>Accrued <b data-accrued-seconds="${p.accrued_seconds}" data-accrued-at="${escapeText(p.accrued_at)}">00:00:00</b></span><span>Remaining <b data-remaining-accrued-seconds="${p.accrued_seconds}" data-accrued-at="${escapeText(p.accrued_at)}" data-maximum-seconds="${p.maximum_duration_seconds}">00:00:00</b></span><span>Reset break <b data-static-duration-seconds="${p.required_break_seconds}">00:00:00</b></span></span><button data-operation="participant_remove" data-participant-id="${p.id}">Log off</button></small>`).join('')}</div>
+          <div class="live-position-tile__participants">${position.participants.map((p) => `<small><span><strong>${escapeText(p.role_label)}</strong> ${escapeText(p.person_name)}</span><span class="live-position-controller-times"><span>Accrued <b data-accrued-seconds="${p.accrued_seconds}" data-accrued-at="${escapeText(p.accrued_at)}">00:00:00</b></span><span>Remaining <b data-remaining-accrued-seconds="${p.accrued_seconds}" data-accrued-at="${escapeText(p.accrued_at)}" data-maximum-seconds="${p.maximum_duration_seconds}">00:00:00</b></span><span>Reset break <b data-static-duration-seconds="${p.required_break_seconds}">00:00:00</b></span></span></small>`).join('')}</div>
           ${warningMarkup}
           <footer>${buttons}</footer>
         </article>`;
@@ -286,17 +286,22 @@
       document.getElementById('live-position-action-error').hidden = true;
       dialog.showModal();
     };
-    const openLogoffChoice = (position) => {
+    const openLogoffChoice = (position, {closePosition = false} = {}) => {
       logoffDialog.dataset.positionId = position.id;
-      document.getElementById('live-position-logoff-help').textContent = `${position.primary.name} is the primary controller. Choose whether to log off everyone or only a secondary controller.`;
+      logoffDialog.dataset.closePosition = String(closePosition);
+      document.getElementById('live-position-logoff-help').textContent = closePosition
+        ? `${position.primary.name} is the primary controller. Confirm logging off every controller before closing this position.`
+        : `${position.primary.name} is the primary controller. Choose whether to log off everyone or only a secondary controller.`;
       logoffOptions.replaceChildren();
       const allButton = document.createElement('button');
       allButton.type = 'button';
       allButton.className = 'btn';
       allButton.dataset.logoffChoice = 'all';
-      allButton.textContent = 'Log off all controllers';
+      allButton.textContent = closePosition
+        ? 'Log off all controllers and close position'
+        : 'Log off all controllers';
       logoffOptions.append(allButton);
-      position.participants.forEach((participant) => {
+      if (!closePosition) position.participants.forEach((participant) => {
         const secondaryButton = document.createElement('button');
         secondaryButton.type = 'button';
         secondaryButton.className = 'btn btn-secondary';
@@ -334,8 +339,8 @@
       if (operation === 'logoff' || operation === 'logoff_close') {
         const tile = button.closest('[data-position-id]');
         const position = livePositions.get(Number(tile.dataset.positionId));
-        if (operation === 'logoff' && position?.participants.length) {
-          openLogoffChoice(position);
+        if (position && (position.participants.length || operation === 'logoff_close')) {
+          openLogoffChoice(position, {closePosition: operation === 'logoff_close'});
           return;
         }
         button.disabled = true;
@@ -366,6 +371,7 @@
       if (!button) return;
       const positionId = logoffDialog.dataset.positionId;
       const logoffAll = button.dataset.logoffChoice === 'all';
+      const closePosition = logoffAll && logoffDialog.dataset.closePosition === 'true';
       const route = logoffAll
         ? `/live-positions/api/positions/${positionId}/logoff`
         : `/live-positions/api/positions/${positionId}/participants/${button.dataset.participantId}/logoff`;
@@ -374,7 +380,7 @@
         const response = await fetch(route, {
           method: 'POST',
           headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
-          body: JSON.stringify({close_position: false, request_key: crypto.randomUUID()}),
+          body: JSON.stringify({close_position: closePosition, request_key: crypto.randomUUID()}),
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(result.error || 'The controller could not be logged off.');

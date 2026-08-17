@@ -10,7 +10,7 @@
   <a class="btn btn-secondary" href="{{ url_for('administration_home') }}">Back to administration</a>
 </section>
 
-<details class="card" open>
+<details class="card">
   <summary><strong>Cumulative controller-time recovery</strong><span>Airport-wide policy</span></summary>
   <p>Controller time continues across position changes and short breaks. It resets only after the controller has remained out of every primary, OJTI or assessor role for the full recovery period.</p>
   <form method="post" class="admin-form-grid live-position-config-form">
@@ -26,7 +26,7 @@
   <p class="form-text">Default: 30 minutes out of position. After two accrued hours, each additional commenced hour adds 15 minutes, with escalation capped at four accrued hours.</p>
 </details>
 
-<details class="card" open>
+<details class="card">
   <summary><strong>Position groups</strong><span>{{ groups|length }} configured</span></summary>
   <p>Create the display sections first, such as Tower and Radar. Their display order controls the order on the live screen.</p>
   <form method="post" class="admin-form-grid">

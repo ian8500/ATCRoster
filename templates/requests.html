@@ -13,19 +13,6 @@
     </div>
   {% endif %}
 
-  {# Flash messages #}
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="mb-3">
-        {% for category, message in messages %}
-          <div class="alert alert-{{ 'success' if category == 'ok' else ('danger' if category == 'error' else 'info') }} py-2 mb-2">
-            {{ message }}
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
-
   {# =========================
      Add / Update request form
      ========================= #}
@@ -37,7 +24,7 @@
         <input type="hidden" name="form" value="add">
         <div class="col-md-3">
           <label class="form-label" for="request-day">Date</label>
-          <input id="request-day" type="date" name="day" class="form-control" required>
+          <input id="request-day" type="date" name="day" class="form-control" min="{{ first_allowed.isoformat() }}" max="{{ last_allowed.isoformat() }}" required>
         </div>
         <div class="col-md-3">
           <label class="form-label" for="request-code">Requested shift or status</label>
@@ -58,6 +45,7 @@
       <div class="form-text mt-2">
         Requests are currently accepted from {{ first_allowed.strftime('%-d %B %Y') }} to
         {{ last_allowed.strftime('%-d %B %Y') }}. These dates update automatically each month.
+        Saving another request for a date with a pending request updates that pending request.
         This airport locks each request month
         on day {{ request_lock_day }} of the preceding month (the platform
         default is day 20).
@@ -77,7 +65,6 @@
         <thead>
           <tr>
             <th class="request-col-date">Date</th>
-            <th class="request-col-month">Month</th>
             <th class="request-col-code">Code</th>
             <th>Status</th>
             <th class="request-col-actions">Actions</th>
@@ -87,9 +74,13 @@
           {% if req_map %}
             {% for ym, daymap in req_map.items()|sort %}
               {% for day, req in daymap.items()|sort %}
+                {% if loop.first %}
+                  <tr class="request-month-group">
+                    <th colspan="4" scope="rowgroup">{{ day.strftime("%B %Y") }}</th>
+                  </tr>
+                {% endif %}
                 <tr>
                   <td>{{ day.strftime("%Y-%m-%d") }}</td>
-                  <td>{{ "%04d-%02d"|format(day.year, day.month) }}</td>
                   <td>{{ req.code }}</td>
                   <td>
                     <span class="status-pill {% if (req.status or 'pending') == 'approved' %}success{% elif (req.status or 'pending') in ['rejected','cancelled'] %}danger{% elif (req.status or 'pending') == 'fulfilled' %}muted{% else %}warning{% endif %}"
@@ -131,10 +122,10 @@
                 </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="5" class="text-muted">No requests saved.</td></tr>
+              <tr><td colspan="4" class="text-muted">No requests saved.</td></tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="5" class="text-muted">No requests saved.</td></tr>
+            <tr><td colspan="4" class="text-muted">No requests saved.</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -146,8 +137,8 @@
      ========================= #}
   {% if admin_view %}
     <hr class="my-4">
-    <div class="d-flex align-items-center mb-2">
-      <h3 class="mb-0">All Requests – {{ admin_month_title }}</h3>
+    <div id="admin-requests" class="d-flex align-items-center mb-2">
+      <h3 id="admin-requests-heading" class="mb-0">All Requests – {{ admin_month_title }}</h3>
       <span class="status-pill muted ms-2">Total: {{ admin_total }}</span>
     </div>
 
@@ -180,7 +171,7 @@
               </thead>
               <tbody>
               {% for req in items %}
-                <tr>
+                <tr id="request-{{ req.id }}">
                   <td>{{ req.staff.name }}</td>
                   <td>{{ req.code }}</td>
                   <td>{{ (req.status or 'pending')|capitalize }}</td>

@@ -58,6 +58,27 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
         unit = db.session.get(Unit, unit_id)
         if not unit:
             abort(404)
+
+        def invitation_redirect(person: Any | None = None):
+            """Return to a verified staff profile when an invitation began there.
+
+            ``return_staff_id`` is deliberately an identifier rather than a URL.
+            It must match the roster person already resolved in the current
+            tenant, so a submitted form cannot choose an arbitrary redirect or
+            another airport's profile.
+            """
+            try:
+                return_staff_id = int(request.form.get("return_staff_id") or 0)
+            except (TypeError, ValueError):
+                return redirect(url_for("unit_accounts"))
+            if (
+                person is not None
+                and return_staff_id == person.id
+                and person.unit_id == unit_id
+            ):
+                return redirect(url_for("admin_staff_edit", sid=person.id))
+            return redirect(url_for("unit_accounts"))
+
         if request.method == "POST":
             _validate_csrf()
             action = (request.form.get("action") or "").strip()
@@ -92,7 +113,7 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
                         "That roster person already has account access or a pending membership.",
                         "error",
                     )
-                    return redirect(url_for("unit_accounts"))
+                    return invitation_redirect(person)
                 existing_invitation = SecureInvitation.query.filter_by(
                     unit_id=unit_id,
                     target_person_id=person.id,
@@ -105,7 +126,7 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
                         "Disable it before issuing another.",
                         "error",
                     )
-                    return redirect(url_for("unit_accounts"))
+                    return invitation_redirect(person)
                 try:
                     from account_limits import lock_unit_capacity
 
@@ -123,7 +144,7 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
                 except ValueError as exc:
                     db.session.rollback()
                     flash(str(exc), "error")
-                    return redirect(url_for("unit_accounts"))
+                    return invitation_redirect(person)
                 invite_url = url_for(
                     "accept_invitation", token=raw_token, _external=True
                 )
@@ -132,7 +153,7 @@ def create_unit_accounts_blueprint(dependencies: UnitAccountsDependencies) -> Bl
                     f"once: {invite_url}",
                     "ok",
                 )
-                return redirect(url_for("unit_accounts"))
+                return invitation_redirect(person)
             if action == "create_account":
                 name = (request.form.get("name") or "").strip()
                 username = _normalized_login(request.form.get("username") or "")

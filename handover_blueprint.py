@@ -306,8 +306,8 @@ def create_handover_blueprint(deps: HandoverDependencies) -> Blueprint:
             **context,
         )
 
-    @bp.route("/edit", methods=["GET", "POST"])
     @bp.route("/new", methods=["GET", "POST"])
+    @bp.route("/edit", methods=["GET", "POST"])
     def edit():
         """Edit the unit's single current handover record.
 

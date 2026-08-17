@@ -60,12 +60,17 @@
     </div>
     <div class="objective-entry-grid">
     {% for objective in selected_level.objectives|sort(attribute='position') %}
-      <fieldset>
+      <fieldset data-training-objective>
         <legend title="{{ objective.description }}">{{ objective.position }}. {{ objective.title }}</legend>
-        <label>Attainment<select name="attainment_{{ objective.id }}"><option value="">Not observed</option><option value="4">Fully achieved</option><option value="3">Mostly achieved</option><option value="2">Partly achieved</option><option value="1">Not achieved</option></select></label>
-        <label>Assistance<select name="assistance_{{ objective.id }}"><option value="">Not observed</option><option value="4">Independent</option><option value="3">Prompted</option><option value="2">Assisted</option><option value="1">Instructor intervened</option></select></label>
-        <label>Note<textarea name="note_{{ objective.id }}" rows="2"></textarea></label>
-        <label class="safety-toggle"><input type="checkbox" name="safety_{{ objective.id }}"> Safety-critical event</label>
+        <div class="training-objective__scores">
+          <label>Attainment<select name="attainment_{{ objective.id }}" data-training-attainment><option value="">Not observed</option><option value="4">Fully achieved</option><option value="3">Mostly achieved</option><option value="2">Partly achieved</option><option value="1">Not achieved</option></select></label>
+          <label>Assistance<select name="assistance_{{ objective.id }}" data-training-assistance><option value="">Not observed</option><option value="4">Independent</option><option value="3">Prompted</option><option value="2">Assisted</option><option value="1">Instructor intervened</option></select></label>
+        </div>
+        <details class="training-objective__details" data-training-objective-details>
+          <summary class="training-objective__details-title">Observation details</summary>
+          <label>Note<textarea name="note_{{ objective.id }}" rows="2"></textarea></label>
+          <label class="safety-toggle"><input type="checkbox" name="safety_{{ objective.id }}"> Safety-critical event</label>
+        </details>
       </fieldset>
     {% endfor %}
     </div>
@@ -76,4 +81,20 @@
 {% else %}
 <section class="card"><div class="card-bd empty-state">No training levels have been configured yet.</div></section>
 {% endif %}
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  document.querySelectorAll('[data-training-objective]').forEach(objective => {
+    const attainment = objective.querySelector('[data-training-attainment]');
+    const assistance = objective.querySelector('[data-training-assistance]');
+    const details = objective.querySelector('[data-training-objective-details]');
+    if (!attainment || !assistance || !details) return;
+    const syncDetails = () => {
+      details.open = Boolean(attainment.value || assistance.value);
+    };
+    attainment.addEventListener('change', syncDetails);
+    assistance.addEventListener('change', syncDetails);
+    syncDetails();
+  });
+})();
+</script>
 {% endblock %}

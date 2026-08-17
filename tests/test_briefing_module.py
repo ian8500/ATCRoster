@@ -390,6 +390,9 @@ def test_admin_publishes_instruction_and_user_acknowledges(briefing_client):
         follow_redirects=True,
     )
     assert response.status_code == 200
+    assert b"Archive from current briefing" in response.data
+    assert b"Delete Runway inspection procedure" not in response.data
+    assert b"Deletion remains available in Archive" in response.data
     with app.app.app_context():
         assert BriefingDelivery.query.one().acknowledged_at is not None
         assert BriefingAudit.query.filter_by(event_type="acknowledged").count() == 1
@@ -463,13 +466,26 @@ def test_brief_of_day_is_displayed_without_open_or_acknowledgement(
     page = briefing_client.get("/briefing/")
     assert b"Today at Glasgow" in page.data
     assert b"Brief of the Day." in page.data
-    assert b"Mandatory Messages" in page.data
-    assert b"Other Messages" in page.data
+    assert b"Mandatory Messages" not in page.data
+    assert b"Other Messages" not in page.data
     assert b"data-daily-expand" in page.data
     assert b'role="link"' not in page.data
     assert b"Mandatory</span>" not in page.data
     assert b">Open briefing" not in page.data
     assert b"nav-attention-count" not in page.data
+
+
+def test_briefing_home_has_one_concise_empty_state(briefing_client):
+    _login(briefing_client, "brief_user")
+
+    page = briefing_client.get("/briefing/")
+
+    assert page.status_code == 200
+    assert b"No current briefings" in page.data
+    assert b"New operational briefings will appear here." in page.data
+    assert b"Brief of the Day." not in page.data
+    assert b"Mandatory Messages" not in page.data
+    assert b"Other Messages" not in page.data
 
 
 def test_assurance_ignores_non_working_assignments(briefing_client):

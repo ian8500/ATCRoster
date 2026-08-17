@@ -193,8 +193,7 @@ def dispatch_admin_action(
             ),
         )
         flash(message, category)
-        if category == "ok":
-            return redirect(url_for("admin"))
+        return redirect(url_for("admin") + "#shifts")
 
     if form == "req":
         try:

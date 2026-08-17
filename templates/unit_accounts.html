@@ -35,7 +35,7 @@
       </label></div>
       <div class="col-12">
         <button class="btn btn-primary" type="submit" {% if not eligible_people %}disabled{% endif %}>Create one-time invitation link</button>
-        {% if not eligible_people %}<small class="d-block mt-2">Every configured person already has access or a pending invitation. Add another person in Admin → Staff first.</small>{% endif %}
+        {% if not eligible_people %}<small class="d-block mt-2">Every configured person already has access or a pending invitation. <a href="{{ url_for('admin') }}#staff">Open People &amp; access</a> to add another person.</small>{% endif %}
       </div>
     </form>
   </section>

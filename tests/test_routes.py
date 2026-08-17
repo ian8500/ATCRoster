@@ -516,6 +516,224 @@ def test_handover_settings_adds_managed_dropdown(client):
         assert field.required is True
 
 
+def test_handover_navigation_uses_read_only_home_for_non_writers(client):
+    with app.app.app_context():
+        flag = app.FeatureFlag.query.filter_by(unit_id=1, key="handover_module").first()
+        if flag is None:
+            db.session.add(
+                app.FeatureFlag(unit_id=1, key="handover_module", enabled=True)
+            )
+        else:
+            flag.enabled = True
+        db.session.commit()
+
+    login_as(client, "staff_test", follow_redirects=True)
+    read_only_home = client.get("/handover/")
+    assert read_only_home.status_code == 200
+    assert b'href="/handover/" class="nav-link active"' in read_only_home.data
+    assert b'href="/handover/edit" class="nav-link' not in read_only_home.data
+    assert client.get("/handover/edit").status_code == 403
+
+    writer_client = app.app.test_client()
+    login_as(writer_client, "watch_manager_test", follow_redirects=True)
+    writer_home = writer_client.get("/handover/", follow_redirects=False)
+    assert writer_home.status_code == 302
+    assert writer_home.headers["Location"].endswith("/handover/edit")
+    writer_page = writer_client.get("/handover/edit")
+    assert writer_page.status_code == 200
+    assert b'href="/handover/edit"' in writer_page.data
+    assert writer_client.get("/handover/new").status_code == 200
+
+
+def test_unit_accounts_empty_eligible_state_links_to_people_admin_panel(client):
+    login(client)
+    response = client.get("/unit/accounts")
+
+    assert response.status_code == 200
+    assert b"Every configured person already has access or a pending invitation." in response.data
+    assert b'href="/admin#staff">Open People &amp; access</a>' in response.data
+
+
+def test_onboarding_checklist_links_to_the_matching_admin_panels(client):
+    login(client)
+    response = client.get("/unit/onboarding")
+
+    assert response.status_code == 200
+    for anchor in ("roster-setup", "shifts", "staff", "requirements"):
+        assert f'href="/admin#{anchor}"'.encode() in response.data
+
+
+def test_shift_actions_return_to_the_shift_panel(client):
+    login(client)
+    with app.app.app_context():
+        shift = ShiftType.query.filter_by(unit_id=1, code="M").one()
+        form_data = {
+            "form": "shift_edit",
+            "shift_id": shift.id,
+            "name": shift.name,
+            "start": shift.start_time.strftime("%H:%M") if shift.start_time else "",
+            "end": shift.end_time.strftime("%H:%M") if shift.end_time else "",
+            "required_qualification": shift.required_qualification or "",
+        }
+        for field, enabled in {
+            "is_working": shift.is_working,
+            "is_training": shift.is_training,
+            "is_active": shift.is_active,
+            "is_requestable": shift.is_requestable,
+        }.items():
+            if enabled:
+                form_data[field] = "on"
+
+    form_data["_csrf_token"] = csrf(client)
+    response = client.post(
+        "/admin",
+        data=form_data,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/admin#shifts")
+
+
+def test_staff_profile_save_returns_to_the_same_profile(client):
+    with app.app.app_context():
+        watch = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        person = Staff(
+            unit_id=1,
+            username="profile-return-target",
+            name="Profile return target",
+            staff_no="PRF-RETURN",
+            role="user",
+            watch_id=watch.id,
+            pattern_csv="M,OFF",
+            employment_type="FULL_TIME",
+            contracted_minutes_per_week=2220,
+        )
+        person.set_password("password123")
+        db.session.add(person)
+        db.session.commit()
+        person_id = person.id
+        watch_id = watch.id
+
+    login(client)
+    response = client.post(
+        f"/admin/staff/{person_id}",
+        data={
+            "_csrf_token": csrf(client),
+            "name": "Profile return target",
+            "staff_no": "PRF-RETURN",
+            "username": "profile-return-target",
+            "email": "",
+            "phone_number": "",
+            "watch_id": watch_id,
+            "role": "user",
+            "employment_type": "FULL_TIME",
+            "contracted_hours_per_week": "37",
+            "pattern_csv": "M,OFF",
+            "leave_year_start_month": "4",
+            "leave_entitlement_days": "0",
+            "leave_public_holidays": "0",
+            "leave_carryover_days": "0",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(f"/admin/staff/{person_id}")
+
+
+def test_staff_profile_invitation_return_is_tenant_scoped_and_not_a_url(client):
+    with app.app.app_context():
+        watch = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        profile_person = Staff(
+            unit_id=1,
+            username="profile-invitation-return",
+            name="Profile invitation return",
+            staff_no="INV-RETURN",
+            role="user",
+            watch_id=watch.id,
+        )
+        fallback_person = Staff(
+            unit_id=1,
+            username="profile-invitation-fallback",
+            name="Profile invitation fallback",
+            staff_no="INV-FALLBACK",
+            role="user",
+            watch_id=watch.id,
+        )
+        url_fallback_person = Staff(
+            unit_id=1,
+            username="profile-invitation-url-fallback",
+            name="Profile invitation URL fallback",
+            staff_no="INV-URL-FALLBACK",
+            role="user",
+            watch_id=watch.id,
+        )
+        profile_person.set_password("password123")
+        fallback_person.set_password("password123")
+        url_fallback_person.set_password("password123")
+        db.session.add_all([profile_person, fallback_person, url_fallback_person])
+        db.session.commit()
+        profile_person_id = profile_person.id
+        fallback_person_id = fallback_person.id
+        url_fallback_person_id = url_fallback_person.id
+        other_airport_person_id = Staff.query.filter_by(
+            unit_id=3, username="other_staff_test"
+        ).one().id
+
+    login(client)
+    profile_page = client.get(f"/admin/staff/{profile_person_id}")
+    assert profile_page.status_code == 200
+    assert (
+        f'name="return_staff_id" value="{profile_person_id}"'.encode()
+        in profile_page.data
+    )
+
+    safe_return = client.post(
+        "/unit/accounts",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "create_invitation",
+            "role": "ReadOnlyAuditor",
+            "person_id": profile_person_id,
+            "return_staff_id": profile_person_id,
+        },
+        follow_redirects=False,
+    )
+    assert safe_return.status_code == 302
+    assert safe_return.headers["Location"].endswith(
+        f"/admin/staff/{profile_person_id}"
+    )
+
+    cross_tenant_return = client.post(
+        "/unit/accounts",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "create_invitation",
+            "role": "ReadOnlyAuditor",
+            "person_id": fallback_person_id,
+            "return_staff_id": other_airport_person_id,
+        },
+        follow_redirects=False,
+    )
+    assert cross_tenant_return.status_code == 302
+    assert cross_tenant_return.headers["Location"].endswith("/unit/accounts")
+
+    external_url_return = client.post(
+        "/unit/accounts",
+        data={
+            "_csrf_token": csrf(client),
+            "action": "create_invitation",
+            "role": "ReadOnlyAuditor",
+            "person_id": url_fallback_person_id,
+            "return_staff_id": "https://attacker.example/",
+        },
+        follow_redirects=False,
+    )
+    assert external_url_return.status_code == 302
+    assert external_url_return.headers["Location"].endswith("/unit/accounts")
+
+
 def test_reports_require_sensitive_data_acknowledgement(client):
     login(client)
     warning = client.get("/reports")
@@ -4498,6 +4716,80 @@ def test_existing_leave_can_filter_by_watch_or_whole_unit(client):
         person_b = Staff.query.filter_by(username="staff_test").one()
         person_a.watch_id, person_b.watch_id = original_watch_ids
         db.session.commit()
+
+
+def test_leave_workflow_retains_watch_context_and_selected_watch(client):
+    login(client)
+    month = "2029-07"
+    sickness_day = date(2029, 7, 5)
+    leave_day = date(2029, 7, 6)
+    with app.app.app_context():
+        watch = Watch.query.filter_by(unit_id=1, name="Watch A").one()
+        person = Staff.query.filter_by(username=ADMIN_CREDENTIALS["username"]).one()
+        original_watch_id = person.watch_id
+        person.watch_id = watch.id
+        sickness = Assignment(
+            unit_id=1,
+            staff_id=person.id,
+            day=sickness_day,
+            code="SC",
+            source="manual",
+        )
+        db.session.add(sickness)
+        db.session.commit()
+        watch_id = watch.id
+        person_id = person.id
+        sickness_id = sickness.id
+
+    try:
+        page = client.get(f"/leave?ym={month}&watch_id={watch_id}")
+
+        assert page.status_code == 200
+        selected_watch = (
+            f'<option value="{watch_id}" selected>Watch A</option>'.encode()
+        )
+        assert page.data.count(selected_watch) >= 3
+        assert b'name="watch_id" data-auto-submit' in page.data
+        assert (
+            f'data-persist-details="sickness-instance-{person_id}-{sickness_day.isoformat()}"'.encode()
+            in page.data
+        )
+
+        saved = client.post(
+            f"/leave?ym={month}&watch_id={watch_id}",
+            data={
+                "_csrf_token": csrf(client),
+                "form": "leave_add",
+                "entry_watch_id": str(watch_id),
+                "staff_id": str(person_id),
+                "leave_type": "AL",
+                "start": leave_day.isoformat(),
+                "end": leave_day.isoformat(),
+            },
+            follow_redirects=False,
+        )
+
+        assert saved.status_code == 302
+        assert saved.headers["Location"] == (
+            f"/leave?ym={month}&watch_id={watch_id}"
+        )
+        redirected = client.get(saved.headers["Location"])
+        assert redirected.data.count(b"Leave recorded") == 1
+        assert b">Update dates</button>" in redirected.data
+    finally:
+        with app.app.app_context():
+            Leave.query.filter_by(
+                unit_id=1,
+                staff_id=person_id,
+                start=leave_day,
+                end=leave_day,
+            ).delete(synchronize_session=False)
+            Assignment.query.filter_by(id=sickness_id).delete(
+                synchronize_session=False
+            )
+            person = db.session.get(Staff, person_id)
+            person.watch_id = original_watch_id
+            db.session.commit()
 
 
 def test_airport_absence_catalogue_and_calendar_token(client):

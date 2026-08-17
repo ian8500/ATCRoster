@@ -116,6 +116,13 @@ def create_absence_requests_blueprint(
             dependencies.Watch.name,
         ).all()
 
+        def return_to_leave():
+            """Return to the validated month and optional watch filter."""
+            values = {"ym": f"{year:04d}-{month:02d}"}
+            if selected_watch_id is not None:
+                values["watch_id"] = selected_watch_id
+            return redirect(url_for("leave", **values))
+
         if request.method == "POST":
             dependencies.validate_csrf()
             # (still restrict POST actions too)
@@ -124,7 +131,7 @@ def create_absence_requests_blueprint(
                 or getattr(current_user, "role", "") in ("editor", "admin")
             ):
                 flash("Editors or Admins only.", "error")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             form = request.form.get("form", "")
 
@@ -158,7 +165,7 @@ def create_absence_requests_blueprint(
                         flash(
                             "Enter a name, category and a 1–10 character code.", "error"
                         )
-                        return redirect(url_for("leave", ym=ym_param))
+                        return return_to_leave()
                     existing = next(
                         (item for item in types if item["code"] == code), None
                     )
@@ -189,12 +196,12 @@ def create_absence_requests_blueprint(
                         "Historical records were retained.",
                         "ok",
                     )
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             if form == "leave_add":
                 s = selected_staff_for_absence()
                 if s is None:
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
                 staff_id = s.id
                 lv_type = request.form["leave_type"].upper().strip()
                 start_d = date.fromisoformat(request.form["start"])
@@ -238,7 +245,7 @@ def create_absence_requests_blueprint(
                         f"TOIL use recorded: {lv_type} from {start_d.isoformat()} to {end_d.isoformat()}.",
                         "ok",
                     )
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
 
                 # Original behaviour: AL/PL/SPL create Leave rows
                 active_leave_codes = {
@@ -246,7 +253,7 @@ def create_absence_requests_blueprint(
                 }
                 if lv_type not in active_leave_codes:
                     flash("Select an active leave type for this airport.", "error")
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
 
                 lv = dependencies.Leave(
                     staff_id=staff_id, leave_type=lv_type, start=start_d, end=end_d
@@ -259,7 +266,7 @@ def create_absence_requests_blueprint(
                     cur += timedelta(days=1)
                 dependencies.db.session.commit()
                 flash("Leave recorded", "ok")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             if form == "leave_edit":
                 lid = int(request.form["leave_id"])
@@ -273,7 +280,7 @@ def create_absence_requests_blueprint(
                     item["code"] for item in dependencies.get_absence_types("leave")
                 }:
                     flash("Select an active leave type for this airport.", "error")
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
                 lv.start = date.fromisoformat(request.form["start"])
                 lv.end = date.fromisoformat(request.form["end"])
                 dependencies.db.session.commit()
@@ -285,7 +292,7 @@ def create_absence_requests_blueprint(
                         cur += timedelta(days=1)
                 dependencies.db.session.commit()
                 flash("Leave updated", "ok")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             if form == "leave_delete":
                 lid = int(request.form["leave_id"])
@@ -302,12 +309,12 @@ def create_absence_requests_blueprint(
                     cur += timedelta(days=1)
                 dependencies.db.session.commit()
                 flash("Leave deleted.", "ok")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             if form == "sick_add":
                 s = selected_staff_for_absence()
                 if s is None:
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
                 staff_id = s.id
                 code = request.form["sick_code"].upper()
                 sickness_codes = {
@@ -315,7 +322,7 @@ def create_absence_requests_blueprint(
                 }
                 if code not in sickness_codes:
                     flash("Invalid sickness code.", "error")
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
                 start_d = date.fromisoformat(request.form["start"])
                 end_d = date.fromisoformat(request.form["end"])
                 cur = start_d
@@ -337,7 +344,7 @@ def create_absence_requests_blueprint(
                     cur += timedelta(days=1)
                 dependencies.db.session.commit()
                 flash(f"Sickness {code} recorded.", "ok")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             if form == "sick_edit":
                 staff_id = int(request.form["staff_id"])
@@ -349,7 +356,7 @@ def create_absence_requests_blueprint(
                 }
                 if new_code not in sickness_codes:
                     flash("Invalid sickness code.", "error")
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
                 cur = start_d
                 while cur <= end_d:
                     a = dependencies.Assignment.query.filter_by(
@@ -376,7 +383,7 @@ def create_absence_requests_blueprint(
                     cur += timedelta(days=1)
                 dependencies.db.session.commit()
                 flash("Sickness updated.", "ok")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             if form == "sick_delete":
                 staff_id = int(request.form["staff_id"])
@@ -407,14 +414,14 @@ def create_absence_requests_blueprint(
                     cur += timedelta(days=1)
                 dependencies.db.session.commit()
                 flash("Sickness deleted.", "ok")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
             if form == "toil_use":
                 staff_id = int(request.form["staff_id"])
                 code = request.form["toil_code"].upper()
                 if code not in {"TOU8", "TOUI"}:
                     flash("Invalid TOIL code.", "error")
-                    return redirect(url_for("leave", ym=ym_param))
+                    return return_to_leave()
                 day = date.fromisoformat(request.form["day"])
                 s = dependencies.tenant_get(dependencies.Staff, staff_id)
                 if not s:
@@ -444,7 +451,7 @@ def create_absence_requests_blueprint(
                 )
                 dependencies.db.session.commit()
                 flash(f"TOIL used: {code} on {day.isoformat()}.", "ok")
-                return redirect(url_for("leave", ym=ym_param))
+                return return_to_leave()
 
         # ---------- GET: month-filtered data ----------
         leaves_query = (
@@ -691,7 +698,10 @@ def create_absence_requests_blueprint(
 
         all_shifts = (
             dependencies.ShiftType.query.filter_by(
-                unit_id=unit_id, is_active=True, is_requestable=True
+                unit_id=unit_id,
+                is_active=True,
+                is_requestable=True,
+                is_working=True,
             )
             .order_by(dependencies.ShiftType.code)
             .all()
@@ -783,9 +793,21 @@ def create_absence_requests_blueprint(
             "approve_apply",
         }:
             abort(400, "Invalid request action.")
-        return_month = dependencies.workflow.safe_admin_month(
-            request.form.get("ym"), date.today()
-        )
+        # The request's own date is authoritative. It prevents a forged or stale
+        # hidden field from sending a reviewer to a different month and guarantees
+        # that the response anchor resolves to the request just handled.
+        return_month = f"{r.day.year:04d}-{r.day.month:02d}"
+
+        def return_to_request():
+            """Keep the reviewer on the request they have just handled."""
+            return redirect(
+                url_for(
+                    "requests_page",
+                    ym=return_month,
+                    _anchor=f"request-{r.id}",
+                )
+            )
+
         response = (request.form.get("admin_response") or "").strip()
         if len(response) > 500:
             abort(400, "Response is limited to 500 characters.")
@@ -871,7 +893,7 @@ def create_absence_requests_blueprint(
                         f"{warning_text[:700]}. Review and confirm the permitted override.",
                         "error",
                     )
-                    return redirect(url_for("requests_page", ym=return_month))
+                    return return_to_request()
             assignment = dependencies.Assignment.query.filter_by(
                 unit_id=unit_id, staff_id=r.staff_id, day=r.day
             ).first()
@@ -940,7 +962,7 @@ def create_absence_requests_blueprint(
             flash("Request refused. The ATCO has been notified.", "ok")
         else:
             flash("Response saved.", "ok")
-        return redirect(url_for("requests_page", ym=return_month))
+        return return_to_request()
 
     @blueprint.record_once
     def register_routes(state):

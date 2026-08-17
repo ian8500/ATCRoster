@@ -321,6 +321,39 @@
   color:#e8f3f2;
 }
 
+/* Training stays information-dense while recording the context only after a score. */
+.app-main .training-objective__scores{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.55rem;
+}
+
+.app-main .training-objective__details{
+  margin-top:.65rem;
+  padding-top:.65rem;
+  border-top:1px solid var(--line);
+}
+
+.app-main .training-objective__details[open]{display:grid;gap:.55rem}
+
+.app-main .training-objective__details-title{
+  color:var(--text-muted);
+  cursor:pointer;
+  font-size:.74rem;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.app-main .briefing-card__archive-note{
+  display:block;
+  margin-top:.35rem;
+  color:var(--text-muted);
+  font-size:.72rem;
+}
+
+.app-main .briefing-sections--empty{max-width:680px}
+
 @media(max-width:900px){
   .app-main :is(.page-header,.compliance-hero,.admin-function-heading,.profile-hero,.training-hero,.training-module-hero){align-items:flex-start;flex-direction:column}
   .app-main .page-header>.btn{width:100%}
@@ -330,6 +363,7 @@
 @media(max-width:700px){
   .app-main .module-launcher{margin:1rem auto;padding:1rem}
   .app-main .module-launcher__grid,.app-main .messages-composer{grid-template-columns:1fr}
+  .app-main .training-objective__scores{grid-template-columns:1fr}
   .app-main .messages-composer label:has(textarea){grid-column:auto}
   .app-main :is(.report-filter,.bar,.toolbar){align-items:stretch;flex-direction:column}
   .app-main :is(.report-filter,.bar,.toolbar)>.btn{width:100%}

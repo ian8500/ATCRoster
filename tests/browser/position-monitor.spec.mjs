@@ -116,6 +116,69 @@ test("Position Monitor kiosk is operational and remains least-privilege", async 
   await expect(page).toHaveURL(/\/live-positions\/kiosk$/);
 });
 
+test("Position Monitor makes multi-controller logoff and close explicit", async ({ page }) => {
+  let logoffPayload;
+  await page.route("**/live-positions/api/events", (route) => route.abort());
+  await page.route("**/live-positions/api/positions/*/logoff", async (route) => {
+    logoffPayload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+  await page.route("**/live-positions/api/state", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const now = new Date().toISOString();
+    payload.positions = payload.positions.slice(0, 1).map((position) => ({
+      ...position,
+      display_status: "operational",
+      primary: {
+        id: 1,
+        name: "Alex Taylor",
+        accrued_seconds: 60,
+        accrued_at: now,
+        maximum_duration_seconds: 7200,
+        required_break_seconds: 1800,
+      },
+      participants: [{
+        id: 2,
+        person_name: "Euan Roberts",
+        role_label: "OJTI",
+        accrued_seconds: 60,
+        accrued_at: now,
+        maximum_duration_seconds: 7200,
+        required_break_seconds: 1800,
+        eligibility_warnings: [],
+      }],
+      eligibility_warnings: [],
+    }));
+    await route.fulfill({ response, json: payload });
+  });
+
+  await page.goto("/login");
+  await page.getByLabel(/username/i).fill(username);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
+  await Promise.all([
+    page.waitForURL("**/live-positions/kiosk"),
+    page.getByRole("button", { name: /sign in|login/i }).click(),
+  ]);
+  const startKiosk = page.getByRole("button", { name: "Start kiosk" });
+  if (await startKiosk.count()) await startKiosk.click();
+
+  const tile = page.locator("#live-position-grid article").first();
+  await expect(tile).toContainText("Alex Taylor");
+  await expect(tile).toContainText("Euan Roberts");
+  await expect(tile.locator(".live-position-tile__participants button")).toHaveCount(0);
+  await tile.locator("footer button[data-operation='logoff_close']").click();
+  await expect(page.locator("#live-position-logoff-dialog")).toContainText(
+    /Confirm logging off every controller before closing this position/i,
+  );
+  await page.getByRole("button", { name: "Log off all controllers and close position" }).click();
+  await expect.poll(() => logoffPayload?.close_position).toBe(true);
+});
+
 test("Position Monitor presents closed positions as solid, opaque operational cards", async ({ page }) => {
   await page.route("**/live-positions/api/events", (route) => route.abort());
   await page.route("**/live-positions/api/state", async (route) => {
@@ -288,13 +351,9 @@ test("Position Monitor requires an OJTI for a trainee", async ({ page }) => {
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(tower).toContainText("Priya Stewart");
   await expect(tower).toContainText("OJTI");
-  await tower
-    .locator(".live-position-tile__participants small")
-    .filter({ hasText: "Euan Roberts" })
-    .getByRole("button", { name: "Log off" })
-    .click();
-  await page.getByRole("button", { name: "Confirm" }).click();
-  await expect(page.locator("#live-position-action-error")).toContainText(/OJTI cannot be removed/i);
+  await tower.locator("footer button[data-operation='logoff']").click();
+  await page.getByRole("button", { name: /Euan Roberts \(OJTI\) only$/ }).click();
+  await expect(page.locator("#live-position-logoff-error")).toContainText(/OJTI cannot be removed/i);
   await expect(tower).toContainText("Euan Roberts");
 });
 

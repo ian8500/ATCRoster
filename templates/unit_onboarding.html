@@ -47,8 +47,8 @@
   <section class="card">
     <div class="card-hd">Configuration checklist · {{ readiness_complete }}/{{ readiness|length }}</div>
     <div class="card-bd onboarding-checklist">
-      {% for label, complete, endpoint in readiness %}
-        <a href="{{ url_for(endpoint) }}" class="{{ 'complete' if complete else '' }}">
+      {% for label, complete, endpoint, anchor in readiness %}
+        <a href="{{ url_for(endpoint, _anchor=anchor) if anchor else url_for(endpoint) }}" class="{{ 'complete' if complete else '' }}">
           <i class="fa-solid {{ 'fa-circle-check' if complete else 'fa-circle' }}"></i>
           <span>{{ label }}</span>
           <small>{{ 'Configured' if complete else 'Needs attention' }}</small>

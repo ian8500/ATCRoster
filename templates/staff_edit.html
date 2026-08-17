@@ -172,6 +172,7 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="create_invitation">
         <input type="hidden" name="person_id" value="{{ s.id }}">
+        <input type="hidden" name="return_staff_id" value="{{ s.id }}">
         <label>Access level<select name="role">
           <option value="StaffUser">Staff user</option>
           <option value="WatchManager">Watch manager</option>

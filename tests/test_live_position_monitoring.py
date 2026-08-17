@@ -274,10 +274,12 @@ def test_kiosk_password_login_bypasses_only_mfa_and_is_endpoint_limited(
     assert b"operation === 'logoff' || operation === 'logoff_close'" in kiosk_page.data
     assert b"if (operation === 'close')" in kiosk_page.data
     assert b"The position could not be closed." in kiosk_page.data
-    assert b"close_position: operation === 'logoff_close'" in kiosk_page.data
+    assert b"logoffDialog.dataset.closePosition" in kiosk_page.data
+    assert b"close_position: closePosition" in kiosk_page.data
     assert b"Log off all controllers" in kiosk_page.data
+    assert b"Log off all controllers and close position" in kiosk_page.data
     assert b"data-logoff-choice" in kiosk_page.data
-    assert b"position?.participants.length" in kiosk_page.data
+    assert b"position && (position.participants.length || operation === 'logoff_close')" in kiosk_page.data
     assert b"data-accrued-seconds" in kiosk_page.data
     assert b"data-remaining-accrued-seconds" in kiosk_page.data
     assert b"newly-created clock nodes" in kiosk_page.data
@@ -885,6 +887,7 @@ def test_admin_can_configure_currency_category_and_position(live_position_data):
     assert page.status_code == 200
     assert b"Maximum-time weekly matrix" in page.data
     assert b"Cumulative controller-time recovery" in page.data
+    assert page.data.count(b'<details class="card" open>') == 1
     assert b"airport\xe2\x80\x99s local timezone" in page.data
     with client.session_transaction() as session:
         csrf = session["_csrf_token"]
