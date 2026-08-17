@@ -11,6 +11,8 @@ def test_design_system_modules_define_semantic_operational_states():
         "--color-selected", "--color-published", "--color-advisory",
     ):
         assert token in tokens
+    for alias in ("--muted", "--border", "--panel", "--radius", "--danger"):
+        assert alias in tokens
 
 
 def test_base_loads_modular_styles_in_design_system_order():
@@ -39,3 +41,17 @@ def test_visual_regression_contract_covers_roster_zoom_mobile_dialogs_and_tables
     assert ".roster-command-palette" in stylesheet
     assert "table:not(.roster)" in stylesheet
     assert ":focus-visible" in component_layer
+
+
+def test_shared_component_layer_owns_cross_application_visual_primitives():
+    component_layer = (ROOT / "static/css/components.css").read_text()
+    for selector in (
+        ".page-header",
+        ".form-grid",
+        ".summary-grid",
+        ".table-wrap",
+        ".module-launcher",
+        ".messages-composer",
+        ".serviceability-card",
+    ):
+        assert selector in component_layer

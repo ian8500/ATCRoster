@@ -1,3 +1,15 @@
 .app-body{background:var(--color-surface);color:var(--color-text)}
 .site-header,.site-footer{background:var(--color-surface-raised);border-color:var(--color-border)}
 .skip-link:focus-visible,:focus-visible{outline:3px solid var(--focus-ring);outline-offset:3px}
+
+/* Shared page rhythm.  These rules deliberately leave roster and kiosk
+   geometry to their dedicated layers. */
+.app-main{padding-bottom:clamp(2rem,5vw,4.5rem)}
+.page-content{align-items:stretch}
+.page-shell{width:min(100%,1440px);margin-inline:auto}
+.page-shell>*{min-width:0}
+
+@media(max-width:700px){
+  .page-content{gap:1rem}
+  .app-main{padding-bottom:2.25rem}
+}

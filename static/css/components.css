@@ -2,3 +2,343 @@
 .card{border-color:var(--color-border)}
 .status--normal{color:var(--color-normal)}.status--warning{color:var(--color-warning)}
 .status--blocking{color:var(--color-blocking)}.status--advisory{color:var(--color-advisory)}
+
+/*
+ * Canonical application components
+ *
+ * This layer loads after the legacy stylesheet.  It intentionally targets
+ * established structural classes rather than changing routes, form controls,
+ * or operational state.  Roster and kiosk HMI visuals remain in their own
+ * dedicated stylesheets.
+ */
+.app-main .page-header,
+.app-main .compliance-hero,
+.app-main .admin-function-heading,
+.app-main .profile-hero,
+.app-main .training-hero,
+.app-main .training-module-hero{
+  min-height:0;
+  padding:clamp(1rem,2vw,1.35rem);
+  border:1px solid var(--line);
+  border-left:3px solid #4d817e;
+  border-radius:var(--radius-md);
+  background:linear-gradient(135deg,#182128,#13191f);
+  box-shadow:var(--shadow-soft);
+}
+
+.app-main .page-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--component-gap);
+  margin-bottom:var(--component-gap);
+}
+
+.app-main :is(.page-header,.compliance-hero,.admin-function-heading,.profile-hero,.training-hero,.training-module-hero)>div:first-child{min-width:0}
+.app-main .page-header .eyebrow{
+  display:block;
+  margin:0 0 .25rem;
+  color:#8aa5a3;
+  font-size:.73rem;
+  font-weight:650;
+  letter-spacing:.04em;
+}
+
+.app-main .page-header :is(h1,h2,h3),
+.app-main .compliance-hero :is(h1,h2),
+.app-main .admin-function-heading :is(h1,h2,h3),
+.app-main .profile-hero h2,
+.app-main .training-hero h2,
+.app-main .training-module-hero h2{
+  margin:.1rem 0 .25rem;
+  letter-spacing:-.018em;
+}
+
+.app-main .card,
+.app-main .admin-panel{
+  border-color:var(--line);
+  border-radius:var(--radius-md);
+  background:var(--card);
+  box-shadow:var(--shadow-soft);
+}
+
+.app-main .card-hd,
+.app-main .card-header{
+  display:flex;
+  align-items:center;
+  gap:.55rem;
+  padding-bottom:.8rem;
+  border-bottom:1px solid rgba(110,133,175,.18);
+}
+
+.app-main .form-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:var(--component-gap);
+  align-items:end;
+}
+
+.app-main .form-grid label,
+.app-main .toolbar label,
+.app-main .report-filter label{
+  display:grid;
+  gap:.35rem;
+  min-width:0;
+}
+
+.app-main .summary-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(155px,1fr));
+  gap:.75rem;
+}
+
+.app-main .summary-grid>.card{
+  display:grid;
+  gap:.3rem;
+  min-height:96px;
+  margin:0;
+  padding:1rem;
+}
+
+.app-main .summary-grid>.card>strong{
+  align-self:end;
+  font-size:1.2rem;
+  font-variant-numeric:tabular-nums;
+}
+
+.app-main :is(.inline-actions,.toolbar,.form-actions,.compliance-actions){
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:.6rem;
+}
+
+.app-main .inline-actions form{margin:0}
+.app-main .form-actions{justify-content:flex-end}
+.app-main .checkbox-row{
+  display:flex;
+  align-items:center;
+  gap:.55rem;
+  min-height:38px;
+  padding:.55rem .7rem;
+  border:1px solid var(--line);
+  border-radius:6px;
+  background:var(--surface-subtle);
+}
+
+.app-main :is(.table-responsive,.table-scroll,.table-wrap,.app-table-frame){
+  width:100%;
+  overflow:auto;
+  overscroll-behavior-inline:contain;
+  border:1px solid var(--line);
+  border-radius:7px;
+  background:#12171d;
+  box-shadow:none;
+}
+
+.app-main :is(.table-responsive,.table-scroll,.table-wrap,.app-table-frame)>table{
+  margin:0;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+}
+
+.app-main :is(.table-responsive,.table-scroll,.table-wrap,.app-table-frame)>table :is(th,td){vertical-align:middle}
+.app-main :is(.table-responsive,.table-scroll,.table-wrap,.app-table-frame)>table :is(td:last-child,th:last-child){white-space:nowrap}
+.app-main table:not(.roster) :is(.ta-right,.number,.numeric),
+.app-main table:not(.roster) tfoot{font-variant-numeric:tabular-nums}
+
+.app-main .report-filter,
+.app-main .bar,
+.app-main .toolbar{
+  padding:.85rem 1rem;
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  background:var(--surface-subtle);
+}
+
+.app-main .report-filter{margin:0}
+.app-main .report-filter :is(input,select){min-width:0}
+
+.app-main .status-pill,
+.app-main .status-chip{
+  min-height:1.65rem;
+  border:1px solid rgba(160,181,212,.2);
+  font-variant-numeric:tabular-nums;
+  letter-spacing:.01em;
+}
+
+.app-main .flashes .flash,
+.app-main .alert{
+  border-left-width:3px;
+  box-shadow:none;
+}
+
+.app-main .empty-state:not(td),
+.app-main .briefing-section__empty,
+.app-main .handover-empty{
+  display:grid;
+  min-height:112px;
+  place-content:center;
+  gap:.4rem;
+  padding:1.25rem;
+  border:1px dashed var(--line-strong);
+  border-radius:var(--radius-md);
+  background:var(--surface-subtle);
+  text-align:center;
+}
+
+/* Compact operational workspace launcher. */
+.app-main .module-launcher{
+  width:min(100%,1040px);
+  max-width:1040px;
+  margin:clamp(1.5rem,5vh,4rem) auto;
+  padding:clamp(1rem,2.4vw,1.75rem);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  background:linear-gradient(145deg,rgba(24,33,53,.88),rgba(13,20,31,.94));
+  box-shadow:var(--shadow-soft);
+}
+
+.app-main .module-launcher__intro{
+  max-width:680px;
+  margin:0 0 1.35rem;
+  text-align:left;
+}
+
+.app-main .module-launcher__intro .eyebrow{
+  display:block;
+  margin:0 0 .3rem;
+  color:#8aa5a3;
+  font-size:.73rem;
+  font-weight:650;
+  letter-spacing:.04em;
+}
+
+.app-main .module-launcher__intro>p:not(.eyebrow){display:block;margin:0;color:var(--text-muted)}
+.app-main .module-launcher__grid{grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:.75rem}
+.app-main .module-card{
+  min-height:104px;
+  padding:1rem;
+  border-color:var(--line);
+  border-radius:var(--radius-md);
+  background:#171d24;
+  box-shadow:none;
+  transition:border-color .12s ease,background .12s ease,color .12s ease;
+}
+
+.app-main .module-card:hover,
+.app-main .module-card:focus-visible{
+  border-color:#568f8b;
+  background:#1b252c;
+  box-shadow:inset 3px 0 0 #4d817e;
+  transform:none;
+}
+
+.app-main .module-card__icon{width:50px;height:50px;border-radius:10px;font-size:1.25rem}
+.app-main .module-card__icon svg{width:27px;height:27px}
+.app-main .module-card>i{color:#8aa5a3;font-size:.8rem}
+
+/* Dense, high-value communication and platform administration surfaces. */
+.app-main .messages-composer{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  align-items:start;
+}
+
+.app-main .messages-composer label{display:grid;gap:.35rem;min-width:0;margin:0}
+.app-main .messages-composer :is(select,textarea){width:100%;min-width:0}
+.app-main .messages-composer label:has(select[name="template"]){grid-column:1/-1;max-width:580px}
+.app-main .messages-composer label:has(textarea){grid-column:1/-1}
+.app-main .messages-composer>.btn{grid-column:1/-1;justify-self:start}
+
+.app-main .serviceability-card .row>[class*="col"]>.border{
+  height:100%;
+  padding:1rem!important;
+  border-color:var(--line)!important;
+  border-left:3px solid #4d817e!important;
+  border-radius:var(--radius-sm)!important;
+  background:var(--surface-subtle);
+}
+
+.app-main .serviceability-card code{font-variant-numeric:tabular-nums}
+
+/* Do not let a long operational label force report filters beyond the viewport. */
+.app-main .operational-report-filters>*{min-width:0}
+.app-main .operational-report-filters :is(input,select){width:100%;min-width:0}
+
+/* Module-specific surfaces inherit the same restrained operational finish. */
+.app-main .report-group,
+.app-main .briefing-section,
+.app-main .handover-latest,
+.app-main .handover-history{
+  border-color:var(--line);
+  border-radius:var(--radius-md);
+  background:var(--card);
+  box-shadow:var(--shadow-soft);
+}
+
+.app-main .briefing-section__header,
+.app-main .handover-latest>header,
+.app-main .handover-history>header{
+  border-color:rgba(110,133,175,.18);
+}
+
+.app-main .briefing-card,
+.app-main .training-people-grid>a,
+.app-main .handover-history a{
+  border-color:var(--line);
+  border-radius:7px;
+  background:var(--surface-subtle);
+}
+
+.app-main .briefing-card--clickable:hover,
+.app-main .briefing-card--clickable:focus-visible,
+.app-main .training-people-grid>a:hover,
+.app-main .training-people-grid>a:focus-visible,
+.app-main .handover-history a:hover,
+.app-main .handover-history a:focus-visible{
+  border-color:#568f8b;
+  background:var(--surface-interactive);
+  box-shadow:inset 3px 0 0 #4d817e;
+  transform:none;
+}
+
+.app-main :is(.admin-section-nav,.training-level-tabs){
+  border-color:var(--line);
+  box-shadow:none;
+}
+
+.app-main .training-level-tabs a,
+.app-main .admin-section-tab{
+  border-color:var(--line);
+  border-radius:6px;
+}
+
+.app-main .training-level-tabs a.active,
+.app-main .admin-section-tab.active{
+  border-color:#568f8b;
+  background:#223534;
+  color:#e8f3f2;
+}
+
+@media(max-width:900px){
+  .app-main :is(.page-header,.compliance-hero,.admin-function-heading,.profile-hero,.training-hero,.training-module-hero){align-items:flex-start;flex-direction:column}
+  .app-main .page-header>.btn{width:100%}
+  .app-main .form-actions{justify-content:flex-start}
+}
+
+@media(max-width:700px){
+  .app-main .module-launcher{margin:1rem auto;padding:1rem}
+  .app-main .module-launcher__grid,.app-main .messages-composer{grid-template-columns:1fr}
+  .app-main .messages-composer label:has(textarea){grid-column:auto}
+  .app-main :is(.report-filter,.bar,.toolbar){align-items:stretch;flex-direction:column}
+  .app-main :is(.report-filter,.bar,.toolbar)>.btn{width:100%}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .app-main .module-card{transition:none}
+}
+
+@media(forced-colors:active){
+  :focus-visible{outline:3px solid CanvasText;outline-offset:3px}
+}

@@ -4,6 +4,12 @@
   --color-normal:#27ae60; --color-warning:#f1c40f; --color-blocking:#e74c3c;
   --color-selected:#6cb3ff; --color-published:#22c55e; --color-advisory:#f0ad4e;
   --focus-ring:#b9d8ff; --state-on-dark:#07111f; --state-text-on-dark:#fff;
+  /* Compatibility aliases keep every existing module on the same semantic
+     visual language while the legacy stylesheet is progressively retired. */
+  --muted:var(--text-muted); --border:var(--line); --panel:var(--card);
+  --radius:var(--radius-md); --danger:var(--color-blocking);
+  --surface-subtle:rgba(255,255,255,.025); --surface-interactive:rgba(96,153,149,.10);
+  --surface-highlight:rgba(96,153,149,.16); --component-gap:clamp(.75rem,1.2vw,1.1rem);
 }
 /* Contrast pairs: normal 4.7:1, warning 10.9:1, blocking 4.6:1,
    selected 5.1:1, published 7.1:1 and advisory 8.6:1 against --state-on-dark. */

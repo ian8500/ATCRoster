@@ -7,6 +7,6 @@
   <article class="card"><div class="card-hd">Attainment by objective</div><div class="card-bd analytics-bars">
   {% for row in objective_analytics %}<div><span>{{ row.objective.level.name }} · {{ row.objective.position }} {{ row.objective.title }}</span><progress class="analytics-track" max="4" value="{{ row.average }}">{{ row.average }}/4</progress><strong>{{ row.average }}/4</strong></div>{% else %}<p>No scored objectives yet.</p>{% endfor %}
   </div></article>
-  <article class="card"><div class="card-hd">OJTI training hours</div><div class="card-bd"><table class="table"><thead><tr><th>OJTI</th><th>Hours</th></tr></thead><tbody>{% for ojti, minutes in ojti_hours %}<tr><td>{{ ojti.name }}</td><td>{{ "%.1f"|format(minutes / 60) }}</td></tr>{% else %}<tr><td colspan="2">No hours recorded.</td></tr>{% endfor %}</tbody></table></div></article>
+  <article class="card"><div class="card-hd">OJTI training hours</div><div class="card-bd"><div class="table-responsive app-table-frame"><table class="table"><thead><tr><th>OJTI</th><th>Hours</th></tr></thead><tbody>{% for ojti, minutes in ojti_hours %}<tr><td>{{ ojti.name }}</td><td>{{ "%.1f"|format(minutes / 60) }}</td></tr>{% else %}<tr><td colspan="2">No hours recorded.</td></tr>{% endfor %}</tbody></table></div></div></article>
 </section>
 {% endblock %}

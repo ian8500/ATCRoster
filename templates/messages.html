@@ -16,7 +16,7 @@
 <section class="card">
   <div class="card-hd">Compose message</div>
   <div class="card-bd">
-    <form method="post" class="publication-release-form" data-confirm="Send this SMS message now?">
+    <form method="post" class="publication-release-form messages-composer" data-confirm="Send this SMS message now?">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <label>Send from
         <select name="sender_number" required>

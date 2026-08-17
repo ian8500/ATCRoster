@@ -36,6 +36,7 @@
 
 <section class="card card-body">
   <h2>Existing kiosk accounts</h2>
+  <div class="table-responsive app-table-frame">
   <table class="table">
     <thead><tr><th>Kiosk</th><th>Username</th><th>Status</th><th>Action</th></tr></thead>
     <tbody>
@@ -59,5 +60,6 @@
     {% else %}<tr><td colspan="4">No kiosk accounts have been created.</td></tr>{% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 {% endblock %}
