@@ -40,6 +40,11 @@ async function signIn(page, username = "lba.admin") {
 }
 
 test("shared application UI remains polished, legible, and usable across responsive surfaces", async ({ page }) => {
+  // MFA replay protection can require waiting almost one full 30-second TOTP
+  // interval when an earlier serial scenario used this acceptance identity.
+  // Keep the assertions strict while giving that deliberate recovery path
+  // enough time to complete before the test-level timeout expires.
+  test.setTimeout(60_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await signIn(page);
   await test.step("module launcher cards", async () => {
