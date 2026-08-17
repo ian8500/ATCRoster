@@ -1,9 +1,27 @@
-:root { --today-col: rgba(255,255,0,.85); }
+:root {
+  --today-col: rgba(255,255,0,.85);
+  --roster-sticky-name-surface: rgb(24 30 38);
+}
 .site-header { box-shadow: 0 2px 0 var(--head); }
 .roster-sticky-shield { position:fixed; inset:0 0 auto 0; width:100vw; height:0; margin:0; background:#11161d; pointer-events:none; z-index:9; }
 .roster th.dayhead { position:sticky; }
 .roster td.cell, .roster td.totcell { position:relative; }
-.roster td.col-name { background-color:#181e26 !important; background-image:none !important; }
+/*
+ * The controller-name column remains in view while the dense roster scrolls.
+ * Give it a fully opaque surface so assignment cells never show through at
+ * browser zoom levels or during compositing.
+ */
+.roster tbody th.col-name,
+.roster tbody td.col-name {
+  z-index:8;
+  isolation:isolate;
+  opacity:1;
+  background:var(--roster-sticky-name-surface) !important;
+  background-clip:padding-box;
+  background-image:none !important;
+}
+.roster tbody tr:hover th.col-name,
+.roster tbody tr:hover td.col-name { background:rgb(32 43 69) !important; }
 .roster th.dayhead.is-today { background:#363d2e !important; }
 .roster td.cell.is-today { z-index:1; background:rgba(255,255,0,.07) !important; }
 .roster th.dayhead.is-today::before, .roster td.cell.is-today::before, .roster td.totcell.is-today::before { content:""; position:absolute; inset:-1px; pointer-events:none; z-index:5; border-left:3px solid var(--today-col); border-right:3px solid var(--today-col); }

@@ -101,3 +101,32 @@ test("roster editor keeps direct accessible in-cell selection", async ({ page })
   await expect(page.locator("[data-roster-inspector]")).toHaveCount(1);
   await expect(page.locator(".cell.editable [data-roster-shift-select]").first()).toBeVisible();
 });
+
+test("roster keeps its controller row header opaque above scrolled cells", async ({ page }) => {
+  if (authenticatedCookies) await page.context().addCookies(authenticatedCookies);
+  else await signIn(page);
+  const telemetry = page.waitForRequest("**/roster/telemetry");
+  await page.goto(`/roster/${rosterMonth}`);
+  await expect(page.locator("table.roster caption")).toHaveText(/ATC roster for/);
+  const nameCell = page.locator("table.roster tbody th.col-name").first();
+  await expect(nameCell).toHaveAttribute("scope", "row");
+  await expect(nameCell).toHaveCSS("position", "sticky");
+  await expect(nameCell).toHaveCSS("z-index", "8");
+  await expect(nameCell).toHaveCSS("background-color", "rgb(24, 30, 38)");
+  const layering = await nameCell.evaluate((cell) => {
+    const table = cell.closest("table");
+    window.scrollTo({ left: Math.max(1, (table?.scrollWidth || 0) - window.innerWidth) });
+    const rect = cell.getBoundingClientRect();
+    const target = document.elementFromPoint(rect.left + 8, rect.top + 8);
+    return {
+      opaque: getComputedStyle(cell).backgroundColor !== "rgba(0, 0, 0, 0)",
+      remainsOnTop: Boolean(target && cell.contains(target)),
+    };
+  });
+  expect(layering.opaque).toBe(true);
+  expect(layering.remainsOnTop).toBe(true);
+  await expect(page.locator("[data-roster-inspector]")).toBeHidden();
+  await page.locator(".cell.editable [data-roster-shift-select]").first().focus();
+  await expect(page.locator("[data-roster-inspector]")).toBeVisible();
+  expect((await telemetry).method()).toBe("POST");
+});

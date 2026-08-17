@@ -954,17 +954,19 @@ th.sticky.left{left:0; background:var(--head);}
   left:0;
 }
 
-table.roster th.col-name{
+table.roster thead th.col-name{
   z-index:12;
 }
 
-.roster td.col-name{
+.roster tbody th.col-name,
+.roster tbody td.col-name{
   /* Stay above ordinary cells while remaining below every sticky heading. */
   z-index:8;
   background:var(--card);
   box-shadow:4px 0 8px rgba(0,0,0,.18);
 }
 
+.roster tbody tr:hover th.col-name,
 .roster tbody tr:hover td.col-name{
   background:#202b45;
 }

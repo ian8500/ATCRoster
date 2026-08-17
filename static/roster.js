@@ -37,7 +37,7 @@ if (rosterRoot && 'MutationObserver' in window) {
 window.addEventListener('load', () => {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     const navigation = performance.getEntriesByType('navigation')[0];
-    const csrfToken = rosterRoot?.querySelector('input[name="_csrf_token"]')?.value;
+    const csrfToken = rosterRoot?.dataset.csrfToken;
     const telemetryUrl = rosterRoot?.dataset.rosterTelemetryUrl;
     if (!navigation || !csrfToken || !telemetryUrl) return;
     fetch(telemetryUrl, {
@@ -184,6 +184,10 @@ const selectRosterCell = (cell) => {
   if (inspector) { inspector.hidden = false; inspectorTitle.textContent = `${cell.dataset.rosterName} · ${cell.dataset.rosterDay}`; inspectorDetail.textContent = `Shift ${cell.dataset.rosterCode || 'not assigned'}. Use the in-cell shift selector to change it.`; }
 };
 rosterRoot?.addEventListener('click', (event) => { const cell = event.target.closest('.cell'); if (cell && editableCell(cell) && !event.target.closest('[data-roster-shift-select]')) selectRosterCell(cell); });
+rosterRoot?.addEventListener('focusin', (event) => {
+  const select = event.target.closest('[data-roster-shift-select]');
+  if (select) selectRosterCell(select.closest('.cell'));
+});
 document.querySelector('[data-roster-inspector-close]')?.addEventListener('click', () => { if (inspector) inspector.hidden = true; selectedRosterCell?.classList.remove('is-selected'); });
 
 document.addEventListener('keydown', (event) => {

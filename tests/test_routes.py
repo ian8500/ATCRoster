@@ -5596,6 +5596,16 @@ def test_roster_keeps_day_header_below_sticky_site_header(client):
     assert "table.roster th.sticky{" in stylesheet
     assert ".roster th.dayhead.is-today" in stylesheet
     assert "background: #363d2e !important;" in stylesheet
-    assert ".roster th.col-name{\n  z-index:12;" in stylesheet
+    # The frozen controller names are body row headers.  They must sit above
+    # assignment cells but below the sticky day header, and use the dedicated
+    # opaque roster surface rather than inheriting a translucent heading.
+    assert "table.roster thead th.col-name{\n  z-index:12;" in stylesheet
+    assert ".roster tbody th.col-name,\n.roster tbody td.col-name{" in stylesheet
+    with open(
+        os.path.join(app.BASE_DIR, "static", "roster.css"), encoding="utf-8"
+    ) as roster_stylesheet_file:
+        roster_stylesheet = roster_stylesheet_file.read()
+    assert "--roster-sticky-name-surface" in roster_stylesheet
+    assert "background:var(--roster-sticky-name-surface) !important;" in roster_stylesheet
     assert "#roster{overflow:visible;}" in stylesheet
     assert "#roster{overflow-x:auto" not in stylesheet
