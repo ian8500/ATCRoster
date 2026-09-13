@@ -4,14 +4,14 @@ Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
 
 # Database and migrations
-SQLAlchemy==2.0.51
-alembic==1.19.1
+SQLAlchemy==2.0.52
+alembic==1.19.2
 Flask-Migrate==4.1.0
-psycopg==3.3.4
+psycopg==3.3.5
 
 # Security and MFA
 Werkzeug==3.1.8
-cryptography==50.0.0
+cryptography==50.0.1
 pyotp==2.10.0
 qrcode==8.2
 itsdangerous==2.2.0
